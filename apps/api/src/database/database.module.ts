@@ -9,6 +9,38 @@ import {
   PostgresDatabaseService,
 } from "./postgres-database.service";
 
+/**
+ * The Supabase root CA, from DATABASE_SSL_CA (the PEM text) or the file at
+ * DATABASE_SSL_CA_PATH. Without it, pg falls back to the system CAs, which
+ * do not include Supabase's root.
+ */
+export function resolveDatabaseCa(
+  logger: Pick<Logger, "log" | "error">,
+  environment: NodeJS.ProcessEnv = process.env,
+  readFile: (path: string) => string = (path) => readFileSync(path, "utf8"),
+): string | undefined {
+  const inline = environment.DATABASE_SSL_CA?.trim().replace(/\\n/g, "\n");
+  if (inline) {
+    logger.log("Supabase root certificate loaded from DATABASE_SSL_CA");
+    return inline;
+  }
+  const configuredCaPath =
+    environment.DATABASE_SSL_CA_PATH ?? "../../.local/supabase-root.crt";
+  const caPath = isAbsolute(configuredCaPath)
+    ? configuredCaPath
+    : resolve(process.cwd(), configuredCaPath);
+  try {
+    const ca = readFile(caPath);
+    logger.log(`Supabase root certificate loaded from ${caPath}`);
+    return ca;
+  } catch {
+    logger.error(
+      `Supabase root certificate unavailable at ${caPath}; PostgreSQL connections will rely on system CAs`,
+    );
+    return undefined;
+  }
+}
+
 function createPostgresPool(connectionString: string): Pool {
   const logger = new Logger("PostgresPool");
   let url: URL;
@@ -22,23 +54,9 @@ function createPostgresPool(connectionString: string): Pool {
     throw new Error("DATABASE_URL must use the postgres or postgresql scheme");
   }
 
-  const configuredCaPath =
-    process.env.DATABASE_SSL_CA_PATH ?? "../../.local/supabase-root.crt";
   const localConnection =
     url.hostname === "127.0.0.1" || url.hostname === "localhost";
-  const caPath = isAbsolute(configuredCaPath)
-    ? configuredCaPath
-    : resolve(process.cwd(), configuredCaPath);
-  let ca: string | undefined;
-  if (!localConnection) {
-    try {
-      ca = readFileSync(caPath, "utf8");
-    } catch {
-      logger.error(
-        "Supabase root certificate unavailable; PostgreSQL health probes will rely on system CAs",
-      );
-    }
-  }
+  const ca = localConnection ? undefined : resolveDatabaseCa(logger);
 
   // TLS settings are provided explicitly so pg verifies the server certificate.
   for (const sslParameter of ["sslmode", "sslrootcert", "sslcert", "sslkey"]) {
