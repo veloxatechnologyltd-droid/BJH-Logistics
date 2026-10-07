@@ -63,34 +63,40 @@ SELECT extensions.throws_ok(
   '23505', NULL, 'a waybill number is used once'
 );
 SELECT extensions.throws_ok(
-  $$UPDATE app.delivery SET cargo_description = 'changed'$$,
+  $$UPDATE app.delivery SET cargo_description = 'changed'
+    WHERE delivery_id = '00000000-0000-4000-8000-0000000000a0'$$,
   'an issued waybill is immutable',
   'the cargo on an issued waybill cannot change'
 );
 SELECT extensions.throws_ok(
-  $$UPDATE app.delivery SET driver_name = 'Someone else'$$,
+  $$UPDATE app.delivery SET driver_name = 'Someone else'
+    WHERE delivery_id = '00000000-0000-4000-8000-0000000000a0'$$,
   'an issued waybill is immutable',
   'the frozen driver name cannot change'
 );
 SELECT extensions.throws_ok(
-  $$UPDATE app.delivery SET status = 'delivered'$$,
+  $$UPDATE app.delivery SET status = 'delivered'
+    WHERE delivery_id = '00000000-0000-4000-8000-0000000000a0'$$,
   '23514', NULL, 'delivered needs the receiver and time'
 );
 SELECT extensions.throws_ok(
   $$UPDATE app.delivery SET status = 'delivered', receiver_name = 'R', delivered_at = now(),
       pod_recorded_by = '00000000-0000-4000-8000-0000000000aa', pod_recorded_at = now(),
-      pod_document_id = '00000000-0000-4000-8000-0000000000db'$$,
+      pod_document_id = '00000000-0000-4000-8000-0000000000db'
+    WHERE delivery_id = '00000000-0000-4000-8000-0000000000a0'$$,
   'the proof of delivery document must be a delivery note on the same job',
   'the proof document must be a delivery note'
 );
 SELECT extensions.lives_ok(
   $$UPDATE app.delivery SET status = 'delivered', receiver_name = 'A. Receiver', delivered_at = now(),
       damage_notes = 'None', pod_document_id = '00000000-0000-4000-8000-0000000000da',
-      pod_recorded_by = '00000000-0000-4000-8000-0000000000aa', pod_recorded_at = now()$$,
+      pod_recorded_by = '00000000-0000-4000-8000-0000000000aa', pod_recorded_at = now()
+    WHERE delivery_id = '00000000-0000-4000-8000-0000000000a0'$$,
   'the proof of delivery can be recorded'
 );
 SELECT extensions.throws_ok(
-  $$UPDATE app.delivery SET receiver_name = 'Someone else'$$,
+  $$UPDATE app.delivery SET receiver_name = 'Someone else'
+    WHERE delivery_id = '00000000-0000-4000-8000-0000000000a0'$$,
   'the proof of delivery is already recorded',
   'the proof of delivery is recorded once'
 );

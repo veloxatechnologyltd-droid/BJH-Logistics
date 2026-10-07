@@ -20,6 +20,7 @@ import type { QuoteRequest } from "../quotations/quoteRequestApi";
 import { listQuotes } from "../quotes/quoteApi";
 import type { QuoteSummary } from "../quotes/quoteApi";
 import styles from "./overview.module.css";
+import { ErrorPopup } from "../ErrorPopup";
 
 type Totals = Array<{
   currency: string;
@@ -196,9 +197,7 @@ export function OverviewDashboard() {
   if (status === "unavailable") {
     return (
       <main className={styles.dashboard}>
-        <p className={styles.error} role="alert">
-          Sign in to load your operations overview.
-        </p>
+        <ErrorPopup message="Sign in to load your operations overview." />
       </main>
     );
   }

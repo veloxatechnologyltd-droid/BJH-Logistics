@@ -1,6 +1,9 @@
 {
   "name": "@bjh/web",
   "private": true,
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
     "dev": "next dev --hostname 127.0.0.1 --port 3002",
     "build": "next build",

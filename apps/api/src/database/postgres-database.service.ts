@@ -12,6 +12,8 @@ import type {
   ReferenceKind,
   CustomerCompanyUpdate,
   CustomerContactUpdate,
+  LeadSource,
+  LeadStage,
 } from "@bjh/contracts";
 import {
   ActiveCustomerMembershipRecord,
@@ -41,6 +43,9 @@ import {
   InvoiceLineRecord,
   DocumentExtractionRecord,
   DueDelivery,
+  CustomerInsightRecord,
+  JobFinanceRecord,
+  LeadRecord,
   OutstandingInvoiceRecord,
   TransportDocumentRecord,
   ExtractionApplyResult,
@@ -164,6 +169,7 @@ const jobSelect = `
 const customerSelect = `
   SELECT
     company.company_id,
+    company.customer_number,
     company.company_name,
     company.trading_name,
     company.registration_number,
@@ -279,12 +285,13 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
-      await client.query(
+      const inserted = await client.query(
         `INSERT INTO app.customer_company
           (company_id, company_name, trading_name, registration_number,
            tax_number, phone, company_email, website, business_address,
            billing_address, country, created_at)
-         VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+         VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+         RETURNING customer_number`,
         [
           customer.id,
           customer.companyName,
@@ -300,6 +307,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
           customer.createdAt,
         ],
       );
+      customer.customerNumber = String(inserted.rows[0].customer_number);
       for (const contact of customer.contacts) {
         await client.query(
           `INSERT INTO app.customer_contact
@@ -489,7 +497,8 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     const result = await this.pool.query(
       `${customerSelect}
        WHERE ($1 = ''
-         OR strpos(lower(company.company_name), lower($1)) > 0
+       OR strpos(lower(company.company_name), lower($1)) > 0
+         OR strpos(lower(company.customer_number), lower($1)) > 0
          OR strpos(lower(COALESCE(company.trading_name, '')), lower($1)) > 0
          OR strpos(lower(COALESCE(company.registration_number, '')), lower($1)) > 0
          OR strpos(lower(COALESCE(company.tax_number, '')), lower($1)) > 0
@@ -3601,6 +3610,276 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     };
   }
 
+  async listJobFinance(scope: JobScope): Promise<JobFinanceRecord[]> {
+    if (scope.companyIds?.length === 0 || scope.serviceLines?.length === 0) {
+      return [];
+    }
+    const result = await this.pool.query(
+      `SELECT job.job_id, job.file_number, company.company_name, money.currency,
+              sum(money.invoiced_minor) AS invoiced_minor,
+              sum(money.received_minor) AS received_minor,
+              sum(money.cost_minor) AS cost_minor
+       FROM app.job job
+       JOIN app.customer_company company ON company.company_id = job.customer_company_id
+       JOIN (
+         SELECT i.job_id, i.currency, i.total_minor AS invoiced_minor,
+                COALESCE((
+                  SELECT sum(p.amount_minor) FROM app.invoice_payment p
+                  WHERE p.invoice_id = i.invoice_id
+                    AND NOT EXISTS (
+                      SELECT 1 FROM app.invoice_payment_reversal r
+                      WHERE r.payment_id = p.payment_id)
+                ), 0) AS received_minor,
+                0::bigint AS cost_minor
+         FROM app.invoice i
+         WHERE i.status = 'issued'
+         UNION ALL
+         SELECT c.job_id, actual.currency, 0::bigint, 0::bigint, actual.amount_minor
+         FROM app.job_charge c
+         JOIN LATERAL (
+           SELECT a.currency, a.amount_minor FROM app.job_charge_actual a
+           WHERE a.charge_id = c.charge_id
+           ORDER BY a.recorded_at DESC, a.actual_id DESC LIMIT 1
+         ) actual ON true
+         WHERE c.removed_at IS NULL
+       ) money ON money.job_id = job.job_id
+       WHERE ($1::uuid[] IS NULL OR job.customer_company_id = ANY($1::uuid[]))
+         AND ($2::text[] IS NULL OR job.service_line = ANY($2::text[]))
+       GROUP BY job.job_id, job.file_number, job.opened_at, company.company_name, money.currency
+       ORDER BY job.opened_at DESC, job.job_id, money.currency`,
+      [scope.companyIds ?? null, scope.serviceLines ?? null],
+    );
+    return result.rows.map((row) => ({
+      jobId: String(row.job_id),
+      fileNumber: String(row.file_number),
+      customerCompanyName: String(row.company_name),
+      currency: String(row.currency),
+      invoicedMinor: Number(row.invoiced_minor),
+      receivedMinor: Number(row.received_minor),
+      costMinor: Number(row.cost_minor),
+    }));
+  }
+
+  async listCustomerInsights(
+    companyId: string | null,
+  ): Promise<CustomerInsightRecord[]> {
+    const counts = await this.pool.query(
+      `SELECT company.company_id,
+              (SELECT count(*) FROM app.job j
+                WHERE j.customer_company_id = company.company_id) AS total_jobs,
+              (SELECT count(*) FROM app.job j
+                WHERE j.customer_company_id = company.company_id
+                  AND j.status NOT IN ('closed', 'cancelled')) AS active_jobs,
+              (SELECT max(j.opened_at) FROM app.job j
+                WHERE j.customer_company_id = company.company_id) AS last_job_at,
+              greatest(
+                (SELECT max(c.occurred_at) FROM app.job_correspondence c
+                  JOIN app.job j ON j.job_id = c.job_id
+                  WHERE j.customer_company_id = company.company_id),
+                (SELECT max(n.created_at) FROM app.notification n
+                  WHERE n.company_id = company.company_id)
+              ) AS last_contact_at,
+              (SELECT count(*) FROM app.quote q
+                WHERE q.customer_company_id = company.company_id
+                  AND EXISTS (SELECT 1 FROM app.quote_version v
+                    WHERE v.quote_id = q.quote_id AND v.status = 'issued')
+              ) AS quotes_sent,
+              (SELECT count(*) FROM app.quote q
+                WHERE q.customer_company_id = company.company_id
+                  AND EXISTS (SELECT 1 FROM app.quote_decision d
+                    WHERE d.quote_id = q.quote_id AND d.decision = 'accepted')
+              ) AS quotes_accepted,
+              (SELECT count(*) FROM app.quote q
+                WHERE q.customer_company_id = company.company_id
+                  AND EXISTS (
+                    SELECT 1 FROM app.quote_version v
+                    WHERE v.quote_id = q.quote_id AND v.status = 'issued'
+                      AND v.version_number = (
+                        SELECT max(l.version_number) FROM app.quote_version l
+                        WHERE l.quote_id = q.quote_id AND l.status = 'issued')
+                      AND NOT EXISTS (
+                        SELECT 1 FROM app.quote_decision d
+                        WHERE d.version_id = v.version_id))
+              ) AS quotes_awaiting
+       FROM app.customer_company company
+       WHERE ($1::uuid IS NULL OR company.company_id = $1::uuid)`,
+      [companyId],
+    );
+    const money = await this.pool.query(
+      `SELECT job.customer_company_id AS company_id, i.currency,
+              sum(i.total_minor) AS invoiced_minor,
+              sum(COALESCE(paid.received_minor, 0)) AS received_minor,
+              avg(paid.last_received_on - i.issued_at::date)
+                FILTER (WHERE paid.received_minor >= i.total_minor) AS days_to_pay
+       FROM app.invoice i
+       JOIN app.job job ON job.job_id = i.job_id
+       LEFT JOIN LATERAL (
+         SELECT sum(p.amount_minor) AS received_minor,
+                max(p.received_on) AS last_received_on
+         FROM app.invoice_payment p
+         WHERE p.invoice_id = i.invoice_id
+           AND NOT EXISTS (
+             SELECT 1 FROM app.invoice_payment_reversal r
+             WHERE r.payment_id = p.payment_id)
+       ) paid ON true
+       WHERE i.status = 'issued'
+         AND ($1::uuid IS NULL OR job.customer_company_id = $1::uuid)
+       GROUP BY job.customer_company_id, i.currency
+       ORDER BY i.currency`,
+      [companyId],
+    );
+    return counts.rows.map((row) => ({
+      companyId: String(row.company_id),
+      totalJobs: Number(row.total_jobs),
+      activeJobs: Number(row.active_jobs),
+      lastJobAt: row.last_job_at ? this.toIsoString(row.last_job_at) : null,
+      lastContactAt: row.last_contact_at
+        ? this.toIsoString(row.last_contact_at)
+        : null,
+      quotesSent: Number(row.quotes_sent),
+      quotesAccepted: Number(row.quotes_accepted),
+      quotesAwaiting: Number(row.quotes_awaiting),
+      money: money.rows
+        .filter((entry) => String(entry.company_id) === String(row.company_id))
+        .map((entry) => ({
+          currency: String(entry.currency),
+          invoicedMinor: Number(entry.invoiced_minor),
+          receivedMinor: Number(entry.received_minor),
+          averageDaysToPay:
+            entry.days_to_pay === null
+              ? null
+              : Math.round(Number(entry.days_to_pay)),
+        })),
+    }));
+  }
+
+  private readonly leadSelect = `
+    SELECT lead.lead_id, lead.company_name, lead.contact_name, lead.email,
+           lead.phone, lead.source, lead.stage, lead.owner_id,
+           owner.email AS owner_email,
+           to_char(lead.next_follow_up, 'YYYY-MM-DD') AS next_follow_up_text,
+           lead.notes, lead.lost_reason, lead.quote_request_id,
+           lead.customer_company_id, company.company_name AS customer_company_name,
+           lead.created_at, lead.updated_at, lead.stage_changed_at
+    FROM app.lead lead
+    LEFT JOIN auth.users owner ON owner.id = lead.owner_id
+    LEFT JOIN app.customer_company company
+      ON company.company_id = lead.customer_company_id`;
+
+  private mapLead(row: Record<string, unknown>): LeadRecord {
+    const optional = (value: unknown) =>
+      value === null || value === undefined ? null : String(value);
+    return {
+      id: String(row.lead_id),
+      companyName: String(row.company_name),
+      contactName: optional(row.contact_name),
+      email: optional(row.email),
+      phone: optional(row.phone),
+      source: String(row.source) as LeadSource,
+      stage: String(row.stage) as LeadStage,
+      ownerId: optional(row.owner_id),
+      ownerEmail: optional(row.owner_email),
+      nextFollowUp: optional(row.next_follow_up_text),
+      notes: optional(row.notes),
+      lostReason: optional(row.lost_reason),
+      quoteRequestId: optional(row.quote_request_id),
+      customerCompanyId: optional(row.customer_company_id),
+      customerCompanyName: optional(row.customer_company_name),
+      createdAt: this.toIsoString(row.created_at),
+      updatedAt: this.toIsoString(row.updated_at),
+      stageChangedAt: this.toIsoString(row.stage_changed_at),
+    };
+  }
+
+  async listLeads(): Promise<LeadRecord[]> {
+    const result = await this.pool.query(
+      `${this.leadSelect} ORDER BY lead.created_at DESC, lead.lead_id`,
+    );
+    return result.rows.map((row) => this.mapLead(row));
+  }
+
+  async findLead(id: string): Promise<LeadRecord | null> {
+    const result = await this.pool.query(
+      `${this.leadSelect} WHERE lead.lead_id = $1::uuid`,
+      [id],
+    );
+    return result.rows[0] ? this.mapLead(result.rows[0]) : null;
+  }
+
+  async createLead(
+    input: Parameters<DatabasePort["createLead"]>[0],
+  ): Promise<LeadRecord | "duplicate_request" | "unknown_reference"> {
+    try {
+      await this.pool.query(
+        `INSERT INTO app.lead
+           (lead_id, company_name, contact_name, email, phone, source, stage,
+            owner_id, next_follow_up, notes, lost_reason, quote_request_id,
+            customer_company_id, created_by)
+         VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8::uuid, $9::date, $10, $11,
+                 $12::uuid, $13::uuid, $14::uuid)`,
+        [
+          input.id,
+          input.companyName,
+          input.contactName,
+          input.email,
+          input.phone,
+          input.source,
+          input.stage,
+          input.ownerId,
+          input.nextFollowUp,
+          input.notes,
+          input.lostReason,
+          input.quoteRequestId,
+          input.customerCompanyId,
+          input.createdBy,
+        ],
+      );
+    } catch (error) {
+      const code = (error as { code?: string }).code;
+      if (code === "23505") return "duplicate_request";
+      if (code === "23503") return "unknown_reference";
+      throw error;
+    }
+    return (await this.findLead(input.id))!;
+  }
+
+  async saveLead(
+    lead: LeadRecord,
+  ): Promise<LeadRecord | "unknown_reference" | null> {
+    try {
+      const result = await this.pool.query(
+        `UPDATE app.lead SET
+           company_name = $2, contact_name = $3, email = $4, phone = $5,
+           stage = $6, owner_id = $7::uuid, next_follow_up = $8::date,
+           notes = $9, lost_reason = $10, customer_company_id = $11::uuid,
+           updated_at = clock_timestamp(),
+           stage_changed_at = CASE WHEN stage <> $6
+             THEN clock_timestamp() ELSE stage_changed_at END
+         WHERE lead_id = $1::uuid`,
+        [
+          lead.id,
+          lead.companyName,
+          lead.contactName,
+          lead.email,
+          lead.phone,
+          lead.stage,
+          lead.ownerId,
+          lead.nextFollowUp,
+          lead.notes,
+          lead.lostReason,
+          lead.customerCompanyId,
+        ],
+      );
+      if (result.rowCount === 0) return null;
+    } catch (error) {
+      if ((error as { code?: string }).code === "23503") {
+        return "unknown_reference";
+      }
+      throw error;
+    }
+    return this.findLead(lead.id);
+  }
+
   async listOutstandingInvoices(filter: {
     companyId: string | null;
     scope: JobScope;
@@ -4114,6 +4393,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       if (!customer) {
         customer = {
           id,
+          customerNumber: String(row.customer_number),
           companyName: String(row.company_name),
           tradingName: row.trading_name ? String(row.trading_name) : null,
           registrationNumber: row.registration_number

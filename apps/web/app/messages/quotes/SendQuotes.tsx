@@ -7,6 +7,7 @@ import type { QuoteSummary } from "../../quotes/quoteApi";
 import { serviceLineLabels } from "../../jobs/jobApi";
 import styles from "../../jobs/jobs.module.css";
 import { sendQuoteToClient } from "../messageApi";
+import { ErrorPopup } from "../../ErrorPopup";
 
 /** Issued quotes, each with a button that sends the client the link again. */
 export function SendQuotes() {
@@ -59,11 +60,7 @@ export function SendQuotes() {
         type="search"
         value={search}
       />
-      {error && (
-        <p className={styles.error} role="alert">
-          {error}
-        </p>
-      )}
+      <ErrorPopup message={error} />
       {!quotes && !error && <p role="status">Loading quotes…</p>}
       {quotes && shown.length === 0 && (
         <p className={styles.muted}>No issued quotes to send.</p>

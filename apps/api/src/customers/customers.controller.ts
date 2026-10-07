@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Inject,
+  NotFoundException,
   Param,
   Patch,
   Post,
@@ -11,6 +12,7 @@ import {
   UseGuards,
 } from "@nestjs/common";
 import {
+  DepartmentStaffGuard,
   SupabaseIdentityGuard,
   StaffCompanyReadGuard,
   SuperAdminGuard,
@@ -60,6 +62,21 @@ export class CustomersController {
     @Req() request: AuthenticatedRequest,
   ) {
     return this.customers.list(search, request.allowedCompanyIds);
+  }
+
+  /** Account figures, including money: staff only, never customers. */
+  @Get("insights")
+  @UseGuards(DepartmentStaffGuard)
+  insights() {
+    return this.customers.insights();
+  }
+
+  @Get(":id/insights")
+  @UseGuards(DepartmentStaffGuard)
+  async insightsFor(@Param("id") id: string) {
+    const [record] = await this.customers.insights(id);
+    if (!record) throw new NotFoundException("Customer was not found");
+    return record;
   }
 
   @Get(":id")

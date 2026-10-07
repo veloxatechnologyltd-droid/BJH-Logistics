@@ -1,0 +1,52 @@
+# Render Blueprint for the NestJS API. The web app deploys separately on Vercel
+# (see apps/web/vercel.json). Secrets use sync: false and are entered in the
+# Render dashboard; never commit them. Migrations are not run here: apply
+# reviewed supabase/migrations/ through the controlled release path.
+services:
+  - type: web
+    name: bjh-logistics-api
+    runtime: node
+    plan: free
+    autoDeploy: false
+    buildCommand: corepack enable && corepack pnpm install --frozen-lockfile && corepack pnpm contracts:build && corepack pnpm --filter @bjh/api build
+    startCommand: corepack pnpm --filter @bjh/api start:prod
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: 22.22.3
+      - key: NODE_ENV
+        value: production
+      - key: API_HOST
+        value: 0.0.0.0
+      # Vercel URL(s) of the web app, comma-separated, e.g. https://bjh.vercel.app
+      - key: CORS_ORIGINS
+        sync: false
+      # Address used in links inside emails and SMS, e.g. https://bjh.vercel.app
+      - key: PUBLIC_WEB_URL
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      # Upload the Supabase root CA as a Render secret file named supabase-root.crt.
+      - key: DATABASE_SSL_CA_PATH
+        value: /etc/secrets/supabase-root.crt
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_PUBLISHABLE_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      # Optional: real email/SMS. Without them messages are only recorded.
+      - key: EMAIL_SMTP_HOST
+        sync: false
+      - key: EMAIL_SMTP_PORT
+        sync: false
+      - key: EMAIL_SMTP_USER
+        sync: false
+      - key: EMAIL_SMTP_PASSWORD
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
+      - key: ARKESEL_API_KEY
+        sync: false
+      - key: SMS_SENDER_ID
+        sync: false

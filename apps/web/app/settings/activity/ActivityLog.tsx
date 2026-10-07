@@ -7,6 +7,7 @@ import { AuthStatus } from "../../auth/AuthStatus";
 import { authenticatedFetch } from "../../auth/authenticatedFetch";
 import adminStyles from "../../admin/users/adminUsers.module.css";
 import styles from "./activityLog.module.css";
+import { ErrorPopup } from "../../ErrorPopup";
 
 const apiBaseUrl =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:3001/api";
@@ -131,11 +132,7 @@ export function ActivityLog() {
           <button type="submit">Apply filters</button>
         </form>
 
-        {error && (
-          <p className={adminStyles.error} role="alert">
-            {error}
-          </p>
-        )}
+        <ErrorPopup message={error} />
         <div className={styles.tableWrap}>
           <table className={styles.table}>
             <thead>

@@ -6,6 +6,7 @@ import { listQuoteRequests } from "./quoteRequestApi";
 import type { QuoteRequest } from "./quoteRequestApi";
 import { useStaffAccess } from "../auth/useStaffAccess";
 import styles from "./quotation.module.css";
+import { ErrorPopup, plainMessage } from "../ErrorPopup";
 
 type LoadState = "loading" | "ready" | "error";
 
@@ -83,13 +84,14 @@ export function RequestInbox() {
       )}
 
       {loadState === "error" && (
-        <div className={styles.errorPanel} role="alert">
+        <div className={styles.errorPanel}>
+          <ErrorPopup message={loadError} />
           <span className={styles.errorIcon} aria-hidden="true">
             !
           </span>
           <div>
             <h3>Requests could not be loaded</h3>
-            <p>{loadError}</p>
+            <p>{plainMessage(loadError)}</p>
             <button
               className={styles.secondaryButton}
               onClick={() => void load()}

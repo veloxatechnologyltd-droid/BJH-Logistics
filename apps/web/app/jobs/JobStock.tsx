@@ -5,6 +5,7 @@ import type { FormEvent } from "react";
 import { addStockMovement, getJobStock, listLocations } from "./jobApi";
 import type { StockBalance, StockMovement, WarehouseLocation } from "./jobApi";
 import styles from "./jobs.module.css";
+import { ErrorPopup } from "../ErrorPopup";
 
 function formatDate(value: string): string {
   return new Intl.DateTimeFormat(undefined, {
@@ -101,11 +102,7 @@ export function JobStock({
           </button>
         )}
       </div>
-      {error && (
-        <p className={styles.error} role="alert">
-          {error}
-        </p>
-      )}
+      <ErrorPopup message={error} />
       {balances.length === 0 ? (
         <p className={styles.muted}>Nothing in stock.</p>
       ) : (

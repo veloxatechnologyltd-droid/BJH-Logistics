@@ -101,6 +101,40 @@
   padding: 22px 22px 8px;
 }
 
+.overview {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.metric {
+  display: grid;
+  gap: 6px;
+  border: 1px solid #dfe7ee;
+  border-radius: 10px;
+  background: #fff;
+  padding: 15px 17px;
+}
+
+.metric > span {
+  color: #657889;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.metric strong {
+  color: #152e47;
+  font-size: 1.65rem;
+  line-height: 1;
+}
+
+.metric small {
+  color: var(--brand-muted);
+  font-size: 0.69rem;
+  line-height: 1.4;
+}
+
 .customerForm {
   border: 1px solid #dfe7ee;
   border-radius: 12px;
@@ -318,7 +352,7 @@
 
 .customerTable {
   width: 100%;
-  min-width: 660px;
+  min-width: 790px;
   border-collapse: collapse;
   text-align: left;
 }
@@ -369,7 +403,11 @@
   color: #536b7e;
 }
 
-.email {
+.customerId {
+  color: #243d55;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.74rem;
+  font-weight: 700;
   white-space: nowrap;
 }
 
@@ -419,6 +457,15 @@
 }
 
 @media (max-width: 620px) {
+  .overview {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .metric {
+    padding: 12px;
+  }
+
   .page {
     padding: 24px 14px 38px;
   }
@@ -463,4 +510,81 @@
     padding-right: 12px;
     padding-left: 12px;
   }
+}
+
+.metricOf {
+  color: var(--brand-muted);
+  font-size: 0.9rem;
+  font-style: normal;
+  font-weight: 600;
+}
+
+.rankingHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.filterRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.sortLabel {
+  display: grid;
+  gap: 4px;
+  color: #657889;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.sortLabel select {
+  min-height: 42px;
+  border: 1px solid #bdccd9;
+  border-radius: 8px;
+  background: #fff;
+  color: var(--brand-ink);
+  padding: 0 10px;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 400;
+}
+
+.customerTable .numeric {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.inactiveBadge {
+  background: #eef1f4;
+  color: #5c6b79;
+}
+
+.nowrap {
+  white-space: nowrap;
+}
+
+.customerTable select,
+.customerTable input[type="date"] {
+  min-height: 38px;
+  border: 1px solid #bdccd9;
+  border-radius: 8px;
+  background: #fff;
+  color: var(--brand-ink);
+  padding: 0 8px;
+  font: inherit;
+  font-size: 0.8rem;
+}
+
+.rankingPair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
+  align-items: start;
 }

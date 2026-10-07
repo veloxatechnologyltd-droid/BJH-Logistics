@@ -5,12 +5,14 @@ import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { useStaffAccess } from "../../auth/useStaffAccess";
 import styles from "../../jobs/jobs.module.css";
+import layout from "./businessSettings.module.css";
 import {
   getSettings,
   listSettingsRevisions,
   saveSettings,
 } from "./settingsApi";
 import type { SettingsRevision } from "./settingsApi";
+import { ErrorPopup } from "../../ErrorPopup";
 
 /** Offered as tick boxes in Settings; the API accepts only ticked ones. */
 export const popularCurrencies = [
@@ -234,11 +236,7 @@ export function BusinessSettingsForm() {
         </Link>
       </header>
 
-      {error && (
-        <p className={styles.error} role="alert">
-          {error}
-        </p>
-      )}
+      <ErrorPopup message={error} />
       {notice && <p className={styles.notice}>{notice}</p>}
       {!loaded && !error && <p role="status">Loading settings…</p>}
 
@@ -249,120 +247,134 @@ export function BusinessSettingsForm() {
             disabled={!isSuperAdmin}
             style={{ border: 0, padding: 0, margin: 0 }}
           >
-            <h2>Issuer</h2>
-            {text("Company name", name, setName, true)}
-            {area("Address", address, setAddress, 2)}
-            {text("Phone", phone, setPhone)}
-            {text("Email", email, setEmail)}
-            {text("Website", website, setWebsite)}
+            <div className={layout.columns}>
+              <div className={layout.column}>
+                <h2>Issuer</h2>
+                {text("Company name", name, setName, true)}
+                {area("Address", address, setAddress, 2)}
+                {text("Phone", phone, setPhone)}
+                {text("Email", email, setEmail)}
+                {text("Website", website, setWebsite)}
 
-            <h2>Currencies</h2>
-            <fieldset
-              className={styles.field}
-              style={{ border: 0, padding: 0 }}
-            >
-              Currencies quotes and invoices can use
-              <div className={styles.actions}>
-                {currencyOptions.map((code) => (
-                  <label key={code}>
-                    <input
-                      checked={selectedCurrencies.includes(code)}
-                      onChange={(event) =>
-                        toggleCurrency(code, event.target.checked)
-                      }
-                      type="checkbox"
-                    />{" "}
-                    {code}
-                  </label>
-                ))}
-              </div>
-            </fieldset>
-            {text("Payment terms in days (optional)", terms, setTerms)}
-
-            <h2>Tax lines</h2>
-            {taxes.map((row, index) => (
-              <div className={styles.card} key={index}>
-                {text(
-                  `Tax ${index + 1} name (for example VAT)`,
-                  row.name,
-                  (value) =>
-                    setTaxes((current) =>
-                      current.map((item, at) =>
-                        at === index ? { ...item, name: value } : item,
-                      ),
-                    ),
-                )}
-                {text("Rate in percent", row.rate, (value) =>
-                  setTaxes((current) =>
-                    current.map((item, at) =>
-                      at === index ? { ...item, rate: value } : item,
-                    ),
-                  ),
-                )}
-                <button
-                  className={styles.secondaryButton}
-                  onClick={() =>
-                    setTaxes((current) =>
-                      current.filter((_, at) => at !== index),
-                    )
-                  }
-                  type="button"
+                <h2>Currencies</h2>
+                <fieldset
+                  className={styles.field}
+                  style={{ border: 0, padding: 0 }}
                 >
-                  Remove tax line
-                </button>
+                  Currencies quotes and invoices can use
+                  <div className={styles.actions}>
+                    {currencyOptions.map((code) => (
+                      <label key={code}>
+                        <input
+                          checked={selectedCurrencies.includes(code)}
+                          onChange={(event) =>
+                            toggleCurrency(code, event.target.checked)
+                          }
+                          type="checkbox"
+                        />{" "}
+                        {code}
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+                {text("Payment terms in days (optional)", terms, setTerms)}
+
+                <h2>Tax lines</h2>
+                {taxes.map((row, index) => (
+                  <div className={styles.card} key={index}>
+                    {text(
+                      `Tax ${index + 1} name (for example VAT)`,
+                      row.name,
+                      (value) =>
+                        setTaxes((current) =>
+                          current.map((item, at) =>
+                            at === index ? { ...item, name: value } : item,
+                          ),
+                        ),
+                    )}
+                    {text("Rate in percent", row.rate, (value) =>
+                      setTaxes((current) =>
+                        current.map((item, at) =>
+                          at === index ? { ...item, rate: value } : item,
+                        ),
+                      ),
+                    )}
+                    <button
+                      className={styles.secondaryButton}
+                      onClick={() =>
+                        setTaxes((current) =>
+                          current.filter((_, at) => at !== index),
+                        )
+                      }
+                      type="button"
+                    >
+                      Remove tax line
+                    </button>
+                  </div>
+                ))}
+                <div className={styles.actions}>
+                  <button
+                    className={styles.secondaryButton}
+                    onClick={() =>
+                      setTaxes((current) => [
+                        ...current,
+                        { name: "", rate: "" },
+                      ])
+                    }
+                    type="button"
+                  >
+                    Add a tax line
+                  </button>
+                </div>
+
+                <h2>Numbering prefixes</h2>
+                {text("Quote prefix", quotePrefix, setQuotePrefix, true)}
+                {text("Invoice prefix", invoicePrefix, setInvoicePrefix, true)}
+                {text("Receipt prefix", receiptPrefix, setReceiptPrefix, true)}
+                {text("Waybill prefix", waybillPrefix, setWaybillPrefix, true)}
               </div>
-            ))}
-            <div className={styles.actions}>
-              <button
-                className={styles.secondaryButton}
-                onClick={() =>
-                  setTaxes((current) => [...current, { name: "", rate: "" }])
-                }
-                type="button"
-              >
-                Add a tax line
-              </button>
+              <div className={layout.column}>
+                <h2>Customer messages</h2>
+                <label className={styles.field}>
+                  Send customer messages by
+                  <select
+                    onChange={(event) =>
+                      setChannels(
+                        event.target.value as "email" | "sms" | "both",
+                      )
+                    }
+                    value={channels}
+                  >
+                    <option value="both">Email and SMS</option>
+                    <option value="email">Email only</option>
+                    <option value="sms">SMS only</option>
+                  </select>
+                </label>
+
+                <h2>Quote defaults</h2>
+                {area("Introduction", intro, setIntro)}
+                {area("Note on at-cost charges", atCostNote, setAtCostNote, 2)}
+                {area(
+                  "Clearance procedure (one step per line)",
+                  steps,
+                  setSteps,
+                  5,
+                )}
+                {area(
+                  "Documents required (one per line)",
+                  documents,
+                  setDocuments,
+                )}
+                {area("Note on documents", documentsNote, setDocumentsNote, 2)}
+                {area("Timeline", timeline, setTimeline, 2)}
+                {area(
+                  "Important terms (one per line)",
+                  quoteTerms,
+                  setQuoteTerms,
+                  5,
+                )}
+              </div>
             </div>
-
-            <h2>Numbering prefixes</h2>
-            {text("Quote prefix", quotePrefix, setQuotePrefix, true)}
-            {text("Invoice prefix", invoicePrefix, setInvoicePrefix, true)}
-            {text("Receipt prefix", receiptPrefix, setReceiptPrefix, true)}
-            {text("Waybill prefix", waybillPrefix, setWaybillPrefix, true)}
-
-            <h2>Customer messages</h2>
-            <label className={styles.field}>
-              Send customer messages by
-              <select
-                onChange={(event) =>
-                  setChannels(event.target.value as "email" | "sms" | "both")
-                }
-                value={channels}
-              >
-                <option value="both">Email and SMS</option>
-                <option value="email">Email only</option>
-                <option value="sms">SMS only</option>
-              </select>
-            </label>
-
-            <h2>Quote defaults</h2>
-            {area("Introduction", intro, setIntro)}
-            {area("Note on at-cost charges", atCostNote, setAtCostNote, 2)}
-            {area(
-              "Clearance procedure (one step per line)",
-              steps,
-              setSteps,
-              5,
-            )}
-            {area("Documents required (one per line)", documents, setDocuments)}
-            {area("Note on documents", documentsNote, setDocumentsNote, 2)}
-            {area("Timeline", timeline, setTimeline, 2)}
-            {area(
-              "Important terms (one per line)",
-              quoteTerms,
-              setQuoteTerms,
-              5,
-            )}
 
             {isSuperAdmin && (
               <div className={styles.actions}>

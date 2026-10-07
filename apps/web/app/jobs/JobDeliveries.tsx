@@ -13,6 +13,7 @@ import {
 import type { Delivery, Driver, Vehicle } from "../transport/transportApi";
 import type { JobDocument } from "./jobApi";
 import styles from "./jobs.module.css";
+import { ErrorPopup } from "../ErrorPopup";
 
 function formatDate(value: string): string {
   return new Intl.DateTimeFormat(undefined, {
@@ -165,11 +166,7 @@ export function JobDeliveries({
           </button>
         )}
       </div>
-      {error && (
-        <p className={styles.error} role="alert">
-          {error}
-        </p>
-      )}
+      <ErrorPopup message={error} />
       {deliveries && deliveries.length === 0 && (
         <p className={styles.muted}>No deliveries dispatched.</p>
       )}

@@ -11,6 +11,8 @@ import type {
   ReferenceKind,
   CustomerContactUpdate,
   CustomerCompanyUpdate,
+  LeadSource,
+  LeadStage,
 } from "@bjh/contracts";
 
 export interface DatabaseHealth {
@@ -546,6 +548,58 @@ export interface TransportDocumentRecord {
   voidReason: string | null;
 }
 
+/** One job's money in one currency: issued invoices, standing payments, current actual costs. */
+export interface CustomerInsightRecord {
+  companyId: string;
+  totalJobs: number;
+  activeJobs: number;
+  lastJobAt: string | null;
+  lastContactAt: string | null;
+  quotesSent: number;
+  quotesAccepted: number;
+  quotesAwaiting: number;
+  /** One row per currency; amounts are never summed across currencies. */
+  money: Array<{
+    currency: string;
+    invoicedMinor: number;
+    receivedMinor: number;
+    /** Average days from issue to the last payment, over fully paid invoices. */
+    averageDaysToPay: number | null;
+  }>;
+}
+
+export interface LeadRecord {
+  id: string;
+  companyName: string;
+  contactName: string | null;
+  email: string | null;
+  phone: string | null;
+  source: LeadSource;
+  stage: LeadStage;
+  ownerId: string | null;
+  ownerEmail: string | null;
+  /** YYYY-MM-DD */
+  nextFollowUp: string | null;
+  notes: string | null;
+  lostReason: string | null;
+  quoteRequestId: string | null;
+  customerCompanyId: string | null;
+  customerCompanyName: string | null;
+  createdAt: string;
+  updatedAt: string;
+  stageChangedAt: string;
+}
+
+export interface JobFinanceRecord {
+  jobId: string;
+  fileNumber: string;
+  customerCompanyName: string;
+  currency: string;
+  invoicedMinor: number;
+  receivedMinor: number;
+  costMinor: number;
+}
+
 export interface OutstandingInvoiceRecord {
   invoiceId: string;
   invoiceNumber: string;
@@ -606,6 +660,7 @@ export interface CustomerContactRecord {
 
 export interface CustomerCompanyRecord {
   id: string;
+  customerNumber?: string;
   companyName: string;
   tradingName?: string | null;
   registrationNumber?: string | null;
@@ -1193,6 +1248,26 @@ export abstract class DatabasePort {
     companyId: string | null;
     scope: JobScope;
   }): Promise<OutstandingInvoiceRecord[]>;
+  abstract listJobFinance(scope: JobScope): Promise<JobFinanceRecord[]>;
+  abstract listCustomerInsights(
+    companyId: string | null,
+  ): Promise<CustomerInsightRecord[]>;
+  abstract listLeads(): Promise<LeadRecord[]>;
+  abstract findLead(id: string): Promise<LeadRecord | null>;
+  /** Fails with "duplicate_request" or "unknown_reference" instead of throwing. */
+  abstract createLead(
+    input: Omit<
+      LeadRecord,
+      | "ownerEmail"
+      | "customerCompanyName"
+      | "updatedAt"
+      | "stageChangedAt"
+      | "createdAt"
+    > & { createdBy: string },
+  ): Promise<LeadRecord | "duplicate_request" | "unknown_reference">;
+  abstract saveLead(
+    lead: LeadRecord,
+  ): Promise<LeadRecord | "unknown_reference" | null>;
   abstract recordActivity(entry: ActivityEntry): Promise<void>;
   abstract listActivity(filter: ActivityFilter): Promise<ActivityRecord[]>;
   abstract getActiveCustomerCompanyIds(userId: string): Promise<string[]>;

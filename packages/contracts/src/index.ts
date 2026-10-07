@@ -212,6 +212,9 @@ export const jobStatusKeys = [
 ] as const;
 export type JobStatus = (typeof jobStatusKeys)[number];
 
+/** A customer is active with an unfinished job or one opened within this many days. */
+export const customerActiveDays = 90;
+
 /** Allowed moves. Leaving closed/cancelled is a reopen. */
 export const jobStatusTransitions: Record<JobStatus, readonly JobStatus[]> = {
   open: ["in_progress", "on_hold", "closed", "cancelled"],
@@ -1569,3 +1572,87 @@ export function cleanTransportDocumentFields(
   }
   return { success: true, data: cleaned };
 }
+
+/** Leads: prospects being won. Stages are deliberately few and in sales order. */
+export const leadStageKeys = [
+  "new",
+  "contacted",
+  "quoted",
+  "won",
+  "lost",
+] as const;
+export type LeadStage = (typeof leadStageKeys)[number];
+
+export const leadSourceKeys = [
+  "quote_request",
+  "referral",
+  "walk_in",
+  "phone",
+  "email",
+  "other",
+] as const;
+export type LeadSource = (typeof leadSourceKeys)[number];
+
+const leadDateField = (field: string) =>
+  z
+    .string({ error: `${field} must be a date such as 2026-10-31` })
+    .refine(
+      (value) =>
+        /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(value)),
+      { error: `${field} must be a date such as 2026-10-31` },
+    )
+    .nullish()
+    .transform((value) => value ?? null);
+
+const leadEmailField = z
+  .string({ error: "email must be text" })
+  .transform((value) => value.trim())
+  .refine((value) => value === "" || EMAIL_PATTERN.test(value), {
+    error: "email must be a valid email address",
+  })
+  .nullish()
+  .transform((value) => value || null);
+
+export const leadCreateInputSchema = z.object(
+  {
+    companyName: requiredText("companyName", 160),
+    contactName: optionalText("contactName", 160),
+    email: leadEmailField,
+    phone: phoneField,
+    source: z
+      .enum(leadSourceKeys, { error: "source is not a supported lead source" })
+      .default("other"),
+    notes: optionalText("notes", 2000),
+    nextFollowUp: leadDateField("nextFollowUp"),
+    quoteRequestId: uuidField("quoteRequestId")
+      .nullish()
+      .transform((value) => value ?? null),
+  },
+  objectError("A lead object is required"),
+);
+export type LeadCreateInput = z.infer<typeof leadCreateInputSchema>;
+
+/** Any subset of fields. `owner: "me"` takes the lead; `owner: null` releases it. */
+export const leadUpdateInputSchema = z
+  .object(
+    {
+      companyName: requiredText("companyName", 160),
+      contactName: optionalText("contactName", 160),
+      email: leadEmailField,
+      phone: phoneField,
+      notes: optionalText("notes", 2000),
+      nextFollowUp: leadDateField("nextFollowUp"),
+      stage: z.enum(leadStageKeys, { error: "stage is not a supported stage" }),
+      lostReason: optionalText("lostReason", 500),
+      customerCompanyId: uuidField("customerCompanyId"),
+      owner: z
+        .literal("me", { error: 'owner must be "me" or null' })
+        .nullable(),
+    },
+    objectError("A lead update object is required"),
+  )
+  .partial()
+  .refine((value) => Object.keys(value).length > 0, {
+    error: "At least one lead field must be provided",
+  });
+export type LeadUpdateInput = z.infer<typeof leadUpdateInputSchema>;

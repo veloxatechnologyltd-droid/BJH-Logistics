@@ -42,6 +42,7 @@ test("customers can be created, searched, and retrieved with contacts", async ()
   assert.equal(response.status, 201, await response.clone().text());
   const created = (await response.json()) as {
     id: string;
+    customerNumber: string;
     companyName: string;
     createdAt: string;
     contacts: Array<{
@@ -52,12 +53,18 @@ test("customers can be created, searched, and retrieved with contacts", async ()
     }>;
   };
   assert.equal(created.companyName, "Northstar Demo Ltd");
+  assert.match(created.customerNumber, /^CUS-\d{4,}$/);
   assert.equal(created.contacts.length, 1);
   assert.equal(created.contacts[0]?.name, "Alex Demo");
   assert.equal(created.contacts[0]?.email, "alex@northstar-demo.test");
   assert.ok(Number.isFinite(Date.parse(created.createdAt)));
 
-  for (const search of ["northstar", "alex demo", "northstar-demo.test"]) {
+  for (const search of [
+    "northstar",
+    "alex demo",
+    "northstar-demo.test",
+    created.customerNumber,
+  ]) {
     const listResponse = await staffFetch(
       `${baseUrl}/api/v1/customers?search=${encodeURIComponent(search)}`,
     );
@@ -84,9 +91,16 @@ test("same-name customer submissions remain separate records", async () => {
     email: "second@example.test",
   });
 
-  const firstCustomer = (await first.json()) as { id: string };
-  const secondCustomer = (await second.json()) as { id: string };
+  const firstCustomer = (await first.json()) as {
+    id: string;
+    customerNumber: string;
+  };
+  const secondCustomer = (await second.json()) as {
+    id: string;
+    customerNumber: string;
+  };
   assert.notEqual(firstCustomer.id, secondCustomer.id);
+  assert.notEqual(firstCustomer.customerNumber, secondCustomer.customerNumber);
 
   const searchResponse = await staffFetch(
     `${baseUrl}/api/v1/customers?search=Repeated%20Demo`,

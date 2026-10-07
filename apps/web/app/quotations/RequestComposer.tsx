@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createQuoteRequest } from "./quoteRequestApi";
 import { useStaffAccess } from "../auth/useStaffAccess";
 import styles from "./quotation.module.css";
+import { ErrorPopup } from "../ErrorPopup";
 
 type RequestDraft = {
   companyName: string;
@@ -121,11 +122,7 @@ export function RequestComposer() {
             <dd>{preview.message}</dd>
           </div>
         </dl>
-        {submitError && (
-          <p className={styles.formError} role="alert">
-            {submitError}
-          </p>
-        )}
+        <ErrorPopup message={submitError} />
         <div className={styles.formActions}>
           <button
             className={styles.secondaryButton}

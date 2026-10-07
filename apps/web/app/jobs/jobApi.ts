@@ -806,6 +806,31 @@ export type OutstandingInvoice = {
   daysOverdue: number;
 };
 
+export type FinanceSummary = {
+  jobs: Array<{
+    jobId: string;
+    fileNumber: string;
+    customerCompanyName: string;
+    currency: string;
+    invoicedMinor: number;
+    receivedMinor: number;
+    owingMinor: number;
+    costMinor: number;
+    /** Null unless the job has both an invoice and a cost in this currency. */
+    marginMinor: number | null;
+  }>;
+  totals: Array<{
+    currency: string;
+    invoicedMinor: number;
+    receivedMinor: number;
+    owingMinor: number;
+    costMinor: number;
+  }>;
+};
+
+export const getFinanceSummary = () =>
+  sendApi<FinanceSummary>("/finance/summary", "GET");
+
 export const getOutstandingInvoices = (companyId: string) =>
   sendApi<{
     invoices: OutstandingInvoice[];

@@ -391,6 +391,44 @@ export class InvoicesService {
    * what is overdue and the totals per currency. Staff see their service
    * lines; a customer sees only their own company's.
    */
+  /** Money per job and per currency: invoiced, received, owing, cost and margin. Never mixes currencies. */
+  async financeSummary(scope: JobScope) {
+    const rows = (await this.database.listJobFinance(scope)).map((row) => ({
+      ...row,
+      owingMinor: row.invoicedMinor - row.receivedMinor,
+      // A margin needs both sides in the same currency; costs are recorded in GHS.
+      marginMinor:
+        row.invoicedMinor > 0 && row.costMinor > 0
+          ? row.invoicedMinor - row.costMinor
+          : null,
+    }));
+    const totals = new Map<
+      string,
+      {
+        currency: string;
+        invoicedMinor: number;
+        receivedMinor: number;
+        owingMinor: number;
+        costMinor: number;
+      }
+    >();
+    for (const row of rows) {
+      const entry = totals.get(row.currency) ?? {
+        currency: row.currency,
+        invoicedMinor: 0,
+        receivedMinor: 0,
+        owingMinor: 0,
+        costMinor: 0,
+      };
+      entry.invoicedMinor += row.invoicedMinor;
+      entry.receivedMinor += row.receivedMinor;
+      entry.owingMinor += row.owingMinor;
+      entry.costMinor += row.costMinor;
+      totals.set(row.currency, entry);
+    }
+    return { jobs: rows, totals: [...totals.values()] };
+  }
+
   async outstanding(companyId: unknown, scope: JobScope) {
     if (companyId !== undefined && !isUuid(companyId)) {
       throw new BadRequestException("companyId must be a valid ID");

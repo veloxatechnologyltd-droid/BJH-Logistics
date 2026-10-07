@@ -322,6 +322,25 @@
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
   gap: 16px;
 }
+.compactGrid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 360px));
+  gap: 12px;
+}
+.compactGrid .card {
+  padding: 12px;
+  margin-bottom: 0;
+}
+.compactGrid .stepsHeading {
+  margin-bottom: 6px;
+}
+.compactGrid .secondaryButton {
+  min-height: 32px;
+  padding: 0 14px;
+  font-size: 0.85rem;
+}
+.compactGrid .itemList li {
+  padding: 8px 0;
+}
 .form {
   display: grid;
   gap: 10px;
@@ -332,6 +351,16 @@
   gap: 4px;
   font-size: 0.8rem;
   font-weight: 700;
+}
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 12px;
+}
+.filters .field {
+  width: 220px;
+  max-width: 100%;
 }
 .timeline {
   list-style: none;
@@ -602,6 +631,28 @@
   color: var(--brand-primary);
   font-size: 0.75rem;
   font-weight: 700;
+}
+.progressSplit {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 340px);
+  gap: 24px;
+  align-items: start;
+}
+.progressForm {
+  position: sticky;
+  top: 16px;
+  margin-top: 0;
+  padding: 16px;
+  border: 1px solid var(--brand-border);
+  border-radius: 8px;
+}
+@media (max-width: 800px) {
+  .progressSplit {
+    grid-template-columns: 1fr;
+  }
+  .progressForm {
+    order: -1;
+  }
 }
 .progressDone .progressNumber {
   background: var(--brand-primary);

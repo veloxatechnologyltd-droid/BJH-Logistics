@@ -213,3 +213,17 @@ export class OutstandingInvoicesController {
     return this.invoices.outstanding(companyId, scopeOf(request));
   }
 }
+
+/** Internal money overview (costs and margins): staff only, within their service lines. */
+@Controller("api/v1/finance/summary")
+@UseGuards(SupabaseIdentityGuard, DepartmentStaffGuard, JobScopeGuard)
+export class FinanceSummaryController {
+  constructor(
+    @Inject(InvoicesService) private readonly invoices: InvoicesService,
+  ) {}
+
+  @Get()
+  summary(@Req() request: AuthenticatedRequest) {
+    return this.invoices.financeSummary(scopeOf(request));
+  }
+}

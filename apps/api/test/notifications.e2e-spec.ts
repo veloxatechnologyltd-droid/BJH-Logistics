@@ -212,7 +212,7 @@ test("a milestone messages every contact by email and SMS, with a link, until th
   assert.equal(recorded.status, 201);
 
   const [notice] = await byEvent("milestone");
-  const link = `https://portal.example.test/jobs/${jobA}/shipment`;
+  const link = `https://portal.example.test/jobs/${jobA}`;
   assert.equal(notice.linkUrl, link);
   assert.match(notice.subject, /^BJH\/SI\/\d{4}\/\d{4}: /);
   assert.ok(notice.body.includes(`View it here: ${link}`));

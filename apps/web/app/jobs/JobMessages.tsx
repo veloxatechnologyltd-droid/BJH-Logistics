@@ -5,6 +5,7 @@ import type { FormEvent } from "react";
 import { listJobNotifications, sendJobMessage } from "./jobApi";
 import type { JobNotification, NotificationDelivery } from "./jobApi";
 import styles from "./jobs.module.css";
+import { ErrorPopup } from "../ErrorPopup";
 
 const eventLabels: Record<string, string> = {
   milestone: "Milestone",
@@ -98,11 +99,7 @@ export function JobMessages({ jobId }: { jobId: string }) {
           </button>
         )}
       </div>
-      {error && (
-        <p className={styles.error} role="alert">
-          {error}
-        </p>
-      )}
+      <ErrorPopup message={error} />
       {notice && <p className={styles.notice}>{notice}</p>}
       {items && items.length === 0 && (
         <p className={styles.muted}>Nothing sent yet.</p>

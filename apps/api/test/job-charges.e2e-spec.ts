@@ -140,7 +140,7 @@ type Charge = {
     amountMinor: number;
     currency: string;
     exchangeRate: string | null;
-    convertedMinor: number;
+    convertedMinor: number | null;
     supplierDocumentId: string | null;
   } | null;
 };
@@ -230,21 +230,16 @@ test("an actual in the charge currency shows the variance against the quote", as
   assert.equal(service.evidenceMissing, false);
 });
 
-test("a foreign-currency actual fixes the exchange rate; corrections keep history and can add the evidence", async () => {
+test("actuals are recorded in GHS; corrections keep history and can add the evidence", async () => {
   const first = await post(
     `/api/v1/jobs/${jobA}/charges/${disbursementId}/actuals`,
     TEST_MATCHING_TOKEN,
-    {
-      amountMinor: 25000,
-      currency: "usd",
-      exchangeRate: "15.25",
-      rateNote: "Bank rate on the day",
-    },
+    { amountMinor: 381250, currency: "ghs", note: "Paid at the terminal" },
   );
   assert.equal(first.status, 201);
   const entry = (await first.json()) as NonNullable<Charge["currentActual"]>;
-  assert.equal(entry.currency, "USD");
-  assert.equal(entry.exchangeRate, "15.25");
+  assert.equal(entry.currency, "GHS");
+  assert.equal(entry.exchangeRate, null);
   assert.equal(entry.convertedMinor, 381250);
 
   let listing = (await (await charges(jobA)).json()) as Listing;
@@ -260,9 +255,8 @@ test("a foreign-currency actual fixes the exchange rate; corrections keep histor
     `/api/v1/jobs/${jobA}/charges/${disbursementId}/actuals`,
     TEST_MATCHING_TOKEN,
     {
-      amountMinor: 24000,
-      currency: "USD",
-      exchangeRate: "15.5",
+      amountMinor: 372000,
+      currency: "GHS",
       supplierDocumentId: invoiceId,
       correctionOf: entry.id,
     },
@@ -278,6 +272,34 @@ test("a foreign-currency actual fixes the exchange rate; corrections keep histor
   assert.equal(disbursement.evidenceMissing, false);
   assert.equal(listing.totals[0].actualMinor, 160000 + 372000);
   assert.equal(listing.totals[0].disbursementsWithoutEvidence, 0);
+});
+
+test("a GHS actual on a USD-quoted charge is kept without conversion", async () => {
+  const usdCharge = (await (
+    await post(`/api/v1/jobs/${jobB}/charges`, TEST_MATCHING_TOKEN, {
+      kind: "disbursement",
+      description: "Ocean freight",
+      currency: "USD",
+      unitQuotedMinor: 120000,
+    })
+  ).json()) as Charge;
+  const recorded = await post(
+    `/api/v1/jobs/${jobB}/charges/${usdCharge.id}/actuals`,
+    TEST_MATCHING_TOKEN,
+    { amountMinor: 1850000, currency: "GHS" },
+  );
+  assert.equal(recorded.status, 201);
+
+  const listing = (await (await charges(jobB)).json()) as Listing;
+  const charge = listing.charges.find((item) => item.id === usdCharge.id)!;
+  assert.equal(charge.currentActual?.amountMinor, 1850000);
+  assert.equal(charge.currentActual?.currency, "GHS");
+  assert.equal(charge.currentActual?.convertedMinor, null);
+  assert.equal(charge.varianceMinor, null);
+  assert.deepEqual(
+    listing.totals.map((total) => [total.currency, total.actualMinor]),
+    [["USD", 0]],
+  );
 });
 
 test("invalid actual amounts are rejected", async () => {
@@ -306,24 +328,14 @@ test("invalid actual amounts are rejected", async () => {
       "currency must be a 3-letter code such as USD or GHS",
     ],
     [
-      { amountMinor: 100, currency: "GHS", exchangeRate: "15" },
-      400,
-      "exchangeRate is only for an amount in another currency",
-    ],
-    [
       { amountMinor: 100, currency: "USD" },
       400,
-      "exchangeRate is required: the amount is in USD and the charge is in GHS",
+      "Record actual amounts in GHS",
     ],
     [
-      { amountMinor: 100, currency: "USD", exchangeRate: "0" },
+      { amountMinor: 100, currency: "GHS", exchangeRate: "15" },
       400,
-      "exchangeRate must be a positive number with up to 8 decimals",
-    ],
-    [
-      { amountMinor: 100, currency: "USD", exchangeRate: "1.123456789" },
-      400,
-      "exchangeRate must be a positive number with up to 8 decimals",
+      "Exchange rates are not recorded here",
     ],
     [
       { amountMinor: 100, currency: "GHS", supplierDocumentId: otherJobDoc },
@@ -498,8 +510,9 @@ test("charges import from the accepted quote and repeating the import adds nothi
       ["Customs duty", "disbursement", "GHS", null, null],
     ],
   );
-  assert.equal(imported.created[0].quantity, 2);
-  assert.equal(imported.created[0].quotedTotalMinor, 1240000);
+  // Only per-container lines carry the container count; this is "at cost".
+  assert.equal(imported.created[0].quantity, 1);
+  assert.equal(imported.created[0].quotedTotalMinor, 620000);
 
   const otherSize = (await (
     await post(

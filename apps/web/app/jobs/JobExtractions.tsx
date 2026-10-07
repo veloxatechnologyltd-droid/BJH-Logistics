@@ -9,6 +9,7 @@ import {
 } from "./jobApi";
 import type { Extraction, JobDocument } from "./jobApi";
 import styles from "./jobs.module.css";
+import { ErrorPopup } from "../ErrorPopup";
 
 type Edit = { checked: boolean; value: string; seal: string };
 
@@ -90,11 +91,7 @@ export function JobExtractions({
   return (
     <section className={styles.card} aria-labelledby="extractions-title">
       <h2 id="extractions-title">Details read from documents</h2>
-      {error && (
-        <p className={styles.error} role="alert">
-          {error}
-        </p>
-      )}
+      <ErrorPopup message={error} />
       <div className={styles.actions}>
         <label className={styles.field}>
           PDF document

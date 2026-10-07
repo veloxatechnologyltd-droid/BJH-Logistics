@@ -1,5 +1,23 @@
 Maintain a file called MEMORY.md. After any significant decision, about direction, format, content, approach, or strategy, add an entry:
 
+## 2026-10-05, Errors shown as a pop-up
+
+**What was decided:** Action and form errors appear in a centred pop-up (`apps/web/app/ErrorPopup.tsx`) with an OK button instead of a line at the top of the page. Common technical messages (network failure, server error, permission, validation) are reworded in plain language there. Full-page "could not be loaded" states keep their inline panel.
+**Why:** Staff are not technical and should not have to scroll up to find out why an action failed.
+**What was rejected:** A toast that disappears on its own (easy to miss) and rewording every message in each API file.
+
+## 2026-10-04, Customer page as a lead and account workspace
+
+**What was decided:** Treat incoming quote requests as the current lead records on the customer page. Show their company-match and quote state from existing data, alongside customer and contact counts and the searchable company directory. Do not add pipeline stages, lead ownership, or follow-up fields until those rules are agreed.
+**Why:** The existing system already captures inbound quote enquiries and supports linking them to customer profiles, but has no confirmed sales-pipeline rules.
+**What was rejected:** Inventing a CRM status pipeline or treating directory records alone as lead tracking.
+
+## 2026-10-04, Customer IDs and removal of the enquiries panel
+
+**What was decided:** Give each customer a stable readable ID in the format `CUS-0001`, assign IDs to existing companies in creation order, and show the ID in the directory and profile. Remove the quote-enquiries panel from the customer page as requested.
+**Why:** Evans asked for every customer to have an ID and then asked to remove the lead panel shown in the screenshot.
+**What was rejected:** Showing only an internal UUID or keeping the enquiries panel on the customer page.
+
 ## [Date], [Decision]
 
 **What was decided:** [the choice made]
@@ -512,3 +530,27 @@ Read MEMORY.md at the start of every session before doing anything. Never contra
 **What was decided:** (1) WhatsApp stays on hold (D13 remains post-launch; email, SMS and the manual correspondence log continue). (2) Automatic carrier/airline tracking (I3) is dropped: it cannot be done now, so ETAs stay staff-entered. (3) The system will not pull emails from mailboxes. (4) Instead BJH gets a document library (`/documents`, `GET/POST /api/v1/documents`, `GET /api/v1/documents/:id/download`) where staff store documents and everyone searches them in one box: every word typed must match the title, file name (any version), document type, job file number, customer company, B/L/AWB/booking/container/seal references or party names of the job, or the upload date. A document may stand alone (office letters), belong to a job, or belong to one customer company (migration `20261004000000`, applied to the local database only; `document.job_id` is now nullable, with `company_id` and `title`, and a document cannot name both). Visibility (assumption, one-line change each): super admin sees all; a rep sees documents on their own service lines plus every standalone one; a customer sees documents on their companies' jobs plus those tied to their company, never an unlinked standalone one. Only staff upload; customers read and download. Job-bound documents still upload from the job page and appear in the library too.
 **Why:** Evans said to hold WhatsApp, that tracking cannot be done now, that emails are not pulled, and that the client needs storage where they can keep documents and search for them easily (the client's stated pain is finding years-old documents).
 **What was rejected:** Mailbox ingestion; carrier API adapters; a separate document store apart from job documents (one table, one search); full-text search inside PDFs and OCR (needs Evans's permission, I2); date-range filters (a typed date already matches; add if staff ask); letting customers upload (not asked).
+
+## 2026-10-05, Finance section: overview of costs and profit per job, invoices as a tab
+
+**What was decided:** The sidebar's Finance item opens `/finance` with two tabs: Overview and Invoices (today's unpaid-invoice table at `/invoices`, unchanged; customers still see "Your invoices" only). Overview shows totals per currency (invoiced, received, owing, costs) and a Profit-per-job table (invoiced, received, costs, profit), backed by staff-only `GET /api/v1/finance/summary` (scoped to the caller's service lines; customers refused). Costs are the newest actual of each non-removed charge in the currency it was recorded (GHS under the 2026-10-03 rule). Profit is invoiced minus cost and is shown only where a job has both in the same currency, otherwise "-".
+**Why:** Evans said Finance should show proper financial details, not invoices; he chose money out (costs), profit per job and keeping the invoice list.
+**What was rejected:** Converting currencies to compute profit (no exchange rule, 2026-10-04); counting voided or draft invoices; showing customers costs; a separate "money in" panel (not chosen; invoiced, received and owing sit in the totals and per-job rows).
+
+## 2026-10-05, Finance steps on job progress say what to do and open the payment form
+
+**What was decided:** On the job progress list the finance steps stay read-only (ticked from invoice and payment records). Their links now say what to do: unrecorded bill "Create invoice", unrecorded payment "Record payment", recorded "View", and customers see "View invoices". "Record payment" opens Costs & invoices with `?pay=1`, which opens the payment form on the first issued invoice with a balance, amount prefilled. No API or database change.
+**Why:** Evans did not understand why both steps led to the same tab; "Go to invoices" did not say what to do there.
+**What was rejected:** Recording payments directly on the progress list (would reverse the 2026-10-03 rule and duplicate the invoice-tab form); removing the links.
+
+## 2026-10-05, Customer page becomes an account workspace: figures, active/inactive, revenue ranking, leads
+
+**What was decided:** (1) The customer directory and profile show derived figures per company from existing records: active jobs, last job, quotes sent/accepted/awaiting, invoiced/received/owing per currency (never summed across currencies), average days from invoice to payment, and last contact (latest correspondence entry or customer message). (2) A customer is **active** if it has an unfinished job or a job opened in the last 90 days (`customerActiveDays` in `@bjh/contracts`; moving it into Settings is a follow-up). (3) Customers can be ranked by revenue (issued invoices) one currency at a time. (4) Leads get simple stages (New, Contacted, Quoted, Won, Lost) with an owner, a next follow-up date and a lost reason; Won links to a customer company. No scoring or automation. (5) Evans chose that **all staff see all customers' money figures** on this page (supersedes the 2026-09-29 job-visibility scope for these customer figures only); customers never see them.
+**Why:** Evans asked for a real customer page: lead management, active vs non-active customers, customers by revenue. Answers to the three questions asked in-session.
+**What was rejected:** Reversing the 2026-10-04 "no pipeline" rule beyond the simple stages above (no lead scoring, auto-assignment or reminders); summing or ranking across currencies; hiding money from reps (Evans's choice).
+
+## 2026-10-07, Hosting: API on Render, web on Vercel
+
+**What was decided:** The NestJS API deploys to Render's free plan from a root `render.yaml` Blueprint (Node 22.22.3, `NODE_ENV=production`, `API_HOST=0.0.0.0`, health check `/api/health`, auto-deploy off, secrets entered in the dashboard with `sync: false`, Supabase root CA as a Render secret file at `/etc/secrets/supabase-root.crt`). The API now listens on `PORT` when set (Render), falling back to `API_PORT`. The Next.js web app deploys to Vercel with Root Directory `apps/web`; `apps/web/vercel.json` installs from the workspace root and builds `@bjh/contracts` before `next build`; `apps/web/package.json` pins Node `22.x`. Migrations are not run by either host; they go through the controlled release path.
+**Why:** Evans asked to make the code ready to push, with the backend on Render and the frontend on Vercel, and chose the free plan. Known effect: the free service sleeps when idle, so queued email/SMS wait until the next request wakes it, and the first request after idle is slow.
+**What was rejected:** Running migrations in the Render build (AGENTS.md hard stop; schema changes need a controlled path); auto-deploy on push (deploys must be explicit); a Dockerfile (Render's native Node runtime is simpler); the Render worker/Redis service (BullMQ worker still planned, the API's in-process notification timer covers sending today).

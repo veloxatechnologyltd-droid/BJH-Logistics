@@ -12,6 +12,7 @@ import {
 } from "../../quoteRequestApi";
 import type { QuoteRequest } from "../../quoteRequestApi";
 import styles from "../../quotation.module.css";
+import { ErrorPopup, plainMessage } from "../../../ErrorPopup";
 
 type LoadState = "loading" | "ready" | "error";
 
@@ -136,13 +137,14 @@ export function QuoteRequestDetail() {
       )}
 
       {loadState === "error" && (
-        <div className={styles.errorPanel} role="alert">
+        <div className={styles.errorPanel}>
+          <ErrorPopup message={error} />
           <span className={styles.errorIcon} aria-hidden="true">
             !
           </span>
           <div>
             <h3>Request could not be loaded</h3>
-            <p>{error}</p>
+            <p>{plainMessage(error)}</p>
           </div>
         </div>
       )}
@@ -193,7 +195,7 @@ export function QuoteRequestDetail() {
                   </Link>
                 </p>
               ) : !staffAccess.isSuperAdmin ? null : customerLoadError ? (
-                <p role="alert">{customerLoadError}</p>
+                <ErrorPopup message={customerLoadError} />
               ) : customers.length === 0 ? (
                 <p>
                   Create a customer record before linking this request.{" "}
@@ -226,11 +228,7 @@ export function QuoteRequestDetail() {
                   </button>
                 </div>
               )}
-              {linkError && (
-                <p className={styles.customerLinkError} role="alert">
-                  {linkError}
-                </p>
-              )}
+              <ErrorPopup message={linkError} />
             </section>
           </article>
         </>

@@ -44,6 +44,14 @@
   line-height: 1.15;
 }
 
+.customerNumber {
+  margin: 0 0 7px;
+  color: var(--brand-primary);
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.035em;
+}
+
 .description {
   margin: 9px 0 0;
   color: var(--brand-muted);
@@ -292,6 +300,66 @@
   margin: 0;
   color: #29445d;
   font-size: 0.82rem;
+}
+
+.summary {
+  margin-bottom: 22px;
+}
+
+.summaryGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+}
+
+.summaryItem {
+  display: grid;
+  gap: 5px;
+  border: 1px solid #dfe7ee;
+  border-radius: 10px;
+  background: #fff;
+  padding: 14px 16px;
+}
+
+.summaryItem span {
+  color: #657889;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.summaryItem strong {
+  color: #152e47;
+  font-size: 1.3rem;
+  line-height: 1.15;
+}
+
+.summaryItem small {
+  color: var(--brand-muted);
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+.moneyTable {
+  width: 100%;
+  margin-top: 12px;
+  border: 1px solid #dfe7ee;
+  border-radius: 10px;
+  border-collapse: collapse;
+  background: #fff;
+  font-size: 0.8rem;
+  text-align: left;
+}
+
+.moneyTable th,
+.moneyTable td {
+  border-top: 1px solid #e5ebf0;
+  padding: 10px 14px;
+}
+
+.moneyTable thead th {
+  border-top: 0;
+  color: #657889;
+  font-size: 0.75rem;
 }
 
 .historySection {

@@ -43,6 +43,8 @@ import { JobsController } from "./jobs/jobs.controller";
 import { JobsService } from "./jobs/jobs.service";
 import { CustomersController } from "./customers/customers.controller";
 import { CustomersService } from "./customers/customers.service";
+import { LeadsController } from "./leads/leads.controller";
+import { LeadsService } from "./leads/leads.service";
 import { QuoteRequestsController } from "./quotations/quote-requests.controller";
 import { QuoteRequestsService } from "./quotations/quote-requests.service";
 import { SettingsController } from "./settings/settings.controller";
@@ -51,6 +53,7 @@ import { JobChargesController } from "./finance/job-charges.controller";
 import { JobChargesService } from "./finance/job-charges.service";
 import {
   InvoicesController,
+  FinanceSummaryController,
   OutstandingInvoicesController,
 } from "./finance/invoices.controller";
 import { InvoicesService } from "./finance/invoices.service";
@@ -83,6 +86,7 @@ import { QuotesService } from "./quotations/quotes.service";
     QuotesController,
     SettingsController,
     CustomersController,
+    LeadsController,
     JobsController,
     JobDetailsController,
     JobCorrespondenceController,
@@ -92,6 +96,7 @@ import { QuotesService } from "./quotations/quotes.service";
     JobChargesController,
     InvoicesController,
     OutstandingInvoicesController,
+    FinanceSummaryController,
     DriversController,
     VehiclesController,
     DeliveriesController,
@@ -110,6 +115,7 @@ import { QuotesService } from "./quotations/quotes.service";
     QuotesService,
     SettingsService,
     CustomersService,
+    LeadsService,
     JobsService,
     JobDetailsService,
     JobCorrespondenceService,

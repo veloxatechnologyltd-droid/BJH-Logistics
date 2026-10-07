@@ -7,6 +7,7 @@ import type { CustomerCompany } from "../customers/customerApi";
 import styles from "../jobs/jobs.module.css";
 import { channelLabels, eventLabels, getFeed } from "./messageApi";
 import type { Feed, MessageDelivery } from "./messageApi";
+import { ErrorPopup } from "../ErrorPopup";
 
 function summarise(deliveries: MessageDelivery[]) {
   const counts = new Map<string, number>();
@@ -91,11 +92,7 @@ export function SentMessages() {
         </label>
       </div>
 
-      {error && (
-        <p className={styles.error} role="alert">
-          {error}
-        </p>
-      )}
+      <ErrorPopup message={error} />
       {!feed && !error && <p role="status">Loading messages…</p>}
       {feed && (
         <>

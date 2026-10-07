@@ -12,6 +12,7 @@ import {
   setVehicleActive,
 } from "./transportApi";
 import type { Driver, Vehicle } from "./transportApi";
+import { ErrorPopup } from "../ErrorPopup";
 
 /** Drivers and vehicles are records staff assign; drivers do not sign in. */
 export function TransportRecords() {
@@ -61,13 +62,9 @@ export function TransportRecords() {
           <h1 className={styles.title}>Drivers and vehicles</h1>
         </div>
       </header>
-      {error && (
-        <p className={styles.error} role="alert">
-          {error}
-        </p>
-      )}
+      <ErrorPopup message={error} />
 
-      <div className={styles.grid}>
+      <div className={`${styles.grid} ${styles.compactGrid}`}>
         <section className={styles.card} aria-labelledby="drivers-title">
           <div className={styles.stepsHeading}>
             <h2 id="drivers-title">Drivers</h2>

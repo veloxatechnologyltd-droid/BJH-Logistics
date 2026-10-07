@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { getSupabaseBrowserClient } from "../auth/supabaseBrowserClient";
 import styles from "./signIn.module.css";
+import { ErrorPopup } from "../ErrorPopup";
 
 type AuthMode = "bootstrap" | "signin";
 
@@ -169,11 +170,7 @@ export function SignInForm() {
             value={password}
           />
         </label>
-        {error && (
-          <p className={styles.error} role="alert">
-            {error}
-          </p>
-        )}
+        <ErrorPopup message={error} />
         {notice && (
           <p className={styles.notice} role="status">
             {notice}

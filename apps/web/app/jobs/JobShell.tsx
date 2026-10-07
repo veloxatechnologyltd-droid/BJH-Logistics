@@ -30,6 +30,7 @@ import type {
 } from "./jobApi";
 import { formatDate } from "./jobFormat";
 import styles from "./jobs.module.css";
+import { ErrorPopup, plainMessage } from "../ErrorPopup";
 
 type JobContextValue = {
   job: Job;
@@ -127,9 +128,8 @@ export function JobShell({
         <Link className={styles.link} href="/jobs">
           ← Jobs
         </Link>
-        <p className={styles.error} role="alert">
-          {loadError}
-        </p>
+        <ErrorPopup message={loadError} />
+        <p className={styles.error}>{plainMessage(loadError)}</p>
       </main>
     );
   }
@@ -197,11 +197,7 @@ export function JobShell({
           })}
         </nav>
 
-        {error && (
-          <p className={styles.error} role="alert">
-            {error}
-          </p>
-        )}
+        <ErrorPopup message={error} />
 
         {children}
       </main>

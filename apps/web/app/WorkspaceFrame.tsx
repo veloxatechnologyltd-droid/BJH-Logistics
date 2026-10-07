@@ -55,7 +55,7 @@ const staffNav: NavGroup[] = [
   },
   {
     heading: "FINANCE",
-    items: [{ href: "/invoices", label: "Invoices", icon: "invoices" }],
+    items: [{ href: "/finance", label: "Finance", icon: "invoices" }],
   },
   {
     heading: "CLIENTS",
@@ -142,7 +142,9 @@ export function WorkspaceFrame({ children }: { children: ReactNode }) {
               {group.items.map((item) => {
                 const active = item.exact
                   ? pathname === item.href
-                  : pathname.startsWith(item.href);
+                  : pathname.startsWith(item.href) ||
+                    (item.href === "/finance" &&
+                      pathname.startsWith("/invoices"));
                 return (
                   <Link
                     key={item.href}

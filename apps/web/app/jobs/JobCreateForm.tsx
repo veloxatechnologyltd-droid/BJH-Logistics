@@ -10,6 +10,7 @@ import type { CustomerCompany } from "../customers/customerApi";
 import { useStaffAccess } from "../auth/useStaffAccess";
 import { createJob, serviceLineLabels } from "./jobApi";
 import styles from "./jobs.module.css";
+import { ErrorPopup } from "../ErrorPopup";
 
 const lines = Object.keys(serviceLineLabels) as ServiceLine[];
 
@@ -99,11 +100,7 @@ export function JobCreateForm() {
               ))}
             </select>
           </label>
-          {error && (
-            <p className={styles.error} role="alert">
-              {error}
-            </p>
-          )}
+          <ErrorPopup message={error} />
           <div className={styles.actions}>
             <button className={styles.button} disabled={saving} type="submit">
               {saving ? "Opening…" : "Open job"}

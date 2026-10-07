@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { getSupabaseBrowserClient } from "../auth/supabaseBrowserClient";
 import styles from "../sign-in/signIn.module.css";
+import { ErrorPopup, plainMessage } from "../ErrorPopup";
 
 const apiBaseUrl =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:3001/api";
@@ -108,19 +109,16 @@ export function CompleteInvitation() {
                 value={password}
               />
             </label>
-            {error && (
-              <p className={styles.error} role="alert">
-                {error}
-              </p>
-            )}
+            <ErrorPopup message={error} />
             <button disabled={loading} type="submit">
               {loading ? "Saving…" : "Set password and continue"}
             </button>
           </form>
         ) : error ? (
-          <p className={styles.error} role="alert">
-            {error}
-          </p>
+          <>
+            <ErrorPopup message={error} />
+            <p className={styles.error}>{plainMessage(error)}</p>
+          </>
         ) : (
           <p className={styles.notice} role="status">
             Checking invitation session…

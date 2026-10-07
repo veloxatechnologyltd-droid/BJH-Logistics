@@ -12,6 +12,7 @@ import type { JobStatus } from "@bjh/contracts";
 import { changeStatus, serviceLineLabels, statusLabels } from "./jobApi";
 import type { Job } from "./jobApi";
 import styles from "./jobs.module.css";
+import { ErrorPopup } from "../ErrorPopup";
 
 type Move = { job: Job; to: JobStatus };
 
@@ -85,11 +86,7 @@ export function JobBoard({
 
   return (
     <>
-      {error && (
-        <p className={styles.error} role="alert">
-          {error}
-        </p>
-      )}
+      <ErrorPopup message={error} />
       <div className={styles.board}>
         {jobStatusKeys.map((status) => {
           const column = jobs.filter((job) => job.status === status);

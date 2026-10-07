@@ -7,6 +7,7 @@ import type { FormEvent } from "react";
 import { createCustomer } from "./customerApi";
 import { useStaffAccess } from "../auth/useStaffAccess";
 import styles from "./customerDirectory.module.css";
+import { ErrorPopup } from "../ErrorPopup";
 
 export function CustomerCreateForm() {
   const { status, isSuperAdmin } = useStaffAccess();
@@ -212,11 +213,7 @@ export function CustomerCreateForm() {
         </div>
       </section>
 
-      {error && (
-        <p className={styles.formError} role="alert">
-          {error}
-        </p>
-      )}
+      <ErrorPopup message={error} />
 
       <div className={styles.formActions}>
         <Link className={styles.formCancel} href="/customers">

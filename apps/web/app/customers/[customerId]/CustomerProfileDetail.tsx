@@ -4,19 +4,34 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useStaffAccess } from "../../auth/useStaffAccess";
+import { customerActiveDays } from "@bjh/contracts";
 import {
   addContact,
   getCustomer,
+  getCustomerInsight,
   updateContact,
   updateCustomer,
 } from "../customerApi";
-import type { CustomerCompany } from "../customerApi";
+import type { CustomerCompany, CustomerInsight } from "../customerApi";
+import { listJobs, serviceLineLabels, statusLabels } from "../../jobs/jobApi";
+import type { Job } from "../../jobs/jobApi";
+import { formatMoney } from "../../quotes/quoteApi";
 import type { CustomerContactUpdate } from "@bjh/contracts";
 import { listQuoteRequests } from "../../quotations/quoteRequestApi";
 import type { QuoteRequest } from "../../quotations/quoteRequestApi";
 import styles from "./customerProfile.module.css";
+import { ErrorPopup, plainMessage } from "../../ErrorPopup";
 
 type LoadState = "loading" | "ready" | "error";
+
+const shortDate = (value: string | null) =>
+  value
+    ? new Date(value).toLocaleDateString("en-GH", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+      })
+    : "—";
 
 export function CustomerProfileDetail() {
   const { customerId } = useParams<{ customerId: string }>();
@@ -26,6 +41,9 @@ export function CustomerProfileDetail() {
   const [quoteRequests, setQuoteRequests] = useState<QuoteRequest[]>([]);
   const [historyState, setHistoryState] = useState<LoadState>("loading");
   const [historyError, setHistoryError] = useState("");
+  // Account figures and jobs are staff-only; they simply stay hidden if unavailable.
+  const [insight, setInsight] = useState<CustomerInsight | null>(null);
+  const [jobs, setJobs] = useState<Job[] | null>(null);
   const { isSuperAdmin } = useStaffAccess();
   const [contactError, setContactError] = useState("");
   const [newName, setNewName] = useState("");
@@ -156,6 +174,25 @@ export function CustomerProfileDetail() {
 
   useEffect(() => {
     let active = true;
+    setInsight(null);
+    setJobs(null);
+    getCustomerInsight(customerId)
+      .then((result) => active && setInsight(result))
+      .catch(() => undefined);
+    listJobs("")
+      .then(
+        (all) =>
+          active &&
+          setJobs(all.filter((job) => job.customerCompanyId === customerId)),
+      )
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [customerId]);
+
+  useEffect(() => {
+    let active = true;
     setHistoryState("loading");
     listQuoteRequests(customerId)
       .then((results) => {
@@ -188,6 +225,11 @@ export function CustomerProfileDetail() {
 
       <header className={styles.pageHeader}>
         <div>
+          {customer && (
+            <p className={styles.customerNumber}>
+              Customer ID · {customer.customerNumber}
+            </p>
+          )}
           <h1>{customer?.companyName ?? "Customer profile"}</h1>
         </div>
       </header>
@@ -199,10 +241,84 @@ export function CustomerProfileDetail() {
       )}
 
       {loadState === "error" && (
-        <div className={styles.emptyState} role="alert">
+        <div className={styles.emptyState}>
+          <ErrorPopup message={error} />
           <h2>Customer could not be loaded</h2>
-          <p>{error}</p>
+          <p>{plainMessage(error)}</p>
         </div>
+      )}
+
+      {loadState === "ready" && customer && insight && (
+        <section className={styles.summary} aria-label="Account summary">
+          <div className={styles.summaryGrid}>
+            <div className={styles.summaryItem}>
+              <span>Status</span>
+              <strong>{insight.active ? "Active" : "Inactive"}</strong>
+              <small>
+                {insight.active
+                  ? "A job still open or opened recently"
+                  : `No job in the last ${customerActiveDays} days`}
+              </small>
+            </div>
+            <div className={styles.summaryItem}>
+              <span>Jobs</span>
+              <strong>{insight.totalJobs}</strong>
+              <small>{insight.activeJobs} still open</small>
+            </div>
+            <div className={styles.summaryItem}>
+              <span>Latest job</span>
+              <strong>{shortDate(insight.lastJobAt)}</strong>
+              <small>Opened</small>
+            </div>
+            <div className={styles.summaryItem}>
+              <span>Quotes</span>
+              <strong>
+                {insight.quotesAccepted} of {insight.quotesSent}
+              </strong>
+              <small>
+                accepted · {insight.quotesAwaiting} awaiting an answer
+              </small>
+            </div>
+            <div className={styles.summaryItem}>
+              <span>Last contact</span>
+              <strong>{shortDate(insight.lastContactAt)}</strong>
+              <small>Message sent or call logged</small>
+            </div>
+          </div>
+          {insight.money.length > 0 && (
+            <table className={styles.moneyTable}>
+              <thead>
+                <tr>
+                  <th scope="col">Currency</th>
+                  <th scope="col">Invoiced</th>
+                  <th scope="col">Received</th>
+                  <th scope="col">Owing</th>
+                  <th scope="col">Average days to pay</th>
+                </tr>
+              </thead>
+              <tbody>
+                {insight.money.map((entry) => (
+                  <tr key={entry.currency}>
+                    <th scope="row">{entry.currency}</th>
+                    <td>{formatMoney(entry.invoicedMinor, entry.currency)}</td>
+                    <td>{formatMoney(entry.receivedMinor, entry.currency)}</td>
+                    <td>
+                      {formatMoney(
+                        entry.invoicedMinor - entry.receivedMinor,
+                        entry.currency,
+                      )}
+                    </td>
+                    <td>
+                      {entry.averageDaysToPay === null
+                        ? "—"
+                        : `${entry.averageDaysToPay} days`}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </section>
       )}
 
       {loadState === "ready" && customer && (
@@ -222,7 +338,7 @@ export function CustomerProfileDetail() {
                 </button>
               )}
             </div>
-            {profileError && <p role="alert">{profileError}</p>}
+            <ErrorPopup message={profileError} />
             {editingCompany ? (
               <form className={styles.profileForm} onSubmit={saveCompany}>
                 <div className={styles.profileFields}>
@@ -467,7 +583,7 @@ export function CustomerProfileDetail() {
                 </div>
               ))}
             </dl>
-            {contactError && <p role="alert">{contactError}</p>}
+            <ErrorPopup message={contactError} />
             {isSuperAdmin && (
               <details className={styles.addContactDetails}>
                 <summary>Add another contact</summary>
@@ -546,7 +662,7 @@ export function CustomerProfileDetail() {
                 {historyState === "loading" ? (
                   <p>Loading linked requests…</p>
                 ) : historyState === "error" ? (
-                  <p role="alert">{historyError}</p>
+                  <ErrorPopup message={historyError} />
                 ) : quoteRequests.length > 0 ? (
                   <ul className={styles.historyList}>
                     {quoteRequests.map((request) => (
@@ -572,9 +688,32 @@ export function CustomerProfileDetail() {
               <article className={styles.historyCard}>
                 <div className={styles.cardHeading}>
                   <h3>Jobs</h3>
-                  <span className={styles.notConnected}>Not connected</span>
+                  <span className={styles.notConnected}>
+                    {jobs ? jobs.length : "—"}
+                  </span>
                 </div>
-                <p>Job records have not been implemented yet.</p>
+                {jobs === null ? (
+                  <p>Jobs are not available to your account.</p>
+                ) : jobs.length > 0 ? (
+                  <ul className={styles.historyList}>
+                    {jobs.map((job) => (
+                      <li key={job.id}>
+                        <Link
+                          className={styles.historyLink}
+                          href={`/jobs/${job.id}`}
+                        >
+                          {job.fileNumber}
+                        </Link>
+                        <p>
+                          {serviceLineLabels[job.serviceLine]} ·{" "}
+                          {statusLabels[job.status]} · {shortDate(job.openedAt)}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p>No jobs have been opened for this company.</p>
+                )}
               </article>
             </div>
           </section>

@@ -18,6 +18,7 @@ import {
 } from "./jobApi";
 import type { TransportDocument } from "./jobApi";
 import styles from "./jobs.module.css";
+import { ErrorPopup } from "../ErrorPopup";
 
 type Editing = {
   id: string | null;
@@ -149,11 +150,7 @@ export function JobTransportDocuments({
           </div>
         )}
       </div>
-      {error && (
-        <p className={styles.error} role="alert">
-          {error}
-        </p>
-      )}
+      <ErrorPopup message={error} />
       {items && items.length === 0 && (
         <p className={styles.muted}>No documents yet.</p>
       )}

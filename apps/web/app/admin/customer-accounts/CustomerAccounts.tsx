@@ -8,6 +8,7 @@ import { authenticatedFetch } from "../../auth/authenticatedFetch";
 import { listCustomers } from "../../customers/customerApi";
 import type { CustomerCompany } from "../../customers/customerApi";
 import styles from "../users/adminUsers.module.css";
+import { ErrorPopup } from "../../ErrorPopup";
 
 const apiBaseUrl = (
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:3001/api"
@@ -201,11 +202,7 @@ export function CustomerAccounts() {
           </section>
         )}
 
-        {error && (
-          <p className={styles.error} role="alert">
-            {error}
-          </p>
-        )}
+        <ErrorPopup message={error} />
         {notice && (
           <p className={styles.notice} role="status">
             {notice}

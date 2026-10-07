@@ -21,6 +21,7 @@ export type CustomerContact = {
 
 export type CustomerCompany = {
   id: string;
+  customerNumber: string;
   companyName: string;
   tradingName: string | null;
   registrationNumber: string | null;
@@ -127,6 +128,40 @@ export async function updateContact(
         headers: { "content-type": "application/json" },
         body: JSON.stringify(update),
       },
+    ),
+  );
+}
+
+export type CustomerInsight = {
+  companyId: string;
+  /** An unfinished job, or one opened in the last `customerActiveDays` days. */
+  active: boolean;
+  totalJobs: number;
+  activeJobs: number;
+  lastJobAt: string | null;
+  lastContactAt: string | null;
+  quotesSent: number;
+  quotesAccepted: number;
+  quotesAwaiting: number;
+  /** One entry per currency; never added together. */
+  money: Array<{
+    currency: string;
+    invoicedMinor: number;
+    receivedMinor: number;
+    averageDaysToPay: number | null;
+  }>;
+};
+
+export async function listCustomerInsights(): Promise<CustomerInsight[]> {
+  return readResponse<CustomerInsight[]>(
+    await authenticatedFetch(`${customersUrl}/insights`),
+  );
+}
+
+export async function getCustomerInsight(id: string): Promise<CustomerInsight> {
+  return readResponse<CustomerInsight>(
+    await authenticatedFetch(
+      `${customersUrl}/${encodeURIComponent(id)}/insights`,
     ),
   );
 }

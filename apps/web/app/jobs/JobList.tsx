@@ -7,6 +7,7 @@ import type { Job } from "./jobApi";
 import { JobBoard } from "./JobBoard";
 import { useStaffAccess } from "../auth/useStaffAccess";
 import styles from "./jobs.module.css";
+import { ErrorPopup } from "../ErrorPopup";
 
 export function JobList() {
   const { roles } = useStaffAccess();
@@ -80,11 +81,7 @@ export function JobList() {
       </div>
 
       {state === "loading" && <p role="status">Loading jobs…</p>}
-      {state === "error" && (
-        <p className={styles.error} role="alert">
-          {error}
-        </p>
-      )}
+      <ErrorPopup message={error} />
       {state === "ready" && view === "board" && (
         <JobBoard canMove={roles.length > 0} jobs={jobs} setJobs={setJobs} />
       )}

@@ -13,6 +13,7 @@ import {
 } from "./jobApi";
 import type { JobTask } from "./jobApi";
 import styles from "./jobs.module.css";
+import { ErrorPopup } from "../ErrorPopup";
 
 export function JobTasks({
   jobId,
@@ -85,11 +86,7 @@ export function JobTasks({
           </button>
         )}
       </div>
-      {error && (
-        <p className={styles.error} role="alert">
-          {error}
-        </p>
-      )}
+      <ErrorPopup message={error} />
       {tasks && tasks.length === 0 && (
         <p className={styles.muted}>No tasks on this job.</p>
       )}

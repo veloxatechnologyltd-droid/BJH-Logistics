@@ -75,90 +75,130 @@ export function JobSteps({
   return (
     <div className={styles.progressSteps}>
       <h3>Shipment steps</h3>
-      <ol className={styles.progressList}>
-        {timeline.template.map((item, index) => {
-          const recorded = latestByKey.get(item.key);
-          return (
-            <li key={item.key} className={recorded ? styles.progressDone : ""}>
-              <span className={styles.progressNumber}>{index + 1}</span>
-              <div>
-                <strong>{item.label}</strong>
-                <small>
-                  {recorded
-                    ? `Recorded ${formatDate(recorded.occurredAt)}`
-                    : "Not recorded"}
-                </small>
-              </div>
-              {financeKeys.has(item.key) ? (
-                <Link
-                  className={styles.textButton}
-                  href={`/jobs/${job.id}/money`}
-                >
-                  {recorded ? "View" : "Go to invoices"}
-                </Link>
-              ) : canEdit ? (
-                <button
-                  className={styles.textButton}
-                  onClick={() => {
-                    if (recorded) correct(recorded);
-                    else {
-                      setEntry({ milestoneKey: item.key });
-                      setWhen("");
-                      setNote("");
+      <div className={entry ? styles.progressSplit : undefined}>
+        <ol className={styles.progressList}>
+          {timeline.template.map((item, index) => {
+            const recorded = latestByKey.get(item.key);
+            return (
+              <li
+                key={item.key}
+                className={recorded ? styles.progressDone : ""}
+              >
+                <span className={styles.progressNumber}>
+                  {recorded ? (
+                    <svg
+                      aria-label="Completed"
+                      fill="none"
+                      height="14"
+                      role="img"
+                      stroke="currentColor"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="3"
+                      viewBox="0 0 24 24"
+                      width="14"
+                    >
+                      <path d="M5 12.5l4.5 4.5L19 7.5" />
+                    </svg>
+                  ) : (
+                    index + 1
+                  )}
+                </span>
+                <div>
+                  <strong>{item.label}</strong>
+                  <small>
+                    {recorded
+                      ? `Recorded ${formatDate(recorded.occurredAt)}`
+                      : "Not recorded"}
+                  </small>
+                </div>
+                {financeKeys.has(item.key) ? (
+                  <Link
+                    className={styles.textButton}
+                    href={
+                      item.key === "customer_payment_recorded" &&
+                      !recorded &&
+                      canEdit
+                        ? `/jobs/${job.id}/money?pay=1#invoices-title`
+                        : `/jobs/${job.id}/money#invoices-title`
                     }
-                  }}
-                  type="button"
-                >
-                  {recorded ? "Correct" : "Record"}
-                </button>
-              ) : null}
-            </li>
-          );
-        })}
-      </ol>
-      {entry && (
-        <form className={styles.form} onSubmit={save}>
-          <strong>
-            {entry.correctionOf ? "Correct" : "Record"}{" "}
-            {
-              timeline.template.find((item) => item.key === entry.milestoneKey)
-                ?.label
-            }
-          </strong>
-          <label className={styles.field}>
-            When (optional)
-            <input
-              onChange={(event) => setWhen(event.target.value)}
-              type="datetime-local"
-              value={when}
-            />
-          </label>
-          <label className={styles.field}>
-            Note (optional)
-            <input
-              onChange={(event) => setNote(event.target.value)}
-              value={note}
-            />
-          </label>
-          <div className={styles.formActions}>
-            <button className={styles.button} type="submit">
-              {entry.correctionOf ? "Save correction" : "Record update"}
-            </button>
-            <button
-              className={styles.secondaryButton}
-              onClick={() => setEntry(null)}
-              type="button"
-            >
-              Cancel
-            </button>
-          </div>
-          {!entry.correctionOf && (
-            <small className={styles.hint}>
-              A customer message may be sent for this update.
-            </small>
-          )}
-        </form>
-      )}
+                  >
+                    {recorded
+                      ? "View"
+                      : !canEdit
+                        ? "View invoices"
+                        : item.key === "customer_payment_recorded"
+                          ? "Record payment"
+                          : "Create invoice"}
+                  </Link>
+                ) : canEdit ? (
+                  <button
+                    className={styles.textButton}
+                    onClick={() => {
+                      if (recorded) correct(recorded);
+                      else {
+                        setEntry({ milestoneKey: item.key });
+                        setWhen("");
+                        setNote("");
+                      }
+                    }}
+                    type="button"
+                  >
+                    {recorded ? "Edit" : "Record"}
+                  </button>
+                ) : null}
+              </li>
+            );
+          })}
+        </ol>
+        {entry && (
+          <form
+            className={`${styles.form} ${styles.progressForm}`}
+            onSubmit={save}
+          >
+            <strong>
+              {entry.correctionOf ? "Edit" : "Record"}{" "}
+              {
+                timeline.template.find(
+                  (item) => item.key === entry.milestoneKey,
+                )?.label
+              }
+            </strong>
+            <label className={styles.field}>
+              When (optional)
+              <input
+                onChange={(event) => setWhen(event.target.value)}
+                type="datetime-local"
+                value={when}
+              />
+            </label>
+            <label className={styles.field}>
+              Note (optional)
+              <input
+                onChange={(event) => setNote(event.target.value)}
+                value={note}
+              />
+            </label>
+            <div className={styles.formActions}>
+              <button className={styles.button} type="submit">
+                {entry.correctionOf ? "Save correction" : "Record update"}
+              </button>
+              <button
+                className={styles.secondaryButton}
+                onClick={() => setEntry(null)}
+                type="button"
+              >
+                Cancel
+              </button>
+            </div>
+            {!entry.correctionOf && (
+              <small className={styles.hint}>
+                A customer message may be sent for this update.
+              </small>
+            )}
+          </form>
+        )}
+      </div>
       {timeline.events.length > 0 && (
         <details className={styles.progressHistory}>
           <summary className={styles.disclosureSummary}>Update history</summary>

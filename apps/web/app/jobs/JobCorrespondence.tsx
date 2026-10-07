@@ -10,6 +10,7 @@ import type {
 import { addCorrespondence, listCorrespondence } from "./jobApi";
 import type { CorrespondenceEntry, JobDocument } from "./jobApi";
 import styles from "./jobs.module.css";
+import { ErrorPopup } from "../ErrorPopup";
 
 const channelLabels: Record<CorrespondenceChannel, string> = {
   email: "Email",
@@ -110,11 +111,7 @@ export function JobCorrespondence({
           </button>
         )}
       </div>
-      {error && (
-        <p className={styles.error} role="alert">
-          {error}
-        </p>
-      )}
+      <ErrorPopup message={error} />
       {entries && entries.length === 0 && (
         <p className={styles.muted}>Nothing logged yet.</p>
       )}

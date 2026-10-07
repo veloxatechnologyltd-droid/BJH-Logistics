@@ -8,6 +8,7 @@ import {
   customerContactInputSchema,
   customerContactUpdateSchema,
   customerCompanyUpdateSchema,
+  customerActiveDays,
   customerInputSchema,
   isUuid,
   parseContract,
@@ -74,6 +75,24 @@ export class CustomersService {
       throw new NotFoundException("Customer was not found");
     }
     return customer;
+  }
+
+  /**
+   * Account figures per company. Active means an unfinished job or a job
+   * opened within `customerActiveDays`. Money stays per currency.
+   */
+  async insights(companyId?: string) {
+    if (companyId !== undefined && !isUuid(companyId)) {
+      throw new BadRequestException("companyId must be a valid ID");
+    }
+    const records = await this.database.listCustomerInsights(companyId ?? null);
+    const since = Date.now() - customerActiveDays * 86_400_000;
+    return records.map((record) => ({
+      ...record,
+      active:
+        record.activeJobs > 0 ||
+        (record.lastJobAt !== null && Date.parse(record.lastJobAt) >= since),
+    }));
   }
 
   async addContact(companyId: string, input: unknown) {

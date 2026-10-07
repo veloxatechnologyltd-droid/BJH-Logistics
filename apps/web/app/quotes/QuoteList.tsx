@@ -7,6 +7,7 @@ import { serviceLineLabels } from "../jobs/jobApi";
 import styles from "../jobs/jobs.module.css";
 import { listQuotes } from "./quoteApi";
 import type { QuoteSummary } from "./quoteApi";
+import { ErrorPopup } from "../ErrorPopup";
 
 export function QuoteList() {
   const { roles } = useStaffAccess();
@@ -50,11 +51,7 @@ export function QuoteList() {
       </header>
 
       {state === "loading" && <p role="status">Loading quotes…</p>}
-      {state === "error" && (
-        <p className={styles.error} role="alert">
-          {error}
-        </p>
-      )}
+      <ErrorPopup message={error} />
       {state === "ready" &&
         (quotes.length === 0 ? (
           <p className={styles.muted}>No quotes yet.</p>

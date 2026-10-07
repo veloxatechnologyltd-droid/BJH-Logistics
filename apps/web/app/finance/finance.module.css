@@ -1,0 +1,133 @@
+.charts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.chartCard {
+  border: 1px solid var(--brand-border);
+  border-radius: 12px;
+  background: var(--brand-surface);
+  padding: 18px;
+}
+.chartCard h2 {
+  margin: 0 0 4px;
+  font-size: 1.05rem;
+}
+.headline {
+  margin: 0 0 14px;
+  color: var(--brand-muted);
+  font-size: 0.9rem;
+}
+.row {
+  margin-bottom: 14px;
+}
+.rowHead {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+  font-size: 0.85rem;
+}
+.rowHead span:last-child {
+  color: var(--brand-muted);
+}
+.track {
+  display: flex;
+  gap: 2px;
+  height: 18px;
+}
+.bar {
+  min-width: 0;
+  height: 100%;
+}
+.bar:first-child {
+  border-radius: 4px 0 0 4px;
+}
+.bar:last-child {
+  border-radius: 0 4px 4px 0;
+}
+.bar:only-child {
+  border-radius: 4px;
+}
+.collected,
+.invoiced {
+  background: #0b3fae;
+}
+.owing {
+  background: #f2a900;
+}
+.cost {
+  background: #8aa0b8;
+}
+.single {
+  height: 12px;
+  margin-top: 3px;
+  border-radius: 0 4px 4px 0;
+}
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.85rem;
+  color: var(--brand-muted);
+}
+.swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 6px;
+  border-radius: 2px;
+}
+.note {
+  margin: 12px 0 0;
+  color: var(--brand-muted);
+  font-size: 0.85rem;
+}
+.filters {
+  display: grid;
+  grid-template-columns: 160px minmax(200px, 1fr) minmax(200px, 1fr);
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border: 1px solid var(--brand-border);
+  border-radius: 12px;
+  background: var(--brand-surface);
+  padding: 16px 18px;
+}
+.kpi span {
+  color: var(--brand-muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.kpi strong {
+  color: var(--brand-ink);
+  font-size: 1.5rem;
+  line-height: 1.2;
+}
+.kpi small {
+  color: var(--brand-muted);
+  font-size: 0.8rem;
+}
+.subhead {
+  margin: 20px 0 10px;
+  font-size: 0.95rem;
+}
+@media (max-width: 640px) {
+  .filters {
+    grid-template-columns: 1fr;
+  }
+}

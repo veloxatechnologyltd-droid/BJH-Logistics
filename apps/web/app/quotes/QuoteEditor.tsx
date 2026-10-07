@@ -16,6 +16,7 @@ import { getSettings } from "../settings/business/settingsApi";
 import { popularCurrencies } from "../settings/business/BusinessSettingsForm";
 import { createQuote, saveQuoteDraft, toMinor } from "./quoteApi";
 import type { Quote, QuoteVersion, QuoteVersionBody } from "./quoteApi";
+import { ErrorPopup } from "../ErrorPopup";
 
 const serviceLines = Object.keys(serviceLineLabels) as ServiceLine[];
 
@@ -647,11 +648,7 @@ export function QuoteEditor({
             </div>
           </details>
 
-          {error && (
-            <p className={styles.error} role="alert">
-              {error}
-            </p>
-          )}
+          <ErrorPopup message={error} />
           <div className={styles.actions}>
             <button className={styles.button} disabled={saving} type="submit">
               {saving ? "Saving…" : quote ? "Save draft" : "Save as draft"}

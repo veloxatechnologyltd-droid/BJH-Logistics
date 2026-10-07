@@ -20,21 +20,25 @@ VALUES ('00000000-0000-4000-8000-0000000000c4', 'BJH/SI/2099/0004', 'sea_import'
         '00000000-0000-4000-8000-0000000000b4', '00000000-0000-4000-8000-0000000000a4');
 
 SELECT extensions.lives_ok(
-  $$UPDATE app.job SET status = 'ready_to_close'$$,
+  $$UPDATE app.job SET status = 'ready_to_close'
+    WHERE job_id = '00000000-0000-4000-8000-0000000000c4'$$,
   'a job can move to ready_to_close without a close date'
 );
 SELECT extensions.throws_ok(
-  $$UPDATE app.job SET status = 'closed'$$,
+  $$UPDATE app.job SET status = 'closed'
+    WHERE job_id = '00000000-0000-4000-8000-0000000000c4'$$,
   '23514',
   NULL,
   'closing requires a close date'
 );
 SELECT extensions.lives_ok(
-  $$UPDATE app.job SET status = 'closed', closed_at = now()$$,
+  $$UPDATE app.job SET status = 'closed', closed_at = now()
+    WHERE job_id = '00000000-0000-4000-8000-0000000000c4'$$,
   'a job can be closed with a close date'
 );
 SELECT extensions.throws_ok(
-  $$UPDATE app.job SET status = 'in_progress'$$,
+  $$UPDATE app.job SET status = 'in_progress'
+    WHERE job_id = '00000000-0000-4000-8000-0000000000c4'$$,
   '23514',
   NULL,
   'reopening must clear the close date'

@@ -21,6 +21,7 @@ import {
 } from "./jobApi";
 import type { Invoice, InvoiceLine, JobDocument } from "./jobApi";
 import styles from "./jobs.module.css";
+import { ErrorPopup } from "../ErrorPopup";
 
 const methodLabels: Record<PaymentMethod, string> = {
   cash: "Cash",
@@ -100,6 +101,28 @@ export function JobInvoices({
   useEffect(() => {
     void load();
   }, [load]);
+
+  // "Record payment" on the job progress list arrives with ?pay=1.
+  const [payLinkHandled, setPayLinkHandled] = useState(false);
+  useEffect(() => {
+    if (!invoices || payLinkHandled) return;
+    setPayLinkHandled(true);
+    if (window.location.hash === "#invoices-title")
+      document
+        .getElementById("invoices-title")
+        ?.scrollIntoView({ block: "start" });
+    if (
+      !isStaff ||
+      new URLSearchParams(window.location.search).get("pay") !== "1"
+    )
+      return;
+    const owing = invoices.find(
+      (invoice) => invoice.status === "issued" && invoice.outstandingMinor > 0,
+    );
+    if (!owing) return;
+    setPaying(owing.id);
+    setAmount((owing.outstandingMinor / 100).toFixed(2));
+  }, [invoices, isStaff, payLinkHandled]);
 
   useEffect(() => {
     if (!isStaff) return;
@@ -270,11 +293,7 @@ export function JobInvoices({
           </button>
         )}
       </div>
-      {error && (
-        <p className={styles.error} role="alert">
-          {error}
-        </p>
-      )}
+      <ErrorPopup message={error} />
       {notice && <p className={styles.notice}>{notice}</p>}
       {invoices && invoices.length === 0 && (
         <p className={styles.muted}>No invoices yet.</p>

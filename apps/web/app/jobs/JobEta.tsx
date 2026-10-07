@@ -5,6 +5,7 @@ import type { FormEvent } from "react";
 import { getEta, recordEta } from "./jobApi";
 import type { Eta } from "./jobApi";
 import styles from "./jobs.module.css";
+import { ErrorPopup } from "../ErrorPopup";
 
 function formatDate(value: string): string {
   return new Intl.DateTimeFormat(undefined, {
@@ -75,11 +76,7 @@ export function JobEta({
           </button>
         )}
       </div>
-      {error && (
-        <p className={styles.error} role="alert">
-          {error}
-        </p>
-      )}
+      <ErrorPopup message={error} />
       {eta?.current ? (
         <p className={styles.etaValue}>
           {formatDate(eta.current.etaAt)}

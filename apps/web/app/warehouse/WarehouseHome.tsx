@@ -15,6 +15,7 @@ import {
 } from "../jobs/jobApi";
 import type { StockBalance, WarehouseLocation } from "../jobs/jobApi";
 import styles from "../jobs/jobs.module.css";
+import { ErrorPopup } from "../ErrorPopup";
 
 /** Warehouse locations (staff) and the dated stock report (staff and customers). */
 export function WarehouseHome() {
@@ -105,11 +106,7 @@ export function WarehouseHome() {
             <h1 className={styles.title}>Warehouse stock</h1>
           </div>
         </header>
-        {error && (
-          <p className={styles.error} role="alert">
-            {error}
-          </p>
-        )}
+        <ErrorPopup message={error} />
 
         <section className={styles.card} aria-labelledby="report-title">
           <h2 id="report-title">Stock report</h2>

@@ -9,7 +9,9 @@ import type { CustomerCompany } from "../customers/customerApi";
 import { getOutstandingInvoices } from "../jobs/jobApi";
 import type { OutstandingInvoice } from "../jobs/jobApi";
 import { formatMoney } from "../quotes/quoteApi";
+import { FinanceTabs } from "./FinanceTabs";
 import styles from "../jobs/jobs.module.css";
+import { ErrorPopup } from "../ErrorPopup";
 
 type Totals = Array<{
   currency: string;
@@ -69,11 +71,8 @@ export function Receivables() {
             </h1>
           </div>
         </header>
-        {error && (
-          <p className={styles.error} role="alert">
-            {error}
-          </p>
-        )}
+        {isStaff && <FinanceTabs active="/invoices" />}
+        <ErrorPopup message={error} />
         <section className={styles.card} aria-labelledby="owing-title">
           <h2 id="owing-title">Balances</h2>
           {isStaff && (

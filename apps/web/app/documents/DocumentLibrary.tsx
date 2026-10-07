@@ -18,6 +18,7 @@ import {
   uploadLibraryDocument,
 } from "./documentApi";
 import type { LibraryDocument } from "./documentApi";
+import { ErrorPopup } from "../ErrorPopup";
 
 type Owner = "none" | "job" | "company";
 
@@ -266,11 +267,7 @@ export function DocumentLibrary() {
       </div>
 
       {state === "loading" && <p role="status">Loading documents…</p>}
-      {error && (
-        <p className={styles.error} role="alert">
-          {error}
-        </p>
-      )}
+      <ErrorPopup message={error} />
       {state === "ready" && documents.length === 0 && (
         <p className={styles.muted}>
           {search || typeFilter ? "No documents match." : "No documents yet."}

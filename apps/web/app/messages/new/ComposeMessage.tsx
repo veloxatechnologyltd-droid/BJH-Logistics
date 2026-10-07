@@ -7,6 +7,7 @@ import type { CustomerCompany } from "../../customers/customerApi";
 import styles from "../../jobs/jobs.module.css";
 import { getFeed, sendClientMessage } from "../messageApi";
 import type { ChannelMode, SendResult } from "../messageApi";
+import { ErrorPopup } from "../../ErrorPopup";
 
 /** Write to one company, several, or all of them, by the channels set in Business settings. */
 export function ComposeMessage() {
@@ -211,11 +212,7 @@ export function ComposeMessage() {
         </section>
       </form>
 
-      {error && (
-        <p className={styles.error} role="alert">
-          {error}
-        </p>
-      )}
+      <ErrorPopup message={error} />
       {result && (
         <section className={styles.card} aria-live="polite">
           <h2>

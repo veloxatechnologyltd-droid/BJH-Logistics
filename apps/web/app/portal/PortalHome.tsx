@@ -11,6 +11,7 @@ import {
 } from "../quotations/quoteRequestApi";
 import type { QuoteRequest } from "../quotations/quoteRequestApi";
 import styles from "../jobs/jobs.module.css";
+import { ErrorPopup } from "../ErrorPopup";
 
 /** A customer's home: their jobs and quotes, and a form to ask for a quote. */
 export function PortalHome() {
@@ -99,11 +100,7 @@ export function PortalHome() {
 
             <section className={styles.card} aria-labelledby="request-title">
               <h2 id="request-title">Ask for a quotation</h2>
-              {error && (
-                <p className={styles.error} role="alert">
-                  {error}
-                </p>
-              )}
+              <ErrorPopup message={error} />
               {notice && <p className={styles.notice}>{notice}</p>}
               <form className={styles.form} onSubmit={submit}>
                 {companies.length > 1 && (

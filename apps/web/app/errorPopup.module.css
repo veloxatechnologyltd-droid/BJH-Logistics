@@ -1,0 +1,41 @@
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(23 50 77 / 45%);
+}
+.dialog {
+  width: min(440px, 100%);
+  padding: 28px;
+  border: 1px solid var(--brand-border);
+  border-radius: 12px;
+  background: var(--brand-surface);
+  box-shadow: 0 18px 48px rgb(23 50 77 / 28%);
+}
+.dialog h2 {
+  margin: 0 0 8px;
+  color: var(--brand-ink);
+  font-size: 1.15rem;
+}
+.dialog p {
+  margin: 0 0 20px;
+  color: var(--brand-muted);
+  overflow-wrap: anywhere;
+}
+.dialog button {
+  min-width: 96px;
+  padding: 10px 20px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--brand-primary);
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.dialog button:hover {
+  background: var(--brand-primary-dark);
+}

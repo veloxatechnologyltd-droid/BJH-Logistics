@@ -15,6 +15,7 @@ import {
 } from "./jobApi";
 import type { ChargeTotals, JobCharge, JobDocument } from "./jobApi";
 import styles from "./jobs.module.css";
+import { ErrorPopup } from "../ErrorPopup";
 
 const evidenceTypes = ["supplier_invoice", "disbursement_evidence"];
 const popularCurrencies = [
@@ -204,11 +205,7 @@ export function JobCharges({
           </div>
         )}
       </div>
-      {error && (
-        <p className={styles.error} role="alert">
-          {error}
-        </p>
-      )}
+      <ErrorPopup message={error} />
       {notice && <p className={styles.notice}>{notice}</p>}
 
       {totals.map((item) => (

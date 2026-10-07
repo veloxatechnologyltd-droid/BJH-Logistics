@@ -18,6 +18,7 @@ import {
   startQuoteVersion,
 } from "./quoteApi";
 import type { Quote, QuoteLine, QuoteVersion } from "./quoteApi";
+import { ErrorPopup, plainMessage } from "../ErrorPopup";
 
 function formatDate(value: string): string {
   return new Intl.DateTimeFormat(undefined, {
@@ -288,9 +289,8 @@ export function QuoteDetail({ quoteId }: { quoteId: string }) {
         <Link className={styles.link} href="/quotes">
           ← Quotes
         </Link>
-        <p className={styles.error} role="alert">
-          {loadError}
-        </p>
+        <ErrorPopup message={loadError} />
+        <p className={styles.error}>{plainMessage(loadError)}</p>
       </main>
     );
   }
@@ -398,11 +398,7 @@ export function QuoteDetail({ quoteId }: { quoteId: string }) {
         </div>
       </header>
 
-      {error && (
-        <p className={styles.error} role="alert">
-          {error}
-        </p>
-      )}
+      <ErrorPopup message={error} />
 
       {isStaff && deciding && latestIssued && !latestDecision && (
         <section className={styles.card} aria-labelledby="decision-title">

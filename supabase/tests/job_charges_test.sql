@@ -33,14 +33,14 @@ VALUES ('00000000-0000-4000-8000-0000000000e8', '00000000-0000-4000-8000-0000000
         'disbursement', 'Terminal handling', 'GHS', 50000, '00000000-0000-4000-8000-0000000000a8');
 
 INSERT INTO app.quote (quote_id, service_line, customer_company_id, created_by)
-VALUES ('00000000-0000-4000-8000-0000000000ab8', 'sea_import',
+VALUES ('00000000-0000-4000-8000-000000000ab8', 'sea_import',
         '00000000-0000-4000-8000-0000000000b8', '00000000-0000-4000-8000-0000000000a8');
 INSERT INTO app.quote_version (version_id, quote_id, version_number, currency, title, size_labels, created_by)
-VALUES ('00000000-0000-4000-8000-0000000000ac8', '00000000-0000-4000-8000-0000000000ab8',
+VALUES ('00000000-0000-4000-8000-000000000ac8', '00000000-0000-4000-8000-000000000ab8',
         1, 'GHS', 'Synthetic container quote', ARRAY['20ft', '50ft'],
         '00000000-0000-4000-8000-0000000000a8');
 INSERT INTO app.quote_line (line_id, version_id, position, description, basis, size_amounts_minor)
-VALUES ('00000000-0000-4000-8000-0000000000ad8', '00000000-0000-4000-8000-0000000000ac8',
+VALUES ('00000000-0000-4000-8000-000000000ad8', '00000000-0000-4000-8000-000000000ac8',
         0, 'Container handling', 'per_container', ARRAY[100, 300]::bigint[]);
 
 SELECT extensions.lives_ok(
@@ -48,11 +48,11 @@ SELECT extensions.lives_ok(
       (charge_id, job_id, kind, description, currency, unit_quoted_minor,
        quote_line_id, quote_container_size, created_by)
     VALUES
-      ('00000000-0000-4000-8000-0000000000aa1', '00000000-0000-4000-8000-0000000000c8',
-       'service', 'Container handling', 'GHS', 100, '00000000-0000-4000-8000-0000000000ad8',
+      ('00000000-0000-4000-8000-000000000aa1', '00000000-0000-4000-8000-0000000000c8',
+       'service', 'Container handling', 'GHS', 100, '00000000-0000-4000-8000-000000000ad8',
        '20ft', '00000000-0000-4000-8000-0000000000a8'),
-      ('00000000-0000-4000-8000-0000000000aa2', '00000000-0000-4000-8000-0000000000c8',
-       'service', 'Container handling', 'GHS', 300, '00000000-0000-4000-8000-0000000000ad8',
+      ('00000000-0000-4000-8000-000000000aa2', '00000000-0000-4000-8000-0000000000c8',
+       'service', 'Container handling', 'GHS', 300, '00000000-0000-4000-8000-000000000ad8',
        '50ft', '00000000-0000-4000-8000-0000000000a8')$$,
   'one quote line can be imported for multiple container sizes'
 );
@@ -61,14 +61,14 @@ SELECT extensions.throws_ok(
       (job_id, kind, description, currency, unit_quoted_minor,
        quote_line_id, quote_container_size, created_by)
     VALUES ('00000000-0000-4000-8000-0000000000c8', 'service', 'Duplicate', 'GHS', 100,
-       '00000000-0000-4000-8000-0000000000ad8', '20FT',
+       '00000000-0000-4000-8000-000000000ad8', '20FT',
        '00000000-0000-4000-8000-0000000000a8')$$,
   '23505', NULL,
   'a quote line and size combination can only be imported once'
 );
 SELECT extensions.throws_ok(
   $$UPDATE app.job_charge SET quote_container_size = '40ft'
-    WHERE charge_id = '00000000-0000-4000-8000-0000000000aa1'$$,
+    WHERE charge_id = '00000000-0000-4000-8000-000000000aa1'$$,
   'job charge fields are immutable',
   'an imported container size cannot be changed'
 );
@@ -104,8 +104,8 @@ SELECT extensions.throws_ok(
 SELECT extensions.throws_ok(
   $$INSERT INTO app.job_charge_actual (charge_id, amount_minor, currency, converted_minor, recorded_by)
     VALUES ('00000000-0000-4000-8000-0000000000e8', 100, 'USD', 1500, '00000000-0000-4000-8000-0000000000a8')$$,
-  'an actual in another currency needs an exchange rate',
-  'another currency needs an exchange rate'
+  'an unconverted actual cannot have a converted amount',
+  'another currency without a rate has no converted amount'
 );
 SELECT extensions.lives_ok(
   $$INSERT INTO app.job_charge_actual (charge_id, amount_minor, currency, exchange_rate, converted_minor, supplier_document_id, correction_of, recorded_by)
