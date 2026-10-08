@@ -81,6 +81,34 @@ test("auth routes are rate limited per client", async () => {
   );
 });
 
+test("with CLIENT_IP_HEADER set, each visitor address has its own limit", async () => {
+  process.env.CLIENT_IP_HEADER = "cf-connecting-ip";
+  try {
+    const call = async (address: string) =>
+      (
+        await fetch(`${baseUrl}/api/v1/auth/bootstrap-status`, {
+          headers: { "cf-connecting-ip": address },
+        })
+      ).status;
+    const first: number[] = [];
+    for (let attempt = 0; attempt < 32; attempt += 1) {
+      first.push(await call("203.0.113.1"));
+    }
+    assert.equal(
+      first.slice(0, 30).every((status) => status === 200),
+      true,
+    );
+    assert.equal(
+      first.slice(30).every((status) => status === 429),
+      true,
+    );
+    // A different visitor behind the same front door is not affected.
+    assert.equal(await call("203.0.113.2"), 200);
+  } finally {
+    delete process.env.CLIENT_IP_HEADER;
+  }
+});
+
 test("the session lookup is not held to the 30-a-minute auth limit", async () => {
   const statuses: number[] = [];
   for (let attempt = 0; attempt < 40; attempt += 1) {

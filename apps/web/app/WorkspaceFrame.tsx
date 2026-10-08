@@ -67,7 +67,7 @@ const collapsedKey = "bjh.sidebar.collapsed";
 
 export function WorkspaceFrame({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const { isCustomer } = useStaffAccess();
+  const { isCustomer, status } = useStaffAccess();
   const [collapsed, setCollapsed] = useState(false);
 
   useEffect(() => {
@@ -165,7 +165,17 @@ export function WorkspaceFrame({ children }: { children: ReactNode }) {
         {!isCustomer && <SettingsSidebarSection active={settingsActive} />}
       </aside>
 
-      <div className="workspace-main">{children}</div>
+      <div className="workspace-main">
+        {status === "unavailable" && (
+          <p className="access-notice" role="alert">
+            Your access could not be checked, so some buttons may be missing.
+            <button onClick={() => window.location.reload()} type="button">
+              Reload
+            </button>
+          </p>
+        )}
+        {children}
+      </div>
     </div>
   );
 }
