@@ -67,9 +67,10 @@ export function CustomerAccounts() {
     try {
       const [accountList, pendingList, companyList] = await Promise.all([
         readResponse<Account[]>(await authenticatedFetch(accountsUrl)),
-        readResponse<PendingAccount[]>(
-          await authenticatedFetch(`${accountsUrl}/pending`),
-        ),
+        // An API not yet updated has no such list; the page still works.
+        authenticatedFetch(`${accountsUrl}/pending`)
+          .then((response) => readResponse<PendingAccount[]>(response))
+          .catch(() => [] as PendingAccount[]),
         listCustomers(""),
       ]);
       setAccounts(accountList);
