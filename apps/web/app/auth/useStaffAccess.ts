@@ -19,6 +19,54 @@ const initial: StaffAccessState = {
   companies: [],
 };
 
+type Access = Pick<StaffAccessState, "roles" | "companies">;
+
+async function fetchAccess(apiBase: string): Promise<Access> {
+  const response = await authenticatedFetch(`${apiBase}/v1/auth/session`);
+  if (response.status === 403) {
+    return { roles: [], companies: [] };
+  }
+  if (!response.ok) {
+    throw new Error("Staff access could not be checked");
+  }
+  const session = (await response.json()) as {
+    roles?: unknown;
+    companies?: unknown;
+  };
+  return {
+    roles: Array.isArray(session.roles)
+      ? session.roles.filter((role): role is string => typeof role === "string")
+      : [],
+    companies: Array.isArray(session.companies)
+      ? (session.companies as CustomerCompany[])
+      : [],
+  };
+}
+
+// Many components on one page ask who is signed in. They share one request,
+// kept for a short while and only for the same sign-in (a different user has
+// a different token), so a page costs the API one lookup, not one per component.
+const reuseMs = 20_000;
+let shared: { token: string; at: number; request: Promise<Access> } | null =
+  null;
+
+async function loadAccess(apiBase: string): Promise<Access> {
+  const session = await getSupabaseBrowserClient()?.auth.getSession();
+  const token = session?.data.session?.access_token;
+  if (token && shared?.token === token && Date.now() - shared.at < reuseMs) {
+    return shared.request;
+  }
+  const request = fetchAccess(apiBase);
+  if (token) {
+    shared = { token, at: Date.now(), request };
+    // A failed lookup is not kept: the next component asks again.
+    request.catch(() => {
+      if (shared?.request === request) shared = null;
+    });
+  }
+  return request;
+}
+
 export function useStaffAccess() {
   const [access, setAccess] = useState<StaffAccessState>(initial);
 
@@ -30,29 +78,7 @@ export function useStaffAccess() {
     // Runs on mount and again whenever someone signs in or out, because the
     // page frame that uses this stays mounted across a sign-in.
     const load = () => {
-      void authenticatedFetch(`${apiBase}/v1/auth/session`)
-        .then(async (response) => {
-          if (response.status === 403) {
-            return { roles: [], companies: [] };
-          }
-          if (!response.ok) {
-            throw new Error("Staff access could not be checked");
-          }
-          const session = (await response.json()) as {
-            roles?: unknown;
-            companies?: unknown;
-          };
-          return {
-            roles: Array.isArray(session.roles)
-              ? session.roles.filter(
-                  (role): role is string => typeof role === "string",
-                )
-              : [],
-            companies: Array.isArray(session.companies)
-              ? (session.companies as CustomerCompany[])
-              : [],
-          };
-        })
+      void loadAccess(apiBase)
         .then(({ roles, companies }) => {
           if (active) setAccess({ status: "ready", roles, companies });
         })

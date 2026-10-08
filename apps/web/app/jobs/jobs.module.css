@@ -606,20 +606,62 @@
   margin: 0;
   padding: 0;
 }
+.progressHeading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.progressHeading h3 {
+  margin: 0;
+}
+.progressHeading span {
+  color: var(--brand-muted);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
 .progressList li {
+  position: relative;
   display: grid;
   grid-template-columns: 28px minmax(0, 1fr) auto;
-  align-items: center;
+  align-items: start;
   gap: 12px;
-  padding: 12px 0;
-  border-bottom: 1px solid var(--brand-border);
+  padding: 0 0 22px;
+}
+.progressList li:last-child {
+  padding-bottom: 0;
+}
+.progressList li:not(:last-child)::before {
+  content: "";
+  position: absolute;
+  left: 13px;
+  top: 31px;
+  bottom: 3px;
+  width: 2px;
+  background: var(--brand-border);
+}
+.progressList li.progressJoined::before {
+  background: var(--brand-primary);
 }
 .progressList li > div {
   display: grid;
   gap: 3px;
+  padding-top: 2px;
+}
+.progressList li > .textButton {
+  align-self: center;
+}
+.progressList li:not(.progressDone) strong {
+  color: var(--brand-muted);
 }
 .progressList small {
   color: var(--brand-muted);
+}
+.stepNote {
+  color: #0f2747;
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
 }
 .progressNumber {
   display: grid;

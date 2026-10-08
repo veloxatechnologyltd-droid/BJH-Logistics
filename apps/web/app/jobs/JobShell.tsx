@@ -73,7 +73,7 @@ export function JobShell({
   children: ReactNode;
 }) {
   const pathname = usePathname();
-  const { roles } = useStaffAccess();
+  const { roles, status: accessStatus } = useStaffAccess();
   const isStaff = roles.length > 0;
   const [data, setData] = useState<{
     timeline: Timeline;
@@ -130,6 +130,19 @@ export function JobShell({
         </Link>
         <ErrorPopup message={loadError} />
         <p className={styles.error}>{plainMessage(loadError)}</p>
+      </main>
+    );
+  }
+  // A failed access check must not fall through to the customer view.
+  if (accessStatus === "unavailable") {
+    return (
+      <main className={styles.page}>
+        <Link className={styles.link} href="/jobs">
+          ← Jobs
+        </Link>
+        <p className={styles.error}>
+          Your access could not be checked. Reload the page to try again.
+        </p>
       </main>
     );
   }

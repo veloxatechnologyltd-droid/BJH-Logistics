@@ -1,5 +1,5 @@
 import { Controller, Get, Inject, Post, Req, UseGuards } from "@nestjs/common";
-import { ThrottlerGuard } from "@nestjs/throttler";
+import { Throttle, ThrottlerGuard } from "@nestjs/throttler";
 import { SupabaseIdentityGuard } from "./auth.guards";
 import type { AuthenticatedRequest } from "./auth.guards";
 import { AuthService } from "./auth.service";
@@ -20,7 +20,11 @@ export class AuthController {
     return this.auth.bootstrapSuperAdmin(request.authUser!);
   }
 
+  // Every page load asks who is signed in, and staff on one office connection
+  // (or behind one proxy address) share a bucket, so this ceiling sits far
+  // above the 30 a minute that protects the bootstrap routes.
   @Get("session")
+  @Throttle({ default: { limit: 600, ttl: 60_000 } })
   @UseGuards(SupabaseIdentityGuard)
   getSession(@Req() request: AuthenticatedRequest) {
     return this.auth.getSession(request.authUser!);

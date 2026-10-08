@@ -72,17 +72,31 @@ export function JobSteps({
     setNote(event.note ?? "");
   }
 
+  const doneCount = timeline.template.filter((item) =>
+    latestByKey.has(item.key),
+  ).length;
+
   return (
     <div className={styles.progressSteps}>
-      <h3>Shipment steps</h3>
+      <div className={styles.progressHeading}>
+        <h3>Shipment steps</h3>
+        <span>
+          {doneCount} of {timeline.template.length} done
+        </span>
+      </div>
       <div className={entry ? styles.progressSplit : undefined}>
         <ol className={styles.progressList}>
           {timeline.template.map((item, index) => {
             const recorded = latestByKey.get(item.key);
+            const next = timeline.template[index + 1];
+            const joined = recorded && next && latestByKey.has(next.key);
             return (
               <li
                 key={item.key}
-                className={recorded ? styles.progressDone : ""}
+                className={[
+                  recorded ? styles.progressDone : "",
+                  joined ? styles.progressJoined : "",
+                ].join(" ")}
               >
                 <span className={styles.progressNumber}>
                   {recorded ? (
@@ -107,10 +121,11 @@ export function JobSteps({
                 <div>
                   <strong>{item.label}</strong>
                   <small>
-                    {recorded
-                      ? `Recorded ${formatDate(recorded.occurredAt)}`
-                      : "Not recorded"}
+                    {recorded ? formatDate(recorded.occurredAt) : "Pending"}
                   </small>
+                  {recorded?.note && (
+                    <span className={styles.stepNote}>{recorded.note}</span>
+                  )}
                 </div>
                 {financeKeys.has(item.key) ? (
                   <Link
@@ -173,7 +188,7 @@ export function JobSteps({
               />
             </label>
             <label className={styles.field}>
-              Note (optional)
+              Note (optional, customers can read it)
               <input
                 onChange={(event) => setNote(event.target.value)}
                 value={note}

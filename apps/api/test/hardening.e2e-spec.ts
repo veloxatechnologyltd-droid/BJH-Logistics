@@ -8,7 +8,10 @@ import {
   resolveListenHost,
 } from "../src/app.config";
 import { beginTestDatabase, endTestDatabase } from "./postgres-test-database";
-import { createTestApplication } from "./test-application";
+import {
+  createTestApplication,
+  TEST_SUPER_ADMIN_TOKEN,
+} from "./test-application";
 
 let application: INestApplication;
 let baseUrl: string;
@@ -74,6 +77,23 @@ test("auth routes are rate limited per client", async () => {
   );
   assert.equal(
     statuses.slice(30).every((status) => status === 429),
+    true,
+  );
+});
+
+test("the session lookup is not held to the 30-a-minute auth limit", async () => {
+  const statuses: number[] = [];
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    statuses.push(
+      (
+        await fetch(`${baseUrl}/api/v1/auth/session`, {
+          headers: { authorization: `Bearer ${TEST_SUPER_ADMIN_TOKEN}` },
+        })
+      ).status,
+    );
+  }
+  assert.equal(
+    statuses.every((status) => status === 200),
     true,
   );
 });
