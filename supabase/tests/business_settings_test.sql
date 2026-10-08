@@ -14,21 +14,23 @@ SELECT extensions.ok(
 INSERT INTO auth.users (id, aud, role, email, encrypted_password)
 VALUES ('00000000-0000-4000-8000-0000000000a7', 'authenticated', 'authenticated', 'settings-test@example.test', '');
 
+-- Revision numbers far above real ones, so a persistent local database that
+-- already holds saved settings does not collide with the fixture.
 SELECT extensions.lives_ok(
   $$INSERT INTO app.business_settings_revision (revision_number, settings, changed_by)
-    VALUES (1, '{"issuer": {"name": "Synthetic Ltd"}}', '00000000-0000-4000-8000-0000000000a7')$$,
+    VALUES (900001, '{"issuer": {"name": "Synthetic Ltd"}}', '00000000-0000-4000-8000-0000000000a7')$$,
   'a settings revision can be recorded'
 );
 SELECT extensions.throws_ok(
   $$INSERT INTO app.business_settings_revision (revision_number, settings, changed_by)
-    VALUES (1, '{}', '00000000-0000-4000-8000-0000000000a7')$$,
+    VALUES (900001, '{}', '00000000-0000-4000-8000-0000000000a7')$$,
   '23505',
   NULL,
   'a revision number is used once'
 );
 SELECT extensions.throws_ok(
   $$INSERT INTO app.business_settings_revision (revision_number, settings, changed_by)
-    VALUES (2, '[]', '00000000-0000-4000-8000-0000000000a7')$$,
+    VALUES (900002, '[]', '00000000-0000-4000-8000-0000000000a7')$$,
   '23514',
   NULL,
   'settings must be an object'

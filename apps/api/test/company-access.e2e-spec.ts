@@ -15,7 +15,11 @@ import {
 } from "./test-application";
 import { createTestApplication } from "./test-application";
 import { DatabasePort } from "../src/database/database.port";
-import { beginTestDatabase, endTestDatabase } from "./postgres-test-database";
+import {
+  beginTestDatabase,
+  endTestDatabase,
+  testPostgresPool,
+} from "./postgres-test-database";
 
 let application: INestApplication;
 let baseUrl: string;
@@ -262,6 +266,24 @@ test("department staff can read shared records but cannot create or change them"
     ).status,
     403,
   );
+});
+
+test("a suspended customer loses access at once, even with a token issued before", async () => {
+  const path = `/api/v1/customers/${companyA}`;
+  assert.equal((await call(path, TEST_CUSTOMER_A_TOKEN)).status, 200);
+
+  await testPostgresPool.query(
+    "UPDATE auth.users SET banned_until = now() + interval '100 years' WHERE id = $1::uuid",
+    [TEST_CUSTOMER_A_ID],
+  );
+  assert.equal((await call(path, TEST_CUSTOMER_A_TOKEN)).status, 403);
+  assert.equal((await call("/api/v1/jobs", TEST_CUSTOMER_A_TOKEN)).status, 403);
+
+  await testPostgresPool.query(
+    "UPDATE auth.users SET banned_until = NULL WHERE id = $1::uuid",
+    [TEST_CUSTOMER_A_ID],
+  );
+  assert.equal((await call(path, TEST_CUSTOMER_A_TOKEN)).status, 200);
 });
 
 test("membership revocation removes access and preserves history", async () => {

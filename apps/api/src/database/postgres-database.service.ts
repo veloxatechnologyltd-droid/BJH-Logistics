@@ -4084,10 +4084,15 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     }));
   }
 
+  /** A suspended (banned) account gets no companies, even with a token issued before the ban. */
   async getActiveCustomerCompanyIds(userId: string): Promise<string[]> {
     const result = await this.pool.query(
       `SELECT company_id FROM app.customer_membership
-       WHERE user_id = $1::uuid AND revoked_at IS NULL ORDER BY company_id`,
+       WHERE user_id = $1::uuid AND revoked_at IS NULL
+         AND NOT EXISTS (
+           SELECT 1 FROM auth.users
+           WHERE id = $1::uuid AND banned_until > now())
+       ORDER BY company_id`,
       [userId],
     );
     return result.rows.map((row) => String(row.company_id));
