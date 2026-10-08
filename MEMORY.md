@@ -555,6 +555,12 @@ Read MEMORY.md at the start of every session before doing anything. Never contra
 **Why:** Evans asked to make the code ready to push, with the backend on Render and the frontend on Vercel, and chose the free plan. Known effect: the free service sleeps when idle, so queued email/SMS wait until the next request wakes it, and the first request after idle is slow.
 **What was rejected:** Running migrations in the Render build (AGENTS.md hard stop; schema changes need a controlled path); auto-deploy on push (deploys must be explicit); a Dockerfile (Render's native Node runtime is simpler); the Render worker/Redis service (BullMQ worker still planned, the API's in-process notification timer covers sending today).
 
+## 2026-10-07, Production migrations run from one script
+
+**What was decided:** `corepack pnpm db:migrate:production` (`scripts/migrate-production.mjs`) is the controlled release path for schema. It reads the hosted `DATABASE_URL` from `.env` (changed the same day from a separate `PRODUCTION_DB_URL` in `.env.production`, at Evans's request for one direct path), refuses local hosts, resolves host names over HTTPS (Evans's local DNS resolver times out on IPv6 lookups, which made connections time out), runs `supabase db push --dry-run`, and applies only after the person types `apply production`. Vault updates are skipped; no seed. Applied versions are tracked in `supabase_migrations.schema_migrations`.
+**Why:** Evans asked for a script he can run to apply the migrations to production Supabase.
+**What was rejected:** Linking the project (`supabase link`, stores project state locally); running migrations in the Render build (AGENTS.md hard stop); a separate `.env.production` (Evans wanted the existing `.env` details used directly).
+
 ## 2026-10-08, Shipment steps list reads like the client's sample tracker
 
 **What was decided:** The "Shipment steps" list (`JobSteps.tsx`, shown to staff and customers) gains an "n of N done" counter, a connecting rail between steps (blue only between two recorded steps, grey otherwise), pending steps greyed with the word "Pending" (was "Not recorded"), the date alone on recorded steps (was "Recorded <date>"), and the step's note as a detail line under it. The note box now says customers can read it. No API, contract or database change. This revises the 2026-10-03 removal of the milestone count, now that the two-tracker confusion is gone (one list). Evans said "make mine even better" after seeing the comparison with the sample.
