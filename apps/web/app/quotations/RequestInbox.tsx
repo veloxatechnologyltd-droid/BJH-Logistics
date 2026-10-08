@@ -57,7 +57,6 @@ export function RequestInbox() {
     <section className={styles.inbox} aria-labelledby="inbox-title">
       <div className={styles.inboxHeader}>
         <div>
-          <p className={styles.sectionEyebrow}>LOCAL REQUEST INBOX</p>
           <h2 id="inbox-title">Request inbox</h2>
           <p>Review submitted quote requests.</p>
         </div>

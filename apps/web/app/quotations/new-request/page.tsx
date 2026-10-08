@@ -4,7 +4,7 @@ import styles from "../quotation.module.css";
 
 export const metadata = {
   title: "New quote request | BJH Logistics",
-  description: "Create a local quote request for the staff inbox.",
+  description: "Create a quote request for the staff inbox.",
 };
 
 export default function NewRequestPreviewPage() {

@@ -202,17 +202,6 @@ textarea {
   color: #fff;
 }
 
-.sidebar-note {
-  display: flex;
-  gap: 10px;
-  margin-top: auto;
-  border: 1px solid rgb(255 255 255 / 14%);
-  border-radius: 12px;
-  background: rgb(255 255 255 / 7%);
-  padding: 14px 12px;
-}
-
-.local-indicator,
 .status-dot {
   width: 8px;
   height: 8px;
@@ -221,36 +210,18 @@ textarea {
   background: #73c39c;
 }
 
-.sidebar-note .local-indicator {
-  background: #fff;
-}
-.local-indicator {
-  margin-top: 4px;
-}
-.sidebar-note strong {
-  display: block;
-  font-size: 0.85rem;
-}
-.sidebar-note p {
-  margin: 4px 0 0;
-  color: rgb(255 255 255 / 80%);
-  font-size: 0.78rem;
-  line-height: 1.45;
-}
-
 .workspace-main {
   min-width: 0;
 }
 
-/* Collapsed: an icon rail; labels, headings and the note are hidden. */
+/* Collapsed: an icon rail; labels and headings are hidden. */
 .collapsed .sidebar {
   padding-right: 12px;
   padding-left: 12px;
 }
 .collapsed .brand-copy,
 .collapsed .nav-label,
-.collapsed .nav-heading,
-.collapsed .sidebar-note {
+.collapsed .nav-heading {
   display: none;
 }
 .collapsed .brand {
@@ -617,8 +588,7 @@ a:focus-visible {
     width: 36px;
     height: 36px;
   }
-  .nav-heading,
-  .sidebar-note {
+  .nav-heading {
     display: none;
   }
   .settings-heading {

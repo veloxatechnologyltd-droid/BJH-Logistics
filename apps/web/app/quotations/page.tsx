@@ -4,7 +4,7 @@ import styles from "./quotation.module.css";
 
 export const metadata = {
   title: "Quotation requests | BJH Logistics",
-  description: "Local quote-request inbox for BJH Logistics staff.",
+  description: "Quote-request inbox for BJH Logistics staff.",
 };
 
 export default function QuotationsPage() {

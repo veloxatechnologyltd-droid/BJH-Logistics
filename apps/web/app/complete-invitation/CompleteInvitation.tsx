@@ -21,7 +21,7 @@ export function CompleteInvitation() {
   useEffect(() => {
     const supabase = getSupabaseBrowserClient();
     if (!supabase) {
-      setError("Local Supabase Auth is not configured.");
+      setError("Sign-in is not configured for this site.");
       return;
     }
     let active = true;
@@ -46,7 +46,8 @@ export function CompleteInvitation() {
     setError("");
     try {
       const supabase = getSupabaseBrowserClient();
-      if (!supabase) throw new Error("Local Supabase Auth is not configured.");
+      if (!supabase)
+        throw new Error("Sign-in is not configured for this site.");
       const { data, error: passwordError } = await supabase.auth.updateUser({
         password,
       });

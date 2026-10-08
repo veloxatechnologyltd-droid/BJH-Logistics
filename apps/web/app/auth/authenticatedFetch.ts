@@ -6,7 +6,7 @@ export async function authenticatedFetch(
 ): Promise<Response> {
   const supabase = getSupabaseBrowserClient();
   if (!supabase) {
-    throw new Error("Configure local Supabase Auth before signing in");
+    throw new Error("Sign-in is not configured for this site");
   }
 
   const { data, error } = await supabase.auth.getSession();

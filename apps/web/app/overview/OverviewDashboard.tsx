@@ -328,9 +328,6 @@ export function OverviewDashboard() {
           <h1 className={styles.title}>Overview</h1>
         </div>
         <div className={styles.headerActions}>
-          <span className={styles.environment}>
-            <span aria-hidden="true" /> LOCAL WORKSPACE
-          </span>
           <div className={styles.bellWrap}>
             <button
               aria-expanded={notificationsOpen}

@@ -31,7 +31,7 @@ export function SignInForm() {
   const [bootstrapAvailable, setBootstrapAvailable] = useState<boolean | null>(
     null,
   );
-  const [mode, setMode] = useState<AuthMode>("bootstrap");
+  const [mode, setMode] = useState<AuthMode>("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -51,7 +51,9 @@ export function SignInForm() {
       .then((status) => {
         if (active) {
           setBootstrapAvailable(status.bootstrapAvailable);
-          setMode(status.bootstrapAvailable ? "bootstrap" : "signin");
+          if (status.bootstrapAvailable) {
+            setMode("bootstrap");
+          }
         }
       })
       .catch((cause: unknown) => {
@@ -59,10 +61,9 @@ export function SignInForm() {
           setError(
             cause instanceof Error
               ? cause.message
-              : "The local Auth service is unavailable",
+              : "The sign-in service is unavailable",
           );
           setBootstrapAvailable(false);
-          setMode("signin");
         }
       });
 
@@ -83,9 +84,7 @@ export function SignInForm() {
     try {
       const supabase = getSupabaseBrowserClient();
       if (!supabase) {
-        throw new Error(
-          "Set the local Supabase URL and publishable key in .env",
-        );
+        throw new Error("Sign-in is not configured for this site");
       }
 
       const result =
@@ -130,14 +129,6 @@ export function SignInForm() {
     } finally {
       setLoading(false);
     }
-  }
-
-  if (bootstrapAvailable === null && !error) {
-    return (
-      <div className={styles.signInCard} role="status" aria-live="polite">
-        Checking local setup…
-      </div>
-    );
   }
 
   return (

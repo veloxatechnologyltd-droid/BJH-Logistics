@@ -163,14 +163,6 @@ export function WorkspaceFrame({ children }: { children: ReactNode }) {
         </nav>
 
         {!isCustomer && <SettingsSidebarSection active={settingsActive} />}
-
-        <div className="sidebar-note">
-          <span className="local-indicator" aria-hidden="true" />
-          <div>
-            <strong>Local environment</strong>
-            <p>Connected to the local Supabase stack.</p>
-          </div>
-        </div>
       </aside>
 
       <div className="workspace-main">{children}</div>

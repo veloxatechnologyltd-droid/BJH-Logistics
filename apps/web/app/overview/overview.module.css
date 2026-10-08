@@ -26,28 +26,6 @@
   font-size: 1rem;
 }
 
-.environment {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 8px;
-  border: 1px solid var(--brand-border);
-  border-radius: 999px;
-  background: #fff;
-  color: var(--brand-primary);
-  padding: 8px 14px;
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.07em;
-}
-
-.environment span {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--brand-primary);
-}
-
 .panel {
   min-width: 0;
   border: 1px solid var(--brand-border);
@@ -247,10 +225,6 @@
 
   .header {
     display: block;
-  }
-
-  .environment {
-    margin-top: 12px;
   }
 
   .metrics {

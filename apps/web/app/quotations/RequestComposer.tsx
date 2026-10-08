@@ -151,7 +151,6 @@ export function RequestComposer() {
           <p className={styles.sectionEyebrow}>REQUEST INTAKE</p>
           <h2 id="fields-title">Request details</h2>
         </div>
-        <span className={styles.sampleCount}>Local database</span>
       </div>
 
       <fieldset className={styles.requestFields}>

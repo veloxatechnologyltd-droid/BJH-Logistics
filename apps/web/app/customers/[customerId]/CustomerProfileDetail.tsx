@@ -496,7 +496,6 @@ export function CustomerProfileDetail() {
                 <p className={styles.sectionEyebrow}>PROFILE</p>
                 <h2 id="contact-title">Contacts</h2>
               </div>
-              <span className={styles.notConnected}>Local data</span>
             </div>
             <dl className={styles.contactGrid}>
               {customer.contacts.map((contact) => (
@@ -649,7 +648,6 @@ export function CustomerProfileDetail() {
                 <p className={styles.sectionEyebrow}>ACTIVITY</p>
                 <h2 id="history-title">Customer history</h2>
               </div>
-              <span className={styles.localCaption}>LOCAL ENGINE</span>
             </div>
             <div className={styles.historyGrid}>
               <article className={styles.historyCard}>

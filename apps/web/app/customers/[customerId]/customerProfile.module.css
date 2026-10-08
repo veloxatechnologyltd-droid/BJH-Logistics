@@ -59,8 +59,7 @@
   line-height: 1.55;
 }
 
-.sampleBadge,
-.localCaption {
+.sampleBadge {
   flex: 0 0 auto;
   border: 1px solid #d8e2ef;
   border-radius: 999px;
@@ -368,12 +367,6 @@
 
 .historyHeading {
   margin-bottom: 14px;
-}
-
-.localCaption {
-  border-color: #e0e7ee;
-  background: #f8fafc;
-  color: #728394;
 }
 
 .historyGrid {

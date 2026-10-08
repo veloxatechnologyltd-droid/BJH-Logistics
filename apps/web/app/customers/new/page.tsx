@@ -4,7 +4,7 @@ import styles from "../customerDirectory.module.css";
 
 export const metadata = {
   title: "New customer | BJH Logistics",
-  description: "Create a local customer company and primary contact.",
+  description: "Create a customer company and primary contact.",
 };
 
 export default function NewCustomerPage() {
