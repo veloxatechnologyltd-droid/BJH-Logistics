@@ -83,7 +83,7 @@ export class AdminStaffService {
         ? (body as Record<string, string>).password
         : "";
     this.validatePassword(password);
-    await this.auth.setPassword(userId, password);
+    await this.auth.setPassword(userId, password, true);
     return { user, passwordChanged: true };
   }
 

@@ -24,6 +24,9 @@ type Account = {
   companies: Array<{ companyId: string; companyName: string }>;
 };
 
+/** Someone who opened an account themselves and has no access yet. */
+type PendingAccount = { id: string; email: string | null; createdAt: string };
+
 async function readResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as {
@@ -46,6 +49,7 @@ const json = (method: string, body: unknown): RequestInit => ({
 /** The super admin creates customer logins and links each to its companies. */
 export function CustomerAccounts() {
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [pending, setPending] = useState<PendingAccount[]>([]);
   const [companies, setCompanies] = useState<CustomerCompany[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -61,11 +65,15 @@ export function CustomerAccounts() {
     setLoading(true);
     setError("");
     try {
-      const [accountList, companyList] = await Promise.all([
+      const [accountList, pendingList, companyList] = await Promise.all([
         readResponse<Account[]>(await authenticatedFetch(accountsUrl)),
+        readResponse<PendingAccount[]>(
+          await authenticatedFetch(`${accountsUrl}/pending`),
+        ),
         listCustomers(""),
       ]);
       setAccounts(accountList);
+      setPending(pendingList);
       setCompanies(companyList);
       setCompanyId((current) => current || companyList[0]?.id || "");
     } catch (cause) {
@@ -207,6 +215,81 @@ export function CustomerAccounts() {
           <p className={styles.notice} role="status">
             {notice}
           </p>
+        )}
+
+        {pending.length > 0 && (
+          <section className={styles.directory} aria-labelledby="pending-title">
+            <div className={styles.directoryHeading}>
+              <div>
+                <h2 id="pending-title">Waiting for access</h2>
+              </div>
+              <span>{pending.length} accounts</span>
+            </div>
+            <p className={styles.empty}>
+              These people created an account themselves and can see nothing
+              yet. Link a customer to its company here; give staff a role under
+              Staff management.
+            </p>
+            <div className={styles.userList}>
+              {pending.map((account) => (
+                <article className={styles.userCard} key={account.id}>
+                  <div className={styles.userHeading}>
+                    <div>
+                      <h3>{account.email ?? "Email unavailable"}</h3>
+                      <p>
+                        Signed up{" "}
+                        {new Intl.DateTimeFormat(undefined, {
+                          dateStyle: "medium",
+                        }).format(new Date(account.createdAt))}
+                      </p>
+                    </div>
+                  </div>
+                  <div className={styles.addRole}>
+                    <label>
+                      Company
+                      <select
+                        onChange={(event) =>
+                          setExtraCompany({
+                            ...extraCompany,
+                            [account.id]: event.target.value,
+                          })
+                        }
+                        value={extraCompany[account.id] ?? ""}
+                      >
+                        <option value="">Choose a company</option>
+                        {companies.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.companyName}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <button
+                      disabled={!extraCompany[account.id]}
+                      onClick={() =>
+                        void run(
+                          async () =>
+                            readResponse(
+                              await authenticatedFetch(
+                                membershipsUrl,
+                                json("POST", {
+                                  userId: account.id,
+                                  companyId: extraCompany[account.id],
+                                }),
+                              ),
+                            ),
+                          `${account.email ?? account.id} can now see ${companyName(extraCompany[account.id])}.`,
+                        )
+                      }
+                      type="button"
+                    >
+                      Give access
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </section>
         )}
 
         <section className={styles.directory} aria-labelledby="customers-title">

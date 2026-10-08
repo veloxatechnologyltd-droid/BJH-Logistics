@@ -196,6 +196,8 @@ test("a customer account gets a session listing its companies; an unlinked user 
     userId: TEST_CUSTOMER_A_ID,
     email: "customer-a@example.test",
     roles: [],
+    mustChangePassword: false,
+    twoFactorRequired: false,
     companies: [
       { companyId: companyA, companyName: "Northstar Synthetic Ltd" },
     ],

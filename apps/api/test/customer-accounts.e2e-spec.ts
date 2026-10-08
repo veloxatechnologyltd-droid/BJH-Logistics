@@ -9,6 +9,7 @@ import {
   TEST_MATCHING_USER_ID,
   TEST_SUPER_ADMIN_ID,
   TEST_SUPER_ADMIN_TOKEN,
+  TEST_UNASSIGNED_USER_ID,
   createTestApplication,
 } from "./test-application";
 import { DatabasePort } from "../src/database/database.port";
@@ -84,6 +85,41 @@ test("only the super admin manages customer accounts", async () => {
       403,
     );
   }
+});
+
+test("accounts people opened themselves wait for the admin to link them", async () => {
+  const pending = async () =>
+    (
+      (await (
+        await send("GET", "/api/v1/admin/customer-accounts/pending")
+      ).json()) as Array<{ id: string }>
+    ).map((account) => account.id);
+  const before = await pending();
+  assert.ok(before.includes(TEST_UNASSIGNED_USER_ID));
+  assert.ok(!before.includes(TEST_SUPER_ADMIN_ID));
+  assert.ok(!before.includes(TEST_MATCHING_USER_ID));
+  assert.equal(
+    (await call("/api/v1/admin/customer-accounts/pending", TEST_MATCHING_TOKEN))
+      .status,
+    403,
+  );
+
+  const link = `/api/v1/admin/company-memberships`;
+  assert.equal(
+    (
+      await send("POST", link, {
+        userId: TEST_UNASSIGNED_USER_ID,
+        companyId: company,
+      })
+    ).status,
+    201,
+  );
+  assert.ok(!(await pending()).includes(TEST_UNASSIGNED_USER_ID));
+  assert.equal(
+    (await send("DELETE", `${link}/${TEST_UNASSIGNED_USER_ID}/${company}`))
+      .status,
+    200,
+  );
 });
 
 test("the super admin creates a customer account linked to a company, with no staff role", async () => {

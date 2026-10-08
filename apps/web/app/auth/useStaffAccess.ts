@@ -11,20 +11,27 @@ type StaffAccessState = {
   roles: string[];
   /** The companies linked to a customer account; empty for staff. */
   companies: CustomerCompany[];
+  /** The admin set this password; the user must choose their own first. */
+  mustChangePassword: boolean;
+  /** The super admin still has to finish the second sign-in step. */
+  twoFactorRequired: boolean;
 };
 
-const initial: StaffAccessState = {
-  status: "loading",
+const none = {
   roles: [],
   companies: [],
+  mustChangePassword: false,
+  twoFactorRequired: false,
 };
 
-type Access = Pick<StaffAccessState, "roles" | "companies">;
+const initial: StaffAccessState = { status: "loading", ...none };
+
+type Access = Omit<StaffAccessState, "status">;
 
 async function fetchAccess(apiBase: string): Promise<Access> {
   const response = await authenticatedFetch(`${apiBase}/v1/auth/session`);
   if (response.status === 403) {
-    return { roles: [], companies: [] };
+    return none;
   }
   if (!response.ok) {
     throw new Error("Staff access could not be checked");
@@ -32,6 +39,8 @@ async function fetchAccess(apiBase: string): Promise<Access> {
   const session = (await response.json()) as {
     roles?: unknown;
     companies?: unknown;
+    mustChangePassword?: unknown;
+    twoFactorRequired?: unknown;
   };
   return {
     roles: Array.isArray(session.roles)
@@ -40,6 +49,8 @@ async function fetchAccess(apiBase: string): Promise<Access> {
     companies: Array.isArray(session.companies)
       ? (session.companies as CustomerCompany[])
       : [],
+    mustChangePassword: session.mustChangePassword === true,
+    twoFactorRequired: session.twoFactorRequired === true,
   };
 }
 
@@ -79,13 +90,11 @@ export function useStaffAccess() {
     // page frame that uses this stays mounted across a sign-in.
     const load = () => {
       void loadAccess(apiBase)
-        .then(({ roles, companies }) => {
-          if (active) setAccess({ status: "ready", roles, companies });
+        .then((loaded) => {
+          if (active) setAccess({ status: "ready", ...loaded });
         })
         .catch(() => {
-          if (active) {
-            setAccess({ status: "unavailable", roles: [], companies: [] });
-          }
+          if (active) setAccess({ status: "unavailable", ...none });
         });
     };
 

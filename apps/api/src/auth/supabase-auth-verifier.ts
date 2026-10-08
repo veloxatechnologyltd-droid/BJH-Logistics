@@ -9,6 +9,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 export interface AuthenticatedUser {
   userId: string;
   email: string | null;
+  /** Set by the admin on a password they chose; cleared when the user picks their own. */
+  mustChangePassword?: boolean;
+  /** "aal2" once a second factor was verified in this sign-in. */
+  aal?: string | null;
 }
 
 @Injectable()
@@ -68,9 +72,13 @@ export class SupabaseAuthVerifier {
       );
     }
 
+    const appMetadata = claims.app_metadata as
+      Record<string, unknown> | undefined;
     return {
       userId: claims.sub,
       email: typeof claims.email === "string" ? claims.email : null,
+      mustChangePassword: appMetadata?.bjh_must_change_password === true,
+      aal: typeof claims.aal === "string" ? claims.aal : null,
     };
   }
 }

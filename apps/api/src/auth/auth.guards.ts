@@ -20,14 +20,34 @@ export interface AuthenticatedRequest {
   customerCompanyIds?: string[];
 }
 
-/** Reads the caller's active staff roles once per request. */
+/** Two-factor sign-in for the super admin; off until SMS codes are paid for and set up. */
+export function superAdminMfaRequired(
+  environment: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return environment.SUPER_ADMIN_MFA_REQUIRED === "true";
+}
+
+/**
+ * Reads the caller's active staff roles once per request. Every role and scope
+ * guard starts here, so it also refuses an account that must first replace an
+ * admin-set password, and a super admin who has not finished two-factor sign-in.
+ */
 async function loadStaffRoles(
   database: DatabasePort,
   request: AuthenticatedRequest,
 ): Promise<StaffRoleKey[]> {
-  request.staffRoles ??= await database.getActiveStaffRoles(
-    request.authUser!.userId,
-  );
+  const user = request.authUser!;
+  if (user.mustChangePassword) {
+    throw new ForbiddenException("Choose a new password before continuing");
+  }
+  request.staffRoles ??= await database.getActiveStaffRoles(user.userId);
+  if (
+    request.staffRoles.includes("super_admin") &&
+    superAdminMfaRequired() &&
+    user.aal !== "aal2"
+  ) {
+    throw new ForbiddenException("Two-factor sign-in is required");
+  }
   return request.staffRoles;
 }
 

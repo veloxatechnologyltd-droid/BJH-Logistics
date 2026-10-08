@@ -26,6 +26,11 @@ export class AdminCustomerAccountsController {
     return this.accounts.list();
   }
 
+  @Get("pending")
+  listPending() {
+    return this.accounts.listPending();
+  }
+
   @Post()
   create(@Body() body: unknown, @Req() request: AuthenticatedRequest) {
     return this.accounts.create(body, request.authUser!);

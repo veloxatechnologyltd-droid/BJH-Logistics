@@ -53,6 +53,32 @@ export class AdminCustomerAccountsService {
     return accounts;
   }
 
+  /**
+   * Accounts people opened themselves that have no staff role and no company
+   * yet: the admin links each to its company (or gives a staff role under
+   * staff management) before it can see anything.
+   */
+  async listPending() {
+    const pageSize = 200;
+    const users = [];
+    for (let page = 1; ; page += 1) {
+      const batch = await this.auth.listUsers(page, pageSize);
+      users.push(...batch);
+      if (batch.length < pageSize) break;
+    }
+    const [roles, memberships] = await Promise.all([
+      this.database.listStaffRoleAssignments(),
+      this.database.listActiveCustomerMemberships(),
+    ]);
+    const placed = new Set([
+      ...roles.filter((role) => !role.revokedAt).map((role) => role.userId),
+      ...memberships.map((membership) => membership.userId),
+    ]);
+    return users
+      .filter((user) => !placed.has(user.id) && !user.suspended)
+      .map(({ id, email, createdAt }) => ({ id, email, createdAt }));
+  }
+
   async create(body: unknown, actor: AuthenticatedUser) {
     const parsed = parseContract(customerAccountCreateInputSchema, body);
     if (!parsed.success) throw new BadRequestException(parsed.message);
@@ -90,7 +116,7 @@ export class AdminCustomerAccountsService {
     if (password.length < 12) {
       throw new BadRequestException("Password must be at least 12 characters");
     }
-    await this.auth.setPassword(userId, password);
+    await this.auth.setPassword(userId, password, true);
     return { userId, passwordChanged: true };
   }
 

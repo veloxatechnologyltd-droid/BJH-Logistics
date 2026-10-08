@@ -18,8 +18,17 @@ import type { StaffRoleKey } from "../database/database.port";
 export interface StaffAuthDirectory {
   listUsers(page: number, perPage: number): Promise<StaffDirectoryUser[]>;
   getUser(userId: string): Promise<StaffDirectoryUser | null>;
+  /** Creates an account with an admin-chosen, temporary password. */
   createUser(email: string, password: string): Promise<StaffDirectoryUser>;
-  setPassword(userId: string, password: string): Promise<void>;
+  /**
+   * A temporary password (set by the admin) must be replaced at the next
+   * sign-in; the user's own password clears that requirement.
+   */
+  setPassword(
+    userId: string,
+    password: string,
+    temporary: boolean,
+  ): Promise<void>;
   setSuspended(
     userId: string,
     suspended: boolean,
@@ -80,16 +89,28 @@ export class SupabaseStaffAuthDirectory implements StaffAuthDirectory {
       email,
       password,
       email_confirm: true,
+      app_metadata: { bjh_must_change_password: true },
     });
     if (error || !data.user) throw this.providerUnavailable();
     return this.toUser(data.user);
   }
 
-  async setPassword(userId: string, password: string): Promise<void> {
-    const { error } = await this.requireClient().auth.admin.updateUserById(
-      userId,
-      { password },
-    );
+  async setPassword(
+    userId: string,
+    password: string,
+    temporary: boolean,
+  ): Promise<void> {
+    const client = this.requireClient();
+    const { data, error: lookupError } =
+      await client.auth.admin.getUserById(userId);
+    if (lookupError || !data.user) throw this.providerUnavailable();
+    const appMetadata = { ...data.user.app_metadata };
+    // Supabase merges app_metadata on update: only null removes a key.
+    appMetadata.bjh_must_change_password = temporary ? true : null;
+    const { error } = await client.auth.admin.updateUserById(userId, {
+      password,
+      app_metadata: appMetadata,
+    });
     if (error) throw this.providerUnavailable();
   }
 
@@ -103,8 +124,8 @@ export class SupabaseStaffAuthDirectory implements StaffAuthDirectory {
       await client.auth.admin.getUserById(userId);
     if (lookupError || !data.user) throw this.providerUnavailable();
     const appMetadata = { ...data.user.app_metadata };
-    if (suspended) appMetadata.bjh_suspended_roles = roleKeys;
-    else delete appMetadata.bjh_suspended_roles;
+    // Supabase merges app_metadata on update: only null removes a key.
+    appMetadata.bjh_suspended_roles = suspended ? roleKeys : null;
     const { error } = await client.auth.admin.updateUserById(userId, {
       app_metadata: appMetadata,
       ban_duration: suspended ? "876000h" : "none",

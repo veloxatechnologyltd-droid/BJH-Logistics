@@ -1,4 +1,12 @@
-import { Controller, Get, Inject, Post, Req, UseGuards } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Get,
+  Inject,
+  Post,
+  Req,
+  UseGuards,
+} from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
 import { SupabaseIdentityGuard } from "./auth.guards";
 import type { AuthenticatedRequest } from "./auth.guards";
@@ -29,5 +37,13 @@ export class AuthController {
   @UseGuards(SupabaseIdentityGuard)
   getSession(@Req() request: AuthenticatedRequest) {
     return this.auth.getSession(request.authUser!);
+  }
+
+  // Open to an account that still has to replace an admin-set password, so it
+  // sits outside the role guards (which refuse such an account).
+  @Post("password")
+  @UseGuards(SupabaseIdentityGuard)
+  changePassword(@Req() request: AuthenticatedRequest, @Body() body: unknown) {
+    return this.auth.changeOwnPassword(request.authUser!, body);
   }
 }

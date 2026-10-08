@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { useStaffAccess } from "./auth/useStaffAccess";
@@ -67,8 +67,23 @@ const collapsedKey = "bjh.sidebar.collapsed";
 
 export function WorkspaceFrame({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const { isCustomer, status } = useStaffAccess();
+  const router = useRouter();
+  const { isCustomer, status, mustChangePassword, twoFactorRequired } =
+    useStaffAccess();
   const [collapsed, setCollapsed] = useState(false);
+
+  // A new password, then the super admin's second step, come before any page.
+  useEffect(() => {
+    if (mustChangePassword && pathname !== "/set-password") {
+      router.replace("/set-password");
+    } else if (
+      !mustChangePassword &&
+      twoFactorRequired &&
+      pathname !== "/two-factor"
+    ) {
+      router.replace("/two-factor");
+    }
+  }, [mustChangePassword, twoFactorRequired, pathname, router]);
 
   useEffect(() => {
     try {
@@ -87,7 +102,12 @@ export function WorkspaceFrame({ children }: { children: ReactNode }) {
       // Not remembered, still works for this visit.
     }
   };
-  if (pathname === "/sign-in" || pathname === "/complete-invitation") {
+  if (
+    pathname === "/sign-in" ||
+    pathname === "/complete-invitation" ||
+    pathname === "/set-password" ||
+    pathname === "/two-factor"
+  ) {
     return children;
   }
 

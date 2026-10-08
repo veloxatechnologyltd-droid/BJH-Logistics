@@ -44,6 +44,11 @@ export const TEST_CUSTOMER_A_TOKEN = "test-customer-a-token";
 export const TEST_CUSTOMER_A_ID = "50000000-0000-4000-8000-000000000003";
 export const TEST_CUSTOMER_B_TOKEN = "test-customer-b-token";
 export const TEST_CUSTOMER_B_ID = "50000000-0000-4000-8000-000000000004";
+/** The super admin signed in on an admin-set password not yet replaced. */
+export const TEST_SUPER_ADMIN_PENDING_PASSWORD_TOKEN =
+  "test-super-admin-pending-password-token";
+/** The super admin after a verified second sign-in step. */
+export const TEST_SUPER_ADMIN_AAL2_TOKEN = "test-super-admin-aal2-token";
 
 const testIdentities = new Map([
   [
@@ -67,6 +72,26 @@ const testIdentities = new Map([
     { userId: TEST_CUSTOMER_B_ID, email: "customer-b@example.test" },
   ],
 ]);
+const testFlaggedIdentities = new Map([
+  [
+    TEST_SUPER_ADMIN_PENDING_PASSWORD_TOKEN,
+    {
+      userId: TEST_SUPER_ADMIN_ID,
+      email: "admin@example.test",
+      mustChangePassword: true,
+    },
+  ],
+  [
+    TEST_SUPER_ADMIN_AAL2_TOKEN,
+    { userId: TEST_SUPER_ADMIN_ID, email: "admin@example.test", aal: "aal2" },
+  ],
+]);
+
+/** Every password the fake directory was asked to set, newest last. */
+export const testPasswordWrites: Array<{
+  userId: string;
+  temporary: boolean;
+}> = [];
 
 const testUsers = new Map<string, StaffDirectoryUser>(
   [...testIdentities.values()].map((identity) => [
@@ -99,9 +124,12 @@ const testStaffDirectory: StaffAuthDirectory = {
       suspendedRoles: [],
     };
     testUsers.set(user.id, user);
+    testPasswordWrites.push({ userId: user.id, temporary: true });
     return user;
   },
-  async setPassword() {},
+  async setPassword(userId, _password, temporary) {
+    testPasswordWrites.push({ userId, temporary });
+  },
   async setSuspended(userId, suspended, roles = []) {
     const user = testUsers.get(userId);
     if (user)
@@ -120,7 +148,8 @@ export async function createTestApplication(
     .overrideProvider(SupabaseAuthVerifier)
     .useValue({
       async verify(token: string) {
-        const identity = testIdentities.get(token);
+        const identity =
+          testIdentities.get(token) ?? testFlaggedIdentities.get(token);
         if (!identity) {
           throw new UnauthorizedException("Invalid test token");
         }

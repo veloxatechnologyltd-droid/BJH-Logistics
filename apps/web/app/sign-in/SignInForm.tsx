@@ -7,7 +7,14 @@ import { getSupabaseBrowserClient } from "../auth/supabaseBrowserClient";
 import styles from "./signIn.module.css";
 import { ErrorPopup } from "../ErrorPopup";
 
-type AuthMode = "bootstrap" | "signin";
+type AuthMode = "bootstrap" | "signin" | "signup" | "forgot";
+
+const titles: Record<AuthMode, string> = {
+  bootstrap: "Create super admin",
+  signin: "Sign in",
+  signup: "Create an account",
+  forgot: "Reset your password",
+};
 
 const apiBaseUrl =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:3001/api";
@@ -72,6 +79,12 @@ export function SignInForm() {
     };
   }, []);
 
+  function switchMode(next: AuthMode) {
+    setError("");
+    setNotice("");
+    setMode(next);
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (loading) {
@@ -87,10 +100,25 @@ export function SignInForm() {
         throw new Error("Sign-in is not configured for this site");
       }
 
+      if (mode === "forgot") {
+        const { error: resetError } = await supabase.auth.resetPasswordForEmail(
+          email,
+          {
+            redirectTo: `${window.location.origin}/set-password`,
+          },
+        );
+        if (resetError) throw resetError;
+        // Same reply whether or not the address has an account.
+        setNotice(
+          "If an account uses this email, a link to set a new password is on its way.",
+        );
+        return;
+      }
+
       const result =
-        mode === "bootstrap"
-          ? await supabase.auth.signUp({ email, password })
-          : await supabase.auth.signInWithPassword({ email, password });
+        mode === "signin"
+          ? await supabase.auth.signInWithPassword({ email, password })
+          : await supabase.auth.signUp({ email, password });
 
       if (result.error) {
         throw result.error;
@@ -102,13 +130,25 @@ export function SignInForm() {
         return;
       }
 
-      const endpoint = bootstrapAvailable
+      // First local setup only; an ordinary new account never claims it.
+      const claimsSuperAdmin = Boolean(bootstrapAvailable) && mode !== "signup";
+      const endpoint = claimsSuperAdmin
         ? `${apiBaseUrl}/v1/auth/bootstrap-super-admin`
         : `${apiBaseUrl}/v1/auth/session`;
       const response = await fetch(endpoint, {
-        method: bootstrapAvailable ? "POST" : "GET",
+        method: claimsSuperAdmin ? "POST" : "GET",
         headers: { authorization: `Bearer ${accessToken}` },
       });
+      // Signed in, but no role or company yet: the admin has to grant one.
+      if (!claimsSuperAdmin && response.status === 403) {
+        await supabase.auth.signOut();
+        setNotice(
+          mode === "signup"
+            ? "Your account is created. An administrator must give you access before you can use the system."
+            : "Your account has no access yet. Ask your administrator to give you access.",
+        );
+        return;
+      }
       const failure = await responseError(response);
       if (failure) {
         if (response.status === 409) {
@@ -116,6 +156,20 @@ export function SignInForm() {
           setMode("signin");
         }
         throw failure;
+      }
+      const session = claimsSuperAdmin
+        ? {}
+        : ((await response.json()) as {
+            mustChangePassword?: boolean;
+            twoFactorRequired?: boolean;
+          });
+      if (session.mustChangePassword) {
+        router.replace("/set-password");
+        return;
+      }
+      if (session.twoFactorRequired) {
+        router.replace("/two-factor");
+        return;
       }
 
       // A link from an email or SMS says where to go next; only paths of this site are followed.
@@ -133,7 +187,7 @@ export function SignInForm() {
 
   return (
     <section className={styles.signInCard}>
-      <h1>{mode === "bootstrap" ? "Create super admin" : "Sign in"}</h1>
+      <h1>{titles[mode]}</h1>
 
       <form className={styles.form} onSubmit={submit}>
         <label htmlFor="auth-email">
@@ -147,20 +201,24 @@ export function SignInForm() {
             value={email}
           />
         </label>
-        <label htmlFor="auth-password">
-          Password
-          <input
-            autoComplete={
-              mode === "bootstrap" ? "new-password" : "current-password"
-            }
-            id="auth-password"
-            minLength={6}
-            onChange={(event) => setPassword(event.target.value)}
-            required
-            type="password"
-            value={password}
-          />
-        </label>
+        {mode !== "forgot" && (
+          <label htmlFor="auth-password">
+            {mode === "signin"
+              ? "Password"
+              : "Password (at least 12 characters)"}
+            <input
+              autoComplete={
+                mode === "signin" ? "current-password" : "new-password"
+              }
+              id="auth-password"
+              minLength={mode === "signin" ? undefined : 12}
+              onChange={(event) => setPassword(event.target.value)}
+              required
+              type="password"
+              value={password}
+            />
+          </label>
+        )}
         <ErrorPopup message={error} />
         {notice && (
           <p className={styles.notice} role="status">
@@ -170,19 +228,47 @@ export function SignInForm() {
         <button disabled={loading} type="submit">
           {loading
             ? "Working…"
-            : mode === "bootstrap"
-              ? "Create super admin"
-              : "Sign in"}
+            : mode === "forgot"
+              ? "Send reset link"
+              : titles[mode]}
         </button>
       </form>
+
+      {mode === "signin" ? (
+        <>
+          <button
+            className={styles.modeButton}
+            onClick={() => switchMode("forgot")}
+            type="button"
+          >
+            Forgot password?
+          </button>
+          <button
+            className={styles.modeButton}
+            onClick={() => switchMode("signup")}
+            type="button"
+          >
+            New here? Create an account
+          </button>
+        </>
+      ) : (
+        mode !== "bootstrap" && (
+          <button
+            className={styles.modeButton}
+            onClick={() => switchMode("signin")}
+            type="button"
+          >
+            Back to sign in
+          </button>
+        )
+      )}
 
       {bootstrapAvailable && (
         <button
           className={styles.modeButton}
-          onClick={() => {
-            setError("");
-            setMode(mode === "bootstrap" ? "signin" : "bootstrap");
-          }}
+          onClick={() =>
+            switchMode(mode === "bootstrap" ? "signin" : "bootstrap")
+          }
           type="button"
         >
           {mode === "bootstrap"
