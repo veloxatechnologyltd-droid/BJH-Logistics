@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { paymentMethodKeys } from "@bjh/contracts";
 import type { PaymentMethod } from "@bjh/contracts";
-import { formatMoney, toMinor } from "../quotes/quoteApi";
+import { formatMoney, getQuote, toMinor } from "../quotes/quoteApi";
 import { popularCurrencies } from "../settings/business/BusinessSettingsForm";
 import { getSettings } from "../settings/business/settingsApi";
 import {
@@ -60,6 +60,7 @@ export function JobInvoices({
   documents,
   isStaff,
   canEdit,
+  quoteId,
 }: {
   jobId: string;
   documents: JobDocument[];
@@ -67,6 +68,8 @@ export function JobInvoices({
   isStaff: boolean;
   /** Preparing, issuing and voiding invoices needs an open job. */
   canEdit: boolean;
+  /** The quote the job was opened from; its accepted currency is the default. */
+  quoteId: string | null;
 }) {
   const [invoices, setInvoices] = useState<Invoice[] | null>(null);
   const [error, setError] = useState("");
@@ -123,6 +126,22 @@ export function JobInvoices({
     setPaying(owing.id);
     setAmount((owing.outstandingMinor / 100).toFixed(2));
   }, [invoices, isStaff, payLinkHandled]);
+
+  // A new invoice starts in the currency of the accepted quote version.
+  useEffect(() => {
+    if (!isStaff || !quoteId) return;
+    getQuote(quoteId)
+      .then((quote) => {
+        const accepted = quote.decisions.find(
+          (decision) => decision.decision === "accepted",
+        );
+        const version = quote.versions.find(
+          (item) => item.versionNumber === accepted?.versionNumber,
+        );
+        if (version) setCurrency((current) => current || version.currency);
+      })
+      .catch(() => undefined);
+  }, [isStaff, quoteId]);
 
   useEffect(() => {
     if (!isStaff) return;
@@ -218,8 +237,14 @@ export function JobInvoices({
       setLines(toDraftLines(result.invoice.lines));
       setAdding(false);
       setNotice(
-        result.skipped > 0
-          ? `${result.skipped} charge(s) without an amount were left out.`
+        result.leftOut.length > 0
+          ? `Left out: ${result.leftOut
+              .map((item) =>
+                item.reason === "no_amount"
+                  ? `${item.description} (no amount recorded yet)`
+                  : `${item.description} (goes on the ${item.currency} invoice)`,
+              )
+              .join("; ")}.`
           : "",
       );
     });
@@ -559,17 +584,23 @@ export function JobInvoices({
                   >
                     {invoice.status === "draft" ? "Preview PDF" : "PDF"}
                   </button>
-                  {isStaff && canEdit && invoice.status === "issued" && (
-                    <button
-                      className={styles.textButton}
-                      onClick={() =>
-                        askReason((why) => voidInvoice(jobId, invoice.id, why))
-                      }
-                      type="button"
-                    >
-                      Void invoice
-                    </button>
-                  )}
+                  {/* The API refuses to void while payments stand; reverse them first. */}
+                  {isStaff &&
+                    canEdit &&
+                    invoice.status === "issued" &&
+                    invoice.paidMinor === 0 && (
+                      <button
+                        className={styles.textButton}
+                        onClick={() =>
+                          askReason((why) =>
+                            voidInvoice(jobId, invoice.id, why),
+                          )
+                        }
+                        type="button"
+                      >
+                        Void invoice
+                      </button>
+                    )}
                 </div>
               )}
 

@@ -7,6 +7,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import {
+  deliveryMilestoneKeys,
   isUuid,
   jobCreateInputSchema,
   jobStatusChangeInputSchema,
@@ -16,6 +17,7 @@ import {
   milestoneTemplates,
   parseContract,
 } from "@bjh/contracts";
+import type { MilestoneDefinition } from "@bjh/contracts";
 import { serviceLinesForRoles } from "../auth/auth.guards";
 import { milestoneMessage } from "../notifications/notification-messages";
 import { NotificationsService } from "../notifications/notifications.service";
@@ -141,6 +143,7 @@ export class JobsService {
         }
       }
     }
+    events.push(...(await this.waybillEvents(job.id, template)));
     return {
       job,
       template,
@@ -150,6 +153,67 @@ export class JobsService {
           a.recordedAt.localeCompare(b.recordedAt),
       ),
     };
+  }
+
+  /** Steps 'dispatched' and 'delivered' as the job's latest waybill records them. */
+  private async waybillEvents(
+    jobId: string,
+    template: readonly MilestoneDefinition[],
+  ): Promise<MilestoneEventRecord[]> {
+    const has = (key: string) => template.some((item) => item.key === key);
+    const deliveries = await this.database.listDeliveries(jobId);
+    const events: MilestoneEventRecord[] = [];
+    const dispatched = deliveries
+      .slice()
+      .sort((a, b) => b.dispatchedAt.localeCompare(a.dispatchedAt))[0];
+    if (dispatched && has(deliveryMilestoneKeys.dispatched)) {
+      events.push({
+        id: `waybill:${dispatched.id}`,
+        jobId,
+        milestoneKey: deliveryMilestoneKeys.dispatched,
+        occurredAt: dispatched.dispatchedAt,
+        recordedAt: dispatched.dispatchedAt,
+        recordedBy: dispatched.dispatchedBy,
+        source: "system",
+        note: dispatched.waybillNumber,
+        correctionOf: null,
+      });
+    }
+    const delivered = deliveries
+      .filter((item) => item.deliveredAt && item.podRecordedAt)
+      .sort((a, b) =>
+        (b.deliveredAt ?? "").localeCompare(a.deliveredAt ?? ""),
+      )[0];
+    if (delivered?.deliveredAt && has(deliveryMilestoneKeys.delivered)) {
+      events.push({
+        id: `pod:${delivered.id}`,
+        jobId,
+        milestoneKey: deliveryMilestoneKeys.delivered,
+        occurredAt: delivered.deliveredAt,
+        recordedAt: delivered.podRecordedAt ?? delivered.deliveredAt,
+        recordedBy: delivered.podRecordedBy ?? delivered.dispatchedBy,
+        source: "system",
+        note: `${delivered.waybillNumber}, received by ${delivered.receiverName ?? "consignee"}`,
+        correctionOf: null,
+      });
+    }
+    return events;
+  }
+
+  /** True when the job's waybill already told the customer about this step. */
+  private async waybillAnnounced(
+    jobId: string,
+    milestoneKey: string,
+  ): Promise<boolean> {
+    if (milestoneKey === deliveryMilestoneKeys.dispatched) {
+      return (await this.database.listDeliveries(jobId)).length > 0;
+    }
+    if (milestoneKey === deliveryMilestoneKeys.delivered) {
+      return (await this.database.listDeliveries(jobId)).some(
+        (item) => item.deliveredAt !== null,
+      );
+    }
+    return false;
   }
 
   /** Append-only: corrections are new events pointing at the original. */
@@ -193,16 +257,23 @@ export class JobsService {
       );
     }
     // A correction restates an earlier event, so only a new event is announced.
-    if (!correctionOf) {
-      const label =
-        template.find((milestone) => milestone.key === milestoneKey)?.label ??
-        milestoneKey;
+    // Only key steps message the customer, and a step the waybill already
+    // announced (dispatched, delivered) is not announced a second time.
+    const customerMessage = template.find(
+      (milestone) => milestone.key === milestoneKey,
+    )?.customerMessage;
+    if (
+      !correctionOf &&
+      customerMessage &&
+      !(await this.waybillAnnounced(job.id, milestoneKey))
+    ) {
       await this.notifications.notify({
         companyId: job.customerCompanyId,
         jobId: job.id,
         event: "milestone",
         dedupeKey: `milestone:${event.id}`,
-        message: (sender) => milestoneMessage(sender, job.fileNumber, label),
+        message: (sender) =>
+          milestoneMessage(sender, job.fileNumber, customerMessage),
         linkPath: `/jobs/${job.id}`,
         createdBy: recordedBy,
       });

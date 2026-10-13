@@ -268,13 +268,15 @@ textarea {
 
 .topbar {
   display: flex;
+  flex-wrap: wrap;
   min-height: 72px;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
   border-bottom: 1px solid var(--brand-border);
   background: var(--brand-surface);
-  padding: 0 clamp(22px, 4vw, 54px);
+  row-gap: 8px;
+  padding: 10px clamp(22px, 4vw, 54px);
   color: var(--brand-muted);
   font-size: 0.9rem;
 }
@@ -298,6 +300,7 @@ textarea {
 }
 .topbar-actions {
   gap: 20px;
+  margin-left: auto;
 }
 .topbar a,
 .text-link,
@@ -664,11 +667,14 @@ a:focus-visible {
   }
   .topbar {
     min-height: 52px;
-    padding: 0 17px;
+    flex-wrap: wrap;
+    row-gap: 6px;
+    padding: 8px 17px;
     font-size: 0.75rem;
   }
   .topbar-actions {
     gap: 12px;
+    margin-left: auto;
   }
   .dashboard {
     padding: 28px 17px 20px;

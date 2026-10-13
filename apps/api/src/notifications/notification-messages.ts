@@ -34,11 +34,12 @@ const sign = (sender: string) => `\n\n${sender}`;
 export const milestoneMessage = (
   sender: string,
   fileNumber: string,
-  label: string,
+  /** The step's customer wording, e.g. "your cargo has arrived at the port". */
+  update: string,
 ): Message => ({
-  subject: `${fileNumber}: ${label}`,
-  body: `Update on your shipment ${fileNumber}: ${label}.${sign(sender)}`,
-  smsText: `${sender}: ${fileNumber} - ${label}.`,
+  subject: `${fileNumber}: ${update.charAt(0).toUpperCase()}${update.slice(1)}`,
+  body: `Update on your shipment ${fileNumber}: ${update}.${sign(sender)}`,
+  smsText: `${sender}: ${fileNumber} - ${update}.`,
 });
 
 export const etaMessage = (

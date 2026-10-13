@@ -1,9 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
-import { AuthStatus } from "../../auth/AuthStatus";
 import { authenticatedFetch } from "../../auth/authenticatedFetch";
 import { listCustomers } from "../../customers/customerApi";
 import type { CustomerCompany } from "../../customers/customerApi";
@@ -127,14 +125,6 @@ export function CustomerAccounts() {
 
   return (
     <>
-      <header className="topbar">
-        <div className="breadcrumb">
-          <Link href="/">Workspace</Link>
-          <span aria-hidden="true">/</span>
-          <strong>Customer accounts</strong>
-        </div>
-        <AuthStatus />
-      </header>
       <main className={styles.page}>
         <section className={styles.heading}>
           <div>
@@ -171,7 +161,7 @@ export function CustomerAccounts() {
                 >
                   {companies.map((item) => (
                     <option key={item.id} value={item.id}>
-                      {item.companyName}
+                      {item.companyName} ({item.customerNumber})
                     </option>
                   ))}
                 </select>
@@ -260,7 +250,7 @@ export function CustomerAccounts() {
                         <option value="">Choose a company</option>
                         {companies.map((item) => (
                           <option key={item.id} value={item.id}>
-                            {item.companyName}
+                            {item.companyName} ({item.customerNumber})
                           </option>
                         ))}
                       </select>
@@ -379,7 +369,7 @@ export function CustomerAccounts() {
                             )
                             .map((item) => (
                               <option key={item.id} value={item.id}>
-                                {item.companyName}
+                                {item.companyName} ({item.customerNumber})
                               </option>
                             ))}
                         </select>

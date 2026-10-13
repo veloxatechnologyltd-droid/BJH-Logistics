@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
-import { AuthStatus } from "../auth/AuthStatus";
 import { useStaffAccess } from "../auth/useStaffAccess";
 import { listCustomers } from "../customers/customerApi";
 import type { CustomerCompany } from "../customers/customerApi";
@@ -92,14 +91,6 @@ export function WarehouseHome() {
 
   return (
     <>
-      <header className="topbar">
-        <div className="breadcrumb">
-          <Link href="/">Workspace</Link>
-          <span aria-hidden="true">/</span>
-          <strong>Warehouse</strong>
-        </div>
-        <AuthStatus />
-      </header>
       <main className={styles.page}>
         <header className={styles.header}>
           <div>

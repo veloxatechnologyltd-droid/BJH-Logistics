@@ -1,9 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
-import { AuthStatus } from "../../auth/AuthStatus";
 import { authenticatedFetch } from "../../auth/authenticatedFetch";
 import adminStyles from "../../admin/users/adminUsers.module.css";
 import styles from "./activityLog.module.css";
@@ -95,16 +93,6 @@ export function ActivityLog() {
 
   return (
     <>
-      <header className="topbar">
-        <div className="breadcrumb">
-          <Link href="/">Workspace</Link>
-          <span aria-hidden="true">/</span>
-          <Link href="/settings">Settings</Link>
-          <span aria-hidden="true">/</span>
-          <strong>Activity log</strong>
-        </div>
-        <AuthStatus />
-      </header>
       <main className={adminStyles.page}>
         <section className={adminStyles.heading}>
           <div>

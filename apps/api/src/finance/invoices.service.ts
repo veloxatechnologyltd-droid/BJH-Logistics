@@ -15,13 +15,14 @@ import {
 } from "@bjh/contracts";
 import {
   DatabasePort,
+  InvoiceLineRecord,
   InvoicePaymentRecord,
   InvoiceRecord,
   JobRecord,
   JobScope,
 } from "../database/database.port";
 import { JobsService } from "../jobs/jobs.service";
-import { JobChargesService } from "./job-charges.service";
+import { JobChargesService, JobChargeView } from "./job-charges.service";
 import { computeInvoiceTotals } from "./invoice-totals";
 import {
   invoiceIssuedMessage,
@@ -39,6 +40,31 @@ export interface InvoiceView extends InvoiceRecord {
   paymentStatus: "draft" | "void" | "unpaid" | "partial" | "paid";
   /** The full ledger, for staff only; customers see the balance, not the ledger. */
   payments?: InvoicePaymentRecord[];
+}
+
+/** A job charge an invoice started from charges did not include, and why. */
+export interface ChargeLeftOut {
+  description: string;
+  /** `no_amount`: at cost with nothing recorded; `other_currency`: belongs on the `currency` invoice. */
+  reason: "no_amount" | "other_currency";
+  currency?: string;
+}
+
+/** Which invoice currency a charge is billed in, and for how much; null when it has no amount yet. */
+export function chargeBilling(
+  charge: JobChargeView,
+): { currency: string; amountMinor: number } | null {
+  const actual = charge.currentActual;
+  if (charge.quotedTotalMinor !== null) {
+    return {
+      currency: charge.currency,
+      amountMinor: actual?.convertedMinor ?? charge.quotedTotalMinor,
+    };
+  }
+  if (!actual) return null;
+  return actual.convertedMinor !== null
+    ? { currency: charge.currency, amountMinor: actual.convertedMinor }
+    : { currency: actual.currency, amountMinor: actual.amountMinor };
 }
 
 /**
@@ -102,39 +128,50 @@ export class InvoicesService {
   }
 
   /**
-   * Starts a draft from the job's charges: each charge in the invoice currency
-   * becomes a line at its comparable actual amount, or its quoted total when
-   * the actual is in GHS and the invoice currency differs. Charges with
-   * neither are skipped and counted; currencies are never converted here.
+   * Starts a draft from the job's charges. Each charge belongs to exactly one
+   * invoice currency, so nothing is billed twice: a priced charge goes on its
+   * own currency's invoice at its comparable actual, or its quoted total when
+   * the actual is in GHS and the charge currency differs; an "at cost" charge
+   * (no quoted amount) goes on the invoice in its actual's currency at that
+   * actual. Currencies are never converted here. Every charge left out is
+   * returned with the reason; `skipped` counts those with no amount yet.
    */
   async createFromCharges(
     id: string,
     input: unknown,
     createdBy: string,
     scope: JobScope,
-  ): Promise<{ invoice: InvoiceView; skipped: number }> {
+  ): Promise<{
+    invoice: InvoiceView;
+    skipped: number;
+    leftOut: ChargeLeftOut[];
+  }> {
     const job = await this.editableJob(id, scope);
     const parsed = parseContract(invoiceFromChargesInputSchema, input);
     if (!parsed.success) throw new BadRequestException(parsed.message);
     const settings = await this.requireConfiguredCurrency(parsed.data.currency);
 
     const { charges } = await this.charges.list(job.id, scope);
-    const inCurrency = charges.filter(
-      (charge) => charge.currency === parsed.data.currency,
-    );
-    const lines = inCurrency.flatMap((charge) => {
-      const amount =
-        charge.currentActual?.convertedMinor ?? charge.quotedTotalMinor;
-      return amount === null
-        ? []
-        : [
-            {
-              description: charge.description,
-              amountMinor: amount,
-              taxable: true,
-            },
-          ];
-    });
+    const lines: InvoiceLineRecord[] = [];
+    const leftOut: ChargeLeftOut[] = [];
+    for (const charge of charges) {
+      const billing = chargeBilling(charge);
+      if (billing === null) {
+        leftOut.push({ description: charge.description, reason: "no_amount" });
+      } else if (billing.currency !== parsed.data.currency) {
+        leftOut.push({
+          description: charge.description,
+          reason: "other_currency",
+          currency: billing.currency,
+        });
+      } else {
+        lines.push({
+          description: charge.description,
+          amountMinor: billing.amountMinor,
+          taxable: true,
+        });
+      }
+    }
     if (lines.length === 0) {
       throw new ConflictException(
         `No charge on this job has an amount in ${parsed.data.currency} to invoice`,
@@ -151,7 +188,8 @@ export class InvoicesService {
     });
     return {
       invoice: this.view(invoice, [], true),
-      skipped: inCurrency.length - lines.length,
+      skipped: leftOut.filter((item) => item.reason === "no_amount").length,
+      leftOut,
     };
   }
 

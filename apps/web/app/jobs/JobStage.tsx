@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { jobStatusReasonRequired } from "@bjh/contracts";
 import type { JobStatus } from "@bjh/contracts";
-import { changeStatus, statusLabels } from "./jobApi";
+import { changeStatus, listJobTasks, statusLabels } from "./jobApi";
 import type { Job } from "./jobApi";
 import styles from "./jobs.module.css";
 
@@ -40,6 +40,8 @@ export function JobStage({
 }) {
   const [pending, setPending] = useState<JobStatus | null>(null);
   const [reason, setReason] = useState("");
+  /** Open tasks shown before closing or cancelling, so none is forgotten. */
+  const [openTasks, setOpenTasks] = useState<string[]>([]);
   const dialog = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
@@ -50,9 +52,23 @@ export function JobStage({
   const main = nextMove[job.status];
   const others = allowedNext.filter((status) => status !== main.to);
 
-  function move(to: JobStatus) {
-    if (jobStatusReasonRequired(job.status, to)) {
+  const needsReason = (to: JobStatus) =>
+    jobStatusReasonRequired(job.status, to);
+
+  async function move(to: JobStatus) {
+    const stillOpen =
+      to === "closed" || to === "cancelled"
+        ? await listJobTasks(job.id)
+            .then((tasks) =>
+              tasks
+                .filter((task) => task.status !== "done")
+                .map((task) => task.title),
+            )
+            .catch(() => [])
+        : [];
+    if (needsReason(to) || stillOpen.length > 0) {
       setReason("");
+      setOpenTasks(stillOpen);
       setPending(to);
       return;
     }
@@ -61,10 +77,14 @@ export function JobStage({
 
   function confirm(event: FormEvent) {
     event.preventDefault();
-    if (!pending || !reason.trim()) return;
+    if (!pending) return;
     const to = pending;
+    const why = reason.trim();
+    if (needsReason(to) && !why) return;
     setPending(null);
-    void run(() => changeStatus(job.id, { status: to, reason: reason.trim() }));
+    void run(() =>
+      changeStatus(job.id, why ? { status: to, reason: why } : { status: to }),
+    );
   }
 
   return (
@@ -75,7 +95,7 @@ export function JobStage({
           {allowedNext.includes(main.to) && (
             <button
               className={styles.button}
-              onClick={() => move(main.to)}
+              onClick={() => void move(main.to)}
               type="button"
             >
               {main.label}
@@ -88,7 +108,7 @@ export function JobStage({
                 {others.map((status) => (
                   <button
                     key={status}
-                    onClick={() => move(status)}
+                    onClick={() => void move(status)}
                     type="button"
                   >
                     {otherLabels[status] ?? statusLabels[status]}
@@ -113,18 +133,42 @@ export function JobStage({
                 ? main.label
                 : (otherLabels[pending] ?? statusLabels[pending])}
             </h2>
-            <label className={styles.field}>
-              Reason
-              <input
-                autoFocus
-                onChange={(event) => setReason(event.target.value)}
-                required
-                value={reason}
-              />
-            </label>
+            {openTasks.length > 0 && (
+              <div role="alert">
+                <p>
+                  {openTasks.length === 1
+                    ? "This task is still open:"
+                    : `These ${openTasks.length} tasks are still open:`}
+                </p>
+                <ul>
+                  {openTasks.map((title, index) => (
+                    <li key={index}>{title}</li>
+                  ))}
+                </ul>
+                <p>
+                  You can still mark them done after the job is{" "}
+                  {pending === "cancelled" ? "cancelled" : "closed"}.
+                </p>
+              </div>
+            )}
+            {needsReason(pending) && (
+              <label className={styles.field}>
+                Reason
+                <input
+                  autoFocus
+                  onChange={(event) => setReason(event.target.value)}
+                  required
+                  value={reason}
+                />
+              </label>
+            )}
             <div className={styles.actions}>
               <button className={styles.button} type="submit">
-                Confirm
+                {openTasks.length > 0
+                  ? pending === "cancelled"
+                    ? "Cancel the job anyway"
+                    : "Close anyway"
+                  : "Confirm"}
               </button>
               <button
                 className={styles.secondaryButton}

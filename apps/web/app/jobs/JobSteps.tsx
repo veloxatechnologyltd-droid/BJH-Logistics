@@ -146,6 +146,14 @@ export function JobSteps({
                           ? "Record payment"
                           : "Create invoice"}
                   </Link>
+                ) : recorded?.source === "system" ? (
+                  // Filled from the waybill; it is changed on the Delivery tab.
+                  <Link
+                    className={styles.textButton}
+                    href={`/jobs/${job.id}/delivery`}
+                  >
+                    View
+                  </Link>
                 ) : canEdit ? (
                   <button
                     className={styles.textButton}
@@ -208,7 +216,14 @@ export function JobSteps({
             </div>
             {!entry.correctionOf && (
               <small className={styles.hint}>
-                A customer message may be sent for this update.
+                {(() => {
+                  const update = timeline.template.find(
+                    (item) => item.key === entry.milestoneKey,
+                  )?.customerMessage;
+                  return update
+                    ? `The customer will be told: "${update}".`
+                    : "No message is sent to the customer for this step.";
+                })()}
               </small>
             )}
           </form>

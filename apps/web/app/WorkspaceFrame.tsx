@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
+import { AuthStatus } from "./auth/AuthStatus";
 import { useStaffAccess } from "./auth/useStaffAccess";
 import { NavIcon } from "./NavIcon";
 import type { NavIconName } from "./NavIcon";
@@ -65,6 +66,45 @@ const staffNav: NavGroup[] = [
 
 const collapsedKey = "bjh.sidebar.collapsed";
 
+/** Pages reached from Settings or a link, not from the main menu. */
+const settingsPages: Array<{ href: string; label: string }> = [
+  { href: "/settings/business", label: "Business settings" },
+  { href: "/settings/staff", label: "Staff management" },
+  { href: "/settings/customer-accounts", label: "Customer accounts" },
+  { href: "/settings/notifications", label: "Customer messages" },
+  { href: "/settings/activity", label: "Activity log" },
+  { href: "/settings/system-status", label: "System status" },
+  { href: "/admin/users", label: "Staff management" },
+  { href: "/transport", label: "Transport" },
+];
+
+const matches = (pathname: string, href: string, exact?: boolean) =>
+  exact || href === "/"
+    ? pathname === href
+    : pathname === href || pathname.startsWith(`${href}/`);
+
+/** The page's place in the workspace, from the menu it was reached by. */
+function pageCrumb(
+  pathname: string,
+  groups: NavGroup[],
+  isCustomer: boolean,
+): { label: string; underSettings: boolean } {
+  const setting = settingsPages.find((page) => matches(pathname, page.href));
+  if (setting) return { label: setting.label, underSettings: true };
+  if (matches(pathname, "/settings")) {
+    return { label: "Settings", underSettings: false };
+  }
+  // Staff reach invoices from the Finance menu (its Invoices tab).
+  if (!isCustomer && matches(pathname, "/invoices")) {
+    return { label: "Finance", underSettings: false };
+  }
+  const item = groups
+    .flatMap((group) => group.items)
+    .filter((entry) => matches(pathname, entry.href, entry.exact))
+    .sort((a, b) => b.href.length - a.href.length)[0];
+  return { label: item?.label ?? "Overview", underSettings: false };
+}
+
 export function WorkspaceFrame({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -116,6 +156,7 @@ export function WorkspaceFrame({ children }: { children: ReactNode }) {
     pathname.startsWith("/transport") ||
     pathname === "/admin/users";
   const groups = isCustomer ? customerNav : staffNav;
+  const crumb = pageCrumb(pathname, groups, isCustomer);
 
   return (
     <div className={`workspace-shell${collapsed ? " collapsed" : ""}`}>
@@ -186,6 +227,25 @@ export function WorkspaceFrame({ children }: { children: ReactNode }) {
       </aside>
 
       <div className="workspace-main">
+        {/* One header on every page: where you are, who is signed in, sign out. */}
+        <header className="topbar">
+          <div className="breadcrumb">
+            <Link href={isCustomer ? "/portal" : "/"}>
+              {isCustomer ? "Portal" : "Workspace"}
+            </Link>
+            <span aria-hidden="true">/</span>
+            {crumb.underSettings && (
+              <>
+                <Link href="/settings">Settings</Link>
+                <span aria-hidden="true">/</span>
+              </>
+            )}
+            <strong>{crumb.label}</strong>
+          </div>
+          <div className="topbar-actions">
+            <AuthStatus />
+          </div>
+        </header>
         {status === "unavailable" && (
           <p className="access-notice" role="alert">
             Your access could not be checked, so some buttons may be missing.

@@ -28,6 +28,7 @@ import {
 } from "../database/database.port";
 import { etaMessage } from "../notifications/notification-messages";
 import { NotificationsService } from "../notifications/notifications.service";
+import { isValidContainerNumber } from "../documents/document-extraction";
 import { JobsService } from "./jobs.service";
 
 /** Parties, shipment references, manual ETA and tasks on a job. */
@@ -94,7 +95,18 @@ export class JobDetailsService {
     const job = await this.editableJob(id, scope);
     const parsed = parseContract(shipmentReferenceInputSchema, input);
     if (!parsed.success) throw new BadRequestException(parsed.message);
-    const { kind, value, sealNumber, parentReferenceId } = parsed.data;
+    const { kind, sealNumber, parentReferenceId } = parsed.data;
+    // Container numbers are stored as printed (no spaces, capitals) and must
+    // pass the ISO 6346 check digit, which catches nearly every typo.
+    const value =
+      kind === "container"
+        ? parsed.data.value.replace(/\s+/g, "").toUpperCase()
+        : parsed.data.value;
+    if (kind === "container" && !isValidContainerNumber(value)) {
+      throw new BadRequestException(
+        `${value} is not a valid container number: check the letters and digits against the bill of lading`,
+      );
+    }
 
     if (!referenceKindAllowedFor(job.serviceLine, kind)) {
       throw new BadRequestException(
@@ -226,7 +238,9 @@ export class JobDetailsService {
     completedBy: string,
     scope: JobScope,
   ): Promise<JobTaskRecord> {
-    const job = await this.editableJob(id, scope);
+    // Finishing follow-up work (a damage claim, a missing document) is allowed
+    // after closure; adding tasks still needs an open job.
+    const job = await this.jobs.get(id, scope);
     const parsed = parseContract(taskCompletionSchema, input ?? {});
     if (!parsed.success) throw new BadRequestException(parsed.message);
     const result = isUuid(taskId)

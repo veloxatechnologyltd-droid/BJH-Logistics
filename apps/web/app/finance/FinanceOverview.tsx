@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { AuthStatus } from "../auth/AuthStatus";
 import { FinanceTabs } from "../invoices/FinanceTabs";
 import { getFinanceSummary } from "../jobs/jobApi";
 import type { FinanceSummary } from "../jobs/jobApi";
@@ -18,6 +17,8 @@ const pct = (part: number, whole: number) =>
 
 const sum = (rows: Row[], pick: (row: Row) => number) =>
   rows.reduce((total, row) => total + pick(row), 0);
+
+const jobs = (count: number) => `${count} ${count === 1 ? "job" : "jobs"}`;
 
 /** Money across jobs, staff only. One currency at a time: currencies are never added together. */
 export function FinanceOverview() {
@@ -98,14 +99,6 @@ export function FinanceOverview() {
 
   return (
     <>
-      <header className="topbar">
-        <div className="breadcrumb">
-          <Link href="/">Workspace</Link>
-          <span aria-hidden="true">/</span>
-          <strong>Finance</strong>
-        </div>
-        <AuthStatus />
-      </header>
       <main className={styles.page}>
         <header className={styles.header}>
           <div>
@@ -119,7 +112,7 @@ export function FinanceOverview() {
           <p className={styles.muted}>No invoices or costs recorded yet.</p>
         )}
         {summary && summary.jobs.length > 0 && (
-          <>
+          <div className={chart.board}>
             <div className={chart.filters}>
               <label className={styles.field}>
                 Currency
@@ -164,7 +157,7 @@ export function FinanceOverview() {
                 <span>Invoiced</span>
                 <strong>{money(invoiced)}</strong>
                 <small>
-                  {rows.filter((r) => r.invoicedMinor > 0).length} jobs
+                  {jobs(rows.filter((r) => r.invoicedMinor > 0).length)}
                 </small>
               </div>
               <div className={chart.kpi}>
@@ -175,13 +168,17 @@ export function FinanceOverview() {
               <div className={chart.kpi}>
                 <span>Owing</span>
                 <strong>{money(owing)}</strong>
-                <small>Credits: none, overpayments are refused</small>
+                <small>
+                  {owing > 0
+                    ? `${jobs(rows.filter((r) => r.owingMinor > 0).length)} still owe`
+                    : "Nothing outstanding"}
+                </small>
               </div>
               <div className={chart.kpi}>
                 <span>Total costs</span>
                 <strong>{money(costs)}</strong>
                 <small>
-                  {rows.filter((r) => r.costMinor > 0).length} jobs with costs
+                  {jobs(rows.filter((r) => r.costMinor > 0).length)} with costs
                 </small>
               </div>
               <div className={chart.kpi}>
@@ -189,7 +186,7 @@ export function FinanceOverview() {
                 <strong>{comparable.length ? money(profit) : "-"}</strong>
                 <small>
                   {comparable.length
-                    ? `${comparable.length} jobs with invoice and costs`
+                    ? `${jobs(comparable.length)} with invoice and costs`
                     : "No job has both in " + currency}
                 </small>
               </div>
@@ -308,36 +305,61 @@ export function FinanceOverview() {
             {rows.length > 0 && (
               <section className={styles.card} aria-labelledby="jobs-title">
                 <h2 id="jobs-title">Jobs</h2>
-                <div className={styles.tableScroll}>
-                  <table className={styles.table}>
+                <div className={chart.tableWrap}>
+                  <table className={chart.cardTable}>
                     <thead>
                       <tr>
-                        <th>Job</th>
-                        <th>Customer</th>
-                        <th>Invoiced</th>
-                        <th>Received</th>
-                        <th>Owing</th>
-                        <th>Costs</th>
-                        <th>Profit</th>
+                        <th scope="col">Job and customer</th>
+                        <th className={chart.num} scope="col">
+                          Invoiced
+                        </th>
+                        <th className={chart.num} scope="col">
+                          Received
+                        </th>
+                        <th className={chart.num} scope="col">
+                          Owing
+                        </th>
+                        <th className={chart.num} scope="col">
+                          Costs
+                        </th>
+                        <th className={chart.num} scope="col">
+                          Profit
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
                       {rows.map((row) => (
                         <tr key={`${row.jobId}-${row.currency}`}>
-                          <td>
+                          <td className={chart.jobCell}>
                             <Link
                               className={styles.link}
                               href={`/jobs/${row.jobId}/money`}
                             >
                               {row.fileNumber}
                             </Link>
+                            <span className={chart.customerName}>
+                              {row.customerCompanyName}
+                            </span>
                           </td>
-                          <td>{row.customerCompanyName}</td>
-                          <td>{money(row.invoicedMinor)}</td>
-                          <td>{money(row.receivedMinor)}</td>
-                          <td>{money(row.owingMinor)}</td>
-                          <td>{money(row.costMinor)}</td>
-                          <td>
+                          <td className={chart.num} data-label="Invoiced">
+                            {money(row.invoicedMinor)}
+                          </td>
+                          <td className={chart.num} data-label="Received">
+                            {money(row.receivedMinor)}
+                          </td>
+                          <td
+                            className={`${chart.num}${row.owingMinor > 0 ? ` ${chart.owingText}` : ""}`}
+                            data-label="Owing"
+                          >
+                            {money(row.owingMinor)}
+                          </td>
+                          <td className={chart.num} data-label="Costs">
+                            {money(row.costMinor)}
+                          </td>
+                          <td
+                            className={`${chart.num}${(row.marginMinor ?? 0) < 0 ? ` ${chart.lossText}` : ""}`}
+                            data-label="Profit"
+                          >
                             {row.marginMinor === null
                               ? "-"
                               : money(row.marginMinor)}
@@ -347,19 +369,31 @@ export function FinanceOverview() {
                     </tbody>
                     <tfoot>
                       <tr>
-                        <th colSpan={2}>Total</th>
-                        <th>{money(invoiced)}</th>
-                        <th>{money(received)}</th>
-                        <th>{money(owing)}</th>
-                        <th>{money(costs)}</th>
-                        <th>{comparable.length ? money(profit) : "-"}</th>
+                        <th className={chart.jobCell} scope="row">
+                          Total
+                        </th>
+                        <td className={chart.num} data-label="Invoiced">
+                          {money(invoiced)}
+                        </td>
+                        <td className={chart.num} data-label="Received">
+                          {money(received)}
+                        </td>
+                        <td className={chart.num} data-label="Owing">
+                          {money(owing)}
+                        </td>
+                        <td className={chart.num} data-label="Costs">
+                          {money(costs)}
+                        </td>
+                        <td className={chart.num} data-label="Profit">
+                          {comparable.length ? money(profit) : "-"}
+                        </td>
                       </tr>
                     </tfoot>
                   </table>
                 </div>
               </section>
             )}
-          </>
+          </div>
         )}
       </main>
     </>

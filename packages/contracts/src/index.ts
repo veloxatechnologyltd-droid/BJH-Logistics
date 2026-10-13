@@ -404,7 +404,22 @@ export type LibraryUploadFields = z.infer<typeof libraryUploadFieldsSchema>;
 export interface MilestoneDefinition {
   key: string;
   label: string;
+  /**
+   * What the customer is told when staff record this step. Only key steps
+   * carry one; the other steps show in the portal without a message.
+   */
+  customerMessage?: string;
 }
+
+/**
+ * Steps the job's waybill records: dispatching a delivery fills
+ * `container_dispatched`, its proof of delivery fills `delivery_note_signed`.
+ * The delivery messages already tell the customer.
+ */
+export const deliveryMilestoneKeys = {
+  dispatched: "container_dispatched",
+  delivered: "delivery_note_signed",
+} as const;
 
 /**
  * Sea import sequence as the client described it (client-derived; order is
@@ -412,7 +427,11 @@ export interface MilestoneDefinition {
  * Milestones are not enforced in order: real jobs overlap.
  */
 export const seaImportMilestones: readonly MilestoneDefinition[] = [
-  { key: "cargo_arrived", label: "Cargo arrived; customer updated" },
+  {
+    key: "cargo_arrived",
+    label: "Cargo arrived; customer updated",
+    customerMessage: "your cargo has arrived at the port",
+  },
   {
     key: "customs_declaration_submitted",
     label: "Documents entered with customs",
@@ -433,11 +452,13 @@ export const seaImportMilestones: readonly MilestoneDefinition[] = [
   {
     key: "customs_released",
     label: "Customs released; delivery authorisation received",
+    customerMessage: "customs has released your cargo",
   },
   { key: "container_dispatched", label: "Container loaded and dispatched" },
   {
     key: "delivery_note_signed",
     label: "Delivered; delivery note signed by consignee",
+    customerMessage: "your cargo has been delivered",
   },
   {
     key: "empty_container_returned",
@@ -460,12 +481,20 @@ export const seaExportMilestones: readonly MilestoneDefinition[] = [
     label: "Loaded container returned to port",
   },
   { key: "customs_processed", label: "Customs process done" },
-  { key: "customs_released", label: "Customs release received" },
+  {
+    key: "customs_released",
+    label: "Customs release received",
+    customerMessage: "customs has cleared your cargo for export",
+  },
   {
     key: "terminal_charges_paid",
     label: "Terminal handling charges paid",
   },
-  { key: "container_shipped", label: "Container shipped out" },
+  {
+    key: "container_shipped",
+    label: "Container shipped out",
+    customerMessage: "your container has been shipped",
+  },
   {
     key: "final_invoice_or_waybill_issued",
     label: "Final invoice / waybill issued to customer",
@@ -474,7 +503,11 @@ export const seaExportMilestones: readonly MilestoneDefinition[] = [
 
 /** Air import: the same clearance and delivery steps as sea, without container steps or EIR. */
 export const airImportMilestones: readonly MilestoneDefinition[] = [
-  { key: "cargo_arrived", label: "Cargo arrived; customer updated" },
+  {
+    key: "cargo_arrived",
+    label: "Cargo arrived; customer updated",
+    customerMessage: "your cargo has arrived at the airport",
+  },
   {
     key: "customs_declaration_submitted",
     label: "Documents entered with customs",
@@ -483,10 +516,15 @@ export const airImportMilestones: readonly MilestoneDefinition[] = [
   { key: "customer_invoice_issued", label: "Bill issued to customer" },
   { key: "customer_payment_recorded", label: "Customer payment recorded" },
   { key: "airport_charges_paid", label: "Airport and other charges paid" },
-  { key: "customs_released", label: "Customs released cargo" },
+  {
+    key: "customs_released",
+    label: "Customs released cargo",
+    customerMessage: "customs has released your cargo",
+  },
   {
     key: "delivery_note_signed",
     label: "Delivered; delivery note signed by consignee",
+    customerMessage: "your cargo has been delivered",
   },
 ];
 
@@ -498,12 +536,20 @@ export const airExportMilestones: readonly MilestoneDefinition[] = [
     label: "Goods received from customer",
   },
   { key: "customs_arranged", label: "Customs arrangements made" },
-  { key: "customs_released", label: "Customs released goods" },
+  {
+    key: "customs_released",
+    label: "Customs released goods",
+    customerMessage: "customs has cleared your goods for export",
+  },
   {
     key: "airport_airline_charges_paid",
     label: "Airport and airline charges paid",
   },
-  { key: "cargo_departed", label: "Cargo left Ghana" },
+  {
+    key: "cargo_departed",
+    label: "Cargo left Ghana",
+    customerMessage: "your cargo has left Ghana",
+  },
   { key: "waybill_issued", label: "Waybill issued" },
 ];
 

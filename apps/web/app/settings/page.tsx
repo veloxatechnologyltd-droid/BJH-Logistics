@@ -1,18 +1,9 @@
 import Link from "next/link";
-import { AuthStatus } from "../auth/AuthStatus";
 import { NavIcon } from "../NavIcon";
 
 export default function SettingsPage() {
   return (
     <>
-      <header className="topbar">
-        <div className="breadcrumb">
-          <Link href="/">Workspace</Link>
-          <span aria-hidden="true">/</span>
-          <strong>Settings</strong>
-        </div>
-        <AuthStatus />
-      </header>
       <main className="dashboard">
         <section className="welcome-row" aria-labelledby="settings-title">
           <div>

@@ -21,6 +21,7 @@ export default function JobMoneyPage() {
         documents={documents}
         isStaff={isStaff}
         jobId={job.id}
+        quoteId={job.quoteId}
       />
     </>
   );

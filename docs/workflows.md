@@ -4,9 +4,9 @@ These are proposed job templates derived from the two conversations, not hard-co
 
 ## Shared entry and states
 
-Quote request → responsible department rep drafts/revises → super admin reviews/approves → issued → accepted/rejected/expired → job opened (or staff opens a directly instructed job). Acceptance is recorded against the specific quote version with actor and timestamp; no separate evidence attachment is required. Do not import historic records. Generate a collision-safe file number on opening. Job summary: `open`, `in_progress`, `on_hold`, `ready_to_close`, `closed`, `cancelled`; reopening a closed job requires a recorded reason and permission. Each job has exactly one primary service/direction/mode, but can contain multiple containers and related transport legs. Job number format and direct-job policy are [open decisions](decisions.md).
+Quote request → the rep for the quote's service line (or the super admin) drafts and issues it; there is no separate approval step (decided 2026-09-29, see MEMORY.md) → accepted/rejected/expired → job opened (or staff opens a directly instructed job). Acceptance is recorded against the specific quote version with actor and timestamp; no separate evidence attachment is required. Do not import historic records. Generate a collision-safe file number on opening. Job summary: `open`, `in_progress`, `on_hold`, `ready_to_close`, `closed`, `cancelled`; reopening a closed job requires a recorded reason and permission. Each job has exactly one primary service/direction/mode, but can contain multiple containers and related transport legs. Job number format and direct-job policy are [open decisions](decisions.md).
 
-Authorized BJH users configure legal issuer status, tax and related finance settings; the app must not assume or hard-code those values. The quote draft/revision slice does not issue quotes, approve them or create jobs.
+Authorized BJH users configure legal issuer status, tax and related finance settings; the app must not assume or hard-code those values. 
 
 ## Sea import
 
@@ -42,5 +42,6 @@ Authorized BJH users configure legal issuer status, tax and related finance sett
 
 - External observations (carrier API/website) never silently undo a staff-confirmed event. Preserve source, observed-at and effective-at, and flag conflicts for review.
 - Customer portal access follows company ownership: users can see all business records associated with their assigned company and no records belonging to another company. Keep BJH-only administrative records outside customer-company records; do not use a per-record publication switch to hide company-owned business data.
-- Missing documents, damaged cargo, revised ETA, partial payment and failed delivery create exceptions/tasks, not a forced happy-path progression.
+- Missing documents, damaged cargo, revised ETA, partial payment and failed delivery create exceptions/tasks, not a forced happy-path progression. Staff add these tasks by hand. Closing or cancelling a job with open tasks shows them and asks for confirmation; open tasks can still be marked done after closure.
+- Customers are messaged for key steps only (each step's `customerMessage` in `packages/contracts`), plus quotation, ETA, invoice, payment and the waybill's dispatch and delivery. Every step stays visible in the portal. The waybill fills the "dispatched" and "delivered" steps.
 - Generated invoice/waybill/delivery note retains its issued version; corrections create a revision/credit or documented adjustment under approved business rules.

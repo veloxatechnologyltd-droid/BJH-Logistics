@@ -76,6 +76,16 @@ const patterns: Array<{
     value: (match) => match[1],
   },
   {
+    // Carrier B/Ls print "B/L No." or "Bill of Lading No."; the number word is
+    // required so a heading such as "BILL OF LADING ORIGINAL" is not read.
+    key: "master_bl",
+    pattern: new RegExp(
+      `(?<!HOUSE\\s)\\b(?:B/L|BILL OF LADING)\\s*(?:NO\\b|NUMBER\\b|#)${GAP}${REFERENCE}\\b`,
+      "g",
+    ),
+    value: (match) => match[1],
+  },
+  {
     key: "house_bl",
     pattern: new RegExp(
       `\\bHBL\\b\\s*(?:NO|NUMBER)?${GAP}${REFERENCE}\\b`,

@@ -1,8 +1,6 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { AuthStatus } from "../../auth/AuthStatus";
 import { authenticatedFetch } from "../../auth/authenticatedFetch";
 import styles from "../../jobs/jobs.module.css";
 import { ErrorPopup } from "../../ErrorPopup";
@@ -97,14 +95,6 @@ export function NotificationLog() {
 
   return (
     <>
-      <header className="topbar">
-        <div className="breadcrumb">
-          <Link href="/">Workspace</Link>
-          <span aria-hidden="true">/</span>
-          <strong>Customer messages</strong>
-        </div>
-        <AuthStatus />
-      </header>
       <main className={styles.page}>
         <header className={styles.header}>
           <div>

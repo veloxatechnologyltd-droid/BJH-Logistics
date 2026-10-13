@@ -41,6 +41,23 @@ test("a bill of lading's references, containers and seals are proposed", () => {
   assert.match(master!.evidence, /MBL BK NO\.: SYNBK00042/);
 });
 
+test("a carrier's 'B/L No.' or 'Bill of Lading No.' is read as the master B/L", () => {
+  const fields = extractFields(
+    `BILL OF LADING ORIGINAL
+     B/L No: MEDUSY0000642
+     House B/L No.: SYNHB-0042
+     Bill of Lading Number: MEDUSY0000642`,
+  );
+  assert.deepEqual(
+    fields.map((field) => [field.key, field.value]),
+    [["master_bl", "MEDUSY0000642"]],
+  );
+  assert.deepEqual(
+    extractFields("Bill of Lading # SYNBL-77001").map((field) => field.value),
+    ["SYNBL-77001"],
+  );
+});
+
 test("an air waybill's master and house numbers are proposed", () => {
   const fields = extractFields(
     "MAWB NUMBER.: 999-12345678 HAWB NUMBER: SYN-2026A1 SHIPPER: SYNTHETIC EXPORTS LTD",

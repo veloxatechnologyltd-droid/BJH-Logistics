@@ -1,9 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
-import { AuthStatus } from "../../auth/AuthStatus";
 import { authenticatedFetch } from "../../auth/authenticatedFetch";
 import styles from "./adminUsers.module.css";
 import { ErrorPopup } from "../../ErrorPopup";
@@ -218,14 +216,6 @@ export function AdminUsers() {
 
   return (
     <>
-      <header className="topbar">
-        <div className="breadcrumb">
-          <Link href="/">Workspace</Link>
-          <span aria-hidden="true">/</span>
-          <strong>Staff management</strong>
-        </div>
-        <AuthStatus />
-      </header>
       <main className={styles.page}>
         <section className={styles.heading}>
           <div>
