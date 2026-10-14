@@ -1,6 +1,10 @@
+.board {
+  /* Layout follows the space the page has, not the window: the sidebar takes part of it. */
+  container: board / inline-size;
+}
 .charts {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
   gap: 16px;
   margin-bottom: 16px;
 }
@@ -25,12 +29,15 @@
 .rowHead {
   display: flex;
   justify-content: space-between;
+  align-items: baseline;
   gap: 12px;
   margin-bottom: 4px;
   font-size: 0.85rem;
 }
 .rowHead span:last-child {
+  flex-shrink: 0;
   color: var(--brand-muted);
+  font-variant-numeric: tabular-nums;
 }
 .track {
   display: flex;
@@ -89,17 +96,19 @@
 }
 .filters {
   display: grid;
-  grid-template-columns: 160px minmax(200px, 1fr) minmax(200px, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
   gap: 12px;
   margin-bottom: 16px;
 }
 .kpis {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 16px;
 }
 .kpi {
+  container-type: inline-size;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -115,8 +124,11 @@
 }
 .kpi strong {
   color: var(--brand-ink);
-  font-size: 1.5rem;
+  /* Shrinks with the card so long amounts stay inside it. */
+  font-size: clamp(1.05rem, 12cqi, 1.5rem);
+  font-variant-numeric: tabular-nums;
   line-height: 1.2;
+  overflow-wrap: anywhere;
 }
 .kpi small {
   color: var(--brand-muted);
@@ -126,8 +138,145 @@
   margin: 20px 0 10px;
   font-size: 0.95rem;
 }
-@media (max-width: 640px) {
-  .filters {
+/* A table when it fits, a card per row when it does not (Finance jobs and invoices). */
+.tableWrap {
+  overflow-x: auto;
+  background: #fff;
+  border: 1px solid var(--brand-border);
+  border-radius: 10px;
+}
+.cardTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+.cardTable th,
+.cardTable td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--brand-border);
+  text-align: left;
+  vertical-align: top;
+}
+.cardTable thead th {
+  background: #f6f9fc;
+  color: var(--brand-muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.cardTable tbody tr:hover {
+  background: #f6f9fc;
+}
+.cardTable tfoot th,
+.cardTable tfoot td {
+  border-bottom: 0;
+  background: #f6f9fc;
+  font-weight: 700;
+}
+.num {
+  text-align: right !important;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.jobCell {
+  white-space: nowrap;
+  font-weight: 700;
+}
+.customerName {
+  display: block;
+  margin-top: 2px;
+  color: var(--brand-muted);
+  font-weight: 400;
+  white-space: normal;
+}
+.owingText {
+  color: #9a6700;
+  font-weight: 700;
+}
+.lossText {
+  color: #b42318;
+  font-weight: 700;
+}
+
+@container board (max-width: 760px) {
+  .kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .kpi:last-child {
+    grid-column: 1 / -1;
+  }
+}
+
+@container board (max-width: 860px) {
+  .tableWrap {
+    overflow: visible;
+    border: 0;
+    background: transparent;
+  }
+  .cardTable,
+  .cardTable tbody,
+  .cardTable tfoot,
+  .cardTable tr {
+    display: block;
+  }
+  .cardTable thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+  .cardTable tr {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 8px 16px;
+    margin-bottom: 10px;
+    border: 1px solid var(--brand-border);
+    border-radius: 10px;
+    background: #fff;
+    padding: 12px 14px;
+  }
+  .cardTable tfoot tr {
+    background: #f6f9fc;
+  }
+  .cardTable th,
+  .cardTable td {
+    display: block;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    overflow-wrap: anywhere;
+    background: transparent !important;
+  }
+  .jobCell {
+    grid-column: 1 / -1;
+    white-space: normal;
+  }
+  .num {
+    text-align: left !important;
+  }
+  .cardTable td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    color: var(--brand-muted);
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+}
+
+@container board (max-width: 860px) {
+  /* Invoice cards: the invoice number gets the widest column. */
+  .fourFields tr {
+    grid-template-columns: minmax(0, 1.6fr) repeat(3, minmax(0, 1fr));
+  }
+}
+@container board (max-width: 520px) {
+  .cardTable tr {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@container board (max-width: 420px) {
+  .kpis {
     grid-template-columns: 1fr;
   }
 }

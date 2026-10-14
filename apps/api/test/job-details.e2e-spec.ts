@@ -185,7 +185,7 @@ test("one master bill of lading can carry many house bills, containers and a boo
     TEST_MATCHING_TOKEN,
     {
       kind: "container",
-      value: "SYNU1234567",
+      value: "SYNU1234568",
       sealNumber: "SEAL-9",
     },
   );
@@ -235,6 +235,18 @@ test("invalid references are rejected", async () => {
       "This reference is already on the job",
     ],
     [
+      // A wrong ISO 6346 check digit is a typo.
+      { kind: "container", value: "MSCU1234565" },
+      400,
+      "MSCU1234565 is not a valid container number: check the letters and digits against the bill of lading",
+    ],
+    [
+      // Spaces and case are tidied, so this is the container already recorded.
+      { kind: "container", value: "synu 123456 8" },
+      409,
+      "This reference is already on the job",
+    ],
+    [
       { kind: "booking", value: "B2", sealNumber: "S" },
       400,
       "Only containers carry a seal number",
@@ -272,7 +284,7 @@ test("invalid references are rejected", async () => {
     TEST_SUPER_ADMIN_TOKEN,
     {
       kind: "container",
-      value: "SYNU7654321",
+      value: "SYNU7654320",
     },
   );
   assert.equal(air.status, 400);
@@ -335,7 +347,7 @@ test("jobs are searchable by any reference, seal or party name", async () => {
     ).map((job) => job.id);
   assert.deepEqual(await search("HBL-SYN-002"), [seaJob]);
   assert.deepEqual(await search("mbl-syn-001"), [seaJob]);
-  assert.deepEqual(await search("SYNU1234567"), [seaJob]);
+  assert.deepEqual(await search("SYNU1234568"), [seaJob]);
   assert.deepEqual(await search("SEAL-9"), [seaJob]);
   assert.deepEqual(await search("BKG-SYN-77"), [seaJob]);
   assert.deepEqual(await search("Synthetic Shipper"), [seaJob]);
@@ -366,7 +378,7 @@ test("removed references stop matching search", async () => {
   );
   assert.equal(removed.status, 200);
   const found = (await (
-    await call("/api/v1/jobs?search=SYNU1234567", TEST_SUPER_ADMIN_TOKEN)
+    await call("/api/v1/jobs?search=SYNU1234568", TEST_SUPER_ADMIN_TOKEN)
   ).json()) as unknown[];
   assert.equal(found.length, 0);
 });

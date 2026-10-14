@@ -255,6 +255,20 @@ test("a milestone messages every contact by email and SMS, with a link, until th
   assert.equal(email.sent.length, 2);
 });
 
+test("only key steps message the customer, in customer wording", async () => {
+  const [arrived] = await byEvent("milestone");
+  assert.match(arrived.subject, /: Your cargo has arrived at the port$/);
+  assert.ok(!arrived.smsText.includes("customer updated"));
+
+  const internal = await post(
+    `/api/v1/jobs/${jobA}/milestones`,
+    TEST_MATCHING_TOKEN,
+    { milestoneKey: "terminal_booked" },
+  );
+  assert.equal(internal.status, 201);
+  assert.equal((await byEvent("milestone")).length, 1);
+});
+
 test("a correction restates an earlier milestone and is not announced again", async () => {
   const [first] = (await byEvent("milestone")).slice(-1);
   assert.ok(first);

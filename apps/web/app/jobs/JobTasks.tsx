@@ -107,7 +107,8 @@ export function JobTasks({
                   {task.completionNote ? ` · ${task.completionNote}` : ""}
                 </small>
               </div>
-              {task.status !== "done" && canEdit && (
+              {/* Finishing a task is allowed on a closed job; adding one is not. */}
+              {task.status !== "done" && (
                 <button
                   className={styles.textButton}
                   onClick={() =>

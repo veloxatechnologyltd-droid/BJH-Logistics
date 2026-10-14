@@ -22,7 +22,8 @@
     "supabase:reset": "corepack pnpm exec supabase db reset --local",
     "supabase:test": "corepack pnpm exec supabase test db --local",
     "contracts:build": "corepack pnpm --filter @bjh/contracts build",
-    "seed:demo": "dotenv -e .env -- node scripts/seed-demo.mjs"
+    "seed:demo": "dotenv -e .env -- node scripts/seed-demo.mjs",
+    "db:migrate:production": "dotenv -e .env -- node scripts/migrate-production.mjs"
   },
   "devDependencies": {
     "@eslint/js": "9.39.2",

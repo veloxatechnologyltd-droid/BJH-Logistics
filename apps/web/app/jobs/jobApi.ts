@@ -439,11 +439,18 @@ export const listInvoices = (id: string) =>
   send<Invoice[]>(`/${encodeURIComponent(id)}/invoices`, "GET");
 export const createInvoice = (id: string, input: InvoiceDraftInput) =>
   send<Invoice>(`/${encodeURIComponent(id)}/invoices`, "POST", input);
+/** A job charge an invoice started from charges did not include, and why. */
+export interface ChargeLeftOut {
+  description: string;
+  reason: "no_amount" | "other_currency";
+  currency?: string;
+}
+
 export const createInvoiceFromCharges = (
   id: string,
   input: { currency: string; dueDate?: string; notes?: string },
 ) =>
-  send<{ invoice: Invoice; skipped: number }>(
+  send<{ invoice: Invoice; skipped: number; leftOut: ChargeLeftOut[] }>(
     `/${encodeURIComponent(id)}/invoices/from-charges`,
     "POST",
     input,

@@ -148,7 +148,7 @@ test("a document starts from what the job already holds", async () => {
   });
   await post(`${jobPath}/references`, TEST_MATCHING_TOKEN, {
     kind: "container",
-    value: "SYNU1234567",
+    value: "SYNU1234568",
     sealNumber: "002686",
   });
 
@@ -162,7 +162,7 @@ test("a document starts from what the job already holds", async () => {
     notifyParty: "Synthetic Notify Co",
     deliveryAgent: "Synthetic Delivery Agent Ltd",
     masterReference: "SYNBK00042",
-    containers: "SYNU1234567, seal 002686",
+    containers: "SYNU1234568, seal 002686",
   });
 
   // With business settings saved, BJH is the forwarding agent.

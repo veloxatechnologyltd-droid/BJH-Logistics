@@ -22,3 +22,21 @@
 .signOutButton:hover {
   background: #eaf1fb;
 }
+
+.authStatus a,
+.signOutButton {
+  white-space: nowrap;
+}
+
+@media (max-width: 680px) {
+  .authStatus > span {
+    max-width: 38vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .signOutButton {
+    min-height: 34px;
+    padding: 0 14px;
+  }
+}

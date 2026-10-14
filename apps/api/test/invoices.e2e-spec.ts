@@ -749,6 +749,61 @@ test("an invoice starts from the job's charges and a void invoice takes no payme
   );
 });
 
+test("an at-cost charge with a GHS actual is billed on the GHS invoice, never twice", async () => {
+  const chargesPath = `/api/v1/jobs/${jobA}/charges`;
+  const fromCharges = (currency: string) =>
+    post(`/api/v1/jobs/${jobA}/invoices/from-charges`, TEST_MATCHING_TOKEN, {
+      currency,
+    });
+  // Imported from a USD quote "at cost"; the cost is recorded in GHS.
+  const atCost = (await (
+    await post(chargesPath, TEST_MATCHING_TOKEN, {
+      kind: "disbursement",
+      description: "Shipping line DO fee",
+      currency: "USD",
+    })
+  ).json()) as { id: string };
+  await post(`${chargesPath}/${atCost.id}/actuals`, TEST_MATCHING_TOKEN, {
+    amountMinor: 45000,
+    currency: "GHS",
+  });
+
+  type FromCharges = {
+    invoice: Invoice;
+    skipped: number;
+    leftOut: { description: string; reason: string; currency?: string }[];
+  };
+  const usd = (await (await fromCharges("USD")).json()) as FromCharges;
+  assert.deepEqual(
+    usd.invoice.lines.map((line) => [line.description, line.amountMinor]),
+    [["Other currency", 1000]],
+  );
+  assert.deepEqual(
+    usd.leftOut.find((item) => item.description === "Shipping line DO fee"),
+    {
+      description: "Shipping line DO fee",
+      reason: "other_currency",
+      currency: "GHS",
+    },
+  );
+  assert.deepEqual(
+    usd.leftOut.find((item) => item.description === "Unpriced"),
+    { description: "Unpriced", reason: "no_amount" },
+  );
+  assert.equal(usd.skipped, 1);
+
+  const ghs = (await (await fromCharges("GHS")).json()) as FromCharges;
+  const ghsLines = ghs.invoice.lines.map((line) => line.description);
+  assert.ok(ghsLines.includes("Shipping line DO fee"));
+  assert.ok(!ghsLines.includes("Other currency"));
+  assert.equal(
+    ghs.invoice.lines.find(
+      (line) => line.description === "Shipping line DO fee",
+    )?.amountMinor,
+    45000,
+  );
+});
+
 test("payments still arrive after a job is closed, but invoices cannot change", async () => {
   const draft = (await (
     await post(`/api/v1/jobs/${jobC}/invoices`, TEST_MATCHING_TOKEN, {

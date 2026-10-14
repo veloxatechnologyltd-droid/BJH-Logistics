@@ -41,6 +41,8 @@ Keep hosted database credentials server-side in `.env` and apply reviewed migrat
 
 Deployment is manual and is never run from an agent session. Apply reviewed `supabase/migrations/` to the hosted Supabase project first, through the controlled release path.
 
+- **Migrations:** run `corepack pnpm db:migrate:production`. It uses the hosted `DATABASE_URL` in `.env` (host names resolved over HTTPS), shows the pending migrations as a dry run and applies them only after you type `apply production`.
+
 - **API on Render:** create a Blueprint from [`render.yaml`](render.yaml) (auto-deploy is off). Enter the `sync: false` values in the dashboard: `CORS_ORIGINS` and `PUBLIC_WEB_URL` (the Vercel URL), `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, and optionally the email/SMS keys. Add the Supabase root CA as a secret file named `supabase-root.crt`. The API reads Render's `PORT` and binds `0.0.0.0`; Render checks `/api/health`. Do not set `SUPER_ADMIN_BOOTSTRAP_ENABLED` (it is ignored when `NODE_ENV=production`).
 - **Web on Vercel:** import the repository with Root Directory `apps/web`; [`apps/web/vercel.json`](apps/web/vercel.json) installs from the workspace root and builds `@bjh/contracts` first. Set `NEXT_PUBLIC_API_BASE_URL` (`https://<render-service>.onrender.com/api`), `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. Never add the service-role key or `DATABASE_URL` to Vercel.
 - In Supabase Auth, set the Site URL and redirect URLs to the Vercel address, and add `<vercel-address>/set-password` to the redirect URLs (the forgot-password email links there).

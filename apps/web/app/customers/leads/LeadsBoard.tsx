@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import type { LeadSource, LeadStage, LeadUpdateInput } from "@bjh/contracts";
 import { leadSourceKeys, leadStageKeys } from "@bjh/contracts";
@@ -399,6 +400,14 @@ export function LeadsBoard() {
                   ))}
                 </select>
               </label>
+            )}
+            {pending.stage === "won" && (
+              <Link
+                className={ui.textButton}
+                href={`/customers/new?fromLead=${encodeURIComponent(pending.lead.id)}`}
+              >
+                Or create a new customer from this lead
+              </Link>
             )}
             <div className={ui.formActions}>
               <button

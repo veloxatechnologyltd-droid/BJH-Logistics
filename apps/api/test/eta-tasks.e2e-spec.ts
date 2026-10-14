@@ -378,6 +378,15 @@ test("access boundaries: other departments, customers and closed jobs", async ()
   const anonymous = await fetch(`${baseUrl}/api/v1/jobs/${seaJobId}/eta`);
   assert.equal(anonymous.status, 401);
 
+  // A follow-up raised before closing can still be finished afterwards.
+  const followUp = (await (
+    await post(`/api/v1/jobs/${otherSeaJobId}/tasks`, TEST_SUPER_ADMIN_TOKEN, {
+      title: "Agree damage claim",
+      kind: "damage",
+      assignedRole: "super_admin",
+    })
+  ).json()) as { id: string };
+
   // Closed jobs are read-only until reopened.
   const cancelled = await post(
     `/api/v1/jobs/${otherSeaJobId}/status`,
@@ -397,4 +406,11 @@ test("access boundaries: other departments, customers and closed jobs", async ()
     { title: "x", assignedRole: "sea_import_rep" },
   );
   assert.equal(taskOnCancelled.status, 409);
+  const finished = await post(
+    `/api/v1/jobs/${otherSeaJobId}/tasks/${followUp.id}/complete`,
+    TEST_SUPER_ADMIN_TOKEN,
+    { note: "Claim agreed with customer" },
+  );
+  assert.equal(finished.status, 201);
+  assert.equal(((await finished.json()) as { status: string }).status, "done");
 });

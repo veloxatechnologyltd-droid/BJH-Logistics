@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { AuthStatus } from "../auth/AuthStatus";
 import { useStaffAccess } from "../auth/useStaffAccess";
 import { listCustomers } from "../customers/customerApi";
 import type { CustomerCompany } from "../customers/customerApi";
@@ -11,6 +10,7 @@ import type { OutstandingInvoice } from "../jobs/jobApi";
 import { formatMoney } from "../quotes/quoteApi";
 import { FinanceTabs } from "./FinanceTabs";
 import styles from "../jobs/jobs.module.css";
+import cards from "../finance/finance.module.css";
 import { ErrorPopup } from "../ErrorPopup";
 
 type Totals = Array<{
@@ -55,14 +55,6 @@ export function Receivables() {
 
   return (
     <>
-      <header className="topbar">
-        <div className="breadcrumb">
-          <Link href="/">Workspace</Link>
-          <span aria-hidden="true">/</span>
-          <strong>{isStaff ? "Receivables" : "Your invoices"}</strong>
-        </div>
-        <AuthStatus />
-      </header>
       <main className={styles.page}>
         <header className={styles.header}>
           <div>
@@ -120,46 +112,65 @@ export function Receivables() {
             aria-labelledby="invoices-owing-title"
           >
             <h2 id="invoices-owing-title">Invoices</h2>
-            <div className={styles.tableScroll}>
-              <table className={styles.table}>
-                <thead>
-                  <tr>
-                    <th>Due</th>
-                    <th>Invoice</th>
-                    <th>Job</th>
-                    {isStaff && <th>Customer</th>}
-                    <th>Total</th>
-                    <th>Owing</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row) => (
-                    <tr key={row.invoiceId}>
-                      <td>
-                        {row.dueDate ?? "-"}
-                        {row.overdue && (
-                          <span className={styles.error}>
-                            {" "}
-                            {row.daysOverdue} day(s) overdue
-                          </span>
-                        )}
-                      </td>
-                      <td>{row.invoiceNumber}</td>
-                      <td>
-                        <Link
-                          className={styles.link}
-                          href={`/jobs/${row.jobId}`}
-                        >
-                          {row.fileNumber}
-                        </Link>
-                      </td>
-                      {isStaff && <td>{row.customerCompanyName}</td>}
-                      <td>{formatMoney(row.totalMinor, row.currency)}</td>
-                      <td>{formatMoney(row.outstandingMinor, row.currency)}</td>
+            <div className={cards.board}>
+              <div className={cards.tableWrap}>
+                <table className={`${cards.cardTable} ${cards.fourFields}`}>
+                  <thead>
+                    <tr>
+                      <th scope="col">
+                        {isStaff ? "Job and customer" : "Job"}
+                      </th>
+                      <th scope="col">Invoice</th>
+                      <th scope="col">Due</th>
+                      <th className={cards.num} scope="col">
+                        Total
+                      </th>
+                      <th className={cards.num} scope="col">
+                        Owing
+                      </th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {rows.map((row) => (
+                      <tr key={row.invoiceId}>
+                        <td className={cards.jobCell}>
+                          <Link
+                            className={styles.link}
+                            href={`/jobs/${row.jobId}`}
+                          >
+                            {row.fileNumber}
+                          </Link>
+                          {isStaff && (
+                            <span className={cards.customerName}>
+                              {row.customerCompanyName}
+                            </span>
+                          )}
+                        </td>
+                        <td data-label="Invoice">{row.invoiceNumber}</td>
+                        <td data-label="Due">
+                          {row.dueDate ?? "-"}
+                          {row.overdue && (
+                            <span className={styles.error}>
+                              {" "}
+                              {row.daysOverdue}{" "}
+                              {row.daysOverdue === 1 ? "day" : "days"} overdue
+                            </span>
+                          )}
+                        </td>
+                        <td className={cards.num} data-label="Total">
+                          {formatMoney(row.totalMinor, row.currency)}
+                        </td>
+                        <td
+                          className={`${cards.num} ${cards.owingText}`}
+                          data-label="Owing"
+                        >
+                          {formatMoney(row.outstandingMinor, row.currency)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </section>
         )}

@@ -11,6 +11,7 @@ import {
   recordProof,
 } from "../transport/transportApi";
 import type { Delivery, Driver, Vehicle } from "../transport/transportApi";
+import { listParties } from "./jobApi";
 import type { JobDocument } from "./jobApi";
 import styles from "./jobs.module.css";
 import { ErrorPopup } from "../ErrorPopup";
@@ -159,7 +160,26 @@ export function JobDeliveries({
         {canEdit && !adding && (
           <button
             className={styles.secondaryButton}
-            onClick={() => setAdding(true)}
+            onClick={() => {
+              setAdding(true);
+              // Start from the consignee recorded on the job; staff can change it.
+              if (!address)
+                void listParties(jobId)
+                  .then((parties) => {
+                    const consignee = parties.find(
+                      (party) => party.role === "consignee",
+                    );
+                    if (consignee)
+                      setAddress(
+                        (current) =>
+                          current ||
+                          [consignee.name, consignee.details]
+                            .filter(Boolean)
+                            .join(", "),
+                      );
+                  })
+                  .catch(() => undefined);
+            }}
             type="button"
           >
             Dispatch a delivery

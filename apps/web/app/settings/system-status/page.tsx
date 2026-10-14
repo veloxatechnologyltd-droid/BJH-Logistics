@@ -1,8 +1,6 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useState } from "react";
-import { AuthStatus } from "../../auth/AuthStatus";
 
 const apiBaseUrl =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:3001/api";
@@ -36,14 +34,6 @@ export default function SystemStatusPage() {
 
   return (
     <>
-      <header className="topbar">
-        <div className="breadcrumb">
-          <Link href="/settings">Settings</Link>
-          <span aria-hidden="true">/</span>
-          <strong>System status</strong>
-        </div>
-        <AuthStatus />
-      </header>
       <main className="dashboard">
         <section className="welcome-row" aria-labelledby="status-title">
           <div>

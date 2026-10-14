@@ -17,7 +17,11 @@ import {
   createTestApplication,
 } from "./test-application";
 import { DatabasePort } from "../src/database/database.port";
-import { beginTestDatabase, endTestDatabase } from "./postgres-test-database";
+import {
+  beginTestDatabase,
+  endTestDatabase,
+  testPostgresPool,
+} from "./postgres-test-database";
 
 let application: INestApplication;
 let baseUrl: string;
@@ -418,6 +422,54 @@ test("the proof of delivery is recorded once, with an optional signed delivery n
     { receiverName: "R" },
   );
   assert.equal(unknown.status, 404);
+});
+
+test("the waybill fills the dispatched and delivered steps, without a second message", async () => {
+  const timeline = (await (
+    await get(`/api/v1/jobs/${jobA}/milestones`)
+  ).json()) as {
+    events: Array<{
+      milestoneKey: string;
+      source: string;
+      note: string | null;
+    }>;
+  };
+  const step = (key: string) =>
+    timeline.events.find((event) => event.milestoneKey === key);
+  assert.equal(step("container_dispatched")?.source, "system");
+  // The latest waybill dispatched on the job.
+  assert.match(step("container_dispatched")?.note ?? "", /\/WB\/\d{4}\/\d{4}$/);
+  assert.equal(step("delivery_note_signed")?.source, "system");
+  assert.match(step("delivery_note_signed")?.note ?? "", /A\. Receiver/);
+
+  // Recording the step by hand as well is allowed, but the customer was
+  // already told by the waybill, so no milestone message is added.
+  const before = await testPostgresPool.query(
+    "SELECT count(*)::int AS count FROM app.notification WHERE job_id = $1 AND event = 'milestone'",
+    [jobA],
+  );
+  const manual = await post(
+    `/api/v1/jobs/${jobA}/milestones`,
+    TEST_MATCHING_TOKEN,
+    {
+      milestoneKey: "delivery_note_signed",
+    },
+  );
+  assert.equal(manual.status, 201);
+  const afterwards = await testPostgresPool.query(
+    "SELECT count(*)::int AS count FROM app.notification WHERE job_id = $1 AND event = 'milestone'",
+    [jobA],
+  );
+  assert.equal(afterwards.rows[0].count, before.rows[0].count);
+  // Control: a key step on the same job is still announced.
+  await post(`/api/v1/jobs/${jobA}/milestones`, TEST_MATCHING_TOKEN, {
+    milestoneKey: "cargo_arrived",
+  });
+  const control = await testPostgresPool.query(
+    "SELECT count(*)::int AS count FROM app.notification WHERE job_id = $1 AND event = 'milestone'",
+    [jobA],
+  );
+  assert.equal(control.rows[0].count, Number(before.rows[0].count) + 1);
 });
 
 test("access boundaries: customers read their own waybills; only staff dispatch", async () => {

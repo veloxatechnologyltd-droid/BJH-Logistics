@@ -2,9 +2,11 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { createCustomer } from "./customerApi";
+import { listLeads, updateLead } from "./leadApi";
+import type { Lead } from "./leadApi";
 import { useStaffAccess } from "../auth/useStaffAccess";
 import styles from "./customerDirectory.module.css";
 import { ErrorPopup } from "../ErrorPopup";
@@ -14,6 +16,18 @@ export function CustomerCreateForm() {
   const router = useRouter();
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  // "Create a new customer from this lead" arrives with ?fromLead=<id>.
+  const [lead, setLead] = useState<Lead | null>(null);
+
+  useEffect(() => {
+    const leadId = new URLSearchParams(window.location.search).get("fromLead");
+    if (!leadId) return;
+    listLeads()
+      .then((leads) =>
+        setLead(leads.find((item) => item.id === leadId) ?? null),
+      )
+      .catch(() => undefined);
+  }, []);
 
   if (status === "loading") {
     return <p role="status">Checking staff access…</p>;
@@ -60,6 +74,13 @@ export function CustomerCreateForm() {
         email: value("email"),
         phone: value("phone"),
       });
+      // The lead it came from is marked won and linked to the new customer.
+      if (lead) {
+        await updateLead(lead.id, {
+          stage: "won",
+          customerCompanyId: customer.id,
+        });
+      }
       router.push(`/customers/${customer.id}`);
     } catch (cause) {
       setError(
@@ -73,7 +94,16 @@ export function CustomerCreateForm() {
   }
 
   return (
-    <form className={styles.customerForm} onSubmit={submit}>
+    <form
+      className={styles.customerForm}
+      key={lead?.id ?? "blank"}
+      onSubmit={submit}
+    >
+      {lead && (
+        <p role="status">
+          Filled in from the lead {lead.companyName}. Saving marks the lead won.
+        </p>
+      )}
       <section className={styles.customerFormSection}>
         <h2>Company details</h2>
         <div className={styles.customerFormFields}>
@@ -83,6 +113,7 @@ export function CustomerCreateForm() {
               autoComplete="organization"
               id="company-name"
               maxLength={160}
+              defaultValue={lead?.companyName}
               name="companyName"
               required
             />
@@ -180,6 +211,7 @@ export function CustomerCreateForm() {
               autoComplete="name"
               id="contact-name"
               maxLength={160}
+              defaultValue={lead?.contactName ?? undefined}
               name="contactName"
               required
             />
@@ -194,6 +226,7 @@ export function CustomerCreateForm() {
               autoComplete="email"
               id="contact-email"
               maxLength={254}
+              defaultValue={lead?.email ?? undefined}
               name="email"
               required
               type="email"
@@ -205,6 +238,7 @@ export function CustomerCreateForm() {
               autoComplete="tel"
               id="contact-phone"
               maxLength={40}
+              defaultValue={lead?.phone ?? undefined}
               name="phone"
               placeholder="024 405 8592"
               type="tel"

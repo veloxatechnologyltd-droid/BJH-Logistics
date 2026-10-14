@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
-import { AuthStatus } from "../auth/AuthStatus";
 import { useStaffAccess } from "../auth/useStaffAccess";
 import {
   createPortalQuoteRequest,
@@ -57,16 +56,6 @@ export function PortalHome() {
 
   return (
     <>
-      <header className="topbar">
-        <div className="breadcrumb">
-          <span>Portal</span>
-          <span aria-hidden="true">/</span>
-          <strong>Overview</strong>
-        </div>
-        <div className="topbar-actions">
-          <AuthStatus />
-        </div>
-      </header>
       <main className={styles.page}>
         <header className={styles.header}>
           <div>
