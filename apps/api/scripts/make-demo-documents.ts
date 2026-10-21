@@ -221,6 +221,28 @@ async function main() {
   );
   writeFileSync(join(OUT, "sea-arrival-notice.pdf"), notice);
 
+  // Sent with the demo emails (scripts/demo-emails.ts), not scored by the readers.
+  const packing = await pdf(
+    "PACKING LIST",
+    "NINGBO SYNTHETIC TEXTILES CO., LTD",
+    [
+      ["Invoice No.", "NST-2610-118"],
+      ["Buyer", "Akwaaba Synthetic Garments Ltd, Kaneshie, Accra"],
+      ["Port of loading", "Ningbo, China"],
+      ["Port of discharge", "Tema, Ghana"],
+      ["Terms", "FOB Ningbo"],
+    ],
+    {
+      head: ["Goods", "Packages", "Gross weight", "Volume"],
+      body: [
+        ["Woven cotton fabric rolls", "1,240 cartons", "22,480 kg", "136 CBM"],
+        ["Total: 2 x 40' HC", "1,240 cartons", "22,480 kg", "136 CBM"],
+      ],
+    },
+    "Shipper's load and count.",
+  );
+  writeFileSync(join(OUT, "packing-list.pdf"), packing);
+
   // The carrier B/L as a scanner and as a phone would give it: no text layer.
   const carrierPath = join(OUT, "sea-bl-carrier.pdf");
   const scanImage = rasterise(carrierPath, join(OUT, "scan-page"), 150);
