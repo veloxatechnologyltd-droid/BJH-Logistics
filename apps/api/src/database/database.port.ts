@@ -558,17 +558,23 @@ export interface EtaReminderCandidate {
   etaAt: string;
 }
 
+/** A shipment reference, a party (by role) or the ETA. */
+export type ExtractionFieldKey = ReferenceKind | PartyRole | "eta";
+
 export interface ExtractionFieldRecord {
-  key: ReferenceKind;
+  key: ExtractionFieldKey;
   label: string;
+  /** The reference or party name; for the ETA, an ISO date and time. */
   value: string;
   sealNumber: string | null;
+  /** A party's address and contact lines; absent on older drafts. */
+  details?: string | null;
   evidence: string;
 }
 
 export interface ExtractionApplyResult {
   index: number;
-  key: ReferenceKind;
+  key: ExtractionFieldKey;
   value: string;
   /** "added", or why nothing was added. */
   result: string;

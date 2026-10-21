@@ -12,7 +12,7 @@ import {
   extractFields,
   readPdfText,
 } from "../src/documents/document-extraction";
-import type { ExtractedField } from "../src/documents/document-extraction";
+import type { ExtractionFieldRecord } from "../src/database/database.port";
 import {
   ClaudeDocumentReader,
   createDocumentReader,
@@ -20,23 +20,27 @@ import {
 
 const DIR = resolve(process.cwd(), "../../.local/demo-documents");
 
+const partyKeys = ["shipper", "consignee", "notify_party", "agent"];
+
 type Expected = Record<
   string,
   Array<{ key: string; value: string; seal?: string }>
 >;
 
-function score(found: ExtractedField[], expected: Expected[string]) {
+function score(found: ExtractionFieldRecord[], expected: Expected[string]) {
+  const same = (got: ExtractionFieldRecord, want: Expected[string][number]) =>
+    got.key === want.key &&
+    (partyKeys.includes(got.key)
+      ? got.value.toLowerCase().includes(want.value.toLowerCase())
+      : got.value === want.value);
   const match = (want: Expected[string][number]) =>
-    found.find((got) => got.key === want.key && got.value === want.value);
+    found.find((got) => same(got, want));
   const missing = expected.filter((want) => !match(want));
   const wrongSeal = expected.filter(
     (want) => want.seal && match(want) && match(want)?.sealNumber !== want.seal,
   );
   const extra = found.filter(
-    (got) =>
-      !expected.some(
-        (want) => want.key === got.key && want.value === got.value,
-      ),
+    (got) => !expected.some((want) => same(got, want)),
   );
   return {
     right: expected.length - missing.length - wrongSeal.length,
@@ -48,7 +52,7 @@ function score(found: ExtractedField[], expected: Expected[string]) {
 
 function report(
   reader: string,
-  found: ExtractedField[] | Error,
+  found: ExtractionFieldRecord[] | Error,
   expected: Expected[string],
   seconds: number,
 ) {

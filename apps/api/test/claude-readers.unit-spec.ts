@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { referenceKindKeys } from "@bjh/contracts";
+import { partyRoleKeys, referenceKindKeys } from "@bjh/contracts";
 import { DEFAULT_CLAUDE_MODEL, claudeFromEnvironment } from "../src/ai/claude";
 import {
   ClaudeEmailExtractor,
@@ -11,6 +11,7 @@ import {
   ClaudeDocumentReader,
   TextLayerOnlyReader,
   createDocumentReader,
+  etaFromDocument,
   normalizeDocumentFields,
 } from "../src/documents/document-reader";
 import { containerWithCheckDigit } from "./pdf-helpers";
@@ -233,7 +234,7 @@ test("a PDF goes as a document block and an image as an image block", async () =
   assert.deepEqual(
     api.requests[0].body.output_config.format.schema.properties.fields.items!
       .properties.kind.enum,
-    [...referenceKindKeys],
+    [...referenceKindKeys, ...partyRoleKeys, "eta"],
   );
   assert.match(api.requests[0].body.system, /untrusted/);
 });
@@ -321,4 +322,82 @@ test("the AI's answer is cleaned: bad containers, unknown kinds and repeats drop
   ]);
   assert.deepEqual(normalizeDocumentFields(null), []);
   assert.deepEqual(normalizeDocumentFields({ fields: "nope" }), []);
+});
+
+test("parties keep their names and address lines; one real ETA is read as Ghana time", () => {
+  const fields = normalizeDocumentFields({
+    fields: [
+      {
+        kind: "shipper",
+        value: "  Ningbo Synthetic Textiles Co., Ltd ",
+        sealNumber: "X",
+        details: "18 Harbour Road\n\n  Ningbo,   China ",
+        evidence: "SHIPPER Ningbo Synthetic Textiles",
+      },
+      {
+        kind: "shipper",
+        value: "NINGBO SYNTHETIC TEXTILES CO., LTD",
+        sealNumber: null,
+        details: null,
+        evidence: "again",
+      },
+      {
+        kind: "consignee",
+        value: "Northstar Synthetic Trading Ltd",
+        sealNumber: null,
+        details: null,
+        evidence: "",
+      },
+      {
+        kind: "eta",
+        value: "2026-11-02T14:30",
+        sealNumber: null,
+        details: null,
+        evidence: "ETA TEMA 02 NOV 2026 14:30",
+      },
+      {
+        kind: "eta",
+        value: "2026-11-05",
+        sealNumber: null,
+        details: null,
+        evidence: "second ETA",
+      },
+      {
+        kind: "agent",
+        value: "",
+        sealNumber: null,
+        details: null,
+        evidence: "x",
+      },
+    ],
+  });
+  assert.deepEqual(fields, [
+    {
+      key: "shipper",
+      label: "Shipper",
+      value: "Ningbo Synthetic Textiles Co., Ltd",
+      sealNumber: null,
+      details: "18 Harbour Road\nNingbo, China",
+      evidence: "SHIPPER Ningbo Synthetic Textiles",
+    },
+    {
+      key: "consignee",
+      label: "Consignee",
+      value: "Northstar Synthetic Trading Ltd",
+      sealNumber: null,
+      details: null,
+      evidence: "Northstar Synthetic Trading Ltd",
+    },
+    {
+      key: "eta",
+      label: "ETA (expected arrival)",
+      value: "2026-11-02T14:30:00.000Z",
+      sealNumber: null,
+      evidence: "ETA TEMA 02 NOV 2026 14:30",
+    },
+  ]);
+  assert.equal(etaFromDocument("2026-11-05"), "2026-11-05T00:00:00.000Z");
+  assert.equal(etaFromDocument("2026-02-30"), null);
+  assert.equal(etaFromDocument("2026-11-05T24:10"), null);
+  assert.equal(etaFromDocument("5 November 2026"), null);
 });

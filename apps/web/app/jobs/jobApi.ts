@@ -680,8 +680,11 @@ export const sendJobMessage = (
 export type ExtractionField = {
   key: string;
   label: string;
+  /** The reference or party name; for "eta", an ISO date and time. */
   value: string;
   sealNumber: string | null;
+  /** A party's address and contact lines. */
+  details?: string | null;
   evidence: string;
 };
 
@@ -714,7 +717,12 @@ export const extractDocument = (id: string, documentId: string) =>
 export const approveExtraction = (
   id: string,
   extractionId: string,
-  fields: Array<{ index: number; value: string; sealNumber?: string }>,
+  fields: Array<{
+    index: number;
+    value: string;
+    sealNumber?: string;
+    details?: string;
+  }>,
 ) =>
   send<Extraction>(
     `/${encodeURIComponent(id)}/extractions/${encodeURIComponent(extractionId)}/approve`,

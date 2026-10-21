@@ -1,8 +1,10 @@
 # AI reading of job documents
 
-On a job's Documents tab, **Details read from documents → Read details (draft)**
-proposes shipment references from one document: master and house B/L, master and
-house air waybill, booking number, and containers with their seals.
+On a job's Shipment details tab, **Details read from documents → Read details
+(draft)** proposes from one document: master and house B/L, master and house air
+waybill, booking number, containers with their seals and, with AI, the parties
+(shipper, consignee, notify party, agent, with address lines) and the expected
+arrival (ETA).
 
 | Set up                     | What reads the document                                                                       | Files                       |
 | -------------------------- | --------------------------------------------------------------------------------------------- | --------------------------- |
@@ -17,6 +19,14 @@ must pass the ISO 6346 check digit (others are dropped), a master air waybill is
 written `NNN-NNNNNNNN`, repeats are merged. If the AI fails (busy, key refused,
 too slow) the API answers 503 with the reason and no draft is saved: try again
 or add the references by hand.
+
+Applying a **party** adds it beside the parties already on the job; one with the
+same role and name is reported as "already on the job" and not added twice.
+Applying the **ETA** records a new ETA entry (source "Document: <file name>",
+note saying it was read by AI and checked by staff), which messages the customer
+like any ETA change; the ETA that is already current is not recorded again.
+Dates on documents are read as Ghana time (GMT, no daylight saving). Both rules
+are assumptions to confirm with BJH (MEMORY.md, 2026-10-21).
 
 ## Privacy and cost
 
@@ -49,7 +59,13 @@ pair), scanned B/L 0/4, photo not readable, house B/L 2/3, house AWB 2/2.
   references right with their seals, no extras, 2 to 4 seconds a file, on the
   carrier B/L, its scan, its photo, the house B/L and the house AWB. Accuracy on
   real documents (stamps, handwriting, poor photos) is not measured yet.
-- The "Read details" panel has not been checked in a browser against the live API.
-- Only shipment references. Parties, ports, vessel and voyage, cargo and ETA need
-  their own apply paths (next step).
+- Browser check (21 October 2026, local app, live key): the synthetic photo became
+  a draft with all references, seals, three parties and their addresses. Each
+  detail is one row (label, full-width boxes, where it was found), checked at 1280px
+  and 390px with nothing wider than the card.
+- Second live run with parties and the ETA: 33/33 right on six synthetic files,
+  including the ETA on an arrival notice (not the sailing date); one extra, an
+  "agent" read from "BJH Logistics (as agent)".
+- Vessel and voyage, ports and cargo are not read: the job has no fields for them
+  (they live only in the house B/L editor), so they need a schema decision first.
 - Email attachments are kept but not read.

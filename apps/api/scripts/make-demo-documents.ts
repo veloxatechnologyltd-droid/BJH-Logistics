@@ -202,20 +202,44 @@ async function main() {
   );
   writeFileSync(join(OUT, "air-hawb.pdf"), air);
 
+  const notice = await pdf(
+    "ARRIVAL NOTICE",
+    "OCEANIC SYNTHETIC LINES · TEMA AGENCY",
+    [
+      ["B/L No.", masterBl],
+      ["Vessel / Voyage", "MV SYNTHETIC STAR / 042W"],
+      ["Port of discharge", "Tema, Ghana"],
+      ["Estimated time of arrival", "2 November 2026, 14:30"],
+      ["Consignee", "BJH Logistics (as agent), Community 1, Tema"],
+      ["Sailed from Ningbo", "8 October 2026"],
+    ],
+    {
+      head: ["Container No.", "Seal No.", "Type"],
+      body: containers.map(({ number, seal }) => [number, seal, "40' HC"]),
+    },
+    "Please present the original bill of lading and settle local charges before release.",
+  );
+  writeFileSync(join(OUT, "sea-arrival-notice.pdf"), notice);
+
   // The carrier B/L as a scanner and as a phone would give it: no text layer.
   const carrierPath = join(OUT, "sea-bl-carrier.pdf");
   const scanImage = rasterise(carrierPath, join(OUT, "scan-page"), 150);
   writeFileSync(join(OUT, "sea-bl-scanned.pdf"), await imageOnlyPdf(scanImage));
   rasterise(carrierPath, join(OUT, "sea-bl-photo"), 110);
 
+  // Party names are matched by "contains", so the AI may keep or split the address.
+  const containerRefs = containers.map(({ number, seal }) => ({
+    key: "container",
+    value: number,
+    seal,
+  }));
   const carrierRefs = [
     { key: "master_bl", value: masterBl },
     { key: "booking", value: "BKG-778120" },
-    ...containers.map(({ number, seal }) => ({
-      key: "container",
-      value: number,
-      seal,
-    })),
+    ...containerRefs,
+    { key: "shipper", value: "Ningbo Synthetic Textiles" },
+    { key: "consignee", value: "BJH Logistics" },
+    { key: "notify_party", value: "Northstar Synthetic Trading" },
   ];
   writeFileSync(
     join(OUT, "expected.json"),
@@ -232,10 +256,21 @@ async function main() {
             value: containers[0].number,
             seal: containers[0].seal,
           },
+          { key: "shipper", value: "Ningbo Synthetic Textiles" },
+          { key: "consignee", value: "Northstar Synthetic Trading" },
         ],
         "air-hawb.pdf": [
           { key: "house_awb", value: hawb },
           { key: "master_awb", value: mawb },
+          { key: "shipper", value: "Kumasi Synthetic Agro Exports" },
+          { key: "consignee", value: "Rotterdam Synthetic Foods" },
+        ],
+        "sea-arrival-notice.pdf": [
+          { key: "master_bl", value: masterBl },
+          ...containerRefs,
+          { key: "consignee", value: "BJH Logistics" },
+          // Ghana time is GMT; the sailing date must not be taken as the ETA.
+          { key: "eta", value: "2026-11-02T14:30:00.000Z" },
         ],
       },
       null,

@@ -1,12 +1,15 @@
-import { referenceKindKeys } from "@bjh/contracts";
-import type { ReferenceKind } from "@bjh/contracts";
+import { partyRoleKeys, referenceKindKeys } from "@bjh/contracts";
+import type { PartyRole, ReferenceKind } from "@bjh/contracts";
 import {
   ClaudeReadingError,
   claudeFromEnvironment,
   readWithClaude,
 } from "../ai/claude";
 import type { ClaudeSetup } from "../ai/claude";
-import type { ExtractedField } from "./document-extraction";
+import type {
+  ExtractionFieldKey,
+  ExtractionFieldRecord,
+} from "../database/database.port";
 import { isValidContainerNumber, labels } from "./document-extraction";
 
 export const DOCUMENT_READER = Symbol("DOCUMENT_READER");
@@ -23,8 +26,20 @@ export class DocumentReadingError extends Error {}
 export interface DocumentReader {
   /** The model that reads, or null when no AI service is set up (the text layer is read instead). */
   readonly model: string | null;
-  read(file: { bytes: Buffer; contentType: string }): Promise<ExtractedField[]>;
+  read(file: {
+    bytes: Buffer;
+    contentType: string;
+  }): Promise<ExtractionFieldRecord[]>;
 }
+
+export const fieldLabels: Record<ExtractionFieldKey, string> = {
+  ...labels,
+  shipper: "Shipper",
+  consignee: "Consignee",
+  notify_party: "Notify party",
+  agent: "Agent",
+  eta: "ETA (expected arrival)",
+};
 
 const SYSTEM_PROMPT = `You read one shipping document for BJH Logistics, a freight forwarder in Ghana: usually a bill of lading, an air waybill, an arrival notice, a booking confirmation or a packing list. Staff will check everything you return before it is used.
 
@@ -38,11 +53,20 @@ Return every shipment reference printed on the document:
 - booking: a booking or booking reference number.
 - container: each container number (4 letters then 7 digits, e.g. MSCU1234565), with the seal number printed with it in sealNumber, else null.
 
+Also return the parties named on the document, one field each:
+- shipper, consignee, notify_party, and agent (a forwarding, delivery or destination agent). value: the name only. details: the address and contact lines printed under the name, one per line, else null.
+
+And the expected arrival, only if the document states one (labelled ETA, estimated or expected arrival, or arrival date on an arrival notice):
+- eta: value as YYYY-MM-DD, or YYYY-MM-DDTHH:MM when a time is printed. Never use a sailing, departure, loading, issue or flight date.
+
 Rules:
 - Copy each value exactly as printed. Never guess, never complete a number that is cut off or unreadable, never invent one.
-- When the document does not say which kind a number is, leave it out.
+- When the document does not say which kind a number or party is, leave it out.
+- sealNumber is for containers only; details is for parties only; otherwise null.
 - evidence: the words printed around the value, as written, at most 100 characters, so a person can find it.
-- If there are no references, return an empty list.`;
+- If there is nothing to return, return an empty list.`;
+
+const nullableText = { anyOf: [{ type: "string" }, { type: "null" }] };
 
 const SCHEMA = {
   type: "object",
@@ -54,11 +78,15 @@ const SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["kind", "value", "sealNumber", "evidence"],
+        required: ["kind", "value", "sealNumber", "details", "evidence"],
         properties: {
-          kind: { type: "string", enum: [...referenceKindKeys] },
+          kind: {
+            type: "string",
+            enum: [...referenceKindKeys, ...partyRoleKeys, "eta"],
+          },
           value: { type: "string" },
-          sealNumber: { anyOf: [{ type: "string" }, { type: "null" }] },
+          sealNumber: nullableText,
+          details: nullableText,
           evidence: { type: "string" },
         },
       },
@@ -74,22 +102,84 @@ function text(value: unknown, max: number): string {
     : "";
 }
 
+/** Address lines kept as lines, blank ones dropped. */
+function lines(value: unknown, max: number): string | null {
+  if (typeof value !== "string") return null;
+  const kept = value
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .join("\n")
+    .slice(0, max);
+  return kept || null;
+}
+
 /**
- * Turns the AI's answer into draft fields: values in capitals, container
- * numbers without spaces and only with a valid ISO 6346 check digit, MAWBs as
- * NNN-NNNNNNNN, repeats dropped.
+ * A date (and time) as the AI wrote it, read as Ghana time (GMT all year), as
+ * an ISO string; null when it is not a real date.
  */
-export function normalizeDocumentFields(raw: unknown): ExtractedField[] {
+export function etaFromDocument(value: string): string | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}))?$/.exec(value);
+  if (!match) return null;
+  const [, year, month, day, hour = "00", minute = "00"] = match;
+  const date = new Date(Date.UTC(+year, +month - 1, +day, +hour, +minute));
+  return date.getUTCDate() === +day &&
+    date.getUTCMonth() === +month - 1 &&
+    +hour < 24 &&
+    +minute < 60
+    ? date.toISOString()
+    : null;
+}
+
+/**
+ * Turns the AI's answer into draft fields: references in capitals, container
+ * numbers without spaces and only with a valid ISO 6346 check digit, MAWBs as
+ * NNN-NNNNNNNN; party names as printed with their address lines; at most one
+ * ETA, which must be a real date; repeats dropped.
+ */
+export function normalizeDocumentFields(raw: unknown): ExtractionFieldRecord[] {
   const list =
     raw &&
     typeof raw === "object" &&
     Array.isArray((raw as { fields?: unknown }).fields)
       ? (raw as { fields: unknown[] }).fields
       : [];
-  const found = new Map<string, ExtractedField>();
+  const found = new Map<string, ExtractionFieldRecord>();
   for (const item of list.slice(0, MAX_FIELDS)) {
     if (!item || typeof item !== "object") continue;
     const source = item as Record<string, unknown>;
+    const evidence = (value: string) => text(source.evidence, 120) || value;
+
+    const role = partyRoleKeys.find((kind) => kind === source.kind) as
+      PartyRole | undefined;
+    if (role) {
+      const name = text(source.value, 200);
+      const id = `${role}:${name.toLowerCase()}`;
+      if (!name || found.has(id)) continue;
+      found.set(id, {
+        key: role,
+        label: fieldLabels[role],
+        value: name,
+        sealNumber: null,
+        details: lines(source.details, 1000),
+        evidence: evidence(name),
+      });
+      continue;
+    }
+
+    if (source.kind === "eta") {
+      const at = etaFromDocument(text(source.value, 20));
+      if (!at || found.has("eta")) continue;
+      found.set("eta", {
+        key: "eta",
+        label: fieldLabels.eta,
+        value: at,
+        sealNumber: null,
+        evidence: evidence(text(source.value, 20)),
+      });
+      continue;
+    }
+
     const key = referenceKindKeys.find((kind) => kind === source.kind) as
       ReferenceKind | undefined;
     if (!key) continue;
@@ -109,10 +199,10 @@ export function normalizeDocumentFields(raw: unknown): ExtractedField[] {
     const seal = text(source.sealNumber, 40).toUpperCase();
     found.set(id, {
       key,
-      label: labels[key],
+      label: fieldLabels[key],
       value,
       sealNumber: key === "container" && seal ? seal : null,
-      evidence: text(source.evidence, 120) || value,
+      evidence: evidence(value),
     });
   }
   return [...found.values()];
@@ -129,7 +219,7 @@ export class ClaudeDocumentReader implements DocumentReader {
   async read(file: {
     bytes: Buffer;
     contentType: string;
-  }): Promise<ExtractedField[]> {
+  }): Promise<ExtractionFieldRecord[]> {
     if (!AI_READABLE_TYPES.includes(file.contentType)) {
       throw new DocumentReadingError("Only a PDF, PNG or JPEG can be read");
     }
@@ -165,7 +255,7 @@ export class ClaudeDocumentReader implements DocumentReader {
             document,
             {
               type: "text",
-              text: "Read the shipment references from this document.",
+              text: "Read the shipment references, parties and expected arrival from this document.",
             },
           ],
           schema: SCHEMA,
@@ -184,7 +274,7 @@ export class ClaudeDocumentReader implements DocumentReader {
 /** No AI service set up: the PDF text layer is read inside the API instead. */
 export class TextLayerOnlyReader implements DocumentReader {
   readonly model = null;
-  async read(): Promise<ExtractedField[]> {
+  async read(): Promise<ExtractionFieldRecord[]> {
     throw new DocumentReadingError("AI reading is not set up");
   }
 }

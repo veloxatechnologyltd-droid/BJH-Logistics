@@ -1511,8 +1511,9 @@ export const extractionApproveInputSchema = z.object(
               .number({ error: "index must be a whole number" })
               .int({ error: "index must be a whole number" })
               .min(0, { error: "index must be a whole number" }),
-            value: requiredText("value", 80),
+            value: requiredText("value", 200),
             sealNumber: optionalText("sealNumber", 80),
+            details: optionalText("details", 1000),
           },
           objectError("A field object is required"),
         ),

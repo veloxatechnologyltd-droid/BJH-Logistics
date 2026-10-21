@@ -599,3 +599,129 @@ test("with AI reading set up, a photo is read into a draft that records the mode
     testDocumentReader.result = [];
   }
 });
+
+test("AI-read parties are added beside existing ones and the ETA is recorded with its source", async () => {
+  testDocumentReader.model = "claude-haiku-5-5";
+  try {
+    const jobId = await openJob(companyId, "sea_import");
+    const existing = await post(
+      `/api/v1/jobs/${jobId}/parties`,
+      TEST_MATCHING_TOKEN,
+      { role: "consignee", name: "Northstar Synthetic Trading Ltd" },
+    );
+    assert.equal(existing.status, 201);
+    testDocumentReader.result = [
+      {
+        key: "shipper",
+        label: "Shipper",
+        value: "Ningbo Synthetic Textiles Co., Ltd",
+        sealNumber: null,
+        details: "18 Harbour Road\nNingbo",
+        evidence: "SHIPPER Ningbo Synthetic Textiles",
+      },
+      {
+        key: "consignee",
+        label: "Consignee",
+        value: "NORTHSTAR SYNTHETIC TRADING LTD",
+        sealNumber: null,
+        details: null,
+        evidence: "CONSIGNEE NORTHSTAR",
+      },
+      {
+        key: "eta",
+        label: "ETA (expected arrival)",
+        value: "2026-11-02T14:30:00.000Z",
+        sealNumber: null,
+        evidence: "ETA TEMA 02 NOV 2026 14:30",
+      },
+    ];
+    const pdf = await upload(
+      jobId,
+      await pdfWithText(["ARRIVAL NOTICE (synthetic)"]),
+      "application/pdf",
+      "arrival-notice.pdf",
+    );
+    const draft = await json<Extraction>(await extract(jobId, pdf));
+    assert.equal(draft.fields.length, 3);
+
+    const approve = (id: string, fields: unknown[]) =>
+      post(
+        `/api/v1/jobs/${jobId}/extractions/${id}/approve`,
+        TEST_MATCHING_TOKEN,
+        { fields },
+      );
+    const applied = await json<Extraction>(
+      await approve(draft.id, [
+        {
+          index: 0,
+          value: "Ningbo Synthetic Textiles Co., Ltd",
+          details: "18 Harbour Road\nNingbo, China",
+        },
+        { index: 1, value: "NORTHSTAR SYNTHETIC TRADING LTD" },
+        { index: 2, value: "2026-11-02T15:00:00.000Z" },
+      ]),
+    );
+    assert.deepEqual(
+      applied.applied?.map((item) => item.result),
+      ["added", "already on the job", "added"],
+    );
+
+    const parties = await json<
+      Array<{ role: string; name: string; details: string | null }>
+    >(await get(`/api/v1/jobs/${jobId}/parties`));
+    assert.equal(parties.length, 2);
+    const shipper = parties.find((party) => party.role === "shipper");
+    assert.equal(shipper?.details, "18 Harbour Road\nNingbo, China");
+
+    const eta = await json<{
+      current: { etaAt: string; source: string; note: string | null } | null;
+    }>(await get(`/api/v1/jobs/${jobId}/eta`));
+    // The person's correction (15:00) is what was recorded.
+    assert.equal(eta.current?.etaAt, "2026-11-02T15:00:00.000Z");
+    assert.equal(eta.current?.source, "Document: arrival-notice.pdf");
+    assert.match(
+      eta.current?.note ?? "",
+      /by AI \(claude-haiku-5-5\) and checked by staff/,
+    );
+
+    // Reading the notice again: the same ETA is not recorded (or announced) twice.
+    testDocumentReader.result = [
+      {
+        key: "eta",
+        label: "ETA (expected arrival)",
+        value: "2026-11-02T15:00:00.000Z",
+        sealNumber: null,
+        evidence: "ETA 02 NOV 15:00",
+      },
+    ];
+    const again = await json<Extraction>(await extract(jobId, pdf));
+    const second = await json<Extraction>(
+      await approve(again.id, [
+        { index: 0, value: "2026-11-02T15:00:00.000Z" },
+      ]),
+    );
+    assert.equal(second.applied?.[0].result, "already the current ETA");
+
+    // A bad date is reported per field, not as a failed request.
+    testDocumentReader.result = [
+      {
+        key: "eta",
+        label: "ETA (expected arrival)",
+        value: "2026-11-03T08:00:00.000Z",
+        sealNumber: null,
+        evidence: "ETA",
+      },
+    ];
+    const third = await json<Extraction>(await extract(jobId, pdf));
+    const bad = await json<Extraction>(
+      await approve(third.id, [{ index: 0, value: "next Tuesday" }]),
+    );
+    assert.match(
+      bad.applied?.[0].result ?? "",
+      /^not added: etaAt must be a date/,
+    );
+  } finally {
+    testDocumentReader.model = null;
+    testDocumentReader.result = [];
+  }
+});

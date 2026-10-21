@@ -11,8 +11,10 @@ import {
   extractionApproveInputSchema,
   isUuid,
   parseContract,
+  partyRoleKeys,
   referenceParentKind,
 } from "@bjh/contracts";
+import type { PartyRole, ReferenceKind } from "@bjh/contracts";
 import {
   DatabasePort,
   DocumentExtractionRecord,
@@ -128,8 +130,10 @@ export class ExtractionsService {
   }
 
   /**
-   * Applies the chosen fields as shipment references, masters first so a house
-   * document can hang under its master. Each field reports what happened.
+   * Applies the chosen fields: references (masters first so a house document
+   * can hang under its master), parties beside any already on the job, and the
+   * ETA as a new ETA entry (which messages the customer like any ETA change).
+   * Each field reports what happened.
    */
   async approve(
     id: string,
@@ -175,7 +179,27 @@ export class ExtractionsService {
           value: field.value,
           result,
         });
-      const parentKind = referenceParentKind[proposed.key];
+      const key = proposed.key;
+      if (key === "eta" || partyRoleKeys.includes(key as PartyRole)) {
+        try {
+          outcome(
+            key === "eta"
+              ? await this.applyEta(job.id, field, draft, reviewedBy, scope)
+              : await this.applyParty(
+                  job.id,
+                  key as PartyRole,
+                  field,
+                  reviewedBy,
+                  scope,
+                ),
+          );
+        } catch (error) {
+          if (!(error instanceof HttpException)) throw error;
+          outcome(`not added: ${error.message}`);
+        }
+        continue;
+      }
+      const parentKind = referenceParentKind[key as ReferenceKind];
       let parentReferenceId: string | null = null;
       if (parentKind) {
         const masters = (
@@ -195,7 +219,7 @@ export class ExtractionsService {
         await this.details.addReference(
           job.id,
           {
-            kind: proposed.key,
+            kind: key,
             value: field.value,
             sealNumber: proposed.key === "container" ? field.sealNumber : null,
             parentReferenceId,
@@ -219,6 +243,59 @@ export class ExtractionsService {
     }
     applied.sort((a, b) => a.index - b.index);
     return this.review(job.id, extractionId, "approved", applied, reviewedBy);
+  }
+
+  /** A party with the same role and name already on the job is not added twice. */
+  private async applyParty(
+    jobId: string,
+    role: PartyRole,
+    field: { value: string; details: string | null },
+    reviewedBy: string,
+    scope: JobScope,
+  ): Promise<string> {
+    const name = field.value.toLowerCase();
+    const existing = await this.database.listJobParties(jobId);
+    if (
+      existing.some(
+        (party) => party.role === role && party.name.toLowerCase() === name,
+      )
+    ) {
+      return "already on the job";
+    }
+    await this.details.addParty(
+      jobId,
+      { role, name: field.value, details: field.details },
+      reviewedBy,
+      scope,
+    );
+    return "added";
+  }
+
+  /** The current ETA is not recorded again (that would message the customer twice). */
+  private async applyEta(
+    jobId: string,
+    field: { value: string },
+    draft: DocumentExtractionRecord,
+    reviewedBy: string,
+    scope: JobScope,
+  ): Promise<string> {
+    const at = Date.parse(field.value);
+    const { current } = await this.details.getEta(jobId, scope);
+    if (current && Date.parse(current.etaAt) === at) {
+      return "already the current ETA";
+    }
+    const evidence = draft.fields.find((item) => item.key === "eta")?.evidence;
+    await this.details.recordEta(
+      jobId,
+      {
+        etaAt: field.value,
+        source: `Document: ${draft.filename ?? "on the job"}`.slice(0, 200),
+        note: `Read from the document${draft.readBy ? ` by AI (${draft.readBy})` : ""} and checked by staff${evidence ? `. Printed: ${evidence}` : ""}`,
+      },
+      reviewedBy,
+      scope,
+    );
+    return "added";
   }
 
   async reject(
