@@ -24,6 +24,7 @@ import type { DocumentStorage } from "../documents/document-storage.port";
 import { sanitizeFilename } from "../documents/file-signature";
 import { EMAIL_EXTRACTOR, ExtractionError } from "./email-extractor";
 import type { EmailExtractor, EmailForExtraction } from "./email-extractor";
+import { CLAUDE_FILE_TYPES } from "../ai/claude";
 
 export interface ReceivedFile {
   originalname: string;
@@ -47,8 +48,27 @@ const attachmentTypes: Record<string, string> = {
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 const MAX_ATTACHMENTS = 10;
 const MAX_ATTACHMENT_TOTAL_BYTES = 25 * 1024 * 1024;
+/** What AI reads beside the email: PDFs and images only, the first few, kept well under the AI service's request limit. */
+const MAX_READ_ATTACHMENTS = 5;
+const MAX_READ_ATTACHMENT_BYTES = 15 * 1024 * 1024;
 const MAX_MESSAGE_CHARS = 5000;
 const MAX_BODY_CHARS = 200_000;
+
+type ReadableFile = { filename: string; contentType: string; bytes: Buffer };
+
+/** The attachments AI reads with the email, in the order they came. */
+export function attachmentsToRead(files: ReadableFile[]): ReadableFile[] {
+  const chosen: ReadableFile[] = [];
+  let total = 0;
+  for (const file of files) {
+    if (!CLAUDE_FILE_TYPES.includes(file.contentType)) continue;
+    if (chosen.length >= MAX_READ_ATTACHMENTS) break;
+    if (total + file.bytes.length > MAX_READ_ATTACHMENT_BYTES) continue;
+    total += file.bytes.length;
+    chosen.push(file);
+  }
+  return chosen;
+}
 
 const clip = (value: unknown, max: number): string =>
   typeof value === "string" ? value.trim().slice(0, max) : "";
@@ -158,6 +178,7 @@ export class InboundEmailService {
       fromEmail: email.fromEmail,
       subject: email.subject,
       bodyText: email.bodyText || email.subject,
+      attachments: attachmentsToRead(kept.readable),
     });
     return { requestId: created.request.id, duplicate: false, reading };
   }
@@ -185,6 +206,7 @@ export class InboundEmailService {
       fromEmail: begun.fromEmail,
       subject: begun.subject,
       bodyText: begun.bodyText || begun.subject,
+      attachments: attachmentsToRead(await this.storedFiles(begun.requestId)),
     });
     const request = await this.database.findQuoteRequest(requestId);
     if (!request) throw new NotFoundException("Quote request was not found");
@@ -232,6 +254,30 @@ export class InboundEmailService {
         "Only the super admin or the representative in charge of this request's service can check it",
       );
     }
+  }
+
+  /** The kept PDFs and images of a request, fetched back from storage; one that cannot be fetched is left out. */
+  private async storedFiles(requestId: string): Promise<ReadableFile[]> {
+    const request = await this.database.findQuoteRequest(requestId);
+    const files: ReadableFile[] = [];
+    for (const attachment of request?.intake?.attachments ?? []) {
+      if (!CLAUDE_FILE_TYPES.includes(attachment.contentType)) continue;
+      const found = await this.database.findRequestAttachment(
+        requestId,
+        attachment.id,
+      );
+      if (!found) continue;
+      try {
+        files.push({
+          filename: attachment.filename,
+          contentType: attachment.contentType,
+          bytes: await this.storage.get(found.objectKey),
+        });
+      } catch {
+        // Reading goes on with the email and the other files.
+      }
+    }
+    return files;
   }
 
   /** A short-lived link to one attachment of an email request. */
@@ -293,6 +339,7 @@ export class InboundEmailService {
       objectKey: string;
     }> = [];
     const skipped: Array<{ filename: string; reason: string }> = [];
+    const readable: ReadableFile[] = [];
     let total = 0;
     for (const file of files) {
       const filename = sanitizeFilename(file.originalname || "attachment");
@@ -323,9 +370,10 @@ export class InboundEmailService {
           sha256: createHash("sha256").update(file.buffer).digest("hex"),
           objectKey,
         });
+        readable.push({ filename, contentType, bytes: file.buffer });
       }
     }
-    return { stored, skipped };
+    return { stored, skipped, readable };
   }
 
   /** What the email service sent, tidied. Only a sender is required: a strange email must still arrive. */

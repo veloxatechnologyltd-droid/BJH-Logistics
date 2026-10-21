@@ -1,8 +1,10 @@
 import { partyRoleKeys, referenceKindKeys } from "@bjh/contracts";
 import type { PartyRole, ReferenceKind } from "@bjh/contracts";
 import {
+  CLAUDE_FILE_TYPES,
   ClaudeReadingError,
   claudeFromEnvironment,
+  fileBlock,
   readWithClaude,
 } from "../ai/claude";
 import type { ClaudeSetup } from "../ai/claude";
@@ -15,7 +17,7 @@ import { isValidContainerNumber, labels } from "./document-extraction";
 export const DOCUMENT_READER = Symbol("DOCUMENT_READER");
 
 /** File types the AI reads: PDFs (text or scanned) and photos or scans as images. */
-export const AI_READABLE_TYPES = ["application/pdf", "image/png", "image/jpeg"];
+export const AI_READABLE_TYPES = CLAUDE_FILE_TYPES;
 
 /** Above this the request would pass the AI service's 32 MB limit once encoded. */
 const MAX_BYTES = 20 * 1024 * 1024;
@@ -228,25 +230,7 @@ export class ClaudeDocumentReader implements DocumentReader {
         "The file is too large for AI reading (20 MB at most)",
       );
     }
-    const data = file.bytes.toString("base64");
-    const document =
-      file.contentType === "application/pdf"
-        ? {
-            type: "document" as const,
-            source: {
-              type: "base64" as const,
-              media_type: "application/pdf" as const,
-              data,
-            },
-          }
-        : {
-            type: "image" as const,
-            source: {
-              type: "base64" as const,
-              media_type: file.contentType as "image/png" | "image/jpeg",
-              data,
-            },
-          };
+    const document = fileBlock(file.contentType, file.bytes);
     try {
       return normalizeDocumentFields(
         await readWithClaude(this.setup, {

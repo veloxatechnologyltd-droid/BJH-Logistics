@@ -401,3 +401,22 @@ test("parties keep their names and address lines; one real ETA is read as Ghana 
   assert.equal(etaFromDocument("2026-11-05T24:10"), null);
   assert.equal(etaFromDocument("5 November 2026"), null);
 });
+
+test("attachments go to Claude ahead of the email text", async () => {
+  const api = fakeApi(200, message({}));
+  const pdf = Buffer.from("%PDF-1.7 packing list");
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+  await new ClaudeEmailExtractor(setupWith(api.impl)).extract({
+    ...email,
+    attachments: [
+      { filename: "packing.pdf", contentType: "application/pdf", bytes: pdf },
+      { filename: "photo.png", contentType: "image/png", bytes: png },
+    ],
+  });
+  const content = api.requests[0].body.messages[0].content;
+  assert.deepEqual(
+    content.map((block) => block.type),
+    ["document", "image", "text"],
+  );
+  assert.match(api.requests[0].body.system, /the email wins/);
+});

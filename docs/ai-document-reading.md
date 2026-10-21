@@ -68,4 +68,6 @@ pair), scanned B/L 0/4, photo not readable, house B/L 2/3, house AWB 2/2.
   "agent" read from "BJH Logistics (as agent)".
 - Vessel and voyage, ports and cargo are not read: the job has no fields for them
   (they live only in the house B/L editor), so they need a schema decision first.
-- Email attachments are kept but not read.
+- Email attachments: Claude reads the PDFs and images that come with an emailed
+  request into the request's details (see [email-intake.md](email-intake.md)), not
+  into a job.
