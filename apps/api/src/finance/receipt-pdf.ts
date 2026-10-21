@@ -17,7 +17,7 @@ const MARK_RED = "#b3261e";
 
 const PAGE_MARGIN = 50;
 
-const methodLabels: Record<InvoicePaymentRecord["method"], string> = {
+export const methodLabels: Record<InvoicePaymentRecord["method"], string> = {
   cash: "Cash",
   bank_transfer: "Bank transfer",
   cheque: "Cheque",

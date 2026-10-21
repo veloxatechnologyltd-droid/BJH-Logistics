@@ -11,7 +11,7 @@ export interface ExtractedField {
   evidence: string;
 }
 
-const labels: Record<ReferenceKind, string> = {
+export const labels: Record<ReferenceKind, string> = {
   master_bl: "Master B/L or booking number",
   house_bl: "House B/L number",
   master_awb: "Master air waybill (MAWB)",

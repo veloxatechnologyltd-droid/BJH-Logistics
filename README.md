@@ -76,6 +76,17 @@ PostgreSQL is the only database adapter; `supabase/migrations/` is the only sche
 
 Messages are only _recorded_ (a "stub", visible in the API log and the messages page) until real credentials are set in `.env` (see `.env.example`): `EMAIL_SMTP_HOST` and `EMAIL_FROM` for email through any mailbox provider, and `ARKESEL_API_KEY` with `SMS_SENDER_ID` for SMS. The links inside messages use `PUBLIC_WEB_URL`. `corepack pnpm supabase:reset` wipes the local data if you want to start again.
 
+### Presentation logins (local database only)
+
+These accounts hold the fullest data in the local database (built during the 13 October walkthrough). They exist only in the local Supabase stack started by `corepack pnpm dev`; the hosted site has its own database and its own accounts. The password (reset on 15 October 2026) is kept outside git in `.local/presentation-logins.md`, because this repository is public.
+
+| Login (local only)          | Sees                                                                                                                                                      |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `henry@bjh.com`             | Super admin: all jobs, Finance, Customers and leads, messages and Settings                                                                                |
+| `kwame.asante@example.test` | Customer portal for Kumasi Agro Inputs Ltd: job `BJH/SI/2026/0009` with 12 steps, a quote, 3 invoices and 3 payments, charges, a delivery and 2 documents |
+
+Other accounts with data: `veloxa@gmail.com` (customer of Veloxa Technology Ltd, closed job `BJH/SI/2026/0008`) and `ama.mensah@example.test` (sea-import rep); their passwords were not changed.
+
 ### Local super-admin test account
 
 Start only the local Supabase stack; do **not** reset it to create an account:

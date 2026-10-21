@@ -9,10 +9,21 @@ import {
   parseContract,
   portalQuoteRequestInputSchema,
   quoteRequestInputSchema,
+  requestDetailsSchema,
   type QuoteRequestInput,
 } from "@bjh/contracts";
 import { randomUUID } from "node:crypto";
-import { DatabasePort, QuoteRequestRecord } from "../database/database.port";
+import {
+  DatabasePort,
+  QuoteRequestRecord,
+  StaffRoleKey,
+} from "../database/database.port";
+import { inChargeOf } from "../intake/inbound-email.service";
+
+/** A customer sees their own request as they wrote it: what was read from an email, and the email itself, are for staff. */
+function forCustomer(request: QuoteRequestRecord): QuoteRequestRecord {
+  return { ...request, details: requestDetailsSchema.parse({}), intake: null };
+}
 
 @Injectable()
 export class QuoteRequestsService {
@@ -83,7 +94,7 @@ export class QuoteRequestsService {
       created.id,
       company.id,
     );
-    return linked ?? created;
+    return forCustomer(linked ?? created);
   }
 
   list(
@@ -97,21 +108,43 @@ export class QuoteRequestsService {
       throw new BadRequestException("customerCompanyId must be a string");
     }
 
-    return this.database.listQuoteRequests(
-      customerCompanyId,
-      allowedCompanyIds,
-    );
+    return this.database
+      .listQuoteRequests(customerCompanyId, allowedCompanyIds)
+      .then((requests) =>
+        allowedCompanyIds ? requests.map(forCustomer) : requests,
+      );
   }
 
+  /**
+   * For an email request, staff also learn whether they may check its details,
+   * and, while it is unlinked, get the customer whose contact has the sender's
+   * exact email address, to link in one click.
+   */
   async get(
     id: string,
     allowedCompanyIds?: string[],
-  ): Promise<QuoteRequestRecord> {
+    roles: StaffRoleKey[] = [],
+  ): Promise<
+    QuoteRequestRecord & {
+      canCheck?: boolean;
+      suggestedCustomer?: { id: string; companyName: string } | null;
+    }
+  > {
     const request = await this.database.findQuoteRequest(id, allowedCompanyIds);
     if (!request) {
       throw new NotFoundException("Quote request was not found");
     }
-    return request;
+    if (allowedCompanyIds) return forCustomer(request);
+    if (!request.intake) return request;
+    const canCheck = inChargeOf(request.details, roles);
+    if (request.customerCompanyId) return { ...request, canCheck };
+    return {
+      ...request,
+      canCheck,
+      suggestedCustomer: await this.database.findCustomerByContactEmail(
+        request.email,
+      ),
+    };
   }
 
   async associateCustomer(

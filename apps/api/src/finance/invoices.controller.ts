@@ -227,3 +227,21 @@ export class FinanceSummaryController {
     return this.invoices.financeSummary(scopeOf(request));
   }
 }
+
+/** One customer payment applied across several of their invoices at once: staff only, within their service lines. */
+@Controller("api/v1/payments")
+@UseGuards(SupabaseIdentityGuard, DepartmentStaffGuard, JobScopeGuard)
+export class PaymentsController {
+  constructor(
+    @Inject(InvoicesService) private readonly invoices: InvoicesService,
+  ) {}
+
+  @Post()
+  record(@Body() body: unknown, @Req() request: AuthenticatedRequest) {
+    return this.invoices.recordPayments(
+      body,
+      request.authUser!.userId,
+      scopeOf(request),
+    );
+  }
+}

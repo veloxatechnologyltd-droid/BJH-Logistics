@@ -23,6 +23,7 @@ import {
   JobRecord,
   JobScope,
   ShipmentReferenceRecord,
+  ShippingDocumentRecord,
   TransportDocumentRecord,
 } from "../database/database.port";
 import { JobsService } from "../jobs/jobs.service";
@@ -51,6 +52,11 @@ export class TransportDocumentsService {
     @Inject(DatabasePort) private readonly database: DatabasePort,
     @Inject(JobsService) private readonly jobs: JobsService,
   ) {}
+
+  /** Every house document and road waybill across jobs, within the caller's service lines. */
+  listAll(scope: JobScope): Promise<ShippingDocumentRecord[]> {
+    return this.database.listShippingDocuments(scope);
+  }
 
   async list(id: string, scope: JobScope): Promise<TransportDocumentRecord[]> {
     const job = await this.jobs.get(id, scope);

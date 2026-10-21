@@ -8,6 +8,7 @@ import type { CustomerCompany } from "../customers/customerApi";
 import { getOutstandingInvoices } from "../jobs/jobApi";
 import type { OutstandingInvoice } from "../jobs/jobApi";
 import { formatMoney } from "../quotes/quoteApi";
+import { RecordPayment } from "../finance/RecordPayment";
 import { FinanceTabs } from "./FinanceTabs";
 import styles from "../jobs/jobs.module.css";
 import cards from "../finance/finance.module.css";
@@ -62,6 +63,7 @@ export function Receivables() {
               {isStaff ? "Unpaid invoices" : "Invoices you still owe"}
             </h1>
           </div>
+          {isStaff && <RecordPayment onRecorded={() => void load()} />}
         </header>
         {isStaff && <FinanceTabs active="/invoices" />}
         <ErrorPopup message={error} />

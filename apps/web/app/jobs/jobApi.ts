@@ -691,6 +691,8 @@ export type Extraction = {
   versionNumber: number;
   filename: string | null;
   textFound: boolean;
+  /** The AI model that read the document; null when the PDF's text was read. */
+  readBy: string | null;
   fields: ExtractionField[];
   status: "draft" | "approved" | "rejected";
   applied: Array<{
@@ -787,6 +789,21 @@ export const voidTransportDocument = (
     "POST",
     { reason },
   );
+export type ShippingDocument = {
+  kind: TransportDocumentKind | "waybill";
+  id: string;
+  jobId: string;
+  fileNumber: string;
+  serviceLine: ServiceLine;
+  customerCompanyName: string;
+  number: string | null;
+  status: "draft" | "issued" | "void" | "dispatched" | "delivered";
+  date: string;
+};
+
+export const listShippingDocuments = () =>
+  sendApi<ShippingDocument[]>("/shipping-documents", "GET");
+
 export async function fetchTransportDocumentPdf(
   id: string,
   documentId: string,
@@ -837,6 +854,70 @@ export type FinanceSummary = {
 
 export const getFinanceSummary = () =>
   sendApi<FinanceSummary>("/finance/summary", "GET");
+
+export type Statement = {
+  company: { id: string; name: string; customerNumber: string | null };
+  from: string | null;
+  to: string | null;
+  generatedOn: string;
+  sections: Array<{
+    currency: string;
+    openingMinor: number;
+    lines: Array<{
+      date: string;
+      kind: "invoice" | "payment";
+      reference: string;
+      debitMinor: number;
+      creditMinor: number;
+      balanceMinor: number;
+    }>;
+    debitMinor: number;
+    creditMinor: number;
+    closingMinor: number;
+  }>;
+};
+
+const statementPath = (
+  path: string,
+  companyId: string,
+  from: string,
+  to: string,
+) => {
+  const query = new URLSearchParams({ companyId });
+  if (from) query.set("from", from);
+  if (to) query.set("to", to);
+  return `/finance/statements${path}?${query}`;
+};
+
+export const getStatement = (companyId: string, from: string, to: string) =>
+  sendApi<Statement>(statementPath("", companyId, from, to), "GET");
+
+export async function fetchStatementPdf(
+  companyId: string,
+  from: string,
+  to: string,
+): Promise<Blob> {
+  const response = await authenticatedFetch(
+    `${apiRoot}${statementPath("/pdf", companyId, from, to)}`,
+  );
+  if (!response.ok) throw new Error("The statement could not be created");
+  return response.blob();
+}
+
+export type PaymentBatch = {
+  payments: InvoicePayment[];
+  totalMinor: number;
+  currency: string;
+};
+
+/** One customer payment applied across several of their invoices, saved all or nothing. */
+export const recordPayments = (input: {
+  receivedOn: string;
+  method: PaymentMethod;
+  reference?: string;
+  note?: string;
+  allocations: Array<{ invoiceId: string; amountMinor: number }>;
+}) => sendApi<PaymentBatch>("/payments", "POST", input);
 
 export const getOutstandingInvoices = (companyId: string) =>
   sendApi<{

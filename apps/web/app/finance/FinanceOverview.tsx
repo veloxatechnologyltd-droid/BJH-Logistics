@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { FinanceTabs } from "../invoices/FinanceTabs";
+import { RecordPayment } from "./RecordPayment";
 import { getFinanceSummary } from "../jobs/jobApi";
 import type { FinanceSummary } from "../jobs/jobApi";
 import { formatMoney } from "../quotes/quoteApi";
@@ -46,6 +47,16 @@ export function FinanceOverview() {
         ),
       );
   }, []);
+
+  // After a payment: update the figures but keep the chosen currency.
+  const refresh = () =>
+    getFinanceSummary()
+      .then(setSummary)
+      .catch((cause) =>
+        setError(
+          cause instanceof Error ? cause.message : "Finance could not be loaded",
+        ),
+      );
 
   const customers = useMemo(
     () =>
@@ -104,6 +115,7 @@ export function FinanceOverview() {
           <div>
             <h1 className={styles.title}>Finance</h1>
           </div>
+          {summary && <RecordPayment onRecorded={() => void refresh()} />}
         </header>
         <FinanceTabs active="/finance" />
         <ErrorPopup message={error} />

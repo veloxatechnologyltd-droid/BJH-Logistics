@@ -52,6 +52,11 @@ const staffNav: NavGroup[] = [
       { href: "/tasks", label: "Tasks", icon: "tasks" },
       { href: "/warehouse", label: "Warehouse", icon: "warehouse" },
       { href: "/documents", label: "Documents", icon: "documents" },
+      {
+        href: "/shipping-documents",
+        label: "Shipping documents",
+        icon: "shipping",
+      },
     ],
   },
   {

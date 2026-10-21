@@ -13,12 +13,38 @@ import type {
   CustomerCompanyUpdate,
   LeadSource,
   LeadStage,
+  RequestDetails,
 } from "@bjh/contracts";
 
 export interface DatabaseHealth {
   status: "ok" | "error";
   provider: "postgresql";
   schemaVersion?: string;
+}
+
+/** An attachment kept from an email that became a request. */
+export interface RequestAttachmentRecord {
+  id: string;
+  filename: string;
+  contentType: string;
+  sizeBytes: number;
+}
+
+/** What is known about the email a request came from; null on requests made any other way. */
+export interface RequestIntakeRecord {
+  subject: string;
+  fromName: string | null;
+  fromEmail: string;
+  receivedAt: string;
+  /** `pending`: waiting to be read; `failed`: could not be read, so the details are for a person to fill in. */
+  extractionStatus: "pending" | "done" | "failed";
+  extractionError: string | null;
+  /** When a person checked the details, and who. Null until then. */
+  reviewedAt: string | null;
+  reviewedBy: string | null;
+  attachments: RequestAttachmentRecord[];
+  /** Attachments that were not kept, and why. */
+  skippedAttachments: Array<{ filename: string; reason: string }>;
 }
 
 export interface QuoteRequestRecord {
@@ -34,6 +60,18 @@ export interface QuoteRequestRecord {
   quoteId: string | null;
   quoteNumber: string | null;
   quoteStatus: "draft" | "issued" | null;
+  /** Service, route, cargo and so on; every detail may be unknown. */
+  details: RequestDetails;
+  intake: RequestIntakeRecord | null;
+}
+
+/** An email waiting to be read for its request details. */
+export interface EmailToRead {
+  requestId: string;
+  fromName: string | null;
+  fromEmail: string;
+  subject: string;
+  bodyText: string;
 }
 
 export type ServiceLine =
@@ -384,6 +422,28 @@ export interface InvoicePaymentRecord {
   reversal: { reason: string; reversedBy: string; reversedAt: string } | null;
 }
 
+/** One payment of a batch, with the invoice it settled and what that invoice still owes. */
+export interface PaymentBatchLine {
+  payment: InvoicePaymentRecord;
+  invoiceNumber: string;
+  jobId: string;
+  /** What the invoice still owes after this payment. */
+  balanceMinor: number;
+}
+
+export type PaymentBatchResult =
+  | { recorded: PaymentBatchLine[]; companyId: string; currency: string }
+  | {
+      failed:
+        | "not_found"
+        | "not_issued"
+        | "mixed_customers"
+        | "mixed_currencies"
+        | "exceeds_balance";
+      /** The invoice the failure is about, when there is one. */
+      invoiceNumber: string | null;
+    };
+
 export interface JobCorrespondenceRecord {
   id: string;
   jobId: string;
@@ -522,6 +582,8 @@ export interface DocumentExtractionRecord {
   filename: string | null;
   /** False for a scanned PDF with no text to read. */
   textFound: boolean;
+  /** The AI model that read the document; null when its text layer was read here. */
+  readBy: string | null;
   fields: ExtractionFieldRecord[];
   status: "draft" | "approved" | "rejected";
   applied: ExtractionApplyResult[] | null;
@@ -546,6 +608,24 @@ export interface TransportDocumentRecord {
   voidedBy: string | null;
   voidedAt: string | null;
   voidReason: string | null;
+}
+
+/**
+ * One bill from any job: a house B/L, house air waybill or air manifest
+ * (prepared on the job) or a road waybill (numbered at dispatch).
+ */
+export interface ShippingDocumentRecord {
+  kind: TransportDocumentRecord["kind"] | "waybill";
+  id: string;
+  jobId: string;
+  fileNumber: string;
+  serviceLine: ServiceLine;
+  customerCompanyName: string;
+  /** Null for a house document still without its number. */
+  number: string | null;
+  status: TransportDocumentRecord["status"] | DeliveryRecord["status"];
+  /** When it was issued or dispatched; a draft's creation time. */
+  date: string;
 }
 
 /** One job's money in one currency: issued invoices, standing payments, current actual costs. */
@@ -613,6 +693,28 @@ export interface OutstandingInvoiceRecord {
   /** YYYY-MM-DD */
   dueDate: string | null;
   issuedAt: string;
+}
+
+/**
+ * One line of a customer's account: an issued invoice (money owed) or a
+ * payment still standing against one (money received). Reversed payments and
+ * voided invoices are not entries.
+ */
+export interface StatementEntryRecord {
+  kind: "invoice" | "payment";
+  /** YYYY-MM-DD: the day the invoice was issued or the payment received. */
+  date: string;
+  recordedAt: string;
+  currency: string;
+  amountMinor: number;
+  invoiceNumber: string;
+  fileNumber: string;
+  /** Containers, bills of lading and air waybills the job holds. */
+  jobReferences: Array<{ kind: string; value: string }>;
+  /** Payments only. */
+  receiptNumber: string | null;
+  method: InvoicePaymentRecord["method"] | null;
+  reference: string | null;
 }
 
 export interface ActivityEntry {
@@ -711,8 +813,71 @@ export interface StaffRoleAssignmentRecord {
 export abstract class DatabasePort {
   abstract healthCheck(): Promise<DatabaseHealth>;
   abstract createQuoteRequest(
-    request: QuoteRequestRecord,
+    request: Omit<QuoteRequestRecord, "details" | "intake">,
   ): Promise<QuoteRequestRecord>;
+  /** A request made from an email, saved with the email and its attachments in one step. */
+  abstract createEmailQuoteRequest(input: {
+    email: {
+      messageId: string;
+      fromEmail: string;
+      fromName: string | null;
+      toAddress: string | null;
+      subject: string;
+      bodyText: string;
+      receivedAt: string;
+    };
+    request: {
+      id: string;
+      companyName: string;
+      contactName: string;
+      message: string;
+    };
+    attachments: Array<{
+      filename: string;
+      contentType: string;
+      sizeBytes: number;
+      sha256: string;
+      objectKey: string;
+    }>;
+    skipped: Array<{ filename: string; reason: string }>;
+  }): Promise<{ request: QuoteRequestRecord; duplicate: boolean }>;
+  abstract findQuoteRequestByMessageId(
+    messageId: string,
+  ): Promise<QuoteRequestRecord | null>;
+  /** Records what the AI read (or why it could not), and fills the request's details. */
+  abstract completeEmailReading(
+    requestId: string,
+    outcome:
+      | {
+          status: "done";
+          model: string;
+          companyName: string | null;
+          contactName: string | null;
+          details: RequestDetails;
+        }
+      | { status: "failed"; model: string | null; error: string },
+  ): Promise<QuoteRequestRecord | null>;
+  /**
+   * Puts an email request back to "waiting to be read" and returns its email,
+   * unless it is not an email request or a person already checked it.
+   */
+  abstract beginEmailReading(
+    requestId: string,
+  ): Promise<EmailToRead | "not_found" | "not_email" | "reviewed">;
+  /** A person's corrected details, which also records that they checked them. */
+  abstract saveRequestDetails(
+    requestId: string,
+    details: RequestDetails,
+    reviewedBy: string,
+  ): Promise<QuoteRequestRecord | "not_found" | "not_email">;
+  abstract findRequestAttachment(
+    requestId: string,
+    attachmentId: string,
+  ): Promise<{ filename: string; objectKey: string } | null>;
+  /** The customer company that has a contact with exactly this email address, if there is one. */
+  abstract findCustomerByContactEmail(
+    email: string,
+  ): Promise<{ id: string; companyName: string } | null>;
   abstract listQuoteRequests(
     customerCompanyId?: string,
     allowedCompanyIds?: string[],
@@ -1084,6 +1249,23 @@ export abstract class DatabasePort {
     | "exceeds_balance"
     | "document_invalid"
   >;
+  /**
+   * One customer payment applied to several invoices, all or nothing: every
+   * invoice must be issued, in scope, the same customer's and the same
+   * currency, and no invoice may be paid beyond its balance.
+   */
+  abstract recordPaymentBatch(
+    batch: {
+      receivedOn: string;
+      method: InvoicePaymentRecord["method"];
+      reference: string | null;
+      note: string | null;
+      allocations: Array<{ invoiceId: string; amountMinor: number }>;
+    },
+    recordedBy: string,
+    year: number,
+    scope: JobScope,
+  ): Promise<PaymentBatchResult>;
   abstract reverseInvoicePayment(
     jobId: string,
     invoiceId: string,
@@ -1196,6 +1378,7 @@ export abstract class DatabasePort {
     documentId: string;
     versionNumber: number;
     textFound: boolean;
+    readBy: string | null;
     fields: ExtractionFieldRecord[];
     createdBy: string;
   }): Promise<DocumentExtractionRecord>;
@@ -1221,6 +1404,10 @@ export abstract class DatabasePort {
   abstract listTransportDocuments(
     jobId: string,
   ): Promise<TransportDocumentRecord[]>;
+  /** Every house document and road waybill within the scope, newest first. */
+  abstract listShippingDocuments(
+    scope: JobScope,
+  ): Promise<ShippingDocumentRecord[]>;
   abstract updateTransportDocumentDraft(
     jobId: string,
     documentId: string,
@@ -1248,6 +1435,10 @@ export abstract class DatabasePort {
     companyId: string | null;
     scope: JobScope;
   }): Promise<OutstandingInvoiceRecord[]>;
+  /** Every issued invoice and standing payment of one customer company, any currency, oldest first. */
+  abstract listStatementEntries(
+    companyId: string,
+  ): Promise<StatementEntryRecord[]>;
   abstract listJobFinance(scope: JobScope): Promise<JobFinanceRecord[]>;
   abstract listCustomerInsights(
     companyId: string | null,

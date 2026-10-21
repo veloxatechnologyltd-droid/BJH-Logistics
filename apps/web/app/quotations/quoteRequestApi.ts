@@ -1,6 +1,6 @@
 import { authenticatedFetch } from "../auth/authenticatedFetch";
 
-import type { QuoteRequestInput } from "@bjh/contracts";
+import type { QuoteRequestInput, RequestDetails } from "@bjh/contracts";
 
 export type QuoteRequest = {
   id: string;
@@ -15,6 +15,32 @@ export type QuoteRequest = {
   quoteId: string | null;
   quoteNumber: string | null;
   quoteStatus: "draft" | "issued" | null;
+  /** Service, route, cargo and so on; every detail may be unknown. */
+  details: RequestDetails;
+  /** Set only on a request that arrived by email, and only for staff. */
+  intake: RequestIntake | null;
+  /** On a staff view of an email request: whether they may check, correct and re-read it (the super admin, or the rep in charge of its service). */
+  canCheck?: boolean;
+  /** On a staff view of an unlinked email request: the customer whose contact wrote it. */
+  suggestedCustomer?: { id: string; companyName: string } | null;
+};
+
+export type RequestIntake = {
+  subject: string;
+  fromName: string | null;
+  fromEmail: string;
+  receivedAt: string;
+  extractionStatus: "pending" | "done" | "failed";
+  extractionError: string | null;
+  reviewedAt: string | null;
+  reviewedBy: string | null;
+  attachments: Array<{
+    id: string;
+    filename: string;
+    contentType: string;
+    sizeBytes: number;
+  }>;
+  skippedAttachments: Array<{ filename: string; reason: string }>;
 };
 
 export type NewQuoteRequest = QuoteRequestInput;
@@ -95,6 +121,45 @@ export async function associateQuoteRequestCustomer(
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ customerCompanyId }),
       },
+    ),
+  );
+}
+
+/** A person's corrected details; saving them marks the request as checked. */
+export async function saveRequestDetails(
+  requestId: string,
+  details: RequestDetails,
+): Promise<QuoteRequest> {
+  return readResponse<QuoteRequest>(
+    await authenticatedFetch(
+      `${quoteRequestsUrl}/${encodeURIComponent(requestId)}/details`,
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(details),
+      },
+    ),
+  );
+}
+
+export async function readRequestEmailAgain(
+  requestId: string,
+): Promise<QuoteRequest> {
+  return readResponse<QuoteRequest>(
+    await authenticatedFetch(
+      `${quoteRequestsUrl}/${encodeURIComponent(requestId)}/read-email`,
+      { method: "POST" },
+    ),
+  );
+}
+
+export async function getRequestAttachmentLink(
+  requestId: string,
+  attachmentId: string,
+): Promise<{ url: string; filename: string }> {
+  return readResponse<{ url: string; filename: string }>(
+    await authenticatedFetch(
+      `${quoteRequestsUrl}/${encodeURIComponent(requestId)}/attachments/${encodeURIComponent(attachmentId)}`,
     ),
   );
 }

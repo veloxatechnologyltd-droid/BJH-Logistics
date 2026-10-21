@@ -159,6 +159,57 @@ export const quoteRequestInputSchema = z.object(
 );
 export type QuoteRequestInput = z.infer<typeof quoteRequestInputSchema>;
 
+/**
+ * The details of a shipping request that staff work from. For a request that
+ * arrived by email they are read from the email by AI and then checked, and
+ * corrected if need be, by a person. Every detail may be unknown.
+ */
+export const requestDetailKeys = [
+  "service",
+  "origin",
+  "destination",
+  "cargo",
+  "quantity",
+  "weightVolume",
+  "incoterm",
+  "neededBy",
+  "contactPhone",
+] as const;
+export type RequestDetailKey = (typeof requestDetailKeys)[number];
+
+export const requestDetailLabels: Record<RequestDetailKey, string> = {
+  service: "Service",
+  origin: "From",
+  destination: "To",
+  cargo: "Cargo",
+  quantity: "Containers or packages",
+  weightVolume: "Weight or volume",
+  incoterm: "Shipping terms",
+  neededBy: "Needed by",
+  contactPhone: "Contact phone",
+};
+
+export const requestDetailsSchema = z.object(
+  {
+    service: z
+      .enum(serviceLineKeys, {
+        error: `service must be one of ${serviceLineKeys.join(", ")}`,
+      })
+      .nullish()
+      .transform((value) => value ?? null),
+    origin: optionalText("origin", 200),
+    destination: optionalText("destination", 200),
+    cargo: optionalText("cargo", 500),
+    quantity: optionalText("quantity", 200),
+    weightVolume: optionalText("weightVolume", 200),
+    incoterm: optionalText("incoterm", 20),
+    neededBy: optionalText("neededBy", 100),
+    contactPhone: optionalText("contactPhone", 40),
+  },
+  objectError("A request details object is required"),
+);
+export type RequestDetails = z.infer<typeof requestDetailsSchema>;
+
 const staffRoleField = z.enum(staffRoleKeys, {
   error: "roleKey is not a supported staff role",
 });
@@ -1248,6 +1299,65 @@ export const paymentInputSchema = z.object(
   objectError("A payment object is required"),
 );
 export type PaymentInput = z.infer<typeof paymentInputSchema>;
+
+/** One customer payment applied across several of their invoices in one step; each invoice gets its own payment and receipt. */
+export const paymentBatchInputSchema = z.object(
+  {
+    receivedOn: isoDate("receivedOn"),
+    method: z.enum(paymentMethodKeys, {
+      error: `method must be one of ${paymentMethodKeys.join(", ")}`,
+    }),
+    reference: optionalText("reference", 200),
+    note: optionalText("note", 2000),
+    allocations: z
+      .array(
+        z.object(
+          {
+            invoiceId: uuidField("invoiceId"),
+            amountMinor: z
+              .number({
+                error: "amountMinor must be a whole number of minor units",
+              })
+              .int({
+                error: "amountMinor must be a whole number of minor units",
+              })
+              .min(1, { error: "amountMinor must be more than zero" })
+              .max(MAX_MINOR_AMOUNT, { error: "amountMinor is too large" }),
+          },
+          objectError("Each allocation needs an invoiceId and an amountMinor"),
+        ),
+        { error: "allocations must be a list of invoices" },
+      )
+      .min(1, { error: "Choose at least one invoice" })
+      .max(50, { error: "At most 50 invoices can be paid at once" })
+      .refine(
+        (items) =>
+          new Set(items.map((item) => item.invoiceId)).size === items.length,
+        { error: "Each invoice can appear only once" },
+      ),
+  },
+  objectError("A payment object is required"),
+);
+export type PaymentBatchInput = z.infer<typeof paymentBatchInputSchema>;
+
+/** Which customer and period a statement of account covers; no dates means everything. */
+export const statementQuerySchema = z
+  .object(
+    {
+      companyId: uuidField("companyId"),
+      from: isoDate("from")
+        .nullish()
+        .transform((value) => value ?? null),
+      to: isoDate("to")
+        .nullish()
+        .transform((value) => value ?? null),
+    },
+    objectError("A statement query is required"),
+  )
+  .refine((value) => !value.from || !value.to || value.from <= value.to, {
+    error: "from must not be after to",
+  });
+export type StatementQuery = z.infer<typeof statementQuerySchema>;
 
 /** The super admin creates a customer account directly and links it to one company. */
 export const customerAccountCreateInputSchema = z.object(

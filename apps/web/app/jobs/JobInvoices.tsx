@@ -23,7 +23,7 @@ import type { Invoice, InvoiceLine, JobDocument } from "./jobApi";
 import styles from "./jobs.module.css";
 import { ErrorPopup } from "../ErrorPopup";
 
-const methodLabels: Record<PaymentMethod, string> = {
+export const methodLabels: Record<PaymentMethod, string> = {
   cash: "Cash",
   bank_transfer: "Bank transfer",
   cheque: "Cheque",

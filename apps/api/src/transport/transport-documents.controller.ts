@@ -134,3 +134,18 @@ export class TransportDocumentsController {
     response.end(file);
   }
 }
+
+/** Every bill of lading, air waybill, manifest and waybill across jobs: staff only, within their service lines. */
+@Controller("api/v1/shipping-documents")
+@UseGuards(SupabaseIdentityGuard, DepartmentStaffGuard, JobScopeGuard)
+export class ShippingDocumentsController {
+  constructor(
+    @Inject(TransportDocumentsService)
+    private readonly documents: TransportDocumentsService,
+  ) {}
+
+  @Get()
+  list(@Req() request: AuthenticatedRequest) {
+    return this.documents.listAll(scopeOf(request));
+  }
+}

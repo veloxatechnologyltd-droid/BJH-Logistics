@@ -15,6 +15,17 @@ import type {
   StaffAuthDirectory,
   StaffDirectoryUser,
 } from "../src/auth/staff-admin.port";
+import {
+  EMAIL_EXTRACTOR,
+  ExtractionError,
+} from "../src/intake/email-extractor";
+import type {
+  EmailExtractor,
+  EmailForExtraction,
+  ExtractedRequest,
+} from "../src/intake/email-extractor";
+import { DOCUMENT_READER } from "../src/documents/document-reader";
+import type { ExtractedField } from "../src/documents/document-extraction";
 
 /** In-memory stand-in for private object storage; records what was stored. */
 export const testDocumentStorage: DocumentStorage & {
@@ -31,6 +42,45 @@ export const testDocumentStorage: DocumentStorage & {
   },
   async createSignedUrl(key, expiresInSeconds) {
     return `https://storage.test/signed/${key}?expires=${expiresInSeconds || SIGNED_URL_SECONDS}`;
+  },
+};
+
+/** Stand-in for the AI reader: returns what a test sets up, and records what it was asked to read. */
+export const testEmailExtractor: EmailExtractor & {
+  calls: EmailForExtraction[];
+  result: ExtractedRequest | Error | null;
+} = {
+  name: "test",
+  model: "test-model",
+  calls: [],
+  result: null,
+  async extract(email) {
+    this.calls.push(email);
+    if (this.result instanceof Error) throw this.result;
+    if (!this.result) {
+      throw new ExtractionError("No reading was set up for this test");
+    }
+    return this.result;
+  },
+};
+
+/**
+ * Stand-in for the AI document reader. `model: null` (the default) means no AI
+ * is set up, so the PDF text layer is read; a test sets a model to switch AI on.
+ */
+export const testDocumentReader: {
+  model: string | null;
+  calls: Array<{ contentType: string; size: number }>;
+  result: ExtractedField[] | Error;
+  read(file: { bytes: Buffer; contentType: string }): Promise<ExtractedField[]>;
+} = {
+  model: null,
+  calls: [],
+  result: [],
+  async read(file) {
+    this.calls.push({ contentType: file.contentType, size: file.bytes.length });
+    if (this.result instanceof Error) throw this.result;
+    return this.result;
   },
 };
 
@@ -162,6 +212,10 @@ export async function createTestApplication(
     .useValue(testPostgresPool)
     .overrideProvider(STAFF_AUTH_DIRECTORY)
     .useValue(testStaffDirectory)
+    .overrideProvider(EMAIL_EXTRACTOR)
+    .useValue(testEmailExtractor)
+    .overrideProvider(DOCUMENT_READER)
+    .useValue(testDocumentReader)
     .compile();
 
   const application = module.createNestApplication({ logger: false });

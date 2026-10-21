@@ -151,6 +151,8 @@ export function RequestInbox() {
                     </span>
                     <span className={styles.requestMain}>
                       <span className={styles.requestTag}>
+                        {request.intake &&
+                          `Email${request.intake.reviewedAt ? "" : " · Needs checking"} · `}
                         {request.customerCompanyName
                           ? `Linked · ${request.customerCompanyName}`
                           : "Unlinked request"}

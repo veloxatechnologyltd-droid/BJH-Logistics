@@ -14,7 +14,9 @@ import type {
   CustomerContactUpdate,
   LeadSource,
   LeadStage,
+  RequestDetails,
 } from "@bjh/contracts";
+import { parseContract, requestDetailsSchema } from "@bjh/contracts";
 import {
   ActiveCustomerMembershipRecord,
   ActivityEntry,
@@ -47,6 +49,8 @@ import {
   JobFinanceRecord,
   LeadRecord,
   OutstandingInvoiceRecord,
+  ShippingDocumentRecord,
+  StatementEntryRecord,
   TransportDocumentRecord,
   ExtractionApplyResult,
   ExtractionFieldRecord,
@@ -60,6 +64,8 @@ import {
   StockMovementRecord,
   WarehouseLocationRecord,
   InvoicePaymentRecord,
+  PaymentBatchLine,
+  PaymentBatchResult,
   InvoiceRecord,
   InvoiceTotals,
   DriverRecord,
@@ -72,6 +78,8 @@ import {
   QuoteVersionRecord,
   ServiceLine,
   QuoteRequestRecord,
+  EmailToRead,
+  RequestAttachmentRecord,
   StaffRoleKey,
   StaffRoleAssignmentRecord,
 } from "./database.port";
@@ -134,10 +142,33 @@ const quoteRequestSelect = `
     company.company_name AS customer_company_name,
     latest_quote.quote_id,
     latest_quote.quote_number,
-    latest_quote.latest_status AS quote_status
+    latest_quote.latest_status AS quote_status,
+    request.details,
+    request.inbound_email_id,
+    request.reviewed_at,
+    request.reviewed_by,
+    email.subject AS email_subject,
+    email.from_name AS email_from_name,
+    email.from_email AS email_from_email,
+    email.received_at AS email_received_at,
+    email.extraction_status,
+    email.extraction_error,
+    email.skipped_attachments,
+    COALESCE((
+      SELECT json_agg(json_build_object(
+               'id', attachment.attachment_id,
+               'filename', attachment.filename,
+               'contentType', attachment.content_type,
+               'sizeBytes', attachment.size_bytes)
+             ORDER BY attachment.created_at, attachment.attachment_id)
+      FROM app.inbound_email_attachment AS attachment
+      WHERE attachment.email_id = request.inbound_email_id
+    ), '[]'::json) AS attachments
   FROM app.quote_request AS request
   LEFT JOIN app.customer_company AS company
     ON company.company_id = request.customer_company_id
+  LEFT JOIN app.inbound_email AS email
+    ON email.email_id = request.inbound_email_id
   LEFT JOIN LATERAL (
     SELECT quote.quote_id, quote.quote_number,
            (SELECT version.status FROM app.quote_version AS version
@@ -212,7 +243,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
   }
 
   async createQuoteRequest(
-    request: QuoteRequestRecord,
+    request: Omit<QuoteRequestRecord, "details" | "intake">,
   ): Promise<QuoteRequestRecord> {
     await this.pool.query(
       `INSERT INTO app.quote_request
@@ -232,6 +263,230 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       throw new Error("Created quote request could not be loaded");
     }
     return created;
+  }
+
+  async createEmailQuoteRequest(
+    input: Parameters<DatabasePort["createEmailQuoteRequest"]>[0],
+  ): Promise<{ request: QuoteRequestRecord; duplicate: boolean }> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const email = await client.query(
+        `INSERT INTO app.inbound_email
+          (message_id, from_email, from_name, to_address, subject, body_text,
+           received_at, skipped_attachments)
+         VALUES ($1, $2, $3, $4, $5, $6, $7::timestamptz, $8::jsonb)
+         ON CONFLICT (message_id) DO NOTHING
+         RETURNING email_id`,
+        [
+          input.email.messageId,
+          input.email.fromEmail,
+          input.email.fromName,
+          input.email.toAddress,
+          input.email.subject,
+          input.email.bodyText,
+          input.email.receivedAt,
+          JSON.stringify(input.skipped),
+        ],
+      );
+      if (email.rows.length === 0) {
+        // The same email was delivered twice: the first one is the request.
+        await client.query("ROLLBACK");
+        const existing = await this.findQuoteRequestByMessageId(
+          input.email.messageId,
+        );
+        if (!existing)
+          throw new Error("The email's request could not be found");
+        return { request: existing, duplicate: true };
+      }
+      const emailId = String(email.rows[0].email_id);
+      await client.query(
+        `INSERT INTO app.quote_request
+          (request_id, company_name, contact_name, email, message, inbound_email_id)
+         VALUES ($1::uuid, $2, $3, $4, $5, $6::uuid)`,
+        [
+          input.request.id,
+          input.request.companyName,
+          input.request.contactName,
+          input.email.fromEmail,
+          input.request.message,
+          emailId,
+        ],
+      );
+      for (const attachment of input.attachments) {
+        await client.query(
+          `INSERT INTO app.inbound_email_attachment
+            (email_id, filename, content_type, size_bytes, sha256, object_key)
+           VALUES ($1::uuid, $2, $3, $4, $5, $6)`,
+          [
+            emailId,
+            attachment.filename,
+            attachment.contentType,
+            attachment.sizeBytes,
+            attachment.sha256,
+            attachment.objectKey,
+          ],
+        );
+      }
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+    const created = await this.findQuoteRequest(input.request.id);
+    if (!created) throw new Error("Created quote request could not be loaded");
+    return { request: created, duplicate: false };
+  }
+
+  async findQuoteRequestByMessageId(
+    messageId: string,
+  ): Promise<QuoteRequestRecord | null> {
+    const result = await this.pool.query(
+      `${quoteRequestSelect}
+       WHERE email.message_id = $1`,
+      [messageId],
+    );
+    return result.rows[0] ? this.toQuoteRequest(result.rows[0]) : null;
+  }
+
+  async completeEmailReading(
+    requestId: string,
+    outcome: Parameters<DatabasePort["completeEmailReading"]>[1],
+  ): Promise<QuoteRequestRecord | null> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const email = await client.query(
+        `UPDATE app.inbound_email AS email
+         SET extraction_status = $2, extraction_error = $3, extraction_model = $4
+         FROM app.quote_request AS request
+         WHERE request.request_id::text = $1
+           AND request.inbound_email_id = email.email_id
+         RETURNING request.reviewed_at`,
+        [
+          requestId,
+          outcome.status,
+          outcome.status === "failed" ? outcome.error : null,
+          outcome.model,
+        ],
+      );
+      if (email.rows.length === 0) {
+        await client.query("ROLLBACK");
+        return null;
+      }
+      // What a person has already checked is never overwritten by a late reading.
+      if (outcome.status === "done" && email.rows[0].reviewed_at === null) {
+        await client.query(
+          `UPDATE app.quote_request
+           SET details = $2::jsonb,
+               company_name = COALESCE($3, company_name),
+               contact_name = COALESCE($4, contact_name)
+           WHERE request_id::text = $1`,
+          [
+            requestId,
+            JSON.stringify(outcome.details),
+            outcome.companyName,
+            outcome.contactName,
+          ],
+        );
+      }
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+    return this.findQuoteRequest(requestId);
+  }
+
+  async beginEmailReading(
+    requestId: string,
+  ): Promise<EmailToRead | "not_found" | "not_email" | "reviewed"> {
+    const found = await this.pool.query(
+      `SELECT request.request_id, request.reviewed_at, email.email_id,
+              email.from_name, email.from_email, email.subject, email.body_text
+       FROM app.quote_request AS request
+       LEFT JOIN app.inbound_email AS email ON email.email_id = request.inbound_email_id
+       WHERE request.request_id::text = $1`,
+      [requestId],
+    );
+    const row = found.rows[0];
+    if (!row) return "not_found";
+    if (row.email_id === null) return "not_email";
+    if (row.reviewed_at !== null) return "reviewed";
+    await this.pool.query(
+      `UPDATE app.inbound_email
+       SET extraction_status = 'pending', extraction_error = NULL, extraction_model = NULL
+       WHERE email_id = $1::uuid`,
+      [row.email_id],
+    );
+    return {
+      requestId: String(row.request_id),
+      fromName: row.from_name === null ? null : String(row.from_name),
+      fromEmail: String(row.from_email),
+      subject: String(row.subject),
+      bodyText: String(row.body_text),
+    };
+  }
+
+  async saveRequestDetails(
+    requestId: string,
+    details: RequestDetails,
+    reviewedBy: string,
+  ): Promise<QuoteRequestRecord | "not_found" | "not_email"> {
+    const updated = await this.pool.query(
+      `UPDATE app.quote_request
+       SET details = $2::jsonb, reviewed_at = clock_timestamp(), reviewed_by = $3::uuid
+       WHERE request_id::text = $1 AND inbound_email_id IS NOT NULL
+       RETURNING request_id`,
+      [requestId, JSON.stringify(details), reviewedBy],
+    );
+    if (updated.rows.length === 0) {
+      const exists = await this.pool.query(
+        `SELECT 1 FROM app.quote_request WHERE request_id::text = $1`,
+        [requestId],
+      );
+      return exists.rows.length > 0 ? "not_email" : "not_found";
+    }
+    return (await this.findQuoteRequest(requestId))!;
+  }
+
+  async findRequestAttachment(
+    requestId: string,
+    attachmentId: string,
+  ): Promise<{ filename: string; objectKey: string } | null> {
+    const result = await this.pool.query(
+      `SELECT attachment.filename, attachment.object_key
+       FROM app.inbound_email_attachment AS attachment
+       JOIN app.quote_request AS request ON request.inbound_email_id = attachment.email_id
+       WHERE request.request_id::text = $1 AND attachment.attachment_id::text = $2`,
+      [requestId, attachmentId],
+    );
+    const row = result.rows[0];
+    return row
+      ? { filename: String(row.filename), objectKey: String(row.object_key) }
+      : null;
+  }
+
+  async findCustomerByContactEmail(
+    email: string,
+  ): Promise<{ id: string; companyName: string } | null> {
+    const result = await this.pool.query(
+      `SELECT company.company_id, company.company_name
+       FROM app.customer_contact AS contact
+       JOIN app.customer_company AS company ON company.company_id = contact.company_id
+       WHERE lower(contact.email) = lower($1)
+       ORDER BY company.created_at, company.company_id
+       LIMIT 1`,
+      [email],
+    );
+    const row = result.rows[0];
+    return row
+      ? { id: String(row.company_id), companyName: String(row.company_name) }
+      : null;
   }
 
   async listQuoteRequests(
@@ -2694,6 +2949,145 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     }
   }
 
+  async recordPaymentBatch(
+    batch: {
+      receivedOn: string;
+      method: InvoicePaymentRecord["method"];
+      reference: string | null;
+      note: string | null;
+      allocations: Array<{ invoiceId: string; amountMinor: number }>;
+    },
+    recordedBy: string,
+    year: number,
+    scope: JobScope,
+  ): Promise<PaymentBatchResult> {
+    const missing: PaymentBatchResult = {
+      failed: "not_found",
+      invoiceNumber: null,
+    };
+    if (scope.companyIds?.length === 0 || scope.serviceLines?.length === 0) {
+      return missing;
+    }
+    const ids = batch.allocations.map((item) => item.invoiceId);
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      // Locked in a fixed order so two simultaneous batches cannot deadlock,
+      // and each invoice's balance is checked one batch at a time.
+      const found = await client.query(
+        `SELECT i.invoice_id, i.invoice_number, i.status, i.total_minor, i.currency,
+                i.job_id, job.customer_company_id
+         FROM app.invoice i
+         JOIN app.job job ON job.job_id = i.job_id
+         WHERE i.invoice_id = ANY($1::uuid[])
+           AND ($2::uuid[] IS NULL OR job.customer_company_id = ANY($2::uuid[]))
+           AND ($3::text[] IS NULL OR job.service_line = ANY($3::text[]))
+         ORDER BY i.invoice_id
+         FOR UPDATE OF i`,
+        [ids, scope.companyIds ?? null, scope.serviceLines ?? null],
+      );
+      if (found.rows.length !== ids.length) {
+        await client.query("ROLLBACK");
+        return missing;
+      }
+      const byId = new Map(
+        found.rows.map((row) => [String(row.invoice_id), row]),
+      );
+      const numberOf = (row: Record<string, unknown>) =>
+        row.invoice_number ? String(row.invoice_number) : null;
+      const fail = async (
+        failed: Exclude<PaymentBatchResult, { recorded: unknown }>["failed"],
+        row?: Record<string, unknown>,
+      ): Promise<PaymentBatchResult> => {
+        await client.query("ROLLBACK");
+        return { failed, invoiceNumber: row ? numberOf(row) : null };
+      };
+      const first = found.rows[0];
+      for (const row of found.rows) {
+        if (row.status !== "issued") return fail("not_issued", row);
+        if (row.customer_company_id !== first.customer_company_id) {
+          return fail("mixed_customers", row);
+        }
+        if (row.currency !== first.currency) {
+          return fail("mixed_currencies", row);
+        }
+      }
+      const standing = await client.query(
+        `SELECT p.invoice_id, sum(p.amount_minor) AS paid
+         FROM app.invoice_payment p
+         WHERE p.invoice_id = ANY($1::uuid[])
+           AND NOT EXISTS (
+             SELECT 1 FROM app.invoice_payment_reversal r WHERE r.payment_id = p.payment_id
+           )
+         GROUP BY p.invoice_id`,
+        [ids],
+      );
+      const paidBefore = new Map(
+        standing.rows.map((row) => [String(row.invoice_id), Number(row.paid)]),
+      );
+      for (const allocation of batch.allocations) {
+        const row = byId.get(allocation.invoiceId)!;
+        if (
+          (paidBefore.get(allocation.invoiceId) ?? 0) + allocation.amountMinor >
+          Number(row.total_minor)
+        ) {
+          return fail("exceeds_balance", row);
+        }
+      }
+      const recorded: PaymentBatchLine[] = [];
+      for (const allocation of batch.allocations) {
+        const row = byId.get(allocation.invoiceId)!;
+        const receipt = await client.query(
+          `SELECT app.allocate_receipt_number($1, COALESCE(
+             (SELECT settings #>> '{numbering,receiptPrefix}'
+              FROM app.business_settings_revision
+              ORDER BY revision_number DESC LIMIT 1), 'BJH/RCT')) AS receipt_number`,
+          [year],
+        );
+        const inserted = await client.query(
+          `INSERT INTO app.invoice_payment
+            (invoice_id, receipt_number, amount_minor, received_on, method,
+             reference, evidence_document_id, note, recorded_by)
+           VALUES ($1::uuid, $2, $3, $4::date, $5, $6, NULL, $7, $8::uuid)
+           RETURNING payment_id`,
+          [
+            allocation.invoiceId,
+            String(receipt.rows[0].receipt_number),
+            allocation.amountMinor,
+            batch.receivedOn,
+            batch.method,
+            batch.reference,
+            batch.note,
+            recordedBy,
+          ],
+        );
+        recorded.push({
+          payment: await this.selectPayment(
+            client,
+            String(inserted.rows[0].payment_id),
+          ),
+          invoiceNumber: numberOf(row) ?? "",
+          jobId: String(row.job_id),
+          balanceMinor:
+            Number(row.total_minor) -
+            (paidBefore.get(allocation.invoiceId) ?? 0) -
+            allocation.amountMinor,
+        });
+      }
+      await client.query("COMMIT");
+      return {
+        recorded,
+        companyId: String(first.customer_company_id),
+        currency: String(first.currency),
+      };
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async reverseInvoicePayment(
     jobId: string,
     invoiceId: string,
@@ -3381,19 +3775,21 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     documentId: string;
     versionNumber: number;
     textFound: boolean;
+    readBy: string | null;
     fields: ExtractionFieldRecord[];
     createdBy: string;
   }): Promise<DocumentExtractionRecord> {
     const inserted = await this.pool.query(
       `INSERT INTO app.document_extraction
-        (job_id, document_id, version_number, text_found, fields, created_by)
-       VALUES ($1::uuid, $2::uuid, $3, $4, $5::jsonb, $6::uuid)
+        (job_id, document_id, version_number, text_found, read_by, fields, created_by)
+       VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6::jsonb, $7::uuid)
        RETURNING extraction_id`,
       [
         extraction.jobId,
         extraction.documentId,
         extraction.versionNumber,
         extraction.textFound,
+        extraction.readBy,
         JSON.stringify(extraction.fields),
         extraction.createdBy,
       ],
@@ -3461,6 +3857,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       versionNumber: Number(row.version_number),
       filename: row.filename ? String(row.filename) : null,
       textFound: row.text_found === true,
+      readBy: row.read_by ? String(row.read_by) : null,
       fields: row.fields as ExtractionFieldRecord[],
       status: row.status as DocumentExtractionRecord["status"],
       applied: (row.applied as ExtractionApplyResult[] | null) ?? null,
@@ -3501,6 +3898,48 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       [jobId],
     );
     return result.rows.map((row) => this.mapTransportDocument(row));
+  }
+
+  async listShippingDocuments(
+    scope: JobScope,
+  ): Promise<ShippingDocumentRecord[]> {
+    if (scope.companyIds?.length === 0 || scope.serviceLines?.length === 0) {
+      return [];
+    }
+    const result = await this.pool.query(
+      `SELECT * FROM (
+         SELECT d.kind, d.document_id AS id, d.document_number AS number, d.status,
+                job.job_id, job.file_number, job.service_line, company.company_name,
+                COALESCE(d.issued_at, d.created_at) AS happened_at
+         FROM app.transport_document d
+         JOIN app.job job ON job.job_id = d.job_id
+         JOIN app.customer_company company ON company.company_id = job.customer_company_id
+         WHERE ($1::uuid[] IS NULL OR job.customer_company_id = ANY($1::uuid[]))
+           AND ($2::text[] IS NULL OR job.service_line = ANY($2::text[]))
+         UNION ALL
+         SELECT 'waybill', w.delivery_id, w.waybill_number, w.status,
+                job.job_id, job.file_number, job.service_line, company.company_name,
+                w.dispatched_at
+         FROM app.delivery w
+         JOIN app.job job ON job.job_id = w.job_id
+         JOIN app.customer_company company ON company.company_id = job.customer_company_id
+         WHERE ($1::uuid[] IS NULL OR job.customer_company_id = ANY($1::uuid[]))
+           AND ($2::text[] IS NULL OR job.service_line = ANY($2::text[]))
+       ) item
+       ORDER BY happened_at DESC, id`,
+      [scope.companyIds ?? null, scope.serviceLines ?? null],
+    );
+    return result.rows.map((row) => ({
+      kind: row.kind as ShippingDocumentRecord["kind"],
+      id: String(row.id),
+      jobId: String(row.job_id),
+      fileNumber: String(row.file_number),
+      serviceLine: row.service_line as ShippingDocumentRecord["serviceLine"],
+      customerCompanyName: String(row.company_name),
+      number: row.number ? String(row.number) : null,
+      status: row.status as ShippingDocumentRecord["status"],
+      date: this.toIsoString(row.happened_at),
+    }));
   }
 
   async updateTransportDocumentDraft(
@@ -3925,6 +4364,61 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       outstandingMinor: Number(row.outstanding_minor),
       dueDate: row.due_date_text ? String(row.due_date_text) : null,
       issuedAt: this.toIsoString(row.issued_at),
+    }));
+  }
+
+  async listStatementEntries(
+    companyId: string,
+  ): Promise<StatementEntryRecord[]> {
+    const result = await this.pool.query(
+      `SELECT * FROM (
+         SELECT 'invoice' AS kind,
+                to_char(i.issued_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS entry_date,
+                i.issued_at AS recorded_at, i.currency, i.total_minor AS amount_minor,
+                i.invoice_number, job.file_number, job.job_id,
+                NULL::text AS receipt_number, NULL::text AS method, NULL::text AS reference
+         FROM app.invoice i
+         JOIN app.job job ON job.job_id = i.job_id
+         WHERE job.customer_company_id = $1::uuid AND i.status = 'issued'
+         UNION ALL
+         SELECT 'payment', to_char(p.received_on, 'YYYY-MM-DD'), p.recorded_at, i.currency,
+                p.amount_minor, i.invoice_number, job.file_number, job.job_id,
+                p.receipt_number, p.method, p.reference
+         FROM app.invoice_payment p
+         JOIN app.invoice i ON i.invoice_id = p.invoice_id
+         JOIN app.job job ON job.job_id = i.job_id
+         WHERE job.customer_company_id = $1::uuid AND i.status = 'issued'
+           AND NOT EXISTS (
+             SELECT 1 FROM app.invoice_payment_reversal r WHERE r.payment_id = p.payment_id)
+       ) entry
+       ORDER BY entry_date, recorded_at`,
+      [companyId],
+    );
+    const jobIds = [...new Set(result.rows.map((row) => String(row.job_id)))];
+    const references = await this.pool.query(
+      `SELECT job_id, kind, reference_value FROM app.shipment_reference
+       WHERE job_id = ANY($1::uuid[]) AND removed_at IS NULL
+       ORDER BY created_at, reference_id`,
+      [jobIds],
+    );
+    const byJob = new Map<string, Array<{ kind: string; value: string }>>();
+    for (const row of references.rows) {
+      const list = byJob.get(String(row.job_id)) ?? [];
+      list.push({ kind: String(row.kind), value: String(row.reference_value) });
+      byJob.set(String(row.job_id), list);
+    }
+    return result.rows.map((row) => ({
+      kind: row.kind as StatementEntryRecord["kind"],
+      date: String(row.entry_date),
+      recordedAt: this.toIsoString(row.recorded_at),
+      currency: String(row.currency),
+      amountMinor: Number(row.amount_minor),
+      invoiceNumber: String(row.invoice_number),
+      fileNumber: String(row.file_number),
+      jobReferences: byJob.get(String(row.job_id)) ?? [],
+      receiptNumber: row.receipt_number ? String(row.receipt_number) : null,
+      method: row.method as StatementEntryRecord["method"],
+      reference: row.reference ? String(row.reference) : null,
     }));
   }
 
@@ -4385,7 +4879,44 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
         row.quote_status === null
           ? null
           : (row.quote_status as "draft" | "issued"),
+      details: this.toRequestDetails(row.details),
+      intake:
+        row.inbound_email_id === null
+          ? null
+          : {
+              subject: String(row.email_subject),
+              fromName:
+                row.email_from_name === null
+                  ? null
+                  : String(row.email_from_name),
+              fromEmail: String(row.email_from_email),
+              receivedAt: this.toIsoString(row.email_received_at),
+              extractionStatus: row.extraction_status as
+                "pending" | "done" | "failed",
+              extractionError:
+                row.extraction_error === null
+                  ? null
+                  : String(row.extraction_error),
+              reviewedAt:
+                row.reviewed_at === null
+                  ? null
+                  : this.toIsoString(row.reviewed_at),
+              reviewedBy:
+                row.reviewed_by === null ? null : String(row.reviewed_by),
+              attachments: row.attachments as RequestAttachmentRecord[],
+              skippedAttachments: row.skipped_attachments as Array<{
+                filename: string;
+                reason: string;
+              }>,
+            },
     };
+  }
+
+  /** The stored details with every detail present (unknown ones null). */
+  private toRequestDetails(stored: unknown): RequestDetails {
+    const parsed = parseContract(requestDetailsSchema, stored ?? {});
+    if (parsed.success) return parsed.data;
+    return requestDetailsSchema.parse({});
   }
 
   private groupCustomers(
