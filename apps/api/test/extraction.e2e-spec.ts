@@ -13,7 +13,9 @@ import {
   TEST_UNASSIGNED_TOKEN,
   TEST_UNASSIGNED_USER_ID,
   createTestApplication,
+  testDocumentReader,
 } from "./test-application";
+import { DocumentReadingError } from "../src/documents/document-reader";
 import { DatabasePort } from "../src/database/database.port";
 import { beginTestDatabase, endTestDatabase } from "./postgres-test-database";
 import { containerWithCheckDigit, pdfWithText } from "./pdf-helpers";
@@ -76,6 +78,7 @@ type Extraction = {
   id: string;
   status: string;
   textFound: boolean;
+  readBy: string | null;
   filename: string | null;
   fields: Field[];
   applied: Array<{
@@ -164,6 +167,7 @@ test("reading a PDF gives a draft and changes nothing on the job", async () => {
   firstDraft = await json<Extraction>(response);
   assert.equal(firstDraft.status, "draft");
   assert.equal(firstDraft.textFound, true);
+  assert.equal(firstDraft.readBy, null);
   assert.equal(firstDraft.filename, "bill-of-lading.pdf");
   assert.deepEqual(
     firstDraft.fields
@@ -401,7 +405,10 @@ test("scans and images are not read, and a draft can be rejected", async () => {
   const image = await upload(seaJob, png, "image/png", "photo.png");
   const refused = await extract(seaJob, image);
   assert.equal(refused.status, 400);
-  assert.match(await message(refused), /Only a PDF has text to read/);
+  assert.match(
+    await message(refused),
+    /Only a PDF has text to read; images need AI reading/,
+  );
 
   const path = `/api/v1/jobs/${seaJob}/extractions/${scanned.id}`;
   const rejected = await post(`${path}/reject`, TEST_MATCHING_TOKEN);
@@ -490,4 +497,105 @@ test("access: staff only, within the job's department; unknown IDs are 404", asy
     ).status,
     404,
   );
+});
+
+test("with AI reading set up, a photo is read into a draft that records the model", async () => {
+  testDocumentReader.model = "claude-haiku-5-5";
+  testDocumentReader.calls = [];
+  try {
+    const photoContainer = containerWithCheckDigit("PHOU123456");
+    testDocumentReader.result = [
+      {
+        key: "master_bl",
+        label: "Master B/L or booking number",
+        value: "PHOTOMBL001",
+        sealNumber: null,
+        evidence: "B/L No. PHOTOMBL001",
+      },
+      {
+        key: "container",
+        label: "Container",
+        value: photoContainer,
+        sealNumber: "PH-77",
+        evidence: `${photoContainer} SEAL PH-77`,
+      },
+    ];
+    const jpeg = Buffer.concat([
+      Buffer.from([0xff, 0xd8, 0xff, 0xe0]),
+      Buffer.from("synthetic photo of a bill of lading"),
+    ]);
+    const photo = await upload(seaJob, jpeg, "image/jpeg", "bl-photo.jpg");
+    const before = (await references(seaJob)).length;
+
+    const response = await extract(seaJob, photo);
+    assert.equal(response.status, 201);
+    const draft = await json<Extraction>(response);
+    assert.equal(draft.readBy, "claude-haiku-5-5");
+    assert.equal(draft.status, "draft");
+    assert.deepEqual(
+      draft.fields.map((field) => field.value),
+      ["PHOTOMBL001", photoContainer],
+    );
+    assert.deepEqual(testDocumentReader.calls, [
+      { contentType: "image/jpeg", size: jpeg.length },
+    ]);
+    // A draft changes nothing on the job.
+    assert.equal((await references(seaJob)).length, before);
+
+    const applied = await post(
+      `/api/v1/jobs/${seaJob}/extractions/${draft.id}/approve`,
+      TEST_MATCHING_TOKEN,
+      {
+        fields: [
+          { index: 0, value: "PHOTOMBL001" },
+          { index: 1, value: photoContainer, sealNumber: "PH-77" },
+        ],
+      },
+    );
+    assert.equal(applied.status, 201);
+    const result = await json<Extraction>(applied);
+    assert.deepEqual(
+      result.applied?.map((item) => item.result),
+      ["added", "added"],
+    );
+    const saved = await references(seaJob);
+    assert.ok(
+      saved.some(
+        (item) => item.value === photoContainer && item.sealNumber === "PH-77",
+      ),
+    );
+
+    // A failed reading says why and leaves no draft behind.
+    const drafts = (
+      await json<Extraction[]>(await get(`/api/v1/jobs/${seaJob}/extractions`))
+    ).length;
+    testDocumentReader.result = new DocumentReadingError(
+      "The AI service is busy or over its limit",
+    );
+    const failed = await extract(seaJob, photo);
+    assert.equal(failed.status, 503);
+    assert.match(await message(failed), /^The AI service is busy/);
+    assert.equal(
+      (
+        await json<Extraction[]>(
+          await get(`/api/v1/jobs/${seaJob}/extractions`),
+        )
+      ).length,
+      drafts,
+    );
+
+    // Customers still cannot ask for a reading.
+    assert.equal(
+      (
+        await post(
+          `/api/v1/jobs/${seaJob}/documents/${photo}/extract`,
+          TEST_CUSTOMER_A_TOKEN,
+        )
+      ).status,
+      403,
+    );
+  } finally {
+    testDocumentReader.model = null;
+    testDocumentReader.result = [];
+  }
 });

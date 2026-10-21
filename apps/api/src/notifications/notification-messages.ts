@@ -96,6 +96,33 @@ export const paymentReceivedMessage = (
   smsText: `${sender}: payment of ${money(amountMinor, currency)} received for ${invoiceNumber}. Balance ${money(balanceMinor, currency)}.`,
 });
 
+/** One payment that settled several invoices: a single message, not one per invoice. */
+export const paymentsReceivedMessage = (
+  sender: string,
+  currency: string,
+  lines: Array<{
+    invoiceNumber: string;
+    receiptNumber: string | null;
+    amountMinor: number;
+    balanceMinor: number;
+  }>,
+): Message => {
+  const total = lines.reduce((sum, line) => sum + line.amountMinor, 0);
+  const balance = lines.reduce((sum, line) => sum + line.balanceMinor, 0);
+  return {
+    subject: `Payment received for ${lines.length} invoices`,
+    body: `We have recorded your payment of ${money(total, currency)}, applied to these invoices:\n${lines
+      .map(
+        (line) =>
+          `- ${line.invoiceNumber}: ${money(line.amountMinor, currency)}${line.receiptNumber ? ` (receipt ${line.receiptNumber})` : ""}, balance ${money(line.balanceMinor, currency)}`,
+      )
+      .join(
+        "\n",
+      )}\nBalance remaining on these invoices: ${money(balance, currency)}.${sign(sender)}`,
+    smsText: `${sender}: payment of ${money(total, currency)} received for ${lines.length} invoices. Balance on them ${money(balance, currency)}.`,
+  };
+};
+
 export const deliveryDispatchedMessage = (
   sender: string,
   waybillNumber: string,

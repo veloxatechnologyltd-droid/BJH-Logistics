@@ -11,6 +11,7 @@ import {
   invoiceReasonInputSchema,
   isUuid,
   parseContract,
+  paymentBatchInputSchema,
   paymentInputSchema,
 } from "@bjh/contracts";
 import {
@@ -27,6 +28,7 @@ import { computeInvoiceTotals } from "./invoice-totals";
 import {
   invoiceIssuedMessage,
   paymentReceivedMessage,
+  paymentsReceivedMessage,
 } from "../notifications/notification-messages";
 import { NotificationsService } from "../notifications/notifications.service";
 import { renderInvoicePdf } from "./invoice-pdf";
@@ -392,6 +394,98 @@ export class InvoicesService {
       createdBy: recordedBy,
     });
     return result;
+  }
+
+  /**
+   * One payment from a customer applied across several of their invoices, all
+   * or nothing. Each invoice gets its own payment and receipt; the customer
+   * gets one message for the whole payment.
+   */
+  async recordPayments(
+    input: unknown,
+    recordedBy: string,
+    scope: JobScope,
+  ): Promise<{
+    payments: InvoicePaymentRecord[];
+    totalMinor: number;
+    currency: string;
+  }> {
+    const parsed = parseContract(paymentBatchInputSchema, input);
+    if (!parsed.success) throw new BadRequestException(parsed.message);
+    // One day of slack covers a client whose date is ahead of UTC.
+    if (
+      parsed.data.receivedOn >
+      new Date(Date.now() + 86_400_000).toISOString().slice(0, 10)
+    ) {
+      throw new BadRequestException("receivedOn cannot be in the future");
+    }
+    const result = await this.database.recordPaymentBatch(
+      parsed.data,
+      recordedBy,
+      new Date().getUTCFullYear(),
+      scope,
+    );
+    if ("failed" in result) {
+      switch (result.failed) {
+        case "not_found":
+          throw new NotFoundException("Invoice was not found");
+        case "not_issued":
+          throw new ConflictException(
+            "Payments can only be recorded against an issued invoice",
+          );
+        case "mixed_customers":
+          throw new BadRequestException(
+            "All the invoices must belong to the same customer",
+          );
+        case "mixed_currencies":
+          throw new BadRequestException(
+            "All the invoices must be in the same currency",
+          );
+        case "exceeds_balance":
+          throw new ConflictException(
+            `The payment is more than the outstanding balance of ${result.invoiceNumber ?? "an invoice"}`,
+          );
+      }
+    }
+    const lines = result.recorded;
+    const jobIds = new Set(lines.map((line) => line.jobId));
+    const [only] = lines;
+    await this.notifications.notify({
+      companyId: result.companyId,
+      jobId: jobIds.size === 1 ? only.jobId : null,
+      event: "payment_received",
+      dedupeKey: `payment:${only.payment.id}`,
+      message: (sender) =>
+        lines.length === 1
+          ? paymentReceivedMessage(
+              sender,
+              only.payment.receiptNumber,
+              only.invoiceNumber,
+              only.payment.amountMinor,
+              only.balanceMinor,
+              result.currency,
+            )
+          : paymentsReceivedMessage(
+              sender,
+              result.currency,
+              lines.map((line) => ({
+                invoiceNumber: line.invoiceNumber,
+                receiptNumber: line.payment.receiptNumber,
+                amountMinor: line.payment.amountMinor,
+                balanceMinor: line.balanceMinor,
+              })),
+            ),
+      linkPath: jobIds.size === 1 ? `/jobs/${only.jobId}` : "/invoices",
+      createdBy: recordedBy,
+    });
+    return {
+      payments: lines.map((line) => line.payment),
+      totalMinor: lines.reduce(
+        (sum, line) => sum + line.payment.amountMinor,
+        0,
+      ),
+      currency: result.currency,
+    };
   }
 
   async reversePayment(

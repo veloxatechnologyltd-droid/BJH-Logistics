@@ -13,9 +13,12 @@ import { ErrorPopup } from "../ErrorPopup";
 
 type Edit = { checked: boolean; value: string; seal: string };
 
+const readable = ["application/pdf", "image/png", "image/jpeg"];
+
 /**
- * Reads the text of a PDF (a bill of lading, an air waybill) into a DRAFT list
- * of references. Nothing is added to the job until a person checks the values,
+ * Reads a document (a bill of lading, an air waybill) into a DRAFT list of
+ * references: by AI when it is set up (PDFs, scans and photos), otherwise from
+ * a PDF's text. Nothing is added to the job until a person checks the values,
  * corrects them if needed, and applies the ones they choose.
  */
 export function JobExtractions({
@@ -35,8 +38,8 @@ export function JobExtractions({
   const [documentId, setDocumentId] = useState("");
   const [edits, setEdits] = useState<Record<string, Edit[]>>({});
 
-  const pdfs = documents.filter(
-    (item) => item.versions.at(-1)?.contentType === "application/pdf",
+  const files = documents.filter((item) =>
+    readable.includes(item.versions.at(-1)?.contentType ?? ""),
   );
 
   const load = useCallback(async () => {
@@ -94,13 +97,13 @@ export function JobExtractions({
       <ErrorPopup message={error} />
       <div className={styles.actions}>
         <label className={styles.field}>
-          PDF document
+          Document
           <select
             onChange={(event) => setDocumentId(event.target.value)}
             value={documentId}
           >
-            <option value="">Choose a PDF</option>
-            {pdfs.map((item) => (
+            <option value="">Choose a PDF or image</option>
+            {files.map((item) => (
               <option key={item.id} value={item.id}>
                 {item.versions.at(-1)?.filename ?? item.documentType}
               </option>
@@ -129,6 +132,12 @@ export function JobExtractions({
                 ? "applied"
                 : "rejected"}
           </h3>
+          {item.status === "draft" && item.readBy && (
+            <p className={styles.muted}>
+              Read by AI ({item.readBy}). Check every value against the document
+              before applying it.
+            </p>
+          )}
           {item.status === "draft" && !item.textFound && (
             <p className={styles.muted}>
               This PDF has no text to read (it is probably a scan). Add the

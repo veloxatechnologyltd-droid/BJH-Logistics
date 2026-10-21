@@ -69,6 +69,13 @@ const paths = {
       <path d="M3 10h18" />
     </>
   ),
+  shipping: (
+    <>
+      <path d="M6 3h8l4 4v5" />
+      <path d="M14 3v4h4M8 10h6" />
+      <path d="M3 16h18l-2.5 4.5h-13z" />
+    </>
+  ),
   settings: (
     <>
       <path d="M4 7h9M17 7h3M4 17h3M11 17h9" />

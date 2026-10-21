@@ -55,3 +55,18 @@ services:
         sync: false
       - key: SMS_SENDER_ID
         sync: false
+      # Optional: customer requests by email (docs/email-intake.md). Without the
+      # secret intake is off; without an AI key emails are saved unread.
+      - key: INBOUND_EMAIL_SECRET
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        sync: false
+      # Optional: Claude reads emails (preferred over OpenAI) and job documents,
+      # including scans and photos. Setting it sends what staff read to Anthropic:
+      # only with BJH's agreement once real documents are in use.
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: CLAUDE_MODEL
+        sync: false

@@ -5,6 +5,7 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  ServiceUnavailableException,
 } from "@nestjs/common";
 import {
   extractionApproveInputSchema,
@@ -21,14 +22,21 @@ import {
 import { JobDetailsService } from "../jobs/job-details.service";
 import { JobsService } from "../jobs/jobs.service";
 import { extractFields, readPdfText } from "./document-extraction";
+import {
+  AI_READABLE_TYPES,
+  DOCUMENT_READER,
+  DocumentReadingError,
+} from "./document-reader";
+import type { DocumentReader } from "./document-reader";
 import { DOCUMENT_STORAGE } from "./document-storage.port";
 import type { DocumentStorage } from "./document-storage.port";
 
 /**
- * Reads the text layer of a PDF on the job (no third party sees it) and
- * proposes shipment references as a draft. Nothing reaches the job until a
- * person reviews the draft and approves fields, which may be corrected first.
- * Scanned PDFs have no text layer: they get an empty draft that says so.
+ * Proposes shipment references from a document on the job as a draft. With an
+ * AI service set up, the AI reads the PDF or image (scans and photos too);
+ * otherwise the PDF's text layer is read here (no third party sees it) and a
+ * scanned PDF gets an empty draft that says so. Nothing reaches the job until
+ * a person reviews the draft and approves fields, which may be corrected first.
  */
 @Injectable()
 export class ExtractionsService {
@@ -37,6 +45,7 @@ export class ExtractionsService {
     @Inject(DOCUMENT_STORAGE) private readonly storage: DocumentStorage,
     @Inject(JobsService) private readonly jobs: JobsService,
     @Inject(JobDetailsService) private readonly details: JobDetailsService,
+    @Inject(DOCUMENT_READER) private readonly reader: DocumentReader,
   ) {}
 
   async list(id: string, scope: JobScope): Promise<DocumentExtractionRecord[]> {
@@ -67,9 +76,37 @@ export class ExtractionsService {
         )
       : null;
     if (!stored) throw new NotFoundException("Document was not found");
+    if (this.reader.model) {
+      if (!AI_READABLE_TYPES.includes(stored.contentType)) {
+        throw new BadRequestException("Only a PDF, PNG or JPEG can be read");
+      }
+      let fields;
+      try {
+        fields = await this.reader.read({
+          bytes: await this.storage.get(stored.objectKey),
+          contentType: stored.contentType,
+        });
+      } catch (error) {
+        if (error instanceof DocumentReadingError) {
+          throw new ServiceUnavailableException(
+            `${error.message}. Try again, or add the references by hand.`,
+          );
+        }
+        throw error;
+      }
+      return this.database.createDocumentExtraction({
+        jobId: job.id,
+        documentId: stored.documentId,
+        versionNumber: stored.versionNumber,
+        textFound: true,
+        readBy: this.reader.model,
+        fields,
+        createdBy,
+      });
+    }
     if (stored.contentType !== "application/pdf") {
       throw new BadRequestException(
-        "Only a PDF has text to read; scanned images need OCR, which is not enabled",
+        "Only a PDF has text to read; images need AI reading, which is not set up",
       );
     }
     let text: string;
@@ -84,6 +121,7 @@ export class ExtractionsService {
       documentId: stored.documentId,
       versionNumber: stored.versionNumber,
       textFound,
+      readBy: null,
       fields: textFound ? extractFields(text) : [],
       createdBy,
     });

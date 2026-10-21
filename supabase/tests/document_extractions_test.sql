@@ -2,7 +2,7 @@ BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 
-SELECT extensions.plan(6);
+SELECT extensions.plan(7);
 
 SELECT extensions.ok(
   NOT has_table_privilege('anon', 'app.document_extraction', 'SELECT')
@@ -39,6 +39,10 @@ VALUES ('00000000-0000-4000-8000-0000000006e0', '00000000-0000-4000-8000-0000000
 SELECT extensions.throws_ok(
   $$UPDATE app.document_extraction SET fields = '[]'::jsonb WHERE extraction_id = '00000000-0000-4000-8000-0000000006e0'$$,
   'P0001', 'the proposed fields of an extraction never change', 'the proposed fields never change'
+);
+SELECT extensions.throws_ok(
+  $$UPDATE app.document_extraction SET read_by = 'claude-haiku-5-5' WHERE extraction_id = '00000000-0000-4000-8000-0000000006e0'$$,
+  'P0001', 'the proposed fields of an extraction never change', 'who read a draft never changes'
 );
 SELECT extensions.throws_ok(
   $$UPDATE app.document_extraction SET status = 'approved' WHERE extraction_id = '00000000-0000-4000-8000-0000000006e0'$$,

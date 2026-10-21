@@ -16,6 +16,10 @@ import { DocumentsService } from "./documents/documents.service";
 import { ExtractionsController } from "./documents/extractions.controller";
 import { ExtractionsService } from "./documents/extractions.service";
 import {
+  DOCUMENT_READER,
+  createDocumentReader,
+} from "./documents/document-reader";
+import {
   DOCUMENT_STORAGE,
   SupabaseDocumentStorage,
 } from "./documents/document-storage.port";
@@ -55,14 +59,26 @@ import {
   InvoicesController,
   FinanceSummaryController,
   OutstandingInvoicesController,
+  PaymentsController,
 } from "./finance/invoices.controller";
 import { InvoicesService } from "./finance/invoices.service";
+import { InboundEmailController } from "./intake/inbound-email.controller";
+import { InboundEmailService } from "./intake/inbound-email.service";
+import {
+  EMAIL_EXTRACTOR,
+  createEmailExtractor,
+} from "./intake/email-extractor";
+import { StatementsController } from "./finance/statements.controller";
+import { StatementsService } from "./finance/statements.service";
 import {
   DeliveriesController,
   DriversController,
   VehiclesController,
 } from "./transport/transport.controller";
-import { TransportDocumentsController } from "./transport/transport-documents.controller";
+import {
+  ShippingDocumentsController,
+  TransportDocumentsController,
+} from "./transport/transport-documents.controller";
 import { TransportDocumentsService } from "./transport/transport-documents.service";
 import { TransportService } from "./transport/transport.service";
 import {
@@ -97,10 +113,14 @@ import { QuotesService } from "./quotations/quotes.service";
     InvoicesController,
     OutstandingInvoicesController,
     FinanceSummaryController,
+    PaymentsController,
+    StatementsController,
+    InboundEmailController,
     DriversController,
     VehiclesController,
     DeliveriesController,
     TransportDocumentsController,
+    ShippingDocumentsController,
     WarehouseLocationsController,
     JobStockController,
     StockReportController,
@@ -128,11 +148,15 @@ import { QuotesService } from "./quotations/quotes.service";
     { provide: SMS_PROVIDER, useFactory: () => createSmsProvider(process.env) },
     JobChargesService,
     InvoicesService,
+    StatementsService,
+    InboundEmailService,
+    { provide: EMAIL_EXTRACTOR, useFactory: () => createEmailExtractor() },
     TransportService,
     TransportDocumentsService,
     WarehouseService,
     DocumentsService,
     ExtractionsService,
+    { provide: DOCUMENT_READER, useFactory: () => createDocumentReader() },
     { provide: DOCUMENT_STORAGE, useClass: SupabaseDocumentStorage },
     ActivityLogMiddleware,
     { provide: APP_FILTER, useClass: RequestErrorFilter },

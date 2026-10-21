@@ -193,6 +193,20 @@
   color: #9a6700;
   font-weight: 700;
 }
+/* Statement lines: the date and type stay on one line; the reference wraps beside the amounts, and takes its own row in a card. */
+.dateCell {
+  white-space: nowrap;
+}
+.refCell {
+  min-width: 14rem;
+  overflow-wrap: anywhere;
+}
+.statementFilters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px 16px;
+}
 .lossText {
   color: #b42318;
   font-weight: 700;
@@ -248,7 +262,8 @@
     overflow-wrap: anywhere;
     background: transparent !important;
   }
-  .jobCell {
+  .jobCell,
+  .refCell {
     grid-column: 1 / -1;
     white-space: normal;
   }
@@ -278,5 +293,78 @@
 @container board (max-width: 420px) {
   .kpis {
     grid-template-columns: 1fr;
+  }
+}
+
+/* Record payment: the customer's unpaid invoices, tick all or some. */
+.allocations {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  border: 1px solid var(--brand-border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 0.85rem;
+}
+.allocations legend {
+  padding: 0 4px;
+  color: var(--brand-muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.selectAll {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+.allocationList {
+  display: grid;
+  gap: 6px;
+  max-height: 40vh;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+.allocationList li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 9rem;
+  align-items: center;
+  gap: 6px 12px;
+  border-top: 1px solid var(--brand-border);
+  padding-top: 6px;
+}
+.allocationRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+.allocationRow small {
+  display: block;
+  color: var(--brand-muted);
+}
+.allocationAmount {
+  width: 100%;
+  border: 1px solid var(--brand-border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font: inherit;
+  text-align: right;
+  background: #fff;
+  color: var(--brand-ink);
+}
+.allocationAmount:disabled {
+  background: #f6f9fc;
+  color: var(--brand-muted);
+}
+.allocationTotal {
+  margin: 4px 0 0;
+  font-weight: 700;
+}
+@media (max-width: 420px) {
+  .allocationList li {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

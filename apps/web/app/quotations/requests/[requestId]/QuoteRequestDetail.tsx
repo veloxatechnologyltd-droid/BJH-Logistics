@@ -13,6 +13,7 @@ import {
 import type { QuoteRequest } from "../../quoteRequestApi";
 import styles from "../../quotation.module.css";
 import { ErrorPopup, plainMessage } from "../../../ErrorPopup";
+import { EmailRequestPanel } from "./EmailRequestPanel";
 
 type LoadState = "loading" | "ready" | "error";
 
@@ -76,6 +77,12 @@ export function QuoteRequestDetail() {
       active = false;
     };
   }, []);
+
+  // The customer whose contact wrote the email is offered first; a person still presses Link.
+  const suggestedCustomerId = request?.suggestedCustomer?.id;
+  useEffect(() => {
+    if (suggestedCustomerId) setSelectedCustomerId(suggestedCustomerId);
+  }, [suggestedCustomerId]);
 
   async function linkCustomer() {
     if (!selectedCustomerId || linking) {
@@ -182,6 +189,16 @@ export function QuoteRequestDetail() {
               <h3 id="message-title">Request message</h3>
               <p>{request.message}</p>
             </section>
+            <EmailRequestPanel
+              canEdit={request.canCheck === true}
+              onChange={(next) =>
+                setRequest({
+                  ...next,
+                  suggestedCustomer: request.suggestedCustomer,
+                })
+              }
+              request={request}
+            />
             <section
               className={styles.customerLinkPanel}
               aria-labelledby="customer-link-title"
@@ -203,6 +220,12 @@ export function QuoteRequestDetail() {
                 </p>
               ) : (
                 <div className={styles.customerLinkActions}>
+                  {request.suggestedCustomer && (
+                    <p>
+                      The sender is a contact of{" "}
+                      {request.suggestedCustomer.companyName}.
+                    </p>
+                  )}
                   <label htmlFor="request-customer">Link to company</label>
                   <select
                     id="request-customer"

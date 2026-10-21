@@ -6,16 +6,19 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   Req,
   UseGuards,
 } from "@nestjs/common";
 import {
+  DepartmentStaffGuard,
   SupabaseIdentityGuard,
   StaffCompanyReadGuard,
   SuperAdminGuard,
 } from "../auth/auth.guards";
 import type { AuthenticatedRequest } from "../auth/auth.guards";
+import { InboundEmailService } from "../intake/inbound-email.service";
 import { QuoteRequestsService } from "./quote-requests.service";
 
 @Controller("api/v1/quote-requests")
@@ -24,6 +27,8 @@ export class QuoteRequestsController {
   constructor(
     @Inject(QuoteRequestsService)
     private readonly requests: QuoteRequestsService,
+    @Inject(InboundEmailService)
+    private readonly inbound: InboundEmailService,
   ) {}
 
   @Post()
@@ -54,12 +59,48 @@ export class QuoteRequestsController {
   @Get(":id")
   @UseGuards(StaffCompanyReadGuard)
   get(@Param("id") id: string, @Req() request: AuthenticatedRequest) {
-    return this.requests.get(id, request.allowedCompanyIds);
+    return this.requests.get(
+      id,
+      request.allowedCompanyIds,
+      request.staffRoles ?? [],
+    );
   }
 
   @Patch(":id/customer")
   @UseGuards(SuperAdminGuard)
   associateCustomer(@Param("id") id: string, @Body() body: unknown) {
     return this.requests.associateCustomer(id, body);
+  }
+
+  /** Details of an email request, corrected by the super admin or the rep in charge of its service; saving them records that they were checked. */
+  @Put(":id/details")
+  @UseGuards(DepartmentStaffGuard)
+  saveDetails(
+    @Param("id") id: string,
+    @Body() body: unknown,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.inbound.saveDetails(
+      id,
+      body,
+      request.authUser!.userId,
+      request.staffRoles ?? [],
+    );
+  }
+
+  /** Reads the saved email again, when the first reading failed. */
+  @Post(":id/read-email")
+  @UseGuards(DepartmentStaffGuard)
+  readEmail(@Param("id") id: string, @Req() request: AuthenticatedRequest) {
+    return this.inbound.readAgain(id, request.staffRoles ?? []);
+  }
+
+  @Get(":id/attachments/:attachmentId")
+  @UseGuards(DepartmentStaffGuard)
+  attachment(
+    @Param("id") id: string,
+    @Param("attachmentId") attachmentId: string,
+  ) {
+    return this.inbound.attachmentLink(id, attachmentId);
   }
 }

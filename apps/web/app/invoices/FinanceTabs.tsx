@@ -4,6 +4,7 @@ import styles from "../jobs/jobs.module.css";
 const tabs = [
   { href: "/finance", label: "Overview" },
   { href: "/invoices", label: "Invoices" },
+  { href: "/finance/statements", label: "Statements" },
 ];
 
 export function FinanceTabs({ active }: { active: string }) {

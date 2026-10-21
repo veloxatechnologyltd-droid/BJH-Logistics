@@ -6,24 +6,30 @@ import { paymentMethodKeys } from "@bjh/contracts";
 import type { PaymentMethod } from "@bjh/contracts";
 import { plainMessage } from "../ErrorPopup";
 import { methodLabels } from "../jobs/JobInvoices";
-import { getOutstandingInvoices, recordInvoicePayment } from "../jobs/jobApi";
+import { getOutstandingInvoices, recordPayments } from "../jobs/jobApi";
 import type { OutstandingInvoice } from "../jobs/jobApi";
 import styles from "../jobs/jobs.module.css";
 import { formatMoney, toMinor } from "../quotes/quoteApi";
+import cards from "./finance.module.css";
 
 const today = () => new Date().toISOString().slice(0, 10);
 
+const amountText = (minor: number) => (minor / 100).toFixed(2);
+
 /**
- * Records a payment a customer made outside the system against one of their
- * unpaid invoices, without opening the job. The same API call and rules as the
- * job's invoice list apply.
+ * Records a payment a customer made outside the system: choose the customer,
+ * tick all or some of their unpaid invoices, and give each ticked invoice the
+ * amount it receives (its full balance by default). One payment can settle
+ * several invoices; they are saved together or not at all, each with its own
+ * receipt. The same rules as the job's invoice list apply.
  */
 export function RecordPayment({ onRecorded }: { onRecorded: () => void }) {
   const [open, setOpen] = useState(false);
   const [invoices, setInvoices] = useState<OutstandingInvoice[] | null>(null);
   const [customerId, setCustomerId] = useState("");
-  const [invoiceId, setInvoiceId] = useState("");
-  const [amount, setAmount] = useState("");
+  const [currency, setCurrency] = useState("");
+  // A ticked invoice has an entry here: the amount it receives, as typed.
+  const [amounts, setAmounts] = useState<Record<string, string>>({});
   const [receivedOn, setReceivedOn] = useState(today());
   const [method, setMethod] = useState<PaymentMethod>("bank_transfer");
   const [reference, setReference] = useState("");
@@ -50,20 +56,65 @@ export function RecordPayment({ onRecorded }: { onRecorded: () => void }) {
       ].sort((a, b) => a[1].localeCompare(b[1])),
     [invoices],
   );
-  const theirs = (invoices ?? []).filter(
-    (row) => row.customerCompanyId === customerId,
+  const theirs = useMemo(
+    () =>
+      (invoices ?? []).filter((row) => row.customerCompanyId === customerId),
+    [invoices, customerId],
   );
-  const invoice = theirs.find((row) => row.invoiceId === invoiceId);
+  const currencies = useMemo(
+    () => [...new Set(theirs.map((row) => row.currency))].sort(),
+    [theirs],
+  );
+  // One payment is in one currency, so a customer owing in two currencies pays one at a time.
+  const shown = theirs.filter((row) => row.currency === currency);
+  const ticked = shown.filter((row) => row.invoiceId in amounts);
+  const total = ticked.reduce((sum, row) => {
+    const minor = toMinor(amounts[row.invoiceId]);
+    return sum + (minor !== undefined && !Number.isNaN(minor) ? minor : 0);
+  }, 0);
 
-  function chooseInvoice(row?: OutstandingInvoice) {
-    setInvoiceId(row?.invoiceId ?? "");
-    setAmount(row ? (row.outstandingMinor / 100).toFixed(2) : "");
+  /** Start from the invoices of one customer and currency: a lone invoice is ticked for them. */
+  function chooseCurrency(code: string, mine: OutstandingInvoice[]) {
+    setCurrency(code);
+    const rows = mine.filter((row) => row.currency === code);
+    setAmounts(
+      rows.length === 1
+        ? { [rows[0].invoiceId]: amountText(rows[0].outstandingMinor) }
+        : {},
+    );
   }
 
   function chooseCustomer(id: string, from: OutstandingInvoice[]) {
     setCustomerId(id);
     const mine = from.filter((row) => row.customerCompanyId === id);
-    chooseInvoice(mine.length === 1 ? mine[0] : undefined);
+    const codes = [...new Set(mine.map((row) => row.currency))];
+    if (codes.length === 1) chooseCurrency(codes[0], mine);
+    else {
+      setCurrency("");
+      setAmounts({});
+    }
+  }
+
+  function toggle(row: OutstandingInvoice) {
+    setAmounts((current) => {
+      const next = { ...current };
+      if (row.invoiceId in next) delete next[row.invoiceId];
+      else next[row.invoiceId] = amountText(row.outstandingMinor);
+      return next;
+    });
+  }
+
+  function toggleAll() {
+    setAmounts(
+      ticked.length === shown.length
+        ? {}
+        : Object.fromEntries(
+            shown.map((row) => [
+              row.invoiceId,
+              amountText(row.outstandingMinor),
+            ]),
+          ),
+    );
   }
 
   function start() {
@@ -71,7 +122,8 @@ export function RecordPayment({ onRecorded }: { onRecorded: () => void }) {
     setError("");
     setInvoices(null);
     setCustomerId("");
-    chooseInvoice();
+    setCurrency("");
+    setAmounts({});
     setReceivedOn(today());
     setMethod("bank_transfer");
     setReference("");
@@ -84,8 +136,7 @@ export function RecordPayment({ onRecorded }: { onRecorded: () => void }) {
           result.invoices.map((row) => row.customerCompanyId),
         );
         // One customer owes: no need to pick them.
-        if (owing.size === 1)
-          chooseCustomer([...owing][0], result.invoices);
+        if (owing.size === 1) chooseCustomer([...owing][0], result.invoices);
       })
       .catch((cause) =>
         setError(
@@ -100,30 +151,44 @@ export function RecordPayment({ onRecorded }: { onRecorded: () => void }) {
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!invoice) return;
-    const minor = toMinor(amount);
-    if (minor === undefined || Number.isNaN(minor)) {
-      setError("Enter the amount as a number such as 250 or 250.50");
+    if (ticked.length === 0) {
+      setError("Tick at least one invoice");
       return;
+    }
+    const allocations: Array<{ invoiceId: string; amountMinor: number }> = [];
+    for (const row of ticked) {
+      const minor = toMinor(amounts[row.invoiceId]);
+      if (
+        minor === undefined ||
+        Number.isNaN(minor) ||
+        minor < 1 ||
+        minor > row.outstandingMinor
+      ) {
+        setError(
+          `The amount for ${row.invoiceNumber} must be more than zero and at most ${formatMoney(row.outstandingMinor, row.currency)}, written like 250 or 250.50`,
+        );
+        return;
+      }
+      allocations.push({ invoiceId: row.invoiceId, amountMinor: minor });
     }
     setSaving(true);
     setError("");
     try {
-      const payment = await recordInvoicePayment(
-        invoice.jobId,
-        invoice.invoiceId,
-        {
-          amountMinor: minor,
-          receivedOn,
-          method,
-          reference: reference.trim() || undefined,
-          note: note.trim() || undefined,
-        },
-      );
+      const result = await recordPayments({
+        receivedOn,
+        method,
+        reference: reference.trim() || undefined,
+        note: note.trim() || undefined,
+        allocations,
+      });
       setOpen(false);
+      const [first] = result.payments;
       setNotice(
-        `Recorded ${formatMoney(minor, invoice.currency)} against ${invoice.invoiceNumber}` +
-          (payment.receiptNumber ? `, receipt ${payment.receiptNumber}.` : "."),
+        `Recorded ${formatMoney(result.totalMinor, result.currency)} ` +
+          (result.payments.length === 1
+            ? `against ${ticked[0].invoiceNumber}` +
+              (first.receiptNumber ? `, receipt ${first.receiptNumber}.` : ".")
+            : `across ${result.payments.length} invoices, one receipt each.`),
       );
       onRecorded();
     } catch (cause) {
@@ -154,6 +219,7 @@ export function RecordPayment({ onRecorded }: { onRecorded: () => void }) {
         className={styles.dialog}
         onCancel={() => setOpen(false)}
         ref={dialog}
+        style={{ width: "min(94vw, 560px)" }}
       >
         <form className={styles.form} onSubmit={submit}>
           <h2 id="record-payment-title">Record payment received</h2>
@@ -182,36 +248,78 @@ export function RecordPayment({ onRecorded }: { onRecorded: () => void }) {
                   ))}
                 </select>
               </label>
-              <label className={styles.field}>
-                Invoice
-                <select
-                  disabled={!customerId}
-                  onChange={(event) =>
-                    chooseInvoice(
-                      theirs.find((row) => row.invoiceId === event.target.value),
-                    )
-                  }
-                  required
-                  value={invoiceId}
-                >
-                  <option value="">Choose an invoice</option>
-                  {theirs.map((row) => (
-                    <option key={row.invoiceId} value={row.invoiceId}>
-                      {row.invoiceNumber} · {row.fileNumber} · owing{" "}
-                      {formatMoney(row.outstandingMinor, row.currency)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className={styles.field}>
-                Amount received{invoice ? ` (${invoice.currency})` : ""}
-                <input
-                  inputMode="decimal"
-                  onChange={(event) => setAmount(event.target.value)}
-                  required
-                  value={amount}
-                />
-              </label>
+              {currencies.length > 1 && (
+                <label className={styles.field}>
+                  Currency
+                  <select
+                    onChange={(event) =>
+                      chooseCurrency(event.target.value, theirs)
+                    }
+                    required
+                    value={currency}
+                  >
+                    <option value="">Choose a currency</option>
+                    {currencies.map((code) => (
+                      <option key={code} value={code}>
+                        {code}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              {shown.length > 0 && (
+                <fieldset className={cards.allocations}>
+                  <legend>Invoices paid</legend>
+                  {shown.length > 1 && (
+                    <label className={cards.selectAll}>
+                      <input
+                        checked={ticked.length === shown.length}
+                        onChange={toggleAll}
+                        type="checkbox"
+                      />
+                      Select all ({shown.length})
+                    </label>
+                  )}
+                  <ul className={cards.allocationList}>
+                    {shown.map((row) => (
+                      <li key={row.invoiceId}>
+                        <label className={cards.allocationRow}>
+                          <input
+                            checked={row.invoiceId in amounts}
+                            onChange={() => toggle(row)}
+                            type="checkbox"
+                          />
+                          <span>
+                            {row.invoiceNumber}
+                            <small>
+                              {row.fileNumber} · owing{" "}
+                              {formatMoney(row.outstandingMinor, row.currency)}
+                              {row.overdue ? " · overdue" : ""}
+                            </small>
+                          </span>
+                        </label>
+                        <input
+                          aria-label={`Amount received for ${row.invoiceNumber}`}
+                          className={cards.allocationAmount}
+                          disabled={!(row.invoiceId in amounts)}
+                          inputMode="decimal"
+                          onChange={(event) =>
+                            setAmounts((current) => ({
+                              ...current,
+                              [row.invoiceId]: event.target.value,
+                            }))
+                          }
+                          value={amounts[row.invoiceId] ?? ""}
+                        />
+                      </li>
+                    ))}
+                  </ul>
+                  <p className={cards.allocationTotal}>
+                    Total {formatMoney(total, currency)} on {ticked.length}{" "}
+                    {ticked.length === 1 ? "invoice" : "invoices"}
+                  </p>
+                </fieldset>
+              )}
               <label className={styles.field}>
                 Date received
                 <input
@@ -264,7 +372,7 @@ export function RecordPayment({ onRecorded }: { onRecorded: () => void }) {
             {invoices && invoices.length > 0 && (
               <button
                 className={styles.button}
-                disabled={saving || !invoice}
+                disabled={saving || ticked.length === 0}
                 type="submit"
               >
                 Save payment
