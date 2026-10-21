@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import type { CSSProperties, FormEvent } from "react";
+import type { CSSProperties, FormEvent, ReactNode } from "react";
 import { quoteBasisKeys, quoteBasisLabels } from "@bjh/contracts";
 import type { QuoteBasis, ServiceLine } from "@bjh/contracts";
 import { useStaffAccess } from "../auth/useStaffAccess";
@@ -75,18 +75,26 @@ export function QuoteEditor({
   draft,
   onSaved,
   fromRequest,
+  initialServiceLine,
+  notice,
 }: {
   quote?: Quote;
   draft?: QuoteVersion;
   onSaved?: (quote: Quote) => void;
   /** Set when the quote answers a customer request: the client is fixed. */
   fromRequest?: { requestId: string; customerId: string };
+  /** The service to start with, for example the request's. */
+  initialServiceLine?: ServiceLine;
+  /** Shown under the page heading of a new quote. */
+  notice?: ReactNode;
 }) {
   const router = useRouter();
   const { roles, isSuperAdmin } = useStaffAccess();
   const [customers, setCustomers] = useState<CustomerCompany[]>([]);
   const [customerId, setCustomerId] = useState(fromRequest?.customerId ?? "");
-  const [serviceLine, setServiceLine] = useState<ServiceLine | "">("");
+  const [serviceLine, setServiceLine] = useState<ServiceLine | "">(
+    initialServiceLine ?? "",
+  );
   const [currency, setCurrency] = useState(draft?.currency ?? "");
   const [title, setTitle] = useState(draft?.title ?? "");
   const [subtitle, setSubtitle] = useState(draft?.subtitle ?? "");
@@ -306,6 +314,7 @@ export function QuoteEditor({
           </Link>
         </header>
       )}
+      {!quote && notice}
       <form className={styles.card} onSubmit={(event) => void submit(event)}>
         <div className={layout.section}>
           {!quote && (

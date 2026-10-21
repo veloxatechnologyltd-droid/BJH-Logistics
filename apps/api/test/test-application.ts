@@ -25,7 +25,7 @@ import type {
   ExtractedRequest,
 } from "../src/intake/email-extractor";
 import { DOCUMENT_READER } from "../src/documents/document-reader";
-import type { ExtractedField } from "../src/documents/document-extraction";
+import type { ExtractionFieldRecord } from "../src/database/database.port";
 
 /** In-memory stand-in for private object storage; records what was stored. */
 export const testDocumentStorage: DocumentStorage & {
@@ -71,8 +71,11 @@ export const testEmailExtractor: EmailExtractor & {
 export const testDocumentReader: {
   model: string | null;
   calls: Array<{ contentType: string; size: number }>;
-  result: ExtractedField[] | Error;
-  read(file: { bytes: Buffer; contentType: string }): Promise<ExtractedField[]>;
+  result: ExtractionFieldRecord[] | Error;
+  read(file: {
+    bytes: Buffer;
+    contentType: string;
+  }): Promise<ExtractionFieldRecord[]>;
 } = {
   model: null,
   calls: [],

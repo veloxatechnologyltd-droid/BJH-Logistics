@@ -130,7 +130,8 @@ export function EmailRequestPanel({
           {needsCheck && (
             <>
               <span className={styles.emailNeedsCheck}>Please check.</span> AI
-              read these from the email; compare them with the message below.
+              read these from the email and its attachments; compare them with
+              the message and the files below.
             </>
           )}
           {intake.reviewedAt && `Checked on ${formatDate(intake.reviewedAt)}.`}

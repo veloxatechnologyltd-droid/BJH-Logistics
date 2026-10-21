@@ -11,14 +11,23 @@ import type { Extraction, JobDocument } from "./jobApi";
 import styles from "./jobs.module.css";
 import { ErrorPopup } from "../ErrorPopup";
 
-type Edit = { checked: boolean; value: string; seal: string };
+type Edit = { checked: boolean; value: string; seal: string; details: string };
 
 const readable = ["application/pdf", "image/png", "image/jpeg"];
+const partyKeys = ["shipper", "consignee", "notify_party", "agent"];
+
+/** An ISO time as the value of a datetime-local box, in the browser's time (GMT in Ghana). */
+function localInput(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
 
 /**
- * Reads a document (a bill of lading, an air waybill) into a DRAFT list of
- * references: by AI when it is set up (PDFs, scans and photos), otherwise from
- * a PDF's text. Nothing is added to the job until a person checks the values,
+ * Reads a document (a bill of lading, an air waybill, an arrival notice) into a
+ * DRAFT: references, and with AI also parties and the ETA. AI reads PDFs,
+ * scans and photos; without it, a PDF's text gives references only. Nothing is added to the job until a person checks the values,
  * corrects them if needed, and applies the ones they choose.
  */
 export function JobExtractions({
@@ -51,8 +60,9 @@ export function JobExtractions({
         for (const item of loaded) {
           next[item.id] ??= item.fields.map((field) => ({
             checked: true,
-            value: field.value,
+            value: field.key === "eta" ? localInput(field.value) : field.value,
             seal: field.sealNumber ?? "",
+            details: field.details ?? "",
           }));
         }
         return next;
@@ -86,6 +96,13 @@ export function JobExtractions({
         at === index ? { ...edit, ...patch } : edit,
       ),
     }));
+
+  /** The ETA box holds local time; the API takes an ISO time. */
+  const etaValue = (item: Extraction, index: number, value: string) => {
+    if (item.fields[index]?.key !== "eta") return value;
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? value : date.toISOString();
+  };
 
   const documentName = (id: string) =>
     documents.find((item) => item.id === id)?.versions.at(-1)?.filename ??
@@ -148,7 +165,7 @@ export function JobExtractions({
             item.textFound &&
             item.fields.length === 0 && (
               <p className={styles.muted}>
-                No references were recognised in this document.
+                Nothing was recognised in this document.
               </p>
             )}
           {item.status === "draft" &&
@@ -156,8 +173,11 @@ export function JobExtractions({
               const edit = edits[item.id]?.[index];
               if (!edit) return null;
               return (
-                <div className={styles.actions} key={`${field.key}-${index}`}>
-                  <label>
+                <div
+                  className={styles.draftField}
+                  key={`${field.key}-${index}`}
+                >
+                  <label className={styles.draftLabel}>
                     <input
                       checked={edit.checked}
                       onChange={(event) =>
@@ -166,34 +186,61 @@ export function JobExtractions({
                         })
                       }
                       type="checkbox"
-                    />{" "}
+                    />
                     {field.label}
                   </label>
-                  <input
-                    aria-label={`${field.label} value`}
-                    maxLength={80}
-                    onChange={(event) =>
-                      change(item.id, index, { value: event.target.value })
+                  <div
+                    className={
+                      field.key === "container"
+                        ? `${styles.draftInputs} ${styles.draftInputsPair}`
+                        : styles.draftInputs
                     }
-                    value={edit.value}
-                  />
-                  {field.key === "container" && (
+                  >
                     <input
-                      aria-label="Seal number"
-                      maxLength={80}
+                      aria-label={`${field.label} value`}
+                      maxLength={partyKeys.includes(field.key) ? 200 : 80}
                       onChange={(event) =>
-                        change(item.id, index, { seal: event.target.value })
+                        change(item.id, index, { value: event.target.value })
                       }
-                      placeholder="Seal number"
-                      value={edit.seal}
+                      type={field.key === "eta" ? "datetime-local" : "text"}
+                      value={edit.value}
                     />
-                  )}
-                  <span className={styles.muted}>Found: {field.evidence}</span>
+                    {field.key === "container" && (
+                      <input
+                        aria-label="Seal number"
+                        maxLength={80}
+                        onChange={(event) =>
+                          change(item.id, index, { seal: event.target.value })
+                        }
+                        placeholder="Seal number"
+                        value={edit.seal}
+                      />
+                    )}
+                    {partyKeys.includes(field.key) && (
+                      <textarea
+                        aria-label={`${field.label} address and contact`}
+                        maxLength={1000}
+                        onChange={(event) =>
+                          change(item.id, index, {
+                            details: event.target.value,
+                          })
+                        }
+                        placeholder="Address and contact"
+                        rows={2}
+                        value={edit.details}
+                      />
+                    )}
+                  </div>
+                  <p className={styles.draftFound}>
+                    Found: {field.evidence}
+                    {field.key === "eta" &&
+                      " · Applying it messages the customer, like any ETA change."}
+                  </p>
                 </div>
               );
             })}
           {item.status === "draft" && (
-            <div className={styles.actions}>
+            <div className={`${styles.actions} ${styles.draftActions}`}>
               {item.fields.length > 0 && (
                 <button
                   className={styles.button}
@@ -209,8 +256,9 @@ export function JobExtractions({
                             .filter(({ edit }) => edit.checked)
                             .map(({ edit, index }) => ({
                               index,
-                              value: edit.value.trim(),
+                              value: etaValue(item, index, edit.value.trim()),
                               sealNumber: edit.seal.trim() || undefined,
+                              details: edit.details.trim() || undefined,
                             })),
                         ),
                       true,

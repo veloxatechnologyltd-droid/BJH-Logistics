@@ -13,6 +13,7 @@ import {
 } from "@nestjs/common";
 import {
   DepartmentStaffGuard,
+  JobScopeGuard,
   SupabaseIdentityGuard,
   StaffCompanyReadGuard,
   SuperAdminGuard,
@@ -93,6 +94,19 @@ export class QuoteRequestsController {
   @UseGuards(DepartmentStaffGuard)
   readEmail(@Param("id") id: string, @Req() request: AuthenticatedRequest) {
     return this.inbound.readAgain(id, request.staffRoles ?? []);
+  }
+
+  /** A starting draft for the request's quote, from the most similar past issued quote; nothing is saved. */
+  @Get(":id/quote-suggestion")
+  @UseGuards(DepartmentStaffGuard, JobScopeGuard)
+  quoteSuggestion(
+    @Param("id") id: string,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.requests.quoteSuggestion(id, {
+      companyIds: request.allowedCompanyIds,
+      serviceLines: request.allowedServiceLines,
+    });
   }
 
   @Get(":id/attachments/:attachmentId")

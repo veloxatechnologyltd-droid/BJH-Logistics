@@ -7,6 +7,30 @@ import Anthropic from "@anthropic-ai/sdk";
  */
 export const DEFAULT_CLAUDE_MODEL = "claude-haiku-5-5";
 
+/** File types Claude reads directly: PDFs (text or scanned) and photos or scans as images. */
+export const CLAUDE_FILE_TYPES = ["application/pdf", "image/png", "image/jpeg"];
+
+/** A PDF as a document block, a PNG or JPEG as an image block. */
+export function fileBlock(
+  contentType: string,
+  bytes: Buffer,
+): Anthropic.DocumentBlockParam | Anthropic.ImageBlockParam {
+  const data = bytes.toString("base64");
+  return contentType === "application/pdf"
+    ? {
+        type: "document",
+        source: { type: "base64", media_type: "application/pdf", data },
+      }
+    : {
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: contentType as "image/png" | "image/jpeg",
+          data,
+        },
+      };
+}
+
 /** The reading failed; the message is safe to keep and to show staff (no content, no secrets). */
 export class ClaudeReadingError extends Error {}
 

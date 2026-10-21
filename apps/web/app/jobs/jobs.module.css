@@ -797,3 +797,62 @@
   display: flex;
   flex: 0 0 auto;
 }
+/* One row per proposed detail in a document-reading draft: label, boxes, where it was found. */
+.draftField {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(140px, 190px) minmax(0, 1fr);
+  gap: 6px 14px;
+  padding: 10px 0;
+  border-top: 1px solid var(--brand-border);
+}
+.draftLabel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  align-self: start;
+  padding-top: 8px;
+}
+.draftInputs {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.draftInputsPair {
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+}
+.draftInputs input,
+.draftInputs textarea {
+  width: 100%;
+  border: 1px solid var(--brand-border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font: inherit;
+  background: #fff;
+  color: var(--brand-ink);
+}
+.draftFound {
+  grid-column: 2;
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--brand-muted);
+  overflow-wrap: anywhere;
+}
+.draftActions {
+  min-width: 0;
+}
+.draftActions button {
+  white-space: normal;
+}
+@media (max-width: 640px) {
+  .draftField {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .draftLabel {
+    padding-top: 0;
+  }
+  .draftFound {
+    grid-column: 1;
+  }
+}

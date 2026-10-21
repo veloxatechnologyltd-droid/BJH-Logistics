@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import {
+  isUuid,
   parseContract,
   portalQuoteRequestInputSchema,
   quoteRequestInputSchema,
@@ -15,10 +16,16 @@ import {
 import { randomUUID } from "node:crypto";
 import {
   DatabasePort,
+  JobScope,
   QuoteRequestRecord,
   StaffRoleKey,
 } from "../database/database.port";
 import { inChargeOf } from "../intake/inbound-email.service";
+import { suggestQuote } from "./quote-suggestion";
+import type { PastQuote, QuoteSuggestion } from "./quote-suggestion";
+
+/** How many recent quotes of the service are compared with a request. */
+const SUGGESTION_CANDIDATES = 40;
 
 /** A customer sees their own request as they wrote it: what was read from an email, and the email itself, are for staff. */
 function forCustomer(request: QuoteRequestRecord): QuoteRequestRecord {
@@ -113,6 +120,57 @@ export class QuoteRequestsService {
       .then((requests) =>
         allowedCompanyIds ? requests.map(forCustomer) : requests,
       );
+  }
+
+  /**
+   * A starting draft for the request's quote: the shipment described from the
+   * request, and the charges, prices and wording of the most similar past
+   * issued quote the caller may see (same service; same route or destination
+   * first). Nothing is saved.
+   */
+  async quoteSuggestion(id: string, scope: JobScope): Promise<QuoteSuggestion> {
+    const request = isUuid(id)
+      ? await this.database.findQuoteRequest(id)
+      : null;
+    if (!request) throw new NotFoundException("Quote request was not found");
+    const service = request.details.service;
+    if (!service) {
+      throw new BadRequestException(
+        "Set the request's service before preparing its quote",
+      );
+    }
+    if (scope.serviceLines && !scope.serviceLines.includes(service)) {
+      throw new ForbiddenException(
+        "Only the representative for this request's service or the super admin can prepare its quote",
+      );
+    }
+    const recent = (await this.database.listQuotes(scope))
+      .filter((quote) => quote.serviceLine === service)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, SUGGESTION_CANDIDATES);
+    const candidates: PastQuote[] = [];
+    for (const summary of recent) {
+      const quote = await this.database.findQuote(summary.id, scope);
+      const version = quote?.versions
+        .filter((item) => item.status === "issued")
+        .sort((a, b) => b.versionNumber - a.versionNumber)[0];
+      if (!version) continue;
+      const answered = summary.quoteRequestId
+        ? await this.database.findQuoteRequest(summary.quoteRequestId)
+        : null;
+      candidates.push({
+        quote: summary,
+        version,
+        requestDetails: answered?.details ?? null,
+      });
+    }
+    const settings = await this.database.getBusinessSettings();
+    return suggestQuote(
+      request.details,
+      service,
+      candidates,
+      settings?.settings.quoteDefaults ?? null,
+    );
   }
 
   /**

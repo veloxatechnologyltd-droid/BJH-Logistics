@@ -1,6 +1,11 @@
 import { authenticatedFetch } from "../auth/authenticatedFetch";
 
-import type { QuoteRequestInput, RequestDetails } from "@bjh/contracts";
+import type {
+  QuoteRequestInput,
+  RequestDetails,
+  ServiceLine,
+} from "@bjh/contracts";
+import type { QuoteLine, QuoteVersion } from "../quotes/quoteApi";
 
 export type QuoteRequest = {
   id: string;
@@ -160,6 +165,34 @@ export async function getRequestAttachmentLink(
   return readResponse<{ url: string; filename: string }>(
     await authenticatedFetch(
       `${quoteRequestsUrl}/${encodeURIComponent(requestId)}/attachments/${encodeURIComponent(attachmentId)}`,
+    ),
+  );
+}
+
+/** A starting draft for a request's quote, copied from the most similar past issued quote; nothing is saved. */
+export type QuoteSuggestion = {
+  serviceLine: ServiceLine;
+  basedOn: {
+    quoteId: string;
+    quoteNumber: string | null;
+    versionNumber: number;
+    customerCompanyName: string;
+    match: "same route" | "same destination" | "same service";
+  } | null;
+  version: Omit<
+    QuoteVersion,
+    "id" | "versionNumber" | "status" | "issuedAt" | "lines"
+  > & {
+    lines: Array<Omit<QuoteLine, "id" | "position">>;
+  };
+};
+
+export async function getQuoteSuggestion(
+  requestId: string,
+): Promise<QuoteSuggestion> {
+  return readResponse<QuoteSuggestion>(
+    await authenticatedFetch(
+      `${quoteRequestsUrl}/${encodeURIComponent(requestId)}/quote-suggestion`,
     ),
   );
 }

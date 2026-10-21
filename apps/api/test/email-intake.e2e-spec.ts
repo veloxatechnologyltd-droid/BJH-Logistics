@@ -231,6 +231,7 @@ test("an email becomes a request, and what the AI read fills in its details", as
     fromEmail: "buyer@northstar.test",
     subject: "Two containers Shanghai to Tema",
     bodyText: sent.text,
+    attachments: [],
   });
 
   const request = await requestOf(receipt.requestId);
@@ -395,6 +396,31 @@ test("attachments are kept when they are documents a customer would send; others
     ],
   );
 
+  // AI read the PDF and the photo with the email; the workbook is kept but not read.
+  const readNames = () =>
+    testEmailExtractor.calls
+      .at(-1)
+      ?.attachments?.map((file) => [
+        file.filename,
+        file.contentType,
+        file.bytes.toString("latin1"),
+      ]);
+  const expectedRead = [
+    ["Packing List.PDF", "application/pdf", pdfBytes.toString("latin1")],
+    ["photo.jpg", "image/jpeg", "jpeg bytes"],
+  ];
+  assert.deepEqual(readNames(), expectedRead);
+  // Reading again sends the same files, fetched back from storage.
+  nextReading(reading());
+  const reread = await send(
+    "POST",
+    `/api/v1/quote-requests/${request.id}/read-email`,
+    TEST_SUPER_ADMIN_TOKEN,
+  );
+  assert.equal(reread.status, 201);
+  assert.equal(testEmailExtractor.calls.length, 1);
+  assert.deepEqual(readNames(), expectedRead);
+
   // Staff get a short-lived link; the stored bytes are the ones sent.
   const first = request.intake!.attachments[0];
   const link = await json<{ url: string; filename: string }>(
@@ -439,6 +465,11 @@ test("attachments are kept when they are documents a customer would send; others
   );
   const crowded = await requestOf(many.requestId);
   assert.equal(crowded.intake?.attachments.length, 10);
+  // AI reads only the first five with the email.
+  assert.deepEqual(
+    testEmailExtractor.calls.at(-1)?.attachments?.map((file) => file.filename),
+    ["page-1.pdf", "page-2.pdf", "page-3.pdf", "page-4.pdf", "page-5.pdf"],
+  );
   assert.deepEqual(
     crowded.intake?.skippedAttachments.map((item) => item.reason),
     [
