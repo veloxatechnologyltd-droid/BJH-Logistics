@@ -1,4 +1,4 @@
-import { QuoteEditor } from "../QuoteEditor";
+import { NewQuote } from "./NewQuote";
 
 export const metadata = { title: "Prepare a quote | BJH Logistics" };
 
@@ -9,7 +9,7 @@ export default async function NewQuotePage({
 }) {
   const { requestId, customerId } = await searchParams;
   return (
-    <QuoteEditor
+    <NewQuote
       fromRequest={
         requestId && customerId ? { requestId, customerId } : undefined
       }

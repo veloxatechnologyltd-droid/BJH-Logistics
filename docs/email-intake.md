@@ -124,3 +124,27 @@ curl -X POST https://<api-host>/api/v1/inbound-email \
 - Not yet verified against the live API: no OpenAI key was available when this was
   built, so the reader is tested against a recorded response shape only. Send a
   test email with the curl above before relying on it.
+
+## From request to quote
+
+Once the request is linked to a customer, **Create quote** opens the quote form
+with the customer fixed. **Prefill from a similar past quote** fills it from the
+closest issued quote the person may see
+(`GET /api/v1/quote-requests/:id/quote-suggestion`, staff for the request's
+service and the super admin; nothing is saved):
+
+- **Which quote:** same service; then the same route (origin and destination of
+  the request it answered), else the same destination, else the newest issued
+  quote of that service. Places compare loosely ("Tema" matches "TEMA, Ghana").
+  This is a plain rule, not AI, so it can be checked.
+- **What is copied:** currency, title, size columns, every charge line with its
+  basis and prices, and the wording (intro, steps, documents, timeline, terms).
+  The subtitle is not copied, since it usually describes the other customer's
+  shipment. The shipment line is written from the request (packages, cargo, route,
+  terms, weight).
+- **What staff see:** which quote it came from, for which customer, and how it
+  matched. When it is not the same route, a warning says to remove or reprice
+  route charges such as haulage. With no issued quote for the service, only the
+  shipment line and the Settings wording are filled.
+
+Saving, approval and issuing are unchanged.
