@@ -163,6 +163,7 @@ const quoteRequestSelect = `
     request.reply_drafted_at,
     request.reply_sent_at,
     request.reply_sent_by,
+    request.reply_sent_by_assistant,
     COALESCE((
       SELECT json_agg(json_build_object(
                'id', attachment.attachment_id,
@@ -495,14 +496,15 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     sent: {
       subject: string;
       body: string;
-      sentBy: string;
+      sentBy: string | null;
       notificationId: string;
     },
   ): Promise<QuoteRequestRecord | "sent"> {
     const updated = await this.pool.query(
       `UPDATE app.quote_request
        SET reply_subject = $2, reply_body = $3, reply_sent_at = clock_timestamp(),
-           reply_sent_by = $4::uuid, reply_notification_id = $5::uuid
+           reply_sent_by = $4::uuid, reply_notification_id = $5::uuid,
+           reply_sent_by_assistant = $4::uuid IS NULL
        WHERE request_id::text = $1 AND reply_sent_at IS NULL
        RETURNING request_id`,
       [requestId, sent.subject, sent.body, sent.sentBy, sent.notificationId],
@@ -5012,6 +5014,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
                       sentBy: row.reply_sent_by
                         ? String(row.reply_sent_by)
                         : null,
+                      sentByAssistant: row.reply_sent_by_assistant === true,
                     },
             },
     };

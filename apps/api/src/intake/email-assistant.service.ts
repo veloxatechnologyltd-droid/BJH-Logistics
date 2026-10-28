@@ -39,6 +39,33 @@ const serviceLineLabels: Record<ServiceLine, string> = {
 /** How many of the sender's company's jobs the reply may draw on. */
 const MAX_JOBS = 10;
 
+/** ASSISTANT_AUTO_REPLY=on: the assistant sends its reply itself, without prices. */
+export function autoReplyOn(environment: NodeJS.ProcessEnv = process.env) {
+  return environment.ASSISTANT_AUTO_REPLY?.trim().toLowerCase() === "on";
+}
+
+/**
+ * A machine's address, or BJH's own mailbox. These are never answered
+ * automatically, so two systems cannot keep replying to each other.
+ */
+export function automatedSender(
+  address: string,
+  environment: NodeJS.ProcessEnv = process.env,
+): boolean {
+  const lower = address.trim().toLowerCase();
+  const own = [
+    environment.INBOUND_IMAP_USER,
+    environment.EMAIL_SMTP_USER,
+    environment.EMAIL_FROM?.match(/<([^>]+)>/)?.[1] ?? environment.EMAIL_FROM,
+  ].map((value) => value?.trim().toLowerCase());
+  return (
+    own.includes(lower) ||
+    /^(no-?reply|do-?not-?reply|mailer-daemon|postmaster|bounces?)([+._-]|@)/.test(
+      lower,
+    )
+  );
+}
+
 /** The figures of a past quote, as an indicative price; the customer it was for is left out. */
 export function priceGuideFrom(
   suggestion: QuoteSuggestion,
@@ -67,9 +94,10 @@ export function priceGuideFrom(
 /**
  * What happens to an emailed request once AI has read it: the assistant links
  * the sender's customer (or creates one), drafts a quote from the most similar
- * past quote, and drafts a reply. Staff check the quote and the reply; nothing
- * is sent until a person presses Send. Each step that cannot be done is noted
- * on the request and never loses it.
+ * past quote, and drafts a reply. Staff check and issue the quote. The reply
+ * waits for a person to press Send, unless ASSISTANT_AUTO_REPLY is on: then the
+ * assistant sends it itself, with no prices in it. Each step that cannot be
+ * done is noted on the request and never loses it.
  */
 @Injectable()
 export class EmailAssistantService {
@@ -120,7 +148,10 @@ export class EmailAssistantService {
       quoteDrafted = await this.draftQuote(request, notes);
     }
     await this.database.addAssistantNotes(requestId, notes);
-    await this.draftReply(requestId, quoteDrafted);
+    const automatic = autoReplyOn();
+    if (await this.draftReply(requestId, quoteDrafted, automatic)) {
+      if (automatic) await this.sendByItself(requestId);
+    }
   }
 
   /** The customer whose contact wrote the email, or a new customer made from the email. */
@@ -237,21 +268,23 @@ export class EmailAssistantService {
   }
 
   /** Drafts (or redrafts) the reply from the email, BJH's knowledge, the sender's jobs and past pricing. */
+  /** Returns whether a reply was drafted. `automatic`: it will go out unread, so no prices. */
   private async draftReply(
     requestId: string,
     quoteDrafted: boolean,
-  ): Promise<void> {
+    automatic = false,
+  ): Promise<boolean> {
     const request = await this.database.findQuoteRequest(requestId);
     const intake = request?.intake;
-    if (!request || !intake || intake.reply?.sentAt) return;
+    if (!request || !intake || intake.reply?.sentAt) return false;
     let context: ReplyContext;
     try {
-      context = await this.contextFor(request, quoteDrafted);
+      context = await this.contextFor(request, quoteDrafted, automatic);
     } catch (error) {
       await this.database.addAssistantNotes(requestId, [
         `No reply drafted: ${error instanceof Error ? error.message : "the context could not be gathered"}.`,
       ]);
-      return;
+      return false;
     }
     try {
       const reply = await this.drafter.draft(context);
@@ -259,6 +292,7 @@ export class EmailAssistantService {
         ...reply,
         model: this.drafter.model ?? "assistant",
       });
+      return true;
     } catch (error) {
       const reason =
         error instanceof ReplyDraftError
@@ -272,12 +306,37 @@ export class EmailAssistantService {
       await this.database.addAssistantNotes(requestId, [
         `No reply drafted: ${reason}. Write it by hand, or press Draft reply again.`,
       ]);
+      return false;
     }
+  }
+
+  /** ASSISTANT_AUTO_REPLY: sends the reply just drafted, unless a person should look first. */
+  private async sendByItself(requestId: string): Promise<void> {
+    const request = await this.database.findQuoteRequest(requestId);
+    const reply = request?.intake?.reply;
+    if (!request || !reply || reply.sentAt) return;
+    let held: string | null = null;
+    if (automatedSender(request.email)) {
+      held = "the sender looks like an automatic address or BJH's own";
+    } else if (!request.customerCompanyId) {
+      held = "the request has no customer";
+    }
+    if (held) {
+      await this.database.addAssistantNotes(requestId, [
+        `Reply not sent by itself: ${held}. Read it and send it if needed.`,
+      ]);
+      return;
+    }
+    await this.deliverReply(request, reply, null);
+    await this.database.addAssistantNotes(requestId, [
+      `Sent the reply by itself to ${request.email}.`,
+    ]);
   }
 
   private async contextFor(
     request: QuoteRequestRecord,
     quoteDrafted: boolean,
+    automatic: boolean,
   ): Promise<ReplyContext> {
     const intake = request.intake!;
     const email = await this.database.findInboundEmailBody(request.id);
@@ -321,8 +380,9 @@ export class EmailAssistantService {
       }
     }
 
+    // Prices leave BJH only in a reply a person sends, or on an issued quote.
     let priceGuide: ReplyContext["priceGuide"] = null;
-    if (kind === "inquiry" && request.details.service) {
+    if (!automatic && kind === "inquiry" && request.details.service) {
       priceGuide = priceGuideFrom(
         await this.requests.quoteSuggestion(request.id, {}),
       );
@@ -411,20 +471,29 @@ export class EmailAssistantService {
         "Link the request to a customer before replying",
       );
     }
+    return this.deliverReply(request, parsed.data, sentBy);
+  }
+
+  /** Queues the reply by email to the sender only, and records it as sent. `sentBy` null: the assistant. */
+  private async deliverReply(
+    request: QuoteRequestRecord,
+    reply: { subject: string; body: string },
+    sentBy: string | null,
+  ): Promise<QuoteRequestRecord> {
     const customer = await this.database.findCustomer(
-      request.customerCompanyId,
+      request.customerCompanyId!,
     );
     const contact = customer?.contacts.find(
       (item) => item.email.toLowerCase() === request.email.toLowerCase(),
     );
     const queued = await this.database.queueNotification({
-      companyId: request.customerCompanyId,
+      companyId: request.customerCompanyId!,
       jobId: null,
       event: "email_reply",
       dedupeKey: `email-reply:${request.id}`,
-      subject: parsed.data.subject,
-      body: parsed.data.body,
-      smsText: parsed.data.subject.slice(0, 700),
+      subject: reply.subject,
+      body: reply.body,
+      smsText: reply.subject.slice(0, 700),
       linkUrl: null,
       createdBy: sentBy,
       deliveries: [
@@ -440,7 +509,8 @@ export class EmailAssistantService {
       throw new ConflictException("The reply was already sent");
     }
     const sent = await this.database.markRequestReplySent(request.id, {
-      ...parsed.data,
+      subject: reply.subject,
+      body: reply.body,
       sentBy,
       notificationId: queued.id,
     });

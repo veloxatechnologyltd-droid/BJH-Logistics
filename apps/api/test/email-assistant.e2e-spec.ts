@@ -18,6 +18,7 @@ import {
 } from "./test-application";
 import { DatabasePort } from "../src/database/database.port";
 import { ReplyDraftError } from "../src/intake/reply-drafter";
+import { automatedSender } from "../src/intake/email-assistant.service";
 import { beginTestDatabase, endTestDatabase } from "./postgres-test-database";
 
 const SECRET = "test-assistant-secret";
@@ -56,6 +57,7 @@ type Request = {
       body: string;
       model: string | null;
       sentAt: string | null;
+      sentByAssistant: boolean;
     };
   };
 };
@@ -108,6 +110,7 @@ async function deliver(
 
 before(async () => {
   process.env.INBOUND_EMAIL_SECRET = SECRET;
+  delete process.env.ASSISTANT_AUTO_REPLY;
   await beginTestDatabase();
   const started = await createTestApplication();
   application = started.application;
@@ -423,4 +426,101 @@ test("customers never see what the assistant read or wrote", async () => {
     await call(`/api/v1/quote-requests/${request.id}`, TEST_CUSTOMER_A_TOKEN),
   );
   assert.equal(seen.intake, null);
+});
+
+test("with automatic replies on, the reply goes to the sender by itself, without prices; the quote waits", async () => {
+  process.env.ASSISTANT_AUTO_REPLY = "on";
+  process.env.INBOUND_IMAP_USER = "quotes@synthetic-forwarding.example";
+  try {
+    const quote = await deliver(
+      "kwame@auto.example",
+      "quote",
+      {},
+      "Auto Synthetic Ltd",
+    );
+    assert.ok(quote.intake?.reply?.sentAt);
+    assert.equal(quote.intake?.reply?.sentByAssistant, true);
+    assert.equal(quote.quoteStatus, "draft", "a person still issues the quote");
+    assert.ok(
+      quote.intake!.assistantNotes.includes(
+        "Sent the reply by itself to kwame@auto.example.",
+      ),
+    );
+    const [message, ...more] = await database.listNotificationFeed({
+      companyId: quote.customerCompanyId!,
+      event: "email_reply",
+      serviceLines: null,
+      limit: 10,
+    });
+    assert.equal(more.length, 0);
+    assert.equal(message?.createdBy, null);
+    assert.deepEqual(
+      message?.deliveries.map((delivery) => [
+        delivery.channel,
+        delivery.recipient,
+      ]),
+      [["email", "kwame@auto.example"]],
+    );
+    // Sent once: nobody can send or change it again.
+    assert.equal(
+      (
+        await send(
+          "POST",
+          `/api/v1/quote-requests/${quote.id}/reply/send`,
+          TEST_SUPER_ADMIN_TOKEN,
+          { subject: "Again", body: "Again." },
+        )
+      ).status,
+      409,
+    );
+
+    // A price question gets no figures when nobody reads the reply first.
+    const question = await deliver("efua@akwaaba.example", "inquiry");
+    assert.equal(testReplyDrafter.calls[0].priceGuide, null);
+    assert.equal(question.intake?.reply?.sentByAssistant, true);
+
+    // Machines and BJH's own mailbox are never answered by themselves.
+    for (const from of [
+      "no-reply@carrier.example",
+      "quotes@synthetic-forwarding.example",
+    ]) {
+      const held = await deliver(from, "quote", {}, "Held Synthetic Ltd");
+      assert.equal(held.intake?.reply?.sentAt, null, from);
+      assert.ok(
+        held.intake!.assistantNotes.some((note) =>
+          note.startsWith("Reply not sent by itself"),
+        ),
+      );
+    }
+
+    const other = await deliver("news@shipping-weekly.example", "other", {
+      service: null,
+    });
+    assert.equal(other.intake?.reply, null);
+  } finally {
+    delete process.env.ASSISTANT_AUTO_REPLY;
+    delete process.env.INBOUND_IMAP_USER;
+  }
+});
+
+test("automatic addresses are recognised", () => {
+  const environment = { EMAIL_FROM: "BJH Logistics <Quotes@bjh.example>" };
+  for (const address of [
+    "noreply@x.example",
+    "no-reply+bounce@x.example",
+    "do-not-reply@x.example",
+    "MAILER-DAEMON@x.example",
+    "postmaster@x.example",
+    "bounces@x.example",
+    "quotes@bjh.example",
+  ]) {
+    assert.equal(automatedSender(address, environment), true, address);
+  }
+  for (const address of [
+    "norah@x.example",
+    "replyto@x.example",
+    "ama@x.example",
+  ]) {
+    assert.equal(automatedSender(address, environment), false, address);
+  }
 });

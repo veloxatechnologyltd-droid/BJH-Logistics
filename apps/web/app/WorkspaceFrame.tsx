@@ -9,6 +9,7 @@ import { useStaffAccess } from "./auth/useStaffAccess";
 import { NavIcon } from "./NavIcon";
 import type { NavIconName } from "./NavIcon";
 import { SettingsSidebarSection } from "./SettingsSidebarSection";
+import { listQuoteRequests } from "./quotations/quoteRequestApi";
 
 type NavItem = {
   href: string;
@@ -70,6 +71,36 @@ const staffNav: NavGroup[] = [
 ];
 
 const collapsedKey = "bjh.sidebar.collapsed";
+const newRequestsEveryMs = 60_000;
+
+/** Emailed requests nobody has checked yet: the inbox's "Needs checking". */
+function useNewRequestCount(enabled: boolean, pathname: string): number {
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    if (!enabled) return;
+    let current = true;
+    const load = () =>
+      listQuoteRequests()
+        .then((requests) => {
+          if (current) {
+            setCount(
+              requests.filter(
+                (request) => request.intake && !request.intake.reviewedAt,
+              ).length,
+            );
+          }
+        })
+        // The badge is a hint; the Requests page shows any failure.
+        .catch(() => undefined);
+    void load();
+    const timer = window.setInterval(load, newRequestsEveryMs);
+    return () => {
+      current = false;
+      window.clearInterval(timer);
+    };
+  }, [enabled, pathname]);
+  return enabled ? count : 0;
+}
 
 /** Pages reached from Settings or a link, not from the main menu. */
 const settingsPages: Array<{ href: string; label: string }> = [
@@ -116,6 +147,10 @@ export function WorkspaceFrame({ children }: { children: ReactNode }) {
   const { isCustomer, status, mustChangePassword, twoFactorRequired } =
     useStaffAccess();
   const [collapsed, setCollapsed] = useState(false);
+  const newRequests = useNewRequestCount(
+    status === "ready" && !isCustomer,
+    pathname,
+  );
 
   // A new password, then the super admin's second step, come before any page.
   useEffect(() => {
@@ -211,16 +246,26 @@ export function WorkspaceFrame({ children }: { children: ReactNode }) {
                   : pathname.startsWith(item.href) ||
                     (item.href === "/finance" &&
                       pathname.startsWith("/invoices"));
+                const badge = item.href === "/quotations" ? newRequests : 0;
+                const label = badge
+                  ? `${item.label}, ${badge} new`
+                  : item.label;
                 return (
                   <Link
                     key={item.href}
                     className={`nav-link${active ? " active" : ""}`}
                     href={item.href}
                     aria-current={active ? "page" : undefined}
-                    title={collapsed ? item.label : undefined}
+                    aria-label={badge ? label : undefined}
+                    title={collapsed ? label : undefined}
                   >
                     <NavIcon name={item.icon} />
                     <span className="nav-label">{item.label}</span>
+                    {badge > 0 && (
+                      <span className="nav-badge" aria-hidden="true">
+                        {badge > 99 ? "99+" : badge}
+                      </span>
+                    )}
                   </Link>
                 );
               })}

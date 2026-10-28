@@ -107,8 +107,11 @@ export function AssistantPanel({
           {sent ? (
             <>
               <p className={styles.emailStatus}>
-                Sent on {formatDate(sent)}. It is listed under Settings,
-                Customer messages.
+                {reply?.sentByAssistant
+                  ? "Sent automatically by the assistant"
+                  : "Sent"}{" "}
+                on {formatDate(sent)}. It is listed under Settings, Customer
+                messages.
               </p>
               <p className={styles.replySubject}>{reply?.subject}</p>
               <p className={styles.replySent}>{reply?.body}</p>

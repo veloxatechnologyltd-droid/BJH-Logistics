@@ -180,8 +180,18 @@ assistant did** on the request:
    confirm. A quote request gets an acknowledgement and questions for any missing
    details, not prices.
 
-**Nothing is sent by the assistant.** The super admin or the rep in charge of the
-request's service reads the reply, edits it, and presses **Send reply**
+**Automatic replies (`ASSISTANT_AUTO_REPLY=on`).** The assistant sends its reply
+itself the moment it is drafted, by email to the sender only, and notes "Sent the
+reply by itself" (the request shows "Sent automatically by the assistant"). These
+replies never carry prices: the indicative price is left out, and a price question
+is told a formal quotation will follow. The draft quote still waits for a person to
+check and issue it. The reply is held for a person when the sender looks like a
+machine (`noreply@`, `mailer-daemon@`, `postmaster@`...) or is BJH's own mailbox,
+so two systems cannot answer each other forever. **Draft reply** by staff keeps the
+price guide, since a person sends that one. The setting is off unless set.
+
+**With the setting off, nothing is sent by the assistant.** The super admin or the
+rep in charge of the request's service reads the reply, edits it, and presses **Send reply**
 (`PUT /api/v1/quote-requests/:id/reply` saves an edit, `POST .../reply/draft`
 drafts again, `POST .../reply/send` sends). It goes by email to the sender's
 address only, through the message outbox (Settings, Customer messages), once per

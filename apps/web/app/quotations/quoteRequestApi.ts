@@ -60,6 +60,7 @@ export type RequestIntake = {
     draftedAt: string | null;
     sentAt: string | null;
     sentBy: string | null;
+    sentByAssistant: boolean;
   } | null;
 };
 
