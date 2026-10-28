@@ -1,5 +1,17 @@
 Maintain a file called MEMORY.md. After any significant decision, about direction, format, content, approach, or strategy, add an entry:
 
+## 2026-10-28, Editorial imagery for the public site
+
+**What was decided:** Use three GPT Image generated, web-optimized editorial scenes for the public site's port hero and sea, air, and inland service cards. Keep logos and operational proof out of generated imagery.
+**Why:** The company profile identifies these as core service paths, and concept images add useful visual context without implying a pictured shipment is a documented BJH job.
+**What was rejected:** Generic abstract artwork, fabricated branded vehicles, and treating generated scenes as evidence of completed projects.
+
+## 2026-10-28, Public company website as a separate app
+
+**What was decided:** Rebuild bjhlogistics.com as a separate Next.js app, `apps/site` (port 3003), with Home, Services, Projects, About, Contact and Request a quote pages, single BJH blue, and light scroll animations (fade-in, count-up, process line, carrier marquee). "Log in" links to the platform's `/sign-in`, which already routes staff to the dashboard and customers to the portal. The quote form opens an email to `quotes@bjhlogistics.com` (or WhatsApp), which the platform's IMAP intake already reads, so no API change.
+**Why:** Keeps the platform untouched (no dashboard move off `/`), deploys independently, and a fast lightweight site suits Google search and mobile-data visitors better than heavy scroll-driven video.
+**What was rejected:** Pages inside `apps/web` (would move the dashboard to `/overview`); Nate Herk's scroll-craft skill (static-only output, needs footage/ffmpeg, heavier pages); a public unauthenticated quote API endpoint (spam/abuse surface, not needed while email intake works). Blog and testimonials left out for now; the current site's testimonials look like placeholders.
+
 ## 2026-10-05, Errors shown as a pop-up
 
 **What was decided:** Action and form errors appear in a centred pop-up (`apps/web/app/ErrorPopup.tsx`) with an OK button instead of a line at the top of the page. Common technical messages (network failure, server error, permission, validation) are reworded in plain language there. Full-page "could not be loaded" states keep their inline panel.

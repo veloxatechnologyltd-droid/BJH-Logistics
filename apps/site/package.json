@@ -1,0 +1,25 @@
+{
+  "name": "@bjh/site",
+  "private": true,
+  "engines": {
+    "node": "22.x"
+  },
+  "scripts": {
+    "dev": "next dev --hostname 127.0.0.1 --port 3003",
+    "build": "next build",
+    "start": "next start --hostname 127.0.0.1 --port 3003",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test app/**/*.test.ts"
+  },
+  "dependencies": {
+    "next": "16.3.8",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.11",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.2",
+    "typescript": "5.9.3"
+  }
+}

@@ -268,6 +268,31 @@ importers:
         specifier: 5.9.3
         version: 5.9.3
 
+  apps/site:
+    dependencies:
+      next:
+        specifier: 16.3.8
+        version: 16.3.8(@types/node@22.19.11)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      react:
+        specifier: 19.3.0
+        version: 19.3.0
+      react-dom:
+        specifier: 19.3.0
+        version: 19.3.0(react@19.3.0)
+    devDependencies:
+      '@types/node':
+        specifier: 22.19.11
+        version: 22.19.11
+      '@types/react':
+        specifier: 19.2.14
+        version: 19.2.14
+      '@types/react-dom':
+        specifier: 19.2.2
+        version: 19.2.2(@types/react@19.2.14)
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+
   apps/web:
     dependencies:
       '@bjh/contracts':
