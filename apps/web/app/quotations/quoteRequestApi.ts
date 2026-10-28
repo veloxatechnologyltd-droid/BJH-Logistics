@@ -3,6 +3,8 @@ import { authenticatedFetch } from "../auth/authenticatedFetch";
 import type {
   QuoteRequestInput,
   RequestDetails,
+  RequestKind,
+  RequestReplyInput,
   ServiceLine,
 } from "@bjh/contracts";
 import type { QuoteLine, QuoteVersion } from "../quotes/quoteApi";
@@ -46,6 +48,19 @@ export type RequestIntake = {
     sizeBytes: number;
   }>;
   skippedAttachments: Array<{ filename: string; reason: string }>;
+  /** A request for a quote, a question, or something else, as AI read it. */
+  kind: RequestKind | null;
+  /** What the assistant did with the email, in order. */
+  assistantNotes: string[];
+  /** The reply the assistant drafted, as last saved; null until one is drafted. */
+  reply: {
+    subject: string;
+    body: string;
+    model: string | null;
+    draftedAt: string | null;
+    sentAt: string | null;
+    sentBy: string | null;
+  } | null;
 };
 
 export type NewQuoteRequest = QuoteRequestInput;
@@ -165,6 +180,52 @@ export async function getRequestAttachmentLink(
   return readResponse<{ url: string; filename: string }>(
     await authenticatedFetch(
       `${quoteRequestsUrl}/${encodeURIComponent(requestId)}/attachments/${encodeURIComponent(attachmentId)}`,
+    ),
+  );
+}
+
+/** Drafts the reply to an email request again. */
+export async function draftRequestReply(
+  requestId: string,
+): Promise<QuoteRequest> {
+  return readResponse<QuoteRequest>(
+    await authenticatedFetch(
+      `${quoteRequestsUrl}/${encodeURIComponent(requestId)}/reply/draft`,
+      { method: "POST" },
+    ),
+  );
+}
+
+/** Saves a person's edit of the reply. */
+export async function saveRequestReply(
+  requestId: string,
+  reply: RequestReplyInput,
+): Promise<QuoteRequest> {
+  return readResponse<QuoteRequest>(
+    await authenticatedFetch(
+      `${quoteRequestsUrl}/${encodeURIComponent(requestId)}/reply`,
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(reply),
+      },
+    ),
+  );
+}
+
+/** Sends the reply by email to the sender; a request's reply is sent once. */
+export async function sendRequestReply(
+  requestId: string,
+  reply: RequestReplyInput,
+): Promise<QuoteRequest> {
+  return readResponse<QuoteRequest>(
+    await authenticatedFetch(
+      `${quoteRequestsUrl}/${encodeURIComponent(requestId)}/reply/send`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(reply),
+      },
     ),
   );
 }

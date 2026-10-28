@@ -13,6 +13,7 @@ import {
 import type { QuoteRequest } from "../../quoteRequestApi";
 import styles from "../../quotation.module.css";
 import { ErrorPopup, plainMessage } from "../../../ErrorPopup";
+import { AssistantPanel } from "./AssistantPanel";
 import { EmailRequestPanel } from "./EmailRequestPanel";
 
 type LoadState = "loading" | "ready" | "error";
@@ -194,6 +195,17 @@ export function QuoteRequestDetail() {
               onChange={(next) =>
                 setRequest({
                   ...next,
+                  suggestedCustomer: request.suggestedCustomer,
+                })
+              }
+              request={request}
+            />
+            <AssistantPanel
+              canEdit={request.canCheck === true}
+              onChange={(next) =>
+                setRequest({
+                  ...next,
+                  canCheck: next.canCheck ?? request.canCheck,
                   suggestedCustomer: request.suggestedCustomer,
                 })
               }

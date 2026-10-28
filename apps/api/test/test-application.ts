@@ -25,6 +25,12 @@ import type {
   ExtractedRequest,
 } from "../src/intake/email-extractor";
 import { DOCUMENT_READER } from "../src/documents/document-reader";
+import { REPLY_DRAFTER, ReplyDraftError } from "../src/intake/reply-drafter";
+import type {
+  DraftedReply,
+  ReplyContext,
+  ReplyDrafter,
+} from "../src/intake/reply-drafter";
 import type { ExtractionFieldRecord } from "../src/database/database.port";
 
 /** In-memory stand-in for private object storage; records what was stored. */
@@ -63,6 +69,23 @@ export const testEmailExtractor: EmailExtractor & {
     return this.result;
   },
 };
+
+/** Stand-in for the AI reply drafter: returns what a test sets up, and records the context it was given. */
+export const testReplyDrafter: ReplyDrafter & {
+  model: string | null;
+  calls: ReplyContext[];
+  result: DraftedReply | Error;
+} = {
+  model: "test-drafter",
+  calls: [],
+  result: { subject: "Re: your request", body: "Thank you for your email." },
+  async draft(context) {
+    this.calls.push(context);
+    if (this.result instanceof Error) throw this.result;
+    return this.result;
+  },
+};
+export { ReplyDraftError };
 
 /**
  * Stand-in for the AI document reader. `model: null` (the default) means no AI
@@ -219,6 +242,8 @@ export async function createTestApplication(
     .useValue(testEmailExtractor)
     .overrideProvider(DOCUMENT_READER)
     .useValue(testDocumentReader)
+    .overrideProvider(REPLY_DRAFTER)
+    .useValue(testReplyDrafter)
     .compile();
 
   const application = module.createNestApplication({ logger: false });

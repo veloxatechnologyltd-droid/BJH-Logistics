@@ -19,6 +19,7 @@ import {
   SuperAdminGuard,
 } from "../auth/auth.guards";
 import type { AuthenticatedRequest } from "../auth/auth.guards";
+import { EmailAssistantService } from "../intake/email-assistant.service";
 import { InboundEmailService } from "../intake/inbound-email.service";
 import { QuoteRequestsService } from "./quote-requests.service";
 
@@ -30,6 +31,8 @@ export class QuoteRequestsController {
     private readonly requests: QuoteRequestsService,
     @Inject(InboundEmailService)
     private readonly inbound: InboundEmailService,
+    @Inject(EmailAssistantService)
+    private readonly assistant: EmailAssistantService,
   ) {}
 
   @Post()
@@ -92,8 +95,49 @@ export class QuoteRequestsController {
   /** Reads the saved email again, when the first reading failed. */
   @Post(":id/read-email")
   @UseGuards(DepartmentStaffGuard)
-  readEmail(@Param("id") id: string, @Req() request: AuthenticatedRequest) {
-    return this.inbound.readAgain(id, request.staffRoles ?? []);
+  async readEmail(
+    @Param("id") id: string,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    const roles = request.staffRoles ?? [];
+    const read = await this.inbound.readAgain(id, roles);
+    if (read.intake?.extractionStatus !== "done") return read;
+    await this.assistant.afterReading(id);
+    return this.requests.get(id, undefined, roles);
+  }
+
+  /** Drafts the reply to an email request again, from the email, BJH's knowledge, the customer's jobs and past pricing. */
+  @Post(":id/reply/draft")
+  @UseGuards(DepartmentStaffGuard)
+  draftReply(@Param("id") id: string, @Req() request: AuthenticatedRequest) {
+    return this.assistant.redraft(id, request.staffRoles ?? []);
+  }
+
+  /** Saves a person's edit of the reply before it is sent. */
+  @Put(":id/reply")
+  @UseGuards(DepartmentStaffGuard)
+  saveReply(
+    @Param("id") id: string,
+    @Body() body: unknown,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.assistant.saveReply(id, body, request.staffRoles ?? []);
+  }
+
+  /** Sends the reply by email to the sender only; a request's reply is sent once. */
+  @Post(":id/reply/send")
+  @UseGuards(DepartmentStaffGuard)
+  sendReply(
+    @Param("id") id: string,
+    @Body() body: unknown,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.assistant.sendReply(
+      id,
+      body,
+      request.authUser!.userId,
+      request.staffRoles ?? [],
+    );
   }
 
   /** A starting draft for the request's quote, from the most similar past issued quote; nothing is saved. */

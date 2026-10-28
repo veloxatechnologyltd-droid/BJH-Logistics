@@ -90,6 +90,8 @@ const reading = (over: Partial<Details> = {}) => ({
     contactPhone: "024 405 8592",
     ...over,
   } as never,
+  kind: null,
+  question: null,
 });
 
 /** Posts an email the way an email service would: a multipart form with the secret. */
@@ -521,6 +523,7 @@ test("a person checks the details: corrections are kept and the request counts a
     companyName: "Late Co",
     contactName: "Late",
     details: reading({ origin: "Elsewhere" }).details,
+    kind: null,
   });
   const after = await requestOf(receipt.requestId);
   assert.equal(after.details.origin, "Shenzhen");

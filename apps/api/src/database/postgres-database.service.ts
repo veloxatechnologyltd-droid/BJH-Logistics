@@ -15,6 +15,7 @@ import type {
   LeadSource,
   LeadStage,
   RequestDetails,
+  RequestKind,
 } from "@bjh/contracts";
 import { parseContract, requestDetailsSchema } from "@bjh/contracts";
 import {
@@ -154,6 +155,14 @@ const quoteRequestSelect = `
     email.extraction_status,
     email.extraction_error,
     email.skipped_attachments,
+    request.kind,
+    request.assistant_notes,
+    request.reply_subject,
+    request.reply_body,
+    request.reply_model,
+    request.reply_drafted_at,
+    request.reply_sent_at,
+    request.reply_sent_by,
     COALESCE((
       SELECT json_agg(json_build_object(
                'id', attachment.attachment_id,
@@ -392,6 +401,12 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
           ],
         );
       }
+      if (outcome.status === "done") {
+        await client.query(
+          `UPDATE app.quote_request SET kind = $2 WHERE request_id::text = $1`,
+          [requestId, outcome.kind],
+        );
+      }
       await client.query("COMMIT");
     } catch (error) {
       await client.query("ROLLBACK").catch(() => undefined);
@@ -430,6 +445,70 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       subject: String(row.subject),
       bodyText: String(row.body_text),
     };
+  }
+
+  async findInboundEmailBody(requestId: string): Promise<string | null> {
+    const result = await this.pool.query(
+      `SELECT email.body_text
+       FROM app.quote_request AS request
+       JOIN app.inbound_email AS email ON email.email_id = request.inbound_email_id
+       WHERE request.request_id::text = $1`,
+      [requestId],
+    );
+    return result.rows[0] ? String(result.rows[0].body_text) : null;
+  }
+
+  async addAssistantNotes(requestId: string, notes: string[]): Promise<void> {
+    if (notes.length === 0) return;
+    await this.pool.query(
+      `UPDATE app.quote_request
+       SET assistant_notes = assistant_notes || $2::jsonb
+       WHERE request_id::text = $1`,
+      [requestId, JSON.stringify(notes)],
+    );
+  }
+
+  async saveRequestReply(
+    requestId: string,
+    reply: { subject: string; body: string; model: string | null },
+  ): Promise<QuoteRequestRecord | "not_found" | "sent"> {
+    const updated = await this.pool.query(
+      `UPDATE app.quote_request
+       SET reply_subject = $2, reply_body = $3, reply_model = $4,
+           reply_drafted_at = CASE WHEN $4::text IS NULL THEN reply_drafted_at ELSE clock_timestamp() END
+       WHERE request_id::text = $1 AND reply_sent_at IS NULL
+       RETURNING request_id`,
+      [requestId, reply.subject, reply.body, reply.model],
+    );
+    if (updated.rows.length === 0) {
+      const exists = await this.pool.query(
+        `SELECT 1 FROM app.quote_request WHERE request_id::text = $1`,
+        [requestId],
+      );
+      return exists.rows.length > 0 ? "sent" : "not_found";
+    }
+    return (await this.findQuoteRequest(requestId))!;
+  }
+
+  async markRequestReplySent(
+    requestId: string,
+    sent: {
+      subject: string;
+      body: string;
+      sentBy: string;
+      notificationId: string;
+    },
+  ): Promise<QuoteRequestRecord | "sent"> {
+    const updated = await this.pool.query(
+      `UPDATE app.quote_request
+       SET reply_subject = $2, reply_body = $3, reply_sent_at = clock_timestamp(),
+           reply_sent_by = $4::uuid, reply_notification_id = $5::uuid
+       WHERE request_id::text = $1 AND reply_sent_at IS NULL
+       RETURNING request_id`,
+      [requestId, sent.subject, sent.body, sent.sentBy, sent.notificationId],
+    );
+    if (updated.rows.length === 0) return "sent";
+    return (await this.findQuoteRequest(requestId))!;
   }
 
   async saveRequestDetails(
@@ -1588,8 +1667,9 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       await client.query("BEGIN");
       const quote = await client.query(
         `INSERT INTO app.quote
-          (service_line, customer_company_id, quote_request_id, created_by)
-         VALUES ($1, $2::uuid, $3::uuid, $4::uuid)
+          (service_line, customer_company_id, quote_request_id, created_by,
+           created_by_assistant)
+         VALUES ($1, $2::uuid, $3::uuid, $4::uuid, $4::uuid IS NULL)
          RETURNING quote_id`,
         [
           input.serviceLine,
@@ -1603,9 +1683,10 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
         `INSERT INTO app.quote_version
           (quote_id, version_number, currency, title, subtitle, shipment_scope,
            intro, at_cost_note, procedure_steps, required_documents,
-           documents_note, timeline, terms, size_labels, created_by)
+           documents_note, timeline, terms, size_labels, created_by,
+           created_by_assistant)
          VALUES ($1::uuid, 1, $2, $3, $4, $5, $6, $7, $8::text[], $9::text[],
-           $10, $11, $12::text[], $13::text[], $14::uuid)
+           $10, $11, $12::text[], $13::text[], $14::uuid, $14::uuid IS NULL)
          RETURNING version_id`,
         [quoteId, ...quoteVersionValues(input.version), createdBy],
       );
@@ -2060,7 +2141,8 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       quoteRequestId: row.quote_request_id
         ? String(row.quote_request_id)
         : null,
-      createdBy: String(row.created_by),
+      createdBy: row.created_by ? String(row.created_by) : null,
+      createdByAssistant: row.created_by_assistant === true,
       createdAt: this.toIsoString(row.created_at),
     };
   }
@@ -2086,7 +2168,8 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       timeline: optional(row.timeline),
       terms: row.terms as string[],
       sizeLabels: row.size_labels as string[],
-      createdBy: String(row.created_by),
+      createdBy: optional(row.created_by),
+      createdByAssistant: row.created_by_assistant === true,
       createdAt: this.toIsoString(row.created_at),
       updatedAt: this.toIsoString(row.updated_at),
       issuedBy: optional(row.issued_by),
@@ -4908,6 +4991,28 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
                 filename: string;
                 reason: string;
               }>,
+              kind: (row.kind as RequestKind | null) ?? null,
+              assistantNotes: (row.assistant_notes as string[] | null) ?? [],
+              reply:
+                row.reply_body === null || row.reply_body === undefined
+                  ? null
+                  : {
+                      subject: String(row.reply_subject),
+                      body: String(row.reply_body),
+                      model:
+                        row.reply_model === null
+                          ? null
+                          : String(row.reply_model),
+                      draftedAt: row.reply_drafted_at
+                        ? this.toIsoString(row.reply_drafted_at)
+                        : null,
+                      sentAt: row.reply_sent_at
+                        ? this.toIsoString(row.reply_sent_at)
+                        : null,
+                      sentBy: row.reply_sent_by
+                        ? String(row.reply_sent_by)
+                        : null,
+                    },
             },
     };
   }

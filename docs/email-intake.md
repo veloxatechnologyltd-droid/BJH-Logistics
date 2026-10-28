@@ -21,9 +21,9 @@ checks them.
    request's service** (the sea import rep for a sea import request, and so on;
    road and warehousing requests belong to every rep) or the super admin. While AI
    could not tell the service, only the super admin can act until the service is
-   set; changing the service hands the request to that service's rep. If the sender
-   is a known contact, their customer is offered for linking; the super admin still
-   presses **Link customer**.
+   set; changing the service hands the request to that service's rep. The
+   assistant (below) links or creates the customer; on a request it did not link,
+   the super admin presses **Link customer**.
 5. If AI reading fails (no key, service busy, ...) the email is still saved. The
    request says why, and the super admin fills the details in or presses **Read the
    email again** (a rep can read it again once the service is known).
@@ -124,6 +124,41 @@ curl -X POST https://<api-host>/api/v1/inbound-email \
 - Not yet verified against the live API: no OpenAI key was available when this was
   built, so the reader is tested against a recorded response shape only. Send a
   test email with the curl above before relying on it.
+
+## The assistant: customer, draft quote and reply
+
+Right after a successful reading, AI also sorts the email: **asks for a quote**,
+**asks a question**, or **needs no answer** (newsletters, notices). The assistant
+then does what a person would do first, and lists each step under **What the
+assistant did** on the request:
+
+1. **Customer.** If the sender's address belongs to a contact, the request is
+   linked to that customer. Otherwise a customer and contact are created from the
+   email (company, name, address, phone) and linked; the note asks staff to check
+   the name.
+2. **Draft quote** (quote requests with a known service). The quote is created as a
+   draft from the most similar past issued quote, by the same rule as **Prefill**
+   below, and marked as drafted by the assistant (no person as creator). The note
+   says which quote it came from and, when it is not the same route, to reprice
+   route charges. With no issued quote for the service it has the shipment line and
+   the Settings wording only. Staff check it and issue it as usual.
+3. **Reply** (with a Claude key). Claude drafts a reply from the email and only:
+   the **Email assistant** text in Business settings (services, documents,
+   procedures, hours, written by BJH), the **sender's own customer's jobs** (file
+   number, status, ETA, references) and, for questions, the closest past issued
+   quote as an **indicative** price (figures only, never the customer it was for).
+   It does not invent anything; what it cannot answer, it says a colleague will
+   confirm. A quote request gets an acknowledgement and questions for any missing
+   details, not prices.
+
+**Nothing is sent by the assistant.** The super admin or the rep in charge of the
+request's service reads the reply, edits it, and presses **Send reply**
+(`PUT /api/v1/quote-requests/:id/reply` saves an edit, `POST .../reply/draft`
+drafts again, `POST .../reply/send` sends). It goes by email to the sender's
+address only, through the message outbox (Settings, Customer messages), once per
+request. When AI could not sort the email, or it needs no answer, the assistant
+does nothing and a person decides. A failure at any step is noted and never loses
+the request. Customers never see the notes or the reply draft.
 
 ## From request to quote
 

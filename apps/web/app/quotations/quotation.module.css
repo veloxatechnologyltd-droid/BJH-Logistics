@@ -1019,3 +1019,70 @@ input:focus-visible {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* The email assistant: what it did, and the reply a person sends. */
+.assistantNotes {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 12px;
+  padding-left: 18px;
+  color: #29445d;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.replyBlock {
+  margin-top: 16px;
+  border-top: 1px solid #dfe7ee;
+  padding-top: 14px;
+}
+
+.replyBlock h3 {
+  overflow-wrap: anywhere;
+}
+
+.replyForm {
+  display: grid;
+  gap: 12px;
+}
+
+.replyForm label {
+  display: grid;
+  gap: 4px;
+  color: #738595;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.replyForm input,
+.replyForm textarea {
+  width: 100%;
+  background: #fff;
+  border: 1px solid #bdccd9;
+  border-radius: 7px;
+  color: var(--brand-ink);
+  padding: 9px 10px;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.replyForm textarea {
+  resize: vertical;
+}
+
+.replySubject {
+  margin: 0 0 6px;
+  color: #29445d;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.replySent {
+  margin: 0;
+  color: #29445d;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}

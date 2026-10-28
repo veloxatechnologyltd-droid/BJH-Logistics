@@ -97,6 +97,7 @@ async function emailRequest(over: Partial<RequestDetails>) {
     companyName: null,
     contactName: null,
     details: details(over),
+    kind: null,
   });
   return request.id;
 }
