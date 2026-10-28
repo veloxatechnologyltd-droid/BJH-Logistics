@@ -21,6 +21,8 @@ export type ClientMessage = {
   subject: string;
   body: string;
   linkUrl: string | null;
+  /** Who sent it; null when the system or the email assistant did. */
+  createdBy: string | null;
   createdAt: string;
   deliveries: MessageDelivery[];
 };
@@ -46,6 +48,7 @@ export const eventLabels: Record<string, string> = {
   payment_received: "Payment received",
   delivery_dispatched: "Out for delivery",
   delivery_delivered: "Delivered",
+  email_reply: "Reply to email",
 };
 
 export const channelLabels: Record<ChannelMode, string> = {

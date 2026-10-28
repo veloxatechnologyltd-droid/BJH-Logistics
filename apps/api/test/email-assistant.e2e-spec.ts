@@ -410,6 +410,12 @@ test("a person edits and sends the reply once, to the sender only; others cannot
     [["email", "ama@sends.example"]],
   );
 
+  // Staff find it among the messages sent, as a reply to an email.
+  const feed = await json<{ messages: Array<{ id: string }> }>(
+    await call("/api/v1/messages?event=email_reply", TEST_SUPER_ADMIN_TOKEN),
+  );
+  assert.ok(feed.messages.some((item) => item.id === message?.id));
+
   assert.equal(
     (await send("POST", `${path}/send`, TEST_MATCHING_TOKEN, reply)).status,
     409,
