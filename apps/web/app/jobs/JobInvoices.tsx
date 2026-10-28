@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { paymentMethodKeys } from "@bjh/contracts";
+import { ChargeOptions } from "../ChargeOptions";
 import type { PaymentMethod } from "@bjh/contracts";
 import { formatMoney, getQuote, toMinor } from "../quotes/quoteApi";
 import { popularCurrencies } from "../settings/business/BusinessSettingsForm";
@@ -479,6 +480,7 @@ export function JobInvoices({
                         <label className={styles.field}>
                           Description
                           <input
+                            list="invoice-charge-options"
                             maxLength={300}
                             onChange={(event) =>
                               setLines(
@@ -540,6 +542,7 @@ export function JobInvoices({
                         </button>
                       </div>
                     ))}
+                    <ChargeOptions id="invoice-charge-options" />
                     <div className={styles.actions}>
                       <button
                         className={styles.secondaryButton}
