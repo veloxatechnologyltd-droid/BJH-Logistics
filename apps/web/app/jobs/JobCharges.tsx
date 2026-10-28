@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { chargeKindLabels } from "@bjh/contracts";
+import { ChargeOptions } from "../ChargeOptions";
 import type { ChargeKind } from "@bjh/contracts";
 import { formatMoney, getQuote, toMinor } from "../quotes/quoteApi";
 import { getSettings } from "../settings/business/settingsApi";
@@ -407,10 +408,12 @@ export function JobCharges({
                 Description
                 <input
                   autoFocus
+                  list="job-charge-options"
                   onChange={(event) => setDescription(event.target.value)}
                   required
                   value={description}
                 />
+                <ChargeOptions id="job-charge-options" />
               </label>
               <label className={styles.field}>
                 Quoted currency

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { ChargeOptions } from "../ChargeOptions";
 import type { CSSProperties, FormEvent, ReactNode } from "react";
 import { quoteBasisKeys, quoteBasisLabels } from "@bjh/contracts";
 import type { QuoteBasis, ServiceLine } from "@bjh/contracts";
@@ -466,6 +467,7 @@ export function QuoteEditor({
             Group charges under headings
           </label>
           <div>
+            <ChargeOptions id="quote-charge-options" />
             {lines.map((line, index) => (
               <div
                 className={`${layout.charge} ${sized ? "" : layout.single}`}
@@ -479,6 +481,7 @@ export function QuoteEditor({
                 <label className={`${layout.small} ${layout.chargeName}`}>
                   Charge
                   <input
+                    list="quote-charge-options"
                     onChange={(event) =>
                       change(index, { description: event.target.value })
                     }
