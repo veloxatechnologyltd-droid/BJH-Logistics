@@ -368,6 +368,67 @@
   -webkit-line-clamp: 4;
 }
 
+/* A sent row is a button that opens the email; it keeps the row look. */
+.sentRow {
+  width: 100%;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sentMessage {
+  display: grid;
+  gap: 14px;
+  margin: -6px 10px 16px 64px;
+  border: 1px solid #d7e3ed;
+  border-radius: 12px;
+  background: #fff;
+  padding: 16px 18px;
+}
+
+.sentMessage dl {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 6px 14px;
+  margin: 0;
+  border-bottom: 1px solid #e5ebf0;
+  padding-bottom: 12px;
+  font-size: 0.8rem;
+}
+
+.sentMessage dt {
+  color: #718393;
+  font-weight: 600;
+}
+
+.sentMessage dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--brand-ink);
+}
+
+.sentMessageBody {
+  margin: 0;
+  color: var(--brand-ink);
+  font-size: 0.875rem;
+  line-height: 1.6;
+  white-space: pre-line;
+}
+
+.sentMessage a {
+  justify-self: start;
+  color: var(--brand-primary);
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.sentMessage a:hover {
+  text-decoration: underline;
+}
+
 /* Under a received email: the draft quote and the reply waiting on it. */
 .followUps {
   display: grid;
@@ -978,7 +1039,8 @@ input:focus-visible {
     display: none;
   }
 
-  .followUps {
+  .followUps,
+  .sentMessage {
     margin-left: 46px;
   }
 

@@ -108,6 +108,7 @@ const feedEvents = [
   "payment_received",
   "delivery_dispatched",
   "delivery_delivered",
+  "email_reply",
 ] as const;
 
 function scopeOf(request: AuthenticatedRequest) {

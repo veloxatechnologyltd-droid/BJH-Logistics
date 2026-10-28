@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { listQuoteRequests } from "./quoteRequestApi";
 import type { QuoteRequest } from "./quoteRequestApi";
+import { eventLabels, getFeed } from "../messages/messageApi";
+import type { ClientMessage } from "../messages/messageApi";
 import { useStaffAccess } from "../auth/useStaffAccess";
 import styles from "./quotation.module.css";
 import { ErrorPopup, plainMessage } from "../ErrorPopup";
@@ -20,7 +22,7 @@ const tabs: Array<{ key: Tab; label: string; empty: string }> = [
   {
     key: "sent",
     label: "Sent",
-    empty: "Replies sent to customers will appear here.",
+    empty: "Replies and quotes sent to customers will appear here.",
   },
   {
     key: "other",
@@ -30,6 +32,16 @@ const tabs: Array<{ key: Tab; label: string; empty: string }> = [
 ];
 
 const kindLabels = { quote: "Quote request", inquiry: "Question" } as const;
+
+/** What the Sent tab lists: replies to emails, and quotes sent to customers. */
+const sentEvents = ["email_reply", "quote_issued", "quote_sent"] as const;
+
+const deliveryLabels = {
+  sent: "Delivered",
+  pending: "Waiting to go out",
+  failed: "Not delivered",
+  skipped: "Not sent",
+} as const;
 
 /** Email bodies carry quote marks, links and line breaks; a row shows plain words. */
 function preview(text: string): string {
@@ -90,6 +102,7 @@ function receivedPills(request: QuoteRequest): string[] {
 export function RequestInbox() {
   const { isSuperAdmin } = useStaffAccess();
   const [requests, setRequests] = useState<QuoteRequest[]>([]);
+  const [sent, setSent] = useState<ClientMessage[]>([]);
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [loadError, setLoadError] = useState("");
   const [tab, setTab] = useState<Tab>("received");
@@ -100,7 +113,16 @@ export function RequestInbox() {
     setLoadState("loading");
     setLoadError("");
     try {
-      setRequests(await listQuoteRequests());
+      const [loaded, ...feeds] = await Promise.all([
+        listQuoteRequests(),
+        ...sentEvents.map((event) => getFeed({ event, limit: 200 })),
+      ]);
+      setRequests(loaded);
+      setSent(
+        feeds
+          .flatMap((feed) => feed.messages)
+          .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+      );
       setLoadState("ready");
     } catch (error) {
       setLoadError(
@@ -124,18 +146,31 @@ export function RequestInbox() {
       received: requests
         .filter((request) => tabOf(request) === "received")
         .sort((a, b) => newestFirst(received(a), received(b))),
-      sent: requests
-        .filter((request) => request.intake?.reply?.sentAt)
-        .sort((a, b) =>
-          newestFirst(a.intake!.reply!.sentAt!, b.intake!.reply!.sentAt!),
-        ),
       other: requests
         .filter((request) => tabOf(request) === "other")
         .sort((a, b) => newestFirst(received(a), received(b))),
     };
   }, [requests]);
 
+  const counts = { ...byTab, sent };
+
+  const shownSent = useMemo(() => {
+    if (!normalizedQuery) return sent;
+    return sent.filter((message) =>
+      [
+        message.companyName,
+        message.subject,
+        message.body,
+        ...message.deliveries.map(
+          (delivery) =>
+            `${delivery.contactName ?? ""} ${delivery.recipient ?? ""}`,
+        ),
+      ].some((value) => value.toLocaleLowerCase().includes(normalizedQuery)),
+    );
+  }, [sent, normalizedQuery]);
+
   const shown = useMemo(() => {
+    if (tab === "sent") return [];
     const list = byTab[tab];
     if (!normalizedQuery) return list;
     return list.filter((request) =>
@@ -220,7 +255,7 @@ export function RequestInbox() {
               >
                 {entry.label}
                 <span className={styles.inboxTabCount}>
-                  {byTab[entry.key].length}
+                  {counts[entry.key].length}
                 </span>
               </button>
             ))}
@@ -243,15 +278,17 @@ export function RequestInbox() {
             )}
           </div>
 
-          {shown.length > 0 ? (
+          {tab === "sent" && shownSent.length > 0 ? (
             <ul className={styles.requestList}>
-              {shown.map((request) =>
-                tab === "sent" ? (
-                  <SentRow key={request.id} request={request} />
-                ) : (
-                  <ReceivedRow key={request.id} request={request} />
-                ),
-              )}
+              {shownSent.map((message) => (
+                <SentRow key={message.id} message={message} />
+              ))}
+            </ul>
+          ) : tab !== "sent" && shown.length > 0 ? (
+            <ul className={styles.requestList}>
+              {shown.map((request) => (
+                <ReceivedRow key={request.id} request={request} />
+              ))}
             </ul>
           ) : (
             <div className={styles.emptyState}>
@@ -362,15 +399,22 @@ function ReceivedRow({ request }: { request: QuoteRequest }) {
   );
 }
 
-function SentRow({ request }: { request: QuoteRequest }) {
-  const intake = request.intake!;
-  const reply = intake.reply!;
-  const name = senderName(request);
+/** One message BJH sent: a reply to an email, or a quote. A click opens it as it went out. */
+function SentRow({ message }: { message: ClientMessage }) {
+  const [open, setOpen] = useState(false);
+  const first = message.deliveries[0];
+  const to = first?.contactName || first?.recipient || message.companyName;
+  const byAssistant = message.event === "email_reply" && !message.createdBy;
+  const notDelivered = message.deliveries.filter(
+    (delivery) => delivery.status !== "sent",
+  );
   return (
     <li>
-      <Link
-        className={styles.requestRow}
-        href={`/quotations/requests/${request.id}`}
+      <button
+        aria-expanded={open}
+        className={`${styles.requestRow} ${styles.sentRow}`}
+        onClick={() => setOpen(!open)}
+        type="button"
       >
         <span
           className={`${styles.requestMark} ${styles.sentMark}`}
@@ -380,26 +424,65 @@ function SentRow({ request }: { request: QuoteRequest }) {
         </span>
         <span className={styles.requestMain}>
           <span className={styles.rowFrom}>
-            <strong>Sent to {name}</strong>
-            <span>{intake.fromEmail}</span>
+            <strong>Sent to {to}</strong>
+            <span>{message.companyName}</span>
           </span>
-          <span className={styles.rowSubject}>{reply.subject}</span>
-          <span className={styles.sentBody}>{reply.body}</span>
+          <span className={styles.rowSubject}>{message.subject}</span>
+          {!open && <span className={styles.sentBody}>{message.body}</span>}
           <span className={styles.rowPills}>
-            <span className={styles.pill}>
-              {reply.sentByAssistant
-                ? "Sent by the assistant"
-                : "Sent by staff"}
+            <span className={styles.pillNew}>
+              {eventLabels[message.event] ?? message.event}
             </span>
-            <span className={styles.rowCustomer}>
-              In reply to “{intake.subject}”
-            </span>
+            {byAssistant && (
+              <span className={styles.pill}>Sent by the assistant</span>
+            )}
+            {message.deliveries.length > 0 && (
+              <span className={styles.pill}>
+                {notDelivered.length === 0
+                  ? "Delivered"
+                  : deliveryLabels[notDelivered[0].status]}
+              </span>
+            )}
           </span>
         </span>
-        <time className={styles.rowTime} dateTime={reply.sentAt!}>
-          {shortTime(reply.sentAt!)}
+        <time className={styles.rowTime} dateTime={message.createdAt}>
+          {shortTime(message.createdAt)}
         </time>
-      </Link>
+      </button>
+
+      {open && (
+        <div className={styles.sentMessage}>
+          <dl>
+            <dt>To</dt>
+            <dd>
+              {message.deliveries
+                .map(
+                  (delivery) =>
+                    `${delivery.contactName ? `${delivery.contactName} ` : ""}<${delivery.recipient ?? "no address"}> by ${delivery.channel}: ${deliveryLabels[delivery.status]}${delivery.lastError ? ` (${delivery.lastError})` : ""}`,
+                )
+                .join("; ") || message.companyName}
+            </dd>
+            <dt>Sent</dt>
+            <dd>
+              {new Date(message.createdAt).toLocaleString("en-GB", {
+                timeZone: "Africa/Accra",
+                dateStyle: "medium",
+                timeStyle: "short",
+              })}
+              {byAssistant ? ", by the assistant" : ""}
+            </dd>
+            <dt>Subject</dt>
+            <dd>{message.subject}</dd>
+          </dl>
+          <p className={styles.sentMessageBody}>{message.body}</p>
+          {message.linkUrl && (
+            <a href={message.linkUrl} rel="noreferrer" target="_blank">
+              Open the link the customer received{" "}
+              <span aria-hidden="true">→</span>
+            </a>
+          )}
+        </div>
+      )}
     </li>
   );
 }
