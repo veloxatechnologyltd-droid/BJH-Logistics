@@ -14,6 +14,7 @@ import {
 } from "@nestjs/common";
 import { AnyFilesInterceptor } from "@nestjs/platform-express";
 import { createHash, timingSafeEqual } from "node:crypto";
+import { EmailAssistantService } from "./email-assistant.service";
 import { InboundEmailService } from "./inbound-email.service";
 import type { ReceivedFile } from "./inbound-email.service";
 
@@ -74,6 +75,8 @@ export class InboundEmailController {
   constructor(
     @Inject(InboundEmailService)
     private readonly inbound: InboundEmailService,
+    @Inject(EmailAssistantService)
+    private readonly assistant: EmailAssistantService,
   ) {}
 
   @Post()
@@ -87,10 +90,15 @@ export class InboundEmailController {
       },
     }),
   )
-  receive(
+  async receive(
     @Body() fields: Record<string, unknown>,
     @UploadedFiles() files: ReceivedFile[] | undefined,
   ) {
-    return this.inbound.receive(fields ?? {}, files ?? []);
+    const received = await this.inbound.receive(fields ?? {}, files ?? []);
+    // Once read, the assistant links the customer and drafts the quote and the reply.
+    if (!received.duplicate && received.reading === "done") {
+      await this.assistant.afterReading(received.requestId);
+    }
+    return received;
   }
 }

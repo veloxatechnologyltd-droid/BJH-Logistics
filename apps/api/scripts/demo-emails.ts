@@ -7,6 +7,7 @@
  *   INBOUND_EMAIL_SECRET=... corepack pnpm --filter @bjh/api exec tsx scripts/demo-emails.ts
  *   ... scripts/demo-emails.ts --api https://<api-host>/api --yes   # a hosted API
  *   ... --fresh   # new message IDs, so the emails arrive again as new requests
+ *   ... --only tiles-ningbo   # one email by its key; the "later" ones are sent only this way
  *
  * Without --fresh a second run is recognised as the same emails and changes nothing.
  */
@@ -23,6 +24,8 @@ interface DemoEmail {
   subject: string;
   text: string;
   attachment?: string;
+  /** Sent only with --only <key>, at its point in the walkthrough. */
+  later?: boolean;
 }
 
 const emails: DemoEmail[] = [
@@ -59,6 +62,7 @@ const emails: DemoEmail[] = [
       "Kpone Synthetic Hardware",
       "024 555 0187",
     ].join("\n"),
+    later: true,
   },
   {
     key: "cocoa-air",
@@ -91,6 +95,38 @@ const emails: DemoEmail[] = [
       "Northern Synthetic Grains",
     ].join("\n"),
   },
+  {
+    key: "documents-question",
+    to: "inquiries@bjhlogistics.com",
+    fromName: "Kojo Asante",
+    fromEmail: "kojo@asante-motors.example",
+    subject: "Documents for clearing",
+    text: [
+      "Hello,",
+      "",
+      "We are importing for the first time. Which documents do you need from us to clear a sea shipment at Tema, and what are your office hours?",
+      "",
+      "Regards,",
+      "Kojo Asante",
+      "Asante Synthetic Motors",
+    ].join("\n"),
+  },
+  {
+    key: "where-is-container",
+    to: "inquiries@bjhlogistics.com",
+    fromName: "Efua Owusu",
+    fromEmail: "efua.owusu@akwaaba-garments.example",
+    subject: "Arrival of our container",
+    text: [
+      "Hi,",
+      "",
+      "Could you let us know when our shipment is expected to arrive at Tema? We need to plan the delivery to Kaneshie.",
+      "",
+      "Thanks,",
+      "Efua",
+    ].join("\n"),
+    later: true,
+  },
 ];
 
 function option(name: string): string | undefined {
@@ -113,9 +149,18 @@ async function main() {
   const secret = process.env.INBOUND_EMAIL_SECRET?.trim();
   if (!secret) throw new Error("Set INBOUND_EMAIL_SECRET to the API's value");
   const run = process.argv.includes("--fresh") ? `-${Date.now()}` : "";
+  const only = option("--only");
+  const chosen = only
+    ? emails.filter((email) => email.key === only)
+    : emails.filter((email) => !email.later);
+  if (chosen.length === 0) {
+    throw new Error(
+      `No demo email is called ${only}; the keys are ${emails.map((email) => email.key).join(", ")}`,
+    );
+  }
 
-  console.log(`Posting ${emails.length} demo emails to ${api}`);
-  for (const email of emails) {
+  console.log(`Posting ${chosen.length} demo emails to ${api}`);
+  for (const email of chosen) {
     const form = new FormData();
     form.append("from_email", email.fromEmail);
     form.append("from_name", email.fromName);

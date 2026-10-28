@@ -311,7 +311,13 @@ export class InboundEmailService {
         companyName: extracted.companyName,
         contactName: extracted.contactName,
         details: extracted.details,
+        kind: extracted.kind,
       });
+      if (extracted.question) {
+        await this.database.addAssistantNotes(requestId, [
+          `The sender asks: ${extracted.question}`,
+        ]);
+      }
       return "done";
     } catch (error) {
       const known = error instanceof ExtractionError;

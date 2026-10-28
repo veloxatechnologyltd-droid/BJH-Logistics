@@ -67,6 +67,7 @@ export function BusinessSettingsForm() {
   const [timeline, setTimeline] = useState("");
   const [quoteTerms, setQuoteTerms] = useState("");
   const [channels, setChannels] = useState<"email" | "sms" | "both">("both");
+  const [knowledge, setKnowledge] = useState("");
 
   const selectedCurrencies = currencies.split(/[\s,]+/).filter(Boolean);
   // The popular ones, plus any other code already saved in Settings.
@@ -113,6 +114,7 @@ export function BusinessSettingsForm() {
     setDocumentsNote(settings.quoteDefaults.documentsNote ?? "");
     setTimeline(settings.quoteDefaults.timeline ?? "");
     setQuoteTerms(settings.quoteDefaults.terms.join("\n"));
+    setKnowledge(settings.assistant?.knowledge ?? "");
   }, []);
 
   const load = useCallback(async () => {
@@ -180,6 +182,7 @@ export function BusinessSettingsForm() {
           timeline,
           terms: toLines(quoteTerms),
         },
+        assistant: { knowledge },
       });
       fill(saved);
       setNotice(`Saved as revision ${saved.revisionNumber}.`);
@@ -372,6 +375,14 @@ export function BusinessSettingsForm() {
                   quoteTerms,
                   setQuoteTerms,
                   5,
+                )}
+
+                <h2>Email assistant</h2>
+                {area(
+                  "What the assistant may tell customers (services, documents, procedures, office hours). It answers only from this, a customer's own jobs and past quotes.",
+                  knowledge,
+                  setKnowledge,
+                  8,
                 )}
               </div>
             </div>

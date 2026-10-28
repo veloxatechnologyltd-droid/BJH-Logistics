@@ -210,6 +210,20 @@ export const requestDetailsSchema = z.object(
 );
 export type RequestDetails = z.infer<typeof requestDetailsSchema>;
 
+/** What an emailed request is: a request for a quote, a question, or something else (a newsletter, a reply to a thread). */
+export const requestKinds = ["quote", "inquiry", "other"] as const;
+export type RequestKind = (typeof requestKinds)[number];
+
+/** The assistant's reply to an emailed request, as a person edits it before sending. */
+export const requestReplyInputSchema = z.object(
+  {
+    subject: requiredText("subject", 300),
+    body: requiredText("body", 5000),
+  },
+  objectError("A reply with a subject and a body is required"),
+);
+export type RequestReplyInput = z.infer<typeof requestReplyInputSchema>;
+
 const staffRoleField = z.enum(staffRoleKeys, {
   error: "roleKey is not a supported staff role",
 });
@@ -1028,6 +1042,15 @@ export const businessSettingsSchema = z
         )
         .nullish()
         .transform((value) => value ?? { channels: "both" as const }),
+      // What the email assistant may tell customers: BJH's services, documents, procedures, hours.
+      assistant: z
+        .object(
+          { knowledge: optionalText("assistant knowledge", 20000) },
+          objectError("assistant must be an object"),
+        )
+        .nullish()
+        .transform((value) => value ?? undefined)
+        .optional(),
     },
     objectError("A settings object is required"),
   )

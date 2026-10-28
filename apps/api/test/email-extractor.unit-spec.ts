@@ -111,7 +111,18 @@ test("the answer becomes clean details: unknown fields null, the term in capital
       neededBy: "end of November",
       contactPhone: "024 405 8592",
     },
+    kind: null,
+    question: null,
   });
+});
+
+test("the kind is one of quote, inquiry or other; anything else is unknown", () => {
+  assert.equal(normalizeExtraction({ kind: "inquiry" }).kind, "inquiry");
+  assert.equal(normalizeExtraction({ kind: "spam" }).kind, null);
+  assert.equal(
+    normalizeExtraction({ question: "  Where is my\n container? " }).question,
+    "Where is my container?",
+  );
 });
 
 test("a model that does not reason is not sent a reasoning setting", async () => {

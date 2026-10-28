@@ -5,6 +5,7 @@ import type {
   QuoteDecision,
   QuoteBasis,
   QuoteVersionInput,
+  RequestKind,
   TaskKind,
   JobStatus,
   PartyRole,
@@ -45,6 +46,22 @@ export interface RequestIntakeRecord {
   attachments: RequestAttachmentRecord[];
   /** Attachments that were not kept, and why. */
   skippedAttachments: Array<{ filename: string; reason: string }>;
+  /** A request for a quote, a question, or something else, as AI read it. */
+  kind: RequestKind | null;
+  /** What the assistant did with the email, in order. */
+  assistantNotes: string[];
+  /** The reply the assistant drafted, as a person last saved it; null until one is drafted. */
+  reply: RequestReplyRecord | null;
+}
+
+export interface RequestReplyRecord {
+  subject: string;
+  body: string;
+  /** The model that drafted it; null when a person wrote it. */
+  model: string | null;
+  draftedAt: string | null;
+  sentAt: string | null;
+  sentBy: string | null;
 }
 
 export interface QuoteRequestRecord {
@@ -238,7 +255,9 @@ export interface QuoteVersionRecord {
   timeline: string | null;
   terms: string[];
   sizeLabels: string[];
-  createdBy: string;
+  /** Null when the email assistant drafted this version. */
+  createdBy: string | null;
+  createdByAssistant: boolean;
   createdAt: string;
   updatedAt: string;
   issuedBy: string | null;
@@ -254,7 +273,9 @@ export interface QuoteSummaryRecord {
   customerCompanyId: string;
   customerCompanyName: string;
   quoteRequestId: string | null;
-  createdBy: string;
+  /** Null when the email assistant drafted the quote. */
+  createdBy: string | null;
+  createdByAssistant: boolean;
   createdAt: string;
   latestVersionNumber: number;
   latestStatus: "draft" | "issued";
@@ -860,9 +881,29 @@ export abstract class DatabasePort {
           companyName: string | null;
           contactName: string | null;
           details: RequestDetails;
+          kind: RequestKind | null;
         }
       | { status: "failed"; model: string | null; error: string },
   ): Promise<QuoteRequestRecord | null>;
+  /** The full text of the email a request came from; null for a request that did not come by email. */
+  abstract findInboundEmailBody(requestId: string): Promise<string | null>;
+  /** Adds to the list of what the assistant did with an email request. */
+  abstract addAssistantNotes(requestId: string, notes: string[]): Promise<void>;
+  /** Saves the reply of an email request until it is sent; a sent reply never changes. */
+  abstract saveRequestReply(
+    requestId: string,
+    reply: { subject: string; body: string; model: string | null },
+  ): Promise<QuoteRequestRecord | "not_found" | "sent">;
+  /** Records that the reply went out, with the message that carried it. */
+  abstract markRequestReplySent(
+    requestId: string,
+    sent: {
+      subject: string;
+      body: string;
+      sentBy: string;
+      notificationId: string;
+    },
+  ): Promise<QuoteRequestRecord | "sent">;
   /**
    * Puts an email request back to "waiting to be read" and returns its email,
    * unless it is not an email request or a person already checked it.
@@ -1060,7 +1101,8 @@ export abstract class DatabasePort {
       quoteRequestId: string | null;
       version: QuoteVersionInput;
     },
-    createdBy: string,
+    /** Null when the email assistant drafts it. */
+    createdBy: string | null,
   ): Promise<string>;
   abstract listQuotes(scope: JobScope): Promise<QuoteSummaryRecord[]>;
   /** Customers (a scope with company IDs) only ever see issued versions. */
