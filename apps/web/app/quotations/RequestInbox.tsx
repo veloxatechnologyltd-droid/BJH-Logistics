@@ -79,19 +79,12 @@ const tabOf = (request: QuoteRequest): Tab =>
 const senderName = (request: QuoteRequest) =>
   request.intake?.fromName || request.contactName || request.email;
 
-/** Where the request stands, in a few words; the first is the most urgent. */
+/** What the email is; the quote and reply waiting on it are shown under the row. */
 function receivedPills(request: QuoteRequest): string[] {
   const intake = request.intake;
-  const pills: string[] = [];
-  if (!intake) pills.push("Web request");
-  else if (intake.kind && intake.kind !== "other")
-    pills.push(kindLabels[intake.kind]);
-  else if (!intake.kind) pills.push("Not sorted");
-  if (request.quoteStatus === "issued") pills.push("Quote issued");
-  else if (request.quoteStatus === "draft") pills.push("Quote drafted");
-  if (intake?.reply?.sentAt) pills.push("Replied");
-  else if (intake?.reply) pills.push("Reply ready");
-  return pills;
+  if (!intake) return ["Web request"];
+  if (!intake.kind) return ["Not sorted"];
+  return intake.kind === "other" ? [] : [kindLabels[intake.kind]];
 }
 
 export function RequestInbox() {
@@ -291,6 +284,7 @@ function ReceivedRow({ request }: { request: QuoteRequest }) {
   const intake = request.intake;
   const isNew = Boolean(intake && !intake.reviewedAt);
   const name = senderName(request);
+  const reply = intake?.reply ?? null;
   return (
     <li>
       <Link
@@ -302,7 +296,7 @@ function ReceivedRow({ request }: { request: QuoteRequest }) {
         </span>
         <span className={styles.requestMain}>
           <span className={styles.rowFrom}>
-            <strong>{name}</strong>
+            <strong>From {name}</strong>
             <span>{intake?.fromEmail ?? request.email}</span>
           </span>
           <span className={styles.rowSubject}>
@@ -330,12 +324,47 @@ function ReceivedRow({ request }: { request: QuoteRequest }) {
           {shortTime(intake?.receivedAt ?? request.createdAt)}
         </time>
       </Link>
+
+      {/* What is waiting on this email: the draft quote and the reply. */}
+      {(request.quoteId || reply) && (
+        <div className={styles.followUps}>
+          {request.quoteId && (
+            <div className={styles.followUp}>
+              <span>
+                {request.quoteStatus === "issued"
+                  ? `Quote ${request.quoteNumber ?? ""} issued`
+                  : "Draft quote waiting for approval"}
+              </span>
+              <Link href={`/quotes/${request.quoteId}`}>
+                {request.quoteStatus === "issued"
+                  ? "View quote"
+                  : "Check, edit and issue"}{" "}
+                <span aria-hidden="true">→</span>
+              </Link>
+            </div>
+          )}
+          {reply && (
+            <div className={styles.followUp}>
+              <span>
+                {reply.sentAt
+                  ? `Replied ${shortTime(reply.sentAt)}${reply.sentByAssistant ? " by the assistant" : ""}`
+                  : "Reply drafted, not sent yet"}
+              </span>
+              <Link href={`/quotations/requests/${request.id}`}>
+                {reply.sentAt ? "See the reply" : "Read, edit and send"}{" "}
+                <span aria-hidden="true">→</span>
+              </Link>
+            </div>
+          )}
+        </div>
+      )}
     </li>
   );
 }
 
 function SentRow({ request }: { request: QuoteRequest }) {
-  const reply = request.intake!.reply!;
+  const intake = request.intake!;
+  const reply = intake.reply!;
   const name = senderName(request);
   return (
     <li>
@@ -343,16 +372,19 @@ function SentRow({ request }: { request: QuoteRequest }) {
         className={styles.requestRow}
         href={`/quotations/requests/${request.id}`}
       >
-        <span className={styles.requestMark} aria-hidden="true">
-          {initials(name)}
+        <span
+          className={`${styles.requestMark} ${styles.sentMark}`}
+          aria-hidden="true"
+        >
+          ↗
         </span>
         <span className={styles.requestMain}>
           <span className={styles.rowFrom}>
-            <strong>To {name}</strong>
-            <span>{request.intake!.fromEmail}</span>
+            <strong>Sent to {name}</strong>
+            <span>{intake.fromEmail}</span>
           </span>
           <span className={styles.rowSubject}>{reply.subject}</span>
-          <span className={styles.messagePreview}>{preview(reply.body)}</span>
+          <span className={styles.sentBody}>{reply.body}</span>
           <span className={styles.rowPills}>
             <span className={styles.pill}>
               {reply.sentByAssistant
@@ -360,7 +392,7 @@ function SentRow({ request }: { request: QuoteRequest }) {
                 : "Sent by staff"}
             </span>
             <span className={styles.rowCustomer}>
-              {request.customerCompanyName ?? "No customer linked"}
+              In reply to “{intake.subject}”
             </span>
           </span>
         </span>

@@ -350,6 +350,57 @@
   white-space: nowrap;
 }
 
+/* A sent reply: an outgoing arrow and the message as it went out. */
+.sentMark {
+  background: var(--brand-primary);
+  color: #fff;
+  font-size: 1rem;
+}
+
+.sentBody {
+  display: -webkit-box;
+  overflow: hidden;
+  color: #3d566b;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  white-space: pre-line;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+}
+
+/* Under a received email: the draft quote and the reply waiting on it. */
+.followUps {
+  display: grid;
+  gap: 6px;
+  margin: -6px 10px 14px 64px;
+}
+
+.followUp {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  border: 1px solid #d7e3ed;
+  border-radius: 10px;
+  background: #fff;
+  padding: 9px 12px;
+  color: var(--brand-ink);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.followUp a {
+  color: var(--brand-primary);
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.followUp a:hover {
+  text-decoration: underline;
+}
+
 .inboxTabs {
   display: flex;
   flex-wrap: wrap;
@@ -925,6 +976,10 @@ input:focus-visible {
 
   .rowFrom span {
     display: none;
+  }
+
+  .followUps {
+    margin-left: 46px;
   }
 
   .contactGrid {
