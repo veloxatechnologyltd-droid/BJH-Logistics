@@ -2,6 +2,7 @@ import {
   CanActivate,
   Controller,
   ExecutionContext,
+  HttpCode,
   Inject,
   Injectable,
   Post,
@@ -16,6 +17,7 @@ import { AnyFilesInterceptor } from "@nestjs/platform-express";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { EmailAssistantService } from "./email-assistant.service";
 import { InboundEmailService } from "./inbound-email.service";
+import { MailboxReaderService } from "./mailbox-reader.service";
 import type { ReceivedFile } from "./inbound-email.service";
 
 /** The secret an email service sends: as a Bearer token, as the password of Basic auth (how most services call a webhook URL), or in `x-inbound-secret`. */
@@ -77,6 +79,8 @@ export class InboundEmailController {
     private readonly inbound: InboundEmailService,
     @Inject(EmailAssistantService)
     private readonly assistant: EmailAssistantService,
+    @Inject(MailboxReaderService)
+    private readonly mailbox: MailboxReaderService,
   ) {}
 
   @Post()
@@ -100,5 +104,15 @@ export class InboundEmailController {
       await this.assistant.afterReading(received.requestId);
     }
     return received;
+  }
+
+  /** Reads BJH's request mailbox now (a scheduler can call this to wake the API); 503 when no mailbox is set up. */
+  @Post("poll")
+  @HttpCode(200)
+  poll() {
+    if (!this.mailbox.enabled) {
+      throw new ServiceUnavailableException("No mailbox is set up");
+    }
+    return this.mailbox.poll();
   }
 }

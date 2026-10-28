@@ -1,13 +1,14 @@
 # Customer requests by email
 
-Clients send most requests by email. One address points at the system: an email
-service receives each message and posts it to the API. **Nothing reads anyone's
-mailbox.** AI then reads the email and fills in the request details; a person
-checks them.
+Clients send most requests by email. Every email that reaches BJH's request
+mailbox (`quotes@bjhlogistics.com`) comes into the system: the API reads that one
+mailbox over IMAP (below), or an email service posts each message to the webhook.
+AI then reads the email and fills in the request details; a person checks them.
+Every email to that address is read by Claude (Evans's decision, 28 October 2026).
 
 ## What happens to an email
 
-1. The email service posts it to `POST /api/v1/inbound-email` (below).
+1. The mailbox reader fetches it, or an email service posts it to `POST /api/v1/inbound-email` (below).
 2. The API keeps the email and its attachments and creates a customer request
    (shown in the Requests inbox as **Email · Needs checking**). The same email
    delivered twice is one request.
@@ -30,6 +31,34 @@ checks them.
 
 Customers never see the email, its attachments or the AI-read details; a linked
 customer sees their request as written.
+
+## The mailbox reader (IMAP)
+
+With these set, the API reads the mailbox every minute and passes each new email
+through the same intake as the webhook (kept, read by AI, then the assistant):
+
+```
+INBOUND_IMAP_HOST=bjhlogistics.com
+INBOUND_IMAP_PORT=993
+INBOUND_IMAP_USER=quotes@bjhlogistics.com
+INBOUND_IMAP_PASSWORD=...        # in a .env file, put it in single quotes: a # starts a comment
+INBOUND_IMAP_SINCE=2026-10-28T17:00:00Z   # emails before this are left alone
+# INBOUND_IMAP_MAILBOX=INBOX     # default
+# INBOUND_IMAP_INTERVAL_MS=60000 # default
+```
+
+- Nothing in the mailbox is changed, moved or marked read; staff can keep using it
+  in webmail. Emails from the mailbox's own address are skipped.
+- An email seen twice is one request: its Message-ID is checked before it is
+  downloaded. If one fails (the database is down), reading stops there and the next
+  poll tries it again; an email with no sender address is skipped.
+- `INBOUND_IMAP_SINCE` is required, so switching on never imports an old inbox.
+  Move it earlier to bring in older emails.
+- Render's free plan sleeps after 15 minutes without visitors, and a sleeping API
+  reads nothing; it catches up when it wakes. `POST /api/v1/inbound-email/poll`
+  (with the intake secret, as for the webhook) reads the mailbox at once and wakes
+  the API, so a scheduler calling it every few minutes keeps email flowing.
+- Replies go out through `EMAIL_SMTP_*` from the same mailbox.
 
 ## The webhook
 
