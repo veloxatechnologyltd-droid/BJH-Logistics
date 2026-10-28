@@ -13,8 +13,10 @@ import {
   TEST_UNASSIGNED_TOKEN,
   TEST_UNASSIGNED_USER_ID,
   createTestApplication,
+  testMessageDrafter,
 } from "./test-application";
 import { DatabasePort } from "../src/database/database.port";
+import { MessageDraftError } from "../src/notifications/message-drafter";
 import { beginTestDatabase, endTestDatabase } from "./postgres-test-database";
 
 let application: INestApplication;
@@ -47,6 +49,7 @@ type Delivery = {
 };
 type Feed = {
   channels: string;
+  aiDrafting: boolean;
   messages: Array<{
     id: string;
     companyId: string;
@@ -419,4 +422,122 @@ test("an issued quote can be sent again; a draft cannot; the client gets the lin
       .status,
     403,
   );
+});
+
+test("the AI drafts a message to clients from staff's instruction, given no customer's data, and sends nothing", async () => {
+  testMessageDrafter.calls = [];
+  testMessageDrafter.result = {
+    subject: "Port closed",
+    body: "Tema closes Friday.",
+  };
+  const before = (await feed(TEST_SUPER_ADMIN_TOKEN)).messages.length;
+  assert.equal((await feed(TEST_MATCHING_TOKEN)).aiDrafting, true);
+
+  const response = await post("/api/v1/messages/draft", TEST_MATCHING_TOKEN, {
+    instruction: "Tell clients Tema port is closed on Friday",
+  });
+  assert.equal(response.status, 201);
+  assert.deepEqual(await json(response), {
+    subject: "Port closed",
+    body: "Tema closes Friday.",
+  });
+  assert.equal(testMessageDrafter.calls.length, 1);
+  assert.equal(
+    testMessageDrafter.calls[0].instruction,
+    "Tell clients Tema port is closed on Friday",
+  );
+  assert.equal(testMessageDrafter.calls[0].job, null);
+  assert.equal((await feed(TEST_SUPER_ADMIN_TOKEN)).messages.length, before);
+});
+
+test("a job message is drafted from that job only, for staff who may see the job", async () => {
+  testMessageDrafter.calls = [];
+  const fileNumber = (
+    await json<{ fileNumber: string }>(
+      await get(`/api/v1/jobs/${seaJob}`, TEST_SUPER_ADMIN_TOKEN),
+    )
+  ).fileNumber;
+  const sent = (
+    await json<unknown[]>(
+      await get(`/api/v1/jobs/${seaJob}/notifications`, TEST_SUPER_ADMIN_TOKEN),
+    )
+  ).length;
+
+  const response = await post(
+    `/api/v1/jobs/${seaJob}/messages/draft`,
+    TEST_MATCHING_TOKEN,
+    { instruction: "Say the cargo is being cleared" },
+  );
+  assert.equal(response.status, 201);
+  const job = testMessageDrafter.calls[0].job;
+  assert.equal(job?.fileNumber, fileNumber);
+  assert.equal(job?.companyName, "Northstar Synthetic Ltd");
+  assert.equal(job?.service, "Sea import");
+  assert.equal(
+    (
+      await json<unknown[]>(
+        await get(
+          `/api/v1/jobs/${seaJob}/notifications`,
+          TEST_SUPER_ADMIN_TOKEN,
+        ),
+      )
+    ).length,
+    sent,
+  );
+
+  // A rep of another line, and a customer, cannot have the AI read this job.
+  const other = await post(
+    `/api/v1/jobs/${seaJob}/messages/draft`,
+    TEST_UNASSIGNED_TOKEN,
+    { instruction: "Say the cargo is being cleared" },
+  );
+  assert.ok(
+    other.status === 403 || other.status === 404,
+    `got ${other.status}`,
+  );
+  for (const path of [
+    `/api/v1/jobs/${seaJob}/messages/draft`,
+    "/api/v1/messages/draft",
+  ]) {
+    assert.equal(
+      (await post(path, TEST_CUSTOMER_A_TOKEN, { instruction: "Hello" }))
+        .status,
+      403,
+    );
+  }
+  assert.equal(testMessageDrafter.calls.length, 1);
+});
+
+test("drafting refuses an empty instruction and fails safely when the AI is off or fails", async () => {
+  testMessageDrafter.calls = [];
+  const draft = (body: unknown) =>
+    post("/api/v1/messages/draft", TEST_SUPER_ADMIN_TOKEN, body);
+
+  assert.equal((await draft({ instruction: "  " })).status, 400);
+  assert.equal((await draft({ instruction: "x".repeat(1001) })).status, 400);
+  assert.equal(testMessageDrafter.calls.length, 0);
+
+  testMessageDrafter.result = new MessageDraftError(
+    "The AI service is busy or over its limit",
+  );
+  const failed = await draft({ instruction: "Hello" });
+  assert.equal(failed.status, 502);
+  assert.equal(
+    await message(failed),
+    "The AI service is busy or over its limit",
+  );
+
+  testMessageDrafter.model = null;
+  try {
+    const off = await draft({ instruction: "Hello" });
+    assert.equal(off.status, 503);
+    assert.equal(await message(off), "AI drafting is not set up");
+    assert.equal((await feed(TEST_SUPER_ADMIN_TOKEN)).aiDrafting, false);
+  } finally {
+    testMessageDrafter.model = "test-drafter";
+    testMessageDrafter.result = {
+      subject: "Port closed",
+      body: "Tema closes Friday.",
+    };
+  }
 });

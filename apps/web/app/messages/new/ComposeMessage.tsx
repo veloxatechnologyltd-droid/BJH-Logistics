@@ -5,7 +5,7 @@ import type { FormEvent } from "react";
 import { listCustomers } from "../../customers/customerApi";
 import type { CustomerCompany } from "../../customers/customerApi";
 import styles from "../../jobs/jobs.module.css";
-import { getFeed, sendClientMessage } from "../messageApi";
+import { draftClientMessage, getFeed, sendClientMessage } from "../messageApi";
 import type { ChannelMode, SendResult } from "../messageApi";
 import { ErrorPopup } from "../../ErrorPopup";
 
@@ -18,6 +18,10 @@ export function ComposeMessage() {
   const [search, setSearch] = useState("");
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
+  const [aiDrafting, setAiDrafting] = useState(false);
+  const [instruction, setInstruction] = useState("");
+  const [drafting, setDrafting] = useState(false);
+  const [drafted, setDrafted] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
@@ -33,7 +37,10 @@ export function ComposeMessage() {
         ),
       );
     getFeed({ limit: 1 })
-      .then((feed) => setChannels(feed.channels))
+      .then((feed) => {
+        setChannels(feed.channels);
+        setAiDrafting(feed.aiDrafting);
+      })
       .catch(() => undefined);
   }, []);
 
@@ -82,6 +89,21 @@ export function ComposeMessage() {
     setConfirming(true);
   }
 
+  async function draft() {
+    setDrafting(true);
+    setError("");
+    try {
+      const message = await draftClientMessage(instruction);
+      setSubject(message.subject);
+      setBody(message.body);
+      setDrafted(true);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Drafting failed");
+    } finally {
+      setDrafting(false);
+    }
+  }
+
   async function send() {
     setSending(true);
     setError("");
@@ -94,6 +116,8 @@ export function ComposeMessage() {
       setResult(outcome);
       setBody("");
       setSubject("");
+      setInstruction("");
+      setDrafted(false);
       setChosen(new Set());
       setEveryone(false);
     } catch (cause) {
@@ -177,6 +201,28 @@ export function ComposeMessage() {
         <section className={styles.card} aria-labelledby="what-title">
           <h2 id="what-title">What do you want to say?</h2>
           <div className={styles.form}>
+            {aiDrafting && (
+              <>
+                <label className={styles.field}>
+                  Ask AI to draft it (optional)
+                  <textarea
+                    maxLength={1000}
+                    onChange={(changed) => setInstruction(changed.target.value)}
+                    placeholder="For example: tell clients Tema port is closed on Friday and clearances will be a day late"
+                    rows={2}
+                    value={instruction}
+                  />
+                </label>
+                <button
+                  className={styles.secondaryButton}
+                  disabled={drafting || !instruction.trim()}
+                  onClick={() => void draft()}
+                  type="button"
+                >
+                  {drafting ? "Drafting…" : "Draft with AI"}
+                </button>
+              </>
+            )}
             <label className={styles.field}>
               Subject (optional)
               <input
@@ -194,7 +240,11 @@ export function ComposeMessage() {
                 rows={7}
                 value={body}
               />
-              <small className={styles.hint}>{body.length} / 1500</small>
+              <small className={styles.hint}>
+                {body.length} / 1500
+                {drafted &&
+                  " · Drafted by AI: read and correct it before sending."}
+              </small>
             </label>
           </div>
           <p className={styles.muted}>

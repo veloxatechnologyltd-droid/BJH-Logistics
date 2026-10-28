@@ -68,6 +68,11 @@ import { EmailAssistantService } from "./intake/email-assistant.service";
 import { MailboxReaderService } from "./intake/mailbox-reader.service";
 import { REPLY_DRAFTER, createReplyDrafter } from "./intake/reply-drafter";
 import {
+  MESSAGE_DRAFTER,
+  createMessageDrafter,
+} from "./notifications/message-drafter";
+import { MessageDraftsService } from "./notifications/message-drafts.service";
+import {
   EMAIL_EXTRACTOR,
   createEmailExtractor,
 } from "./intake/email-extractor";
@@ -144,6 +149,8 @@ import { QuotesService } from "./quotations/quotes.service";
     JobCorrespondenceService,
     NotificationsService,
     NotificationDispatcher,
+    MessageDraftsService,
+    { provide: MESSAGE_DRAFTER, useFactory: () => createMessageDrafter() },
     {
       provide: EMAIL_PROVIDER,
       useFactory: () => createEmailProvider(process.env),

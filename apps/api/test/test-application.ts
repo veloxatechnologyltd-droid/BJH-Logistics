@@ -25,6 +25,12 @@ import type {
   ExtractedRequest,
 } from "../src/intake/email-extractor";
 import { DOCUMENT_READER } from "../src/documents/document-reader";
+import { MESSAGE_DRAFTER } from "../src/notifications/message-drafter";
+import type {
+  DraftedMessage,
+  MessageDraftContext,
+  MessageDrafter,
+} from "../src/notifications/message-drafter";
 import { REPLY_DRAFTER, ReplyDraftError } from "../src/intake/reply-drafter";
 import type {
   DraftedReply,
@@ -86,6 +92,22 @@ export const testReplyDrafter: ReplyDrafter & {
   },
 };
 export { ReplyDraftError };
+
+/** Stand-in for the AI message drafter; `model: null` means AI drafting is off. */
+export const testMessageDrafter: MessageDrafter & {
+  model: string | null;
+  calls: MessageDraftContext[];
+  result: DraftedMessage | Error;
+} = {
+  model: "test-drafter",
+  calls: [],
+  result: { subject: "Port closed on Friday", body: "Dear customer, ..." },
+  async draft(context) {
+    this.calls.push(context);
+    if (this.result instanceof Error) throw this.result;
+    return this.result;
+  },
+};
 
 /**
  * Stand-in for the AI document reader. `model: null` (the default) means no AI
@@ -244,6 +266,8 @@ export async function createTestApplication(
     .useValue(testDocumentReader)
     .overrideProvider(REPLY_DRAFTER)
     .useValue(testReplyDrafter)
+    .overrideProvider(MESSAGE_DRAFTER)
+    .useValue(testMessageDrafter)
     .compile();
 
   const application = module.createNestApplication({ logger: false });

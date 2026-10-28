@@ -2,7 +2,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
-import { listJobNotifications, sendJobMessage } from "./jobApi";
+import {
+  draftJobMessage,
+  listJobNotifications,
+  sendJobMessage,
+} from "./jobApi";
+import { getFeed } from "../messages/messageApi";
 import type { JobNotification, NotificationDelivery } from "./jobApi";
 import styles from "./jobs.module.css";
 import { ErrorPopup } from "../ErrorPopup";
@@ -44,6 +49,10 @@ export function JobMessages({ jobId }: { jobId: string }) {
   const [notice, setNotice] = useState("");
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
+  const [aiDrafting, setAiDrafting] = useState(false);
+  const [instruction, setInstruction] = useState("");
+  const [drafting, setDrafting] = useState(false);
+  const [drafted, setDrafted] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -58,6 +67,27 @@ export function JobMessages({ jobId }: { jobId: string }) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    getFeed({ limit: 1 })
+      .then((feed) => setAiDrafting(feed.aiDrafting))
+      .catch(() => undefined);
+  }, []);
+
+  async function draft() {
+    setDrafting(true);
+    setError("");
+    try {
+      const message = await draftJobMessage(jobId, instruction);
+      setSubject(message.subject);
+      setBody(message.body);
+      setDrafted(true);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Drafting failed");
+    } finally {
+      setDrafting(false);
+    }
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -78,6 +108,8 @@ export function JobMessages({ jobId }: { jobId: string }) {
       );
       setSubject("");
       setBody("");
+      setInstruction("");
+      setDrafted(false);
       setAdding(false);
       await load();
     } catch (cause) {
@@ -127,6 +159,28 @@ export function JobMessages({ jobId }: { jobId: string }) {
       )}
       {adding && (
         <form className={styles.form} onSubmit={submit}>
+          {aiDrafting && (
+            <>
+              <label className={styles.field}>
+                Ask AI to draft it (optional)
+                <textarea
+                  maxLength={1000}
+                  onChange={(event) => setInstruction(event.target.value)}
+                  placeholder="For example: tell them the container has been released and delivery is being arranged"
+                  rows={2}
+                  value={instruction}
+                />
+              </label>
+              <button
+                className={styles.secondaryButton}
+                disabled={drafting || !instruction.trim()}
+                onClick={() => void draft()}
+                type="button"
+              >
+                {drafting ? "Drafting…" : "Draft with AI"}
+              </button>
+            </>
+          )}
           <label className={styles.field}>
             Subject (optional)
             <input
@@ -144,6 +198,11 @@ export function JobMessages({ jobId }: { jobId: string }) {
               rows={4}
               value={body}
             />
+            {drafted && (
+              <small className={styles.hint}>
+                Drafted by AI: read and correct it before sending.
+              </small>
+            )}
           </label>
           <div className={styles.formActions}>
             <button className={styles.button} type="submit">

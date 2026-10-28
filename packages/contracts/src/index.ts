@@ -1498,6 +1498,15 @@ export const jobMessageInputSchema = z.object(
 );
 export type JobMessageInput = z.infer<typeof jobMessageInputSchema>;
 
+/** What staff want a message to say, for the AI to draft; nothing is sent. */
+export const messageDraftInputSchema = z.object(
+  {
+    instruction: requiredText("instruction", 1000),
+  },
+  objectError("A draft request object is required"),
+);
+export type MessageDraftInput = z.infer<typeof messageDraftInputSchema>;
+
 /**
  * A message to client companies that is not about one job: to every company
  * ("all") or to the companies chosen, sent by the configured channels.

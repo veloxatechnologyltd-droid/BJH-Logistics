@@ -676,6 +676,13 @@ export const sendJobMessage = (
   input: { subject?: string; body: string },
 ) =>
   send<JobNotification>(`/${encodeURIComponent(id)}/messages`, "POST", input);
+/** The AI drafts a message about this job; nothing is sent. */
+export const draftJobMessage = (id: string, instruction: string) =>
+  send<{ subject: string; body: string }>(
+    `/${encodeURIComponent(id)}/messages/draft`,
+    "POST",
+    { instruction },
+  );
 
 export type ExtractionField = {
   key: string;
