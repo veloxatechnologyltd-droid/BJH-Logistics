@@ -217,6 +217,22 @@ test("only the email service that knows the secret can post an email, and with n
   process.env.INBOUND_EMAIL_SECRET = SECRET;
 });
 
+test("reading the mailbox on demand needs the intake secret, and says so when no mailbox is set up", async () => {
+  const poll = (headers: Record<string, string>) =>
+    fetch(`${baseUrl}/api/v1/inbound-email/poll`, { method: "POST", headers });
+  assert.equal((await poll({})).status, 401);
+  assert.equal(
+    (await poll({ authorization: `Bearer ${TEST_SUPER_ADMIN_TOKEN}` })).status,
+    401,
+  );
+  const off = await poll({ authorization: `Bearer ${SECRET}` });
+  assert.equal(off.status, 503);
+  assert.match(
+    ((await off.json()) as { message: string }).message,
+    /No mailbox is set up/,
+  );
+});
+
 test("an email becomes a request, and what the AI read fills in its details", async () => {
   nextReading(reading());
   const sent = email({ subject: "Two containers Shanghai to Tema" });

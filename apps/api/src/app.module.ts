@@ -65,6 +65,7 @@ import { InvoicesService } from "./finance/invoices.service";
 import { InboundEmailController } from "./intake/inbound-email.controller";
 import { InboundEmailService } from "./intake/inbound-email.service";
 import { EmailAssistantService } from "./intake/email-assistant.service";
+import { MailboxReaderService } from "./intake/mailbox-reader.service";
 import { REPLY_DRAFTER, createReplyDrafter } from "./intake/reply-drafter";
 import {
   EMAIL_EXTRACTOR,
@@ -154,6 +155,7 @@ import { QuotesService } from "./quotations/quotes.service";
     InboundEmailService,
     { provide: EMAIL_EXTRACTOR, useFactory: () => createEmailExtractor() },
     EmailAssistantService,
+    MailboxReaderService,
     { provide: REPLY_DRAFTER, useFactory: () => createReplyDrafter() },
     TransportService,
     TransportDocumentsService,
