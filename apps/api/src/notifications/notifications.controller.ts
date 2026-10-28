@@ -22,6 +22,7 @@ import type { AuthenticatedRequest } from "../auth/auth.guards";
 import { DatabasePort } from "../database/database.port";
 import type { NotificationDeliveryRecord } from "../database/database.port";
 import { JobsService } from "../jobs/jobs.service";
+import { MessageDraftsService } from "./message-drafts.service";
 import { NotificationDispatcher } from "./notification-dispatcher.service";
 import { NotificationsService } from "./notifications.service";
 import {
@@ -127,6 +128,8 @@ export class JobMessagesController {
     @Inject(JobsService) private readonly jobs: JobsService,
     @Inject(NotificationsService)
     private readonly notifications: NotificationsService,
+    @Inject(MessageDraftsService)
+    private readonly drafts: MessageDraftsService,
   ) {}
 
   @Get("notifications")
@@ -148,6 +151,17 @@ export class JobMessagesController {
       request.authUser!.userId,
     );
   }
+
+  /** The AI drafts a message about this job; nothing is sent. */
+  @Post("messages/draft")
+  async draft(
+    @Param("id") id: string,
+    @Body() body: unknown,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    const job = await this.jobs.get(id, scopeOf(request));
+    return this.drafts.draftJobMessage(job, body);
+  }
 }
 
 /** Client communication across every job: read what was sent, and write to clients. */
@@ -158,6 +172,8 @@ export class ClientMessagesController {
     @Inject(DatabasePort) private readonly database: DatabasePort,
     @Inject(NotificationsService)
     private readonly notifications: NotificationsService,
+    @Inject(MessageDraftsService)
+    private readonly drafts: MessageDraftsService,
   ) {}
 
   @Get()
@@ -184,6 +200,7 @@ export class ClientMessagesController {
     }
     return {
       channels: await this.notifications.channelMode(),
+      aiDrafting: this.drafts.available,
       messages: await this.database.listNotificationFeed({
         companyId: companyId ?? null,
         event: event ?? null,
@@ -196,5 +213,11 @@ export class ClientMessagesController {
   @Post()
   send(@Body() body: unknown, @Req() request: AuthenticatedRequest) {
     return this.notifications.sendClientMessage(body, request.authUser!.userId);
+  }
+
+  /** The AI drafts a message to clients, using no customer's data; nothing is sent. */
+  @Post("draft")
+  draft(@Body() body: unknown) {
+    return this.drafts.draftClientMessage(body);
   }
 }

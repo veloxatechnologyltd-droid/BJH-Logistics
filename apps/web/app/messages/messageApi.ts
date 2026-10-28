@@ -27,7 +27,14 @@ export type ClientMessage = {
   deliveries: MessageDelivery[];
 };
 
-export type Feed = { channels: ChannelMode; messages: ClientMessage[] };
+export type Feed = {
+  channels: ChannelMode;
+  /** Whether the AI can draft messages (an Anthropic key is set up). */
+  aiDrafting: boolean;
+  messages: ClientMessage[];
+};
+
+export type DraftedMessage = { subject: string; body: string };
 
 export type SendResult = {
   event: "message" | "broadcast";
@@ -98,6 +105,19 @@ export async function sendClientMessage(input: {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(input),
+    }),
+  );
+}
+
+/** The AI drafts a message to clients from what staff want it to say; nothing is sent. */
+export async function draftClientMessage(
+  instruction: string,
+): Promise<DraftedMessage> {
+  return read<DraftedMessage>(
+    await authenticatedFetch(`${apiBaseUrl}/v1/messages/draft`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ instruction }),
     }),
   );
 }
