@@ -14,8 +14,7 @@
   text-decoration: none;
 }
 
-.backLink:hover,
-.requestRow:hover .rowAction {
+.backLink:hover {
   text-decoration: underline;
 }
 
@@ -152,14 +151,6 @@
   background: #082f86;
 }
 
-.sampleCount {
-  border: 0;
-  background: #eef3f7;
-  color: #657787;
-  font-size: 0.75rem;
-  letter-spacing: 0;
-}
-
 .searchLabel {
   display: block;
   margin-bottom: 8px;
@@ -239,69 +230,175 @@
 
 .requestRow {
   display: grid;
-  grid-template-columns: 38px minmax(220px, 1.4fr) minmax(180px, 1fr) auto;
-  align-items: center;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  align-items: start;
   gap: 14px;
-  min-height: 92px;
   color: inherit;
-  padding: 14px 7px;
+  padding: 16px 10px;
   text-decoration: none;
 }
 
 .requestRow:hover {
-  background: #f9fbfd;
+  background: #f6f9fd;
+}
+
+/* Not checked yet: a blue edge, like an unread email. */
+.requestRowNew {
+  box-shadow: inset 3px 0 0 var(--brand-primary);
+  background: #f7faff;
 }
 
 .requestMark {
   display: grid;
-  width: 36px;
-  height: 36px;
+  width: 38px;
+  height: 38px;
   place-items: center;
-  border-radius: 9px;
+  border-radius: 50%;
   background: #edf3fc;
   color: var(--brand-primary);
   font-size: 0.78rem;
   font-weight: 700;
 }
 
-.requestMain,
-.requestContact {
+.requestMain {
   display: grid;
   min-width: 0;
-  gap: 5px;
+  gap: 4px;
 }
 
-.requestTag {
-  color: #7b8c99;
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+.rowFrom {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 8px;
 }
 
-.requestMain > strong,
-.requestContact > strong {
+.rowFrom strong {
   overflow: hidden;
-  color: #29445d;
+  flex: 0 1 auto;
+  color: var(--brand-ink);
+  font-size: 0.9rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowFrom span,
+.rowCustomer {
+  overflow: hidden;
+  color: #718393;
   font-size: 0.78rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.messagePreview,
-.requestContact > span {
+.rowSubject {
   overflow: hidden;
-  color: #718393;
-  font-size: 0.75rem;
+  color: #29445d;
+  font-size: 0.85rem;
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.rowAction {
-  color: var(--brand-primary);
-  font-size: 0.75rem;
+.requestRowNew .rowSubject {
   font-weight: 700;
+}
+
+.messagePreview {
+  overflow: hidden;
+  color: #718393;
+  font-size: 0.78rem;
+  text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.rowPills {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.pill,
+.pillNew {
+  border-radius: 999px;
+  padding: 2px 9px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.pill {
+  background: #edf3fc;
+  color: var(--brand-primary);
+}
+
+.pillNew {
+  background: var(--brand-primary);
+  color: #fff;
+}
+
+.rowCustomer {
+  margin-left: 4px;
+}
+
+.rowTime {
+  color: #526b7d;
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.inboxTabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid #e5ebf0;
+}
+
+.inboxTab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: -1px;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  background: none;
+  color: #526b7d;
+  padding: 10px 14px;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.inboxTab:hover {
+  color: var(--brand-primary);
+}
+
+.inboxTabActive {
+  border-bottom-color: var(--brand-primary);
+  color: var(--brand-primary);
+}
+
+.inboxTabCount {
+  border-radius: 999px;
+  background: #edf3fc;
+  color: var(--brand-primary);
+  padding: 1px 8px;
+  font-size: 0.72rem;
+}
+
+.inboxTabActive .inboxTabCount {
+  background: var(--brand-primary);
+  color: #fff;
+}
+
+.searchRow + .requestList,
+.searchRow + .emptyState {
+  margin-top: 12px;
 }
 
 .emptyState,
@@ -786,22 +883,6 @@ input:focus-visible {
   }
 }
 
-@media (max-width: 760px) {
-  .requestRow {
-    grid-template-columns: 36px minmax(0, 1fr) auto;
-    gap: 11px;
-  }
-
-  .requestContact {
-    grid-column: 2;
-  }
-
-  .rowAction {
-    grid-column: 3;
-    grid-row: 1 / span 2;
-  }
-}
-
 @media (max-width: 620px) {
   .page {
     padding: 24px 14px 38px;
@@ -831,13 +912,9 @@ input:focus-visible {
     margin-top: 12px;
   }
 
-  .sampleCount {
-    display: inline-block;
-    margin-top: 11px;
-  }
-
   .requestRow {
-    grid-template-columns: 32px minmax(0, 1fr);
+    grid-template-columns: 32px minmax(0, 1fr) auto;
+    gap: 10px;
     padding: 13px 4px;
   }
 
@@ -846,14 +923,8 @@ input:focus-visible {
     height: 31px;
   }
 
-  .requestContact {
-    grid-column: 2;
-  }
-
-  .rowAction {
-    grid-column: 2;
-    grid-row: auto;
-    margin-top: 2px;
+  .rowFrom span {
+    display: none;
   }
 
   .contactGrid {

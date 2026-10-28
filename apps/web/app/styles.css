@@ -201,6 +201,18 @@ textarea {
 .nav-link:hover .nav-icon {
   color: #fff;
 }
+.nav-badge {
+  min-width: 20px;
+  margin-left: auto;
+  border-radius: 10px;
+  background: #fff;
+  color: var(--brand-primary);
+  padding: 1px 6px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+}
 
 .status-dot {
   width: 8px;
@@ -261,6 +273,17 @@ textarea {
 }
 .collapsed .nav-link.active::before {
   left: -12px;
+}
+/* On the icon rail the count shrinks to a dot on the icon. */
+.collapsed .nav-badge {
+  position: absolute;
+  top: 7px;
+  right: 9px;
+  width: 9px;
+  min-width: 0;
+  height: 9px;
+  padding: 0;
+  font-size: 0;
 }
 .collapsed .sidebar-toggle {
   margin-left: 0;

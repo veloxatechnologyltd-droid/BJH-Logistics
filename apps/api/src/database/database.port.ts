@@ -62,6 +62,8 @@ export interface RequestReplyRecord {
   draftedAt: string | null;
   sentAt: string | null;
   sentBy: string | null;
+  /** The assistant sent it by itself (ASSISTANT_AUTO_REPLY), so no person did. */
+  sentByAssistant: boolean;
 }
 
 export interface QuoteRequestRecord {
@@ -900,7 +902,8 @@ export abstract class DatabasePort {
     sent: {
       subject: string;
       body: string;
-      sentBy: string;
+      /** Null when the assistant sent it by itself. */
+      sentBy: string | null;
       notificationId: string;
     },
   ): Promise<QuoteRequestRecord | "sent">;

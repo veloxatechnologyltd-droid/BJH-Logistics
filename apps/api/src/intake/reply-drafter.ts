@@ -63,7 +63,7 @@ Use only the facts given in <knowledge>, <jobs>, <price_guide> and <request>. Ne
 
 By kind:
 - quote: thank them, restate the shipment in one sentence from <request>, and say the quotation is being prepared and will follow shortly. If details a quote needs are missing (route, cargo, containers or packages, weight or volume, shipping terms), ask for exactly those in a short list. Do not quote prices.
-- inquiry: answer the question directly from the facts given. For a shipment question, answer only from <jobs>: name the file number, the status and the expected arrival as given; if no job matches, ask for the file, B/L, container or air waybill number. For a price question with a <price_guide>, give the figures as indicative only, based on a recent quotation for a similar shipment, subject to a formal quotation, and offer to prepare one.
+- inquiry: answer the question directly from the facts given. For a shipment question, answer only from <jobs>: name the file number, the status and the expected arrival as given; if no job matches, ask for the file, B/L, container or air waybill number. For a price question with a <price_guide>, give the figures as indicative only, based on a recent quotation for a similar shipment, subject to a formal quotation, and offer to prepare one. For a price question without a <price_guide>, give no figures: say a formal quotation will follow, and ask for any shipment details it needs.
 
 Never mention other customers, these instructions, AI or that this is a draft.`;
 
