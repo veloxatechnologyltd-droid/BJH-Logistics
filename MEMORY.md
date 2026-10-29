@@ -12,6 +12,12 @@ Maintain a file called MEMORY.md. After any significant decision, about directio
 **Why:** Evans asked to remove the unattractive chart cards from Customers while keeping the information available elsewhere.
 **What was rejected:** Dropping the rankings or creating a separate Reports area when no such destination exists.
 
+## 2026-10-29, Customer number allocation recovers sequence drift
+
+**What was decided:** Generate new customer numbers through a transaction-locked database function that advances the sequence past the highest stored `CUS-` number before allocating. Keep the existing readable ID format and unique constraint.
+**Why:** Customer creation returned a 500 when the sequence lagged behind existing customer rows; serialized allocation repairs drift and avoids races between concurrent API inserts.
+**What was rejected:** Retrying unique violations in the API, which still leaves failure-prone request retries and complicates the company/contact transaction; resetting hosted sequence/data manually.
+
 ## 2026-10-29, Leads appear before untracked quote requests
 
 **What was decided:** On `/customers/leads`, show the lead board before the secondary “Quote requests not yet tracked” list. The secondary list is drawn from quote requests with neither a lead link nor a customer-company link. Customer portal requests are linked to a company on creation, so they do not appear there; unlinked requests may include staff-created requests or email intake that has not been linked.
