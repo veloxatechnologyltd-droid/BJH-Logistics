@@ -32,7 +32,7 @@ test("lists only filled fields, in form order", () => {
       "Origin: Shanghai",
       "Destination: Tema",
       "Cargo: Machine parts & spares",
-      "Weight / dimensions / container: 1 x 40ft",
+      "Dimensions / weight / container: 1 x 40ft",
     ].join("\n"),
   );
 });

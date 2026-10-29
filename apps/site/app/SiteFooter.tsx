@@ -12,8 +12,7 @@ export function SiteFooter() {
             <span className="logo-text">Logistics</span>
           </Link>
           <p className="footer-about">
-            Freight forwarding, customs clearance and logistics from Tema,
-            Ghana, since {FOUNDED}.
+            {contact.tagline}, since {FOUNDED}.
           </p>
           <div className="socials">
             {contact.socials.map((social) => (
@@ -73,16 +72,26 @@ export function SiteFooter() {
               <a href={telHref(contact.hotline)}>{contact.hotline}</a>
             </li>
             <li>
+              <Icon name="phone" size={18} />
+              <a href={telHref(contact.telephone)}>{contact.telephone}</a>
+            </li>
+            <li>
               <Icon name="mail" size={18} />
               <a href={`mailto:${contact.enquiriesEmail}`}>
                 {contact.enquiriesEmail}
+              </a>
+            </li>
+            <li>
+              <Icon name="mail" size={18} />
+              <a href={`mailto:${contact.quotesEmail}`}>
+                {contact.quotesEmail}
               </a>
             </li>
           </ul>
         </div>
       </div>
       <div className="container footer-bottom">
-        © {new Date().getFullYear()} {contact.company} All rights reserved.
+        © {new Date().getFullYear()} {contact.company}. All rights reserved.
       </div>
     </footer>
   );

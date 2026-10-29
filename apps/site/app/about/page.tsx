@@ -1,11 +1,5 @@
 import type { Metadata } from "next";
-import {
-  affiliations,
-  benefits,
-  carriers,
-  differentiators,
-  FOUNDED,
-} from "../content";
+import { benefits, differentiators, serviceGroups, FOUNDED } from "../content";
 import { Icon } from "../Icon";
 import { CtaBand, PageHero, SectionHeading } from "../Sections";
 
@@ -21,9 +15,9 @@ export default function AboutPage() {
         eyebrow="About us"
         title={`Delivering logistics solutions since ${FOUNDED}`}
       >
-        BJH Logistics Services Ltd. is a freight forwarding and logistics
-        company based in Tema, Ghana, with project cargo and offshore support
-        across West Africa.
+        BJH Logistics Services Ltd is a Tema-based freight forwarding and
+        logistics company supporting importers, exporters, project cargo teams,
+        offshore operators and growing businesses.
       </PageHero>
 
       <section className="section">
@@ -32,11 +26,11 @@ export default function AboutPage() {
             <p className="eyebrow">Who we are</p>
             <h2>Close to the port, close to our customers</h2>
             <p className="section-lead">
-              From our office in Tema Community 1, a short distance from Tema
-              Port, we arrange air, sea and road freight, clear cargo through
-              customs, store it and deliver it. Importers, exporters and project
-              teams rely on us to handle the whole chain so they can focus on
-              their business.
+              We coordinate cargo movement across sea, air and land, and link it
+              with customs, storage, documentation and final delivery. Our
+              service model is built for customers who want one commercial
+              contact to coordinate every stage of a shipment, rather than
+              manage each stage separately.
             </p>
           </div>
           <div className="differentiators">
@@ -87,40 +81,24 @@ export default function AboutPage() {
       <section className="section">
         <div className="container">
           <SectionHeading
-            eyebrow="Network"
-            title="Carriers and affiliations"
+            eyebrow="What we coordinate"
+            title="Freight, clearance and specialist support"
             center
           />
           <div className="network-grid">
-            {[
-              {
-                title: "Ocean carriers",
-                names: carriers.sea,
-                icon: "ship" as const,
-              },
-              {
-                title: "Air carriers",
-                names: carriers.air,
-                icon: "plane" as const,
-              },
-              {
-                title: "Affiliations",
-                names: affiliations,
-                icon: "globe" as const,
-              },
-            ].map((column, index) => (
+            {serviceGroups.map((group, index) => (
               <div
-                key={column.title}
+                key={group.title}
                 className="network-card reveal"
                 style={{ transitionDelay: `${index * 100}ms` }}
               >
                 <span className="icon-box">
-                  <Icon name={column.icon} />
+                  <Icon name={group.services[0].icon} />
                 </span>
-                <h3>{column.title}</h3>
+                <h3>{group.title}</h3>
                 <ul>
-                  {column.names.map((name) => (
-                    <li key={name}>{name}</li>
+                  {group.services.map((service) => (
+                    <li key={service.slug}>{service.title}</li>
                   ))}
                 </ul>
               </div>

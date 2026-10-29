@@ -1,27 +1,34 @@
 import type { Metadata } from "next";
-import { processSteps, projects } from "../content";
+import { processSteps, specialistServices } from "../content";
 import { Icon } from "../Icon";
 import { CtaBand, PageHero, SectionHeading } from "../Sections";
 
 export const metadata: Metadata = {
-  title: "Projects",
+  title: "Projects and specialist cargo",
   description:
-    "Mining, oil and gas, project cargo, humanitarian, automotive and scrap metal logistics in Ghana and West Africa.",
+    "Project cargo, offshore shipping and ship supply, RoRo, container sales, cargo insurance, licence support and scrap metal export logistics from Tema, Ghana.",
 };
 
 export default function ProjectsPage() {
   return (
     <>
-      <PageHero eyebrow="Projects" title="Logistics for demanding industries">
-        Heavy equipment, time-critical parts and large shipments need a partner
-        who plans every step. These are the sectors we support.
+      <PageHero
+        eyebrow="Projects and specialist cargo"
+        title="For cargo that needs more than a standard booking"
+      >
+        These service paths can be combined with customs, transport, storage and
+        documentation support.
       </PageHero>
 
       <section className="section">
         <div className="container">
           <div className="project-list">
-            {projects.map((project, index) => (
-              <article key={project.title} className="project-row reveal">
+            {specialistServices.map((project, index) => (
+              <article
+                key={project.slug}
+                id={project.slug}
+                className="project-row reveal"
+              >
                 <span className="project-index">
                   {String(index + 1).padStart(2, "0")}
                 </span>

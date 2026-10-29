@@ -21,8 +21,8 @@ const labels: [keyof QuoteDetails, string][] = [
   ["origin", "Origin"],
   ["destination", "Destination"],
   ["cargo", "Cargo"],
-  ["weight", "Weight / dimensions / container"],
-  ["readyDate", "Cargo ready"],
+  ["weight", "Dimensions / weight / container"],
+  ["readyDate", "Preferred timing"],
   ["notes", "Notes"],
 ];
 

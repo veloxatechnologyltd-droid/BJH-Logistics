@@ -1,16 +1,14 @@
 import Link from "next/link";
 import Image from "next/image";
 import {
-  affiliations,
   allServices,
   benefits,
-  carriers,
   contact,
+  customers,
   faqs,
   featuredServices,
   FOUNDED,
   processSteps,
-  projects,
   whatsappHref,
 } from "./content";
 import { Icon } from "./Icon";
@@ -19,7 +17,7 @@ import { CtaBand, SectionHeading } from "./Sections";
 const yearsInBusiness = new Date().getFullYear() - FOUNDED;
 
 export default function HomePage() {
-  const marquee = [...carriers.sea, ...carriers.air, ...affiliations];
+  const marquee = allServices.map((service) => service.title);
 
   return (
     <>
@@ -82,17 +80,29 @@ export default function HomePage() {
       <section id="stats" className="stats">
         <div className="container stats-grid">
           {[
-            { value: yearsInBusiness, suffix: "+", label: "Years in business" },
+            {
+              value: yearsInBusiness,
+              prefix: "",
+              suffix: "+",
+              label: "Years in business",
+            },
             {
               value: allServices.length,
+              prefix: "",
               suffix: "",
               label: "Logistics services",
             },
-            { value: 3, suffix: "", label: "Modes: air, sea and land" },
             {
-              value: affiliations.length,
+              value: 3,
+              prefix: "",
               suffix: "",
-              label: "Industry affiliations",
+              label: "Modes: air, sea and land",
+            },
+            {
+              value: 5,
+              prefix: "3–",
+              suffix: "",
+              label: "Business days to clear at Tema Port",
             },
           ].map((stat, index) => (
             <div
@@ -101,6 +111,7 @@ export default function HomePage() {
               style={{ transitionDelay: `${index * 80}ms` }}
             >
               <p className="stat-value">
+                {stat.prefix}
                 <span data-count={stat.value}>{stat.value}</span>
                 {stat.suffix}
               </p>
@@ -116,8 +127,8 @@ export default function HomePage() {
             eyebrow="What we do"
             title="Logistics services for importers and exporters"
           >
-            From a single pallet to a full project shipment, we plan the route,
-            prepare the documents and keep your cargo moving.
+            We coordinate cargo across sea, air and land, and link it with the
+            customs, storage, documents and delivery your shipment needs.
           </SectionHeading>
           <div className="card-grid">
             {featuredServices.map((service, index) => (
@@ -162,10 +173,10 @@ export default function HomePage() {
             <p className="eyebrow">Why BJH Logistics</p>
             <h2>One team for freight, customs and delivery</h2>
             <p className="section-lead">
-              Working from Tema since {FOUNDED}, close to Ghana&apos;s main
-              port, we know the clearance process and the people who make it
-              work. You get clear answers, realistic timelines and someone who
-              picks up the phone.
+              Since {FOUNDED}, BJH Logistics has worked from Tema, next to
+              Ghana&apos;s principal seaport. Instead of managing each stage of
+              a shipment separately, you deal with one commercial contact who
+              coordinates them all.
             </p>
             <Link href="/about" className="btn btn-primary">
               About us <Icon name="arrow" size={18} />
@@ -214,14 +225,15 @@ export default function HomePage() {
       <section className="section dark">
         <div className="container">
           <SectionHeading
-            eyebrow="Industries"
-            title="Experience with complex cargo"
+            eyebrow="Who we support"
+            title="For importers, exporters and specialist cargo"
           >
-            Mining, energy, automotive and humanitarian projects all need
-            careful planning. We have handled them across Ghana and West Africa.
+            From growing businesses to project cargo teams and offshore
+            operators, customers rely on us for freight, customs, storage and
+            onward delivery.
           </SectionHeading>
           <div className="card-grid">
-            {projects.map((project, index) => (
+            {customers.map((project, index) => (
               <div
                 key={project.title}
                 className="project-card reveal"
@@ -237,7 +249,7 @@ export default function HomePage() {
           </div>
           <div className="center-action reveal">
             <Link href="/projects" className="btn btn-white">
-              View projects <Icon name="arrow" size={18} />
+              Specialist capability <Icon name="arrow" size={18} />
             </Link>
           </div>
         </div>
@@ -245,7 +257,7 @@ export default function HomePage() {
 
       <section className="partners">
         <p className="eyebrow center-text">
-          Carriers we book with and industry affiliations
+          Air • Sea • Land • Customs • Storage • Delivery
         </p>
         <div className="marquee" aria-label={marquee.join(", ")}>
           <div className="marquee-track" aria-hidden="true">

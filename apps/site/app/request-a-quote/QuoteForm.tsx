@@ -107,20 +107,20 @@ export function QuoteForm() {
           <textarea
             required
             rows={3}
-            placeholder="Type of goods, packaging, quantity"
+            placeholder="Cargo type, quantity and packaging"
             {...field("cargo")}
           />
         </label>
         <div className="form-row">
           <label>
-            Weight, dimensions or container
+            Approximate dimensions, weight or container
             <input
               placeholder="e.g. 1,200 kg, 3 pallets or 1 x 40ft"
               {...field("weight")}
             />
           </label>
           <label>
-            Cargo ready date
+            Preferred timing
             <input type="date" {...field("readyDate")} />
           </label>
         </div>
@@ -128,7 +128,7 @@ export function QuoteForm() {
           Anything else?
           <textarea
             rows={3}
-            placeholder="Customs clearance, delivery address, insurance…"
+            placeholder="Customs, storage, insurance or delivery support needed…"
             {...field("notes")}
           />
         </label>

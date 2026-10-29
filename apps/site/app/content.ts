@@ -1,6 +1,5 @@
-// Content taken from the current bjhlogistics.com site (October 2026).
-// Descriptions marked "placeholder" were written for this rebuild and still
-// need the client's confirmation.
+// Content follows BJH's company profile (October 2026), which takes
+// precedence over the old bjhlogistics.com site where they differ.
 
 export const FOUNDED = 2006;
 
@@ -13,16 +12,18 @@ export const SITE_URL = (
 ).replace(/\/$/, "");
 
 export const contact = {
-  company: "BJH Logistics Services Ltd.",
+  company: "BJH Logistics Services Ltd",
+  tagline: "Integrated logistics support from Tema, Ghana",
   address: [
     "House of Greener Pastures Building",
     "3rd Floor, Room 6, near Ecobank main branch",
-    "Tema Community 1, Tema, Ghana",
+    "Tema Community 1, Tema, Ghana, West Africa",
   ],
   mapUrl:
     "https://www.google.com/maps/search/?api=1&query=House+of+Greener+Pastures+Building+Tema+Community+1+Ghana",
-  hotline: "+233 598 415 519",
-  whatsapp: "+233 244 058 592",
+  hotline: "+233 59 841 5519",
+  whatsapp: "+233 24 405 8592",
+  telephone: "055 680 7983",
   enquiriesEmail: "enquiries@bjhlogistics.com",
   quotesEmail: "quotes@bjhlogistics.com",
   socials: [
@@ -37,7 +38,8 @@ export const contact = {
   ],
 };
 
-export const telHref = (phone: string) => `tel:${phone.replace(/\s/g, "")}`;
+export const telHref = (phone: string) =>
+  `tel:${phone.replace(/\s/g, "").replace(/^0/, "+233")}`;
 export const whatsappHref = (text?: string) =>
   `https://wa.me/${contact.whatsapp.replace(/\D/g, "")}${
     text ? `?text=${encodeURIComponent(text)}` : ""
@@ -60,10 +62,6 @@ export type IconName =
   | "globe"
   | "anchor"
   | "boxes"
-  | "mining"
-  | "oil"
-  | "aid"
-  | "clock"
   | "chat"
   | "coins";
 
@@ -75,9 +73,10 @@ export type Service = {
   image?: string;
 };
 
+// Grouped as in the profile's "What the company coordinates".
 export const serviceGroups: { title: string; services: Service[] }[] = [
   {
-    title: "Freight and shipping",
+    title: "Transport and freight",
     services: [
       {
         slug: "sea-freight",
@@ -85,7 +84,7 @@ export const serviceGroups: { title: string; services: Service[] }[] = [
         icon: "ship",
         image: "/images/tema-port-editorial.webp",
         summary:
-          "FCL and LCL shipping with port coordination, documentation support and delivery planning.",
+          "FCL and LCL coordination, port support, documentation and delivery planning for cargo moving into and out of Ghana, including 20ft and 40ft container movements.",
       },
       {
         slug: "air-freight",
@@ -93,7 +92,7 @@ export const serviceGroups: { title: string; services: Service[] }[] = [
         icon: "plane",
         image: "/images/air-cargo-editorial.webp",
         summary:
-          "Priority cargo handling, booking support, customs coordination, pickup planning and time-sensitive delivery.",
+          "Booking, customs coordination, pickup planning and time-sensitive delivery management for priority air cargo.",
       },
       {
         slug: "road-transport",
@@ -101,129 +100,102 @@ export const serviceGroups: { title: string; services: Service[] }[] = [
         icon: "truck",
         image: "/images/inland-logistics-editorial.webp",
         summary:
-          "Trucking for pickup, last-mile delivery, distribution and inland handling across Ghana and West Africa.",
-      },
-      {
-        slug: "freight-forwarding",
-        title: "Freight forwarding",
-        icon: "globe",
-        summary:
-          "Cargo coordination from Ghana, combined with transport, documentation and storage under one team.",
+          "Pickup, inland trucking, distribution and last-mile delivery beyond the port or airport, including 20ft and 40ft container transport from Tema to Accra.",
       },
       {
         slug: "door-to-door",
         title: "Door-to-door shipping",
         icon: "door",
         summary:
-          "Integrated pickup, transport, customs and final delivery, handled end to end.",
-      },
-      {
-        slug: "lcl-consolidation",
-        title: "LCL consolidation",
-        icon: "boxes",
-        // placeholder
-        summary:
-          "Share container space with other shippers and pay only for the volume your cargo uses.",
-      },
-      {
-        slug: "roro-shipping",
-        title: "RoRo shipping",
-        icon: "car",
-        summary:
-          "Roll-on/roll-off support for vehicles, machinery and other rolling cargo.",
+          "Pickup, main transport, customs clearance, storage where needed and final delivery in one connected plan.",
       },
     ],
   },
   {
-    title: "Customs and compliance",
+    title: "Clearance and control",
     services: [
       {
         slug: "customs-clearance",
         title: "Customs clearance",
         icon: "customs",
         summary:
-          "Document review, pre-clearance, inspection handling and release planning at the port and airport.",
+          "Document review, entry preparation, examination handling and release coordination for vehicles, general cargo and containerised cargo.",
       },
-      {
-        slug: "import-export-services",
-        title: "Import and export services",
-        icon: "anchor",
-        // placeholder
-        summary:
-          "Support for importers and exporters from booking through documentation, clearance and delivery.",
-      },
-      {
-        slug: "import-export-license",
-        title: "Import/export licence",
-        icon: "license",
-        summary:
-          "Licensing guidance and document readiness so your cargo is cleared without delay.",
-      },
-      {
-        slug: "cargo-insurance",
-        title: "Cargo insurance",
-        icon: "shield",
-        summary:
-          "Protection against loss, damage and theft while your cargo is in transit.",
-      },
-    ],
-  },
-  {
-    title: "Storage and equipment",
-    services: [
       {
         slug: "warehousing",
         title: "Warehousing and bonded storage",
         icon: "warehouse",
         summary:
-          "Secure storage with bonded options, cargo handling and inventory support.",
+          "Secure storage, bonded options, cargo handling, controlled staging and inventory support when goods cannot move straight to their destination.",
+      },
+      {
+        slug: "import-export-support",
+        title: "Import and export support",
+        icon: "anchor",
+        summary:
+          "Guidance on documentation, licences and cargo readiness for cross-border trade.",
+      },
+    ],
+  },
+  {
+    title: "Specialist support",
+    services: [
+      {
+        slug: "project-cargo",
+        title: "Project cargo handling",
+        icon: "project",
+        summary:
+          "Oversized, specialist or demanding cargo moved with route awareness, staging and controlled execution.",
+      },
+      {
+        slug: "offshore-ship-supply",
+        title: "Offshore shipping and ship supply",
+        icon: "offshore",
+        summary:
+          "Support for offshore operations, vessel requirements, ship spares, provisions and maritime project coordination.",
+      },
+      {
+        slug: "roro-shipping",
+        title: "RoRo shipping",
+        icon: "car",
+        summary:
+          "Roll-on roll-off support for vehicles and automotive cargo, with route, timing, handling and documents coordinated.",
       },
       {
         slug: "container-sales",
         title: "Container sales",
         icon: "container",
         summary:
-          "20 ft and 40 ft containers for storage, transport or site use.",
-      },
-    ],
-  },
-  {
-    title: "Marine and project cargo",
-    services: [
-      {
-        slug: "offshore-ship-supply",
-        title: "Offshore services and ship supply",
-        icon: "offshore",
-        summary:
-          "Support for offshore operations and vessel needs, including spares and provisions.",
+          "20ft and 40ft containers for storage, transport support and operational use.",
       },
       {
-        slug: "ship-agency",
-        title: "Ship agency",
-        icon: "anchor",
-        // placeholder
+        slug: "cargo-insurance",
+        title: "Cargo insurance",
+        icon: "shield",
         summary:
-          "Port call coordination and local representation for vessels calling at Ghana's ports.",
+          "Insurance support for cargo that needs protection against loss, damage, theft and related risks during movement.",
       },
       {
-        slug: "project-cargo",
-        title: "Project cargo handling",
-        icon: "project",
+        slug: "import-export-licence",
+        title: "Import/export licence support",
+        icon: "license",
         summary:
-          "Oversized and specialist cargo moved with route planning and controlled execution.",
+          "Guidance on licensing requirements, document readiness and alignment with Ghanaian import-export processes.",
       },
       {
         slug: "scrap-metal-export",
-        title: "Scrap metal export",
+        title: "Scrap metal export logistics",
         icon: "recycle",
         summary:
-          "Cargo coordination, documents and movement planning for scrap metal exporters.",
+          "Commercial and operational coordination for scrap metal export movements.",
       },
     ],
   },
 ];
 
 export const allServices = serviceGroups.flatMap((group) => group.services);
+
+export const specialistServices = serviceGroups[2].services;
 
 export const featuredServices = [
   "sea-freight",
@@ -234,138 +206,177 @@ export const featuredServices = [
   "door-to-door",
 ].map((slug) => allServices.find((service) => service.slug === slug)!);
 
-export const projects: { title: string; icon: IconName; summary: string }[] = [
+// The profile's "Customers supported".
+export const customers: { title: string; icon: IconName; summary: string }[] = [
   {
-    title: "Mining logistics",
-    icon: "mining",
+    title: "Importers",
+    icon: "anchor",
     summary:
-      "Equipment, spares and consumables moved to mine sites, with customs and inland transport planned together.",
+      "Cargo moving into Ghana by sea, air or road, cleared through customs and delivered.",
   },
   {
-    title: "Oil and gas logistics",
-    icon: "oil",
+    title: "Exporters",
+    icon: "globe",
     summary:
-      "Offshore and onshore supply, ship supply and time-critical parts for the energy sector.",
+      "Bookings, documents and cargo readiness for shipments leaving Ghana.",
   },
   {
-    title: "Project cargo handling",
+    title: "Project cargo teams",
     icon: "project",
     summary:
-      "Heavy, oversized and high-value cargo with route surveys, special equipment and controlled execution.",
+      "Oversized and specialist movements with route awareness, staging and controlled execution.",
   },
   {
-    title: "Humanitarian cargo",
-    icon: "aid",
+    title: "Offshore operators",
+    icon: "offshore",
     summary:
-      "Relief and development cargo cleared and delivered across West Africa.",
+      "Vessel requirements, ship spares, provisions and maritime project coordination.",
   },
   {
-    title: "Automotive and RoRo",
+    title: "Vehicle and RoRo customers",
     icon: "car",
     summary:
-      "Vehicle imports and fleet shipments for dealerships and companies, from vessel to final delivery.",
+      "Vehicles and automotive cargo shipped roll-on roll-off, with documents and delivery handled.",
   },
   {
-    title: "Scrap metal export",
-    icon: "recycle",
+    title: "Growing businesses",
+    icon: "boxes",
     summary:
-      "Export documents, container loading and shipping for scrap metal exporters.",
+      "Dependable freight, customs, storage and onward delivery without managing each stage yourself.",
   },
 ];
 
 export const benefits: { title: string; icon: IconName; text: string }[] = [
   {
-    title: "Cost-effective solutions",
-    icon: "coins",
-    text: "Routes, modes and carriers chosen to fit your budget and deadline.",
+    title: "One commercial contact",
+    icon: "chat",
+    text: "One team coordinates every stage of your shipment, so you don't manage each step separately.",
   },
   {
-    title: "Customs expertise",
+    title: "Customs and documentation",
     icon: "customs",
-    text: "Documents checked before your cargo arrives, so it is released without surprises.",
+    text: "Document review, entry preparation, examination handling and release coordination.",
   },
   {
-    title: "Global reach",
+    title: "Connected services",
     icon: "globe",
-    text: "Bookings with major ocean and air carriers and a worldwide agent network.",
+    text: "Freight linked with customs, storage, insurance and final delivery in one operating plan.",
   },
   {
-    title: "Timely deliveries",
-    icon: "clock",
-    text: "Every step planned and followed up until the cargo is delivered.",
+    title: "Clear cost basis",
+    icon: "coins",
+    text: "Customs duty, shipping line and port terminal charges are passed on at cost in your quotation.",
   },
 ];
 
 export const processSteps = [
   {
     title: "Consultation",
-    text: "We learn what you are shipping, where it is going and when it must arrive.",
+    text: "We review the cargo type, route, quantities, dimensions, timing and any customs, storage, insurance or delivery needs.",
   },
   {
     title: "Planning",
-    text: "We choose the route, mode and carrier and prepare the documents.",
+    text: "We arrange the handling sequence around the freight mode, documents, customs, storage and delivery milestones.",
   },
   {
     title: "Execution",
-    text: "We book, collect, clear and move your cargo.",
+    text: "We coordinate the cargo movement, handovers, documents and connected services.",
   },
   {
     title: "Monitoring",
-    text: "We follow the shipment and keep you updated at every stage.",
+    text: "We follow progress, respond to operational issues and keep you informed on timing and release points.",
   },
   {
     title: "Delivery and follow-through",
-    text: "We deliver, confirm and close out the paperwork.",
+    text: "We complete final delivery and use your feedback to plan future movements.",
   },
 ];
 
 export const differentiators = [
   {
-    title: "Practical experience",
-    text: `Working from Tema since ${FOUNDED}, we know the port, the airport and the clearance process first-hand.`,
+    title: `Operating since ${FOUNDED}`,
+    text: `Integrated logistics support from Tema, Ghana, since ${FOUNDED}.`,
   },
   {
-    title: "One integrated team",
-    text: "Freight, customs, storage and delivery handled together, so nothing falls between providers.",
+    title: "Next to Ghana's principal seaport",
+    text: "Tema gives direct proximity to the port and strong connections to inland distribution routes.",
   },
   {
-    title: "Responsive communication",
-    text: "A team you can reach by phone, WhatsApp or email, with clear answers and regular updates.",
+    title: "One connected plan",
+    text: "Freight, customs, storage, documents and delivery planned around your shipment's route, size, timing and handling needs.",
   },
 ];
 
-export const carriers = {
-  sea: ["Maersk", "MSC", "CMA CGM", "Hapag-Lloyd", "Yang Ming", "NYK Line"],
-  air: ["Emirates", "Turkish Cargo", "Lufthansa Cargo", "KLM Cargo"],
+// The profile's clearance terms for general cargo at Tema Port.
+export const clearance = {
+  days: "3–5",
+  scope:
+    "Non-hazardous general cargo in 20ft and 40ft containers at Tema Port.",
+  steps: [
+    "Bill of entry (BOE) and documentation",
+    "Customs examination",
+    "Ghana Standards Authority requirements, where applicable",
+    "Duty assessment based on HS code and cargo value",
+    "Inland delivery arrangements",
+  ],
+  documents: [
+    {
+      name: "Commercial invoice",
+      purpose: "The declared commercial details and value of the goods.",
+    },
+    {
+      name: "Packing list",
+      purpose: "Package contents, quantities and packing arrangement.",
+    },
+    {
+      name: "Bill of lading with telex release",
+      purpose: "Shipment identification and cargo release processing.",
+    },
+  ],
 };
 
-export const affiliations = [
-  "GIFF",
-  "FIATA",
-  "IATA",
-  "AZfreight",
-  "Freightnet",
+export const quoteChecklist = [
+  "Cargo type and quantity",
+  "Approximate dimensions",
+  "Origin and destination",
+  "Preferred timing",
+  "Any customs, storage, insurance or delivery support needed",
 ];
 
 export const faqs = [
   {
     question: "What services does BJH Logistics offer?",
     answer:
-      "Sea, air and road freight, customs clearance, warehousing and bonded storage, door-to-door shipping, cargo insurance, container sales, import/export licensing, project cargo, offshore and ship supply.",
+      "Sea, air and road freight, door-to-door shipping, customs clearance, warehousing and bonded storage, import and export support, project cargo, offshore shipping and ship supply, RoRo shipping, container sales, cargo insurance, import/export licence support and scrap metal export logistics.",
   },
   {
     question: "Where are you located?",
     answer:
-      "Our office is in Tema Community 1, close to Tema Port, Ghana's main seaport. We handle cargo through Tema, Kotoka International Airport and across West Africa.",
+      "House of Greener Pastures Building, 3rd Floor, Room 6, near Ecobank main branch, Tema Community 1, close to Tema Port, Ghana's principal seaport.",
   },
   {
-    question: "Can you handle oversized or complex cargo?",
+    question: "How long does customs clearance take at Tema Port?",
     answer:
-      "Yes. We plan routes, equipment and permits for project cargo, heavy machinery, vehicles and other specialist shipments.",
+      "For non-hazardous general cargo in 20ft and 40ft containers, clearance and delivery takes 3–5 business days after the cargo arrives, provided the documents are ready and normal port and customs processes apply.",
+  },
+  {
+    question: "Which documents do I need for clearance?",
+    answer:
+      "Usually the commercial invoice, packing list and bill of lading with telex release. Ghana Standards Authority requirements may also apply, depending on the cargo.",
+  },
+  {
+    question: "How are customs duty and port charges priced?",
+    answer:
+      "Customs duty is charged at cost and depends on the HS code and value of the goods. Shipping line and port terminal charges are also charged at cost in your quotation.",
+  },
+  {
+    question: "Can you handle oversized or specialist cargo?",
+    answer:
+      "Yes. Project cargo handling covers oversized, specialist and demanding movements with route awareness, staging and controlled execution. We also support offshore operations, RoRo vehicle shipments and scrap metal exports.",
   },
   {
     question: "What do you need to give me a quote?",
     answer:
-      "The origin and destination, a description of the cargo, its weight and dimensions (or container type), when it will be ready, and whether you need customs clearance or delivery.",
+      "The cargo type and quantity, approximate dimensions, origin and destination, preferred timing, and any customs, storage, insurance or delivery support you need.",
   },
 ];

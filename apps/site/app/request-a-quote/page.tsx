@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
-import { contact, telHref, whatsappHref } from "../content";
+import { contact, quoteChecklist, telHref, whatsappHref } from "../content";
 import { Icon } from "../Icon";
 import { PageHero } from "../Sections";
 import { QuoteForm } from "./QuoteForm";
@@ -31,6 +31,9 @@ export default function RequestQuotePage() {
             <a href={telHref(contact.hotline)} className="aside-link">
               <Icon name="phone" size={20} /> {contact.hotline}
             </a>
+            <a href={telHref(contact.telephone)} className="aside-link">
+              <Icon name="phone" size={20} /> {contact.telephone}
+            </a>
             <a
               href={whatsappHref()}
               className="aside-link"
@@ -42,15 +45,9 @@ export default function RequestQuotePage() {
             <a href={`mailto:${contact.quotesEmail}`} className="aside-link">
               <Icon name="mail" size={20} /> {contact.quotesEmail}
             </a>
-            <h3>Helpful to include</h3>
+            <h3>For an accurate quotation, include</h3>
             <ul className="checklist">
-              {[
-                "Origin and destination",
-                "Cargo description",
-                "Weight and dimensions, or container type",
-                "Date the cargo will be ready",
-                "Whether you need customs clearance or delivery",
-              ].map((item) => (
+              {quoteChecklist.map((item) => (
                 <li key={item}>
                   <Icon name="check" size={16} /> {item}
                 </li>

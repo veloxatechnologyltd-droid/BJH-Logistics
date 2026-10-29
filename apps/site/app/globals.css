@@ -1028,6 +1028,55 @@ h2 {
   gap: 12px;
 }
 
+/* Tema Port clearance (services page) */
+
+.nowrap {
+  white-space: nowrap;
+}
+
+.clearance-steps {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+}
+
+.clearance-steps li {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-weight: 600;
+  counter-increment: step;
+}
+
+.clearance-steps li::before {
+  content: counter(step);
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--blue);
+  color: var(--white);
+  font-size: 0.85rem;
+}
+
+.clearance-note {
+  padding: 18px 22px;
+  border-left: 3px solid var(--blue);
+  border-radius: 0 12px 12px 0;
+  background: var(--white);
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.tinted .differentiator {
+  background: var(--white);
+}
+
 /* Projects page */
 
 .project-list {

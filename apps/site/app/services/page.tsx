@@ -1,14 +1,14 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import Image from "next/image";
-import { serviceGroups } from "../content";
+import { clearance, serviceGroups } from "../content";
 import { Icon } from "../Icon";
 import { CtaBand, PageHero } from "../Sections";
 
 export const metadata: Metadata = {
   title: "Services",
   description:
-    "Sea, air and road freight, customs clearance, warehousing, container sales, cargo insurance and project cargo from Tema, Ghana.",
+    "Sea, air and road freight, customs clearance at Tema Port, warehousing and bonded storage, container sales, cargo insurance and project cargo from Tema, Ghana.",
 };
 
 export default function ServicesPage() {
@@ -68,6 +68,50 @@ export default function ServicesPage() {
           </div>
         </section>
       ))}
+
+      <section id="tema-port-clearance" className="section tinted">
+        <div className="container split">
+          <div className="reveal from-left">
+            <p className="eyebrow">Customs clearance at Tema Port</p>
+            <h2>
+              Cleared and delivered in{" "}
+              <span className="nowrap">{clearance.days} business days</span>
+            </h2>
+            <p className="section-lead">
+              {clearance.scope} The time runs from cargo arrival, provided the
+              required documents are available and normal port and customs
+              processes apply.
+            </p>
+            <ol className="clearance-steps">
+              {clearance.steps.map((step) => (
+                <li key={step}>{step}</li>
+              ))}
+            </ol>
+          </div>
+          <div className="differentiators">
+            {clearance.documents.map((document, index) => (
+              <div
+                key={document.name}
+                className="differentiator reveal"
+                style={{ transitionDelay: `${index * 100}ms` }}
+              >
+                <span className="check">
+                  <Icon name="license" size={18} />
+                </span>
+                <div>
+                  <h3>{document.name}</h3>
+                  <p>{document.purpose}</p>
+                </div>
+              </div>
+            ))}
+            <p className="clearance-note reveal">
+              Customs duty is charged at cost, based on the HS code and value of
+              the goods. Shipping line and port terminal charges are also
+              charged at cost in your quotation.
+            </p>
+          </div>
+        </div>
+      </section>
 
       <CtaBand />
     </>

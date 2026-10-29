@@ -26,6 +26,12 @@ export default function ContactPage() {
       external: true,
     },
     {
+      icon: "phone" as const,
+      title: "Additional telephone",
+      text: contact.telephone,
+      href: telHref(contact.telephone),
+    },
+    {
       icon: "mail" as const,
       title: "General enquiries",
       text: contact.enquiriesEmail,

@@ -1,5 +1,11 @@
 Maintain a file called MEMORY.md. After any significant decision, about direction, format, content, approach, or strategy, add an entry:
 
+## 2026-10-29, Company profile is the source for website content
+
+**What was decided:** The client's company profile (`apps/site/profile bjhlogistics.pdf`, kept locally and not committed) is the authority for the public site's wording. The site now lists the profile's 14 services in its three groups, its "customers supported", process wording, Tema Port clearance terms (3-5 business days, documents, duty and charges at cost) and its contacts, including the additional telephone 055 680 7983.
+**Why:** Evans asked that the website tally with the business profile the client sent.
+**What was rejected:** Keeping claims from the old site that the profile does not make: ship agency, separate LCL consolidation and freight forwarding cards, mining/oil and gas/humanitarian projects, and the carrier and affiliation lists (Maersk, IATA, FIATA, etc.). They can return if the client confirms them.
+
 ## 2026-10-28, Editorial imagery for the public site
 
 **What was decided:** Use three GPT Image generated, web-optimized editorial scenes for the public site's port hero and sea, air, and inland service cards. Keep logos and operational proof out of generated imagery.
