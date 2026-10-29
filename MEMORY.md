@@ -12,6 +12,12 @@ Maintain a file called MEMORY.md. After any significant decision, about directio
 **Why:** Evans asked to remove the unattractive chart cards from Customers while keeping the information available elsewhere.
 **What was rejected:** Dropping the rankings or creating a separate Reports area when no such destination exists.
 
+## 2026-10-29, Customer directory filters use recorded lifecycle and billing data
+
+**What was decided:** Add Customers-page filters for companies with issued quotes, companies with fully paid invoices, and profiles created in the last 90 days. Label the payment filter "Paid invoices" because payments are recorded against invoices, not quotations. Keep the existing active/inactive filter and combine it with the new filter.
+**Why:** These filters support follow-up and prospecting using fields already returned by customer insights and profiles, without adding an API or database dependency.
+**What was rejected:** Calling payments "paid quotes" or deriving payment from quote acceptance; adding a new arbitrary definition of new client.
+
 ## 2026-10-29, Customer number allocation recovers sequence drift
 
 **What was decided:** Generate new customer numbers through a transaction-locked database function that advances the sequence past the highest stored `CUS-` number before allocating. Keep the existing readable ID format and unique constraint.
