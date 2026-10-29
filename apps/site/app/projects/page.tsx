@@ -1,12 +1,12 @@
 import type { Metadata } from "next";
-import { processSteps, specialistServices } from "../content";
+import { processSteps, sectors, specialistServices } from "../content";
 import { Icon } from "../Icon";
 import { CtaBand, PageHero, SectionHeading } from "../Sections";
 
 export const metadata: Metadata = {
   title: "Projects and specialist cargo",
   description:
-    "Project cargo, offshore shipping and ship supply, RoRo, container sales, cargo insurance, licence support and scrap metal export logistics from Tema, Ghana.",
+    "Mining, oil and gas, humanitarian and automotive projects, plus project cargo, offshore and ship supply, ship agency, RoRo, container sales, cargo insurance, licence support and scrap metal export logistics from Tema, Ghana.",
 };
 
 export default function ProjectsPage() {
@@ -20,8 +20,36 @@ export default function ProjectsPage() {
         documentation support.
       </PageHero>
 
+      <section className="section dark">
+        <div className="container">
+          <SectionHeading
+            eyebrow="Sectors"
+            title="Project sectors we support"
+          />
+          <div className="card-grid two">
+            {sectors.map((sector, index) => (
+              <div
+                key={sector.title}
+                className="project-card reveal"
+                style={{ transitionDelay: `${(index % 2) * 90}ms` }}
+              >
+                <span className="icon-box">
+                  <Icon name={sector.icon} />
+                </span>
+                <h3>{sector.title}</h3>
+                <p>{sector.summary}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
       <section className="section">
         <div className="container">
+          <SectionHeading
+            eyebrow="Specialist services"
+            title="Service paths for demanding cargo"
+          />
           <div className="project-list">
             {specialistServices.map((project, index) => (
               <article

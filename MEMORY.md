@@ -1,10 +1,10 @@
 Maintain a file called MEMORY.md. After any significant decision, about direction, format, content, approach, or strategy, add an entry:
 
-## 2026-10-29, Company profile is the source for website content
+## 2026-10-29, Website content syncs the company profile and the live site
 
-**What was decided:** The client's company profile (`apps/site/profile bjhlogistics.pdf`, kept locally and not committed) is the authority for the public site's wording. The site now lists the profile's 14 services in its three groups, its "customers supported", process wording, Tema Port clearance terms (3-5 business days, documents, duty and charges at cost) and its contacts, including the additional telephone 055 680 7983.
-**Why:** Evans asked that the website tally with the business profile the client sent.
-**What was rejected:** Keeping claims from the old site that the profile does not make: ship agency, separate LCL consolidation and freight forwarding cards, mining/oil and gas/humanitarian projects, and the carrier and affiliation lists (Maersk, IATA, FIATA, etc.). They can return if the client confirms them.
+**What was decided:** The public site combines both sources the client gave: the company profile (`apps/site/profile bjhlogistics.pdf`, kept locally and not committed) and the live bjhlogistics.com. Where both describe the same thing, the profile's wording is used; everything else on the live site is kept. That means 17 services (including ship agency, LCL consolidation and freight forwarding), the live site's project sectors (mining, oil and gas, humanitarian, automotive), its carrier lists and industry affiliations, its four benefits, plus the profile's customers supported, Tema Port clearance terms and the additional telephone 055 680 7983.
+**Why:** Evans asked that the website stay in sync with both the business profile and the existing website, not drop website content the profile omits.
+**What was rejected:** Using the profile alone (an earlier pass did this and removed live-site content); claims in neither source (e.g. Kotoka airport, road transport "across West Africa").
 
 ## 2026-10-28, Editorial imagery for the public site
 

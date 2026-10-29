@@ -1,5 +1,12 @@
 import type { Metadata } from "next";
-import { benefits, differentiators, serviceGroups, FOUNDED } from "../content";
+import {
+  affiliations,
+  benefits,
+  carriers,
+  differentiators,
+  serviceGroups,
+  FOUNDED,
+} from "../content";
 import { Icon } from "../Icon";
 import { CtaBand, PageHero, SectionHeading } from "../Sections";
 
@@ -60,7 +67,7 @@ export default function AboutPage() {
             title="Why customers choose us"
             center
           />
-          <div className="benefit-grid four">
+          <div className="benefit-grid three">
             {benefits.map((benefit, index) => (
               <div
                 key={benefit.title}
@@ -103,6 +110,60 @@ export default function AboutPage() {
                 </ul>
               </div>
             ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="section tinted">
+        <div className="container">
+          <SectionHeading
+            eyebrow="Network"
+            title="Carriers and industry affiliations"
+            center
+          />
+          <div className="network-grid">
+            <div className="network-card reveal">
+              <span className="icon-box">
+                <Icon name="ship" />
+              </span>
+              <h3>By sea</h3>
+              <ul>
+                {carriers.sea.map((name) => (
+                  <li key={name}>{name}</li>
+                ))}
+              </ul>
+            </div>
+            <div
+              className="network-card reveal"
+              style={{ transitionDelay: "100ms" }}
+            >
+              <span className="icon-box">
+                <Icon name="plane" />
+              </span>
+              <h3>By air</h3>
+              <ul>
+                {carriers.air.map((code) => (
+                  <li key={code}>{code}</li>
+                ))}
+              </ul>
+            </div>
+            <div
+              className="network-card reveal"
+              style={{ transitionDelay: "200ms" }}
+            >
+              <span className="icon-box">
+                <Icon name="globe" />
+              </span>
+              <h3>Industry affiliations</h3>
+              <dl className="affiliations">
+                {affiliations.map((affiliation) => (
+                  <div key={affiliation.name}>
+                    <dt>{affiliation.name}</dt>
+                    <dd>{affiliation.detail}</dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
           </div>
         </div>
       </section>

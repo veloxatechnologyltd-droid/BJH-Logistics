@@ -2,7 +2,9 @@ import Link from "next/link";
 import Image from "next/image";
 import {
   allServices,
+  affiliations,
   benefits,
+  carriers,
   contact,
   customers,
   faqs,
@@ -17,7 +19,10 @@ import { CtaBand, SectionHeading } from "./Sections";
 const yearsInBusiness = new Date().getFullYear() - FOUNDED;
 
 export default function HomePage() {
-  const marquee = allServices.map((service) => service.title);
+  const marquee = [
+    ...carriers.sea,
+    ...affiliations.map((affiliation) => affiliation.name),
+  ];
 
   return (
     <>
@@ -257,7 +262,7 @@ export default function HomePage() {
 
       <section className="partners">
         <p className="eyebrow center-text">
-          Air • Sea • Land • Customs • Storage • Delivery
+          Carrier network and industry affiliations
         </p>
         <div className="marquee" aria-label={marquee.join(", ")}>
           <div className="marquee-track" aria-hidden="true">

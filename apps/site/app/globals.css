@@ -783,8 +783,33 @@ h2 {
   gap: 20px;
 }
 
-.benefit-grid.four {
-  grid-template-columns: repeat(4, 1fr);
+.benefit-grid.three {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.card-grid.two {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.affiliations {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+}
+
+.affiliations dt {
+  font-weight: 700;
+  color: var(--blue-dark);
+}
+
+.affiliations dd {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.tinted .network-card {
+  background: var(--white);
 }
 
 .benefit {
@@ -1501,7 +1526,7 @@ h2 {
     grid-template-columns: repeat(2, 1fr);
   }
 
-  .benefit-grid.four {
+  .benefit-grid.three {
     grid-template-columns: repeat(2, 1fr);
   }
 
@@ -1659,7 +1684,8 @@ h2 {
   .card-grid,
   .network-grid,
   .benefit-grid,
-  .benefit-grid.four,
+  .benefit-grid.three,
+  .card-grid.two,
   .footer-grid,
   .form-row {
     grid-template-columns: 1fr;

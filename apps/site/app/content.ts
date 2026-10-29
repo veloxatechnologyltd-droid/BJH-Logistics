@@ -1,5 +1,6 @@
-// Content follows BJH's company profile (October 2026), which takes
-// precedence over the old bjhlogistics.com site where they differ.
+// Content combines BJH's company profile and the current bjhlogistics.com
+// site (October 2026). Where both describe the same thing, the profile's
+// wording is used; everything else from the website is kept.
 
 export const FOUNDED = 2006;
 
@@ -62,6 +63,10 @@ export type IconName =
   | "globe"
   | "anchor"
   | "boxes"
+  | "mining"
+  | "oil"
+  | "aid"
+  | "clock"
   | "chat"
   | "coins";
 
@@ -101,6 +106,20 @@ export const serviceGroups: { title: string; services: Service[] }[] = [
         image: "/images/inland-logistics-editorial.webp",
         summary:
           "Pickup, inland trucking, distribution and last-mile delivery beyond the port or airport, including 20ft and 40ft container transport from Tema to Accra.",
+      },
+      {
+        slug: "lcl-consolidation",
+        title: "LCL consolidation",
+        icon: "boxes",
+        summary:
+          "Shared container capacity for smaller consignments, with consolidation handovers, arrival separation and Ghana release planned together.",
+      },
+      {
+        slug: "freight-forwarding",
+        title: "Freight forwarding",
+        icon: "globe",
+        summary:
+          "Multi-mode planning built around transit mode, cargo profile and timing, with documents and customs aligned and updates from booking to handover.",
       },
       {
         slug: "door-to-door",
@@ -155,6 +174,13 @@ export const serviceGroups: { title: string; services: Service[] }[] = [
           "Support for offshore operations, vessel requirements, ship spares, provisions and maritime project coordination.",
       },
       {
+        slug: "ship-agency",
+        title: "Ship agency",
+        icon: "anchor",
+        summary:
+          "Port-call support for vessels calling at Ghanaian ports: port formalities, crew husbandry, local vessel assistance and communication with port authorities.",
+      },
+      {
         slug: "roro-shipping",
         title: "RoRo shipping",
         icon: "car",
@@ -206,6 +232,32 @@ export const featuredServices = [
   "door-to-door",
 ].map((slug) => allServices.find((service) => service.slug === slug)!);
 
+// The website's project sectors.
+export const sectors: { title: string; icon: IconName; summary: string }[] = [
+  {
+    title: "Mining logistics",
+    icon: "mining",
+    summary:
+      "Heavy equipment, industrial materials and site-linked deliveries for mining operations.",
+  },
+  {
+    title: "Oil and gas logistics",
+    icon: "oil",
+    summary:
+      "Offshore cargo, vessel-linked support and the operational requirements of the energy sector.",
+  },
+  {
+    title: "Humanitarian cargo",
+    icon: "aid",
+    summary: "Aid-linked and programme cargo that needs controlled handovers.",
+  },
+  {
+    title: "Automotive and RoRo",
+    icon: "car",
+    summary: "Dealerships, fleet imports and rolling cargo programmes.",
+  },
+];
+
 // The profile's "Customers supported".
 export const customers: { title: string; icon: IconName; summary: string }[] = [
   {
@@ -248,6 +300,21 @@ export const customers: { title: string; icon: IconName; summary: string }[] = [
 
 export const benefits: { title: string; icon: IconName; text: string }[] = [
   {
+    title: "Cost-effective solutions",
+    icon: "coins",
+    text: "Competitive commercial planning without losing sight of operational quality and timing.",
+  },
+  {
+    title: "Global reach",
+    icon: "globe",
+    text: "Air, sea and multimodal coordination gives you wider market access and better support.",
+  },
+  {
+    title: "Timely deliveries",
+    icon: "clock",
+    text: "Reliable handover planning, storage support, inland movement and milestone visibility.",
+  },
+  {
     title: "One commercial contact",
     icon: "chat",
     text: "One team coordinates every stage of your shipment, so you don't manage each step separately.",
@@ -258,13 +325,8 @@ export const benefits: { title: string; icon: IconName; text: string }[] = [
     text: "Document review, entry preparation, examination handling and release coordination.",
   },
   {
-    title: "Connected services",
-    icon: "globe",
-    text: "Freight linked with customs, storage, insurance and final delivery in one operating plan.",
-  },
-  {
     title: "Clear cost basis",
-    icon: "coins",
+    icon: "license",
     text: "Customs duty, shipping line and port terminal charges are passed on at cost in your quotation.",
   },
 ];
@@ -307,6 +369,61 @@ export const differentiators = [
   },
 ];
 
+// Carrier lists exactly as the website shows them.
+export const carriers = {
+  sea: [
+    "Maersk",
+    "MSC",
+    "CMA",
+    "Evergreen",
+    "Hapag-Lloyd",
+    "APL",
+    "NYK",
+    "PIL",
+    "CSAV",
+    "Norasia",
+    "OOCL",
+    "Hanjin",
+    "K Line",
+    "China Shipping",
+    "MCC",
+    "UASC",
+    "Yang Ming",
+  ],
+  air: [
+    "CX",
+    "CZ",
+    "CA",
+    "JI",
+    "LH",
+    "UPS",
+    "CI",
+    "B7",
+    "UC",
+    "EK",
+    "TK",
+    "TG",
+    "GF",
+    "FX",
+    "EY",
+    "AM",
+    "LA",
+    "KL",
+    "BA",
+    "QF",
+    "ET",
+    "SA",
+  ],
+};
+
+export const affiliations = [
+  { name: "GIFF", detail: "Ghana Institute of Freight Forwarders" },
+  { name: "FIATA", detail: "Global freight forwarding network" },
+  { name: "IATA", detail: "Air transport industry connection" },
+  { name: "AZfreight", detail: "AZfreight.com trade visibility" },
+  { name: "Freightnet", detail: "International logistics marketplace" },
+];
+
 // The profile's clearance terms for general cargo at Tema Port.
 export const clearance = {
   days: "3–5",
@@ -347,7 +464,7 @@ export const faqs = [
   {
     question: "What services does BJH Logistics offer?",
     answer:
-      "Sea, air and road freight, door-to-door shipping, customs clearance, warehousing and bonded storage, import and export support, project cargo, offshore shipping and ship supply, RoRo shipping, container sales, cargo insurance, import/export licence support and scrap metal export logistics.",
+      "Sea, air and road freight, LCL consolidation, freight forwarding, door-to-door shipping, customs clearance, warehousing and bonded storage, import and export support, project cargo, offshore shipping and ship supply, ship agency, RoRo shipping, container sales, cargo insurance, import/export licence support and scrap metal export logistics.",
   },
   {
     question: "Where are you located?",
