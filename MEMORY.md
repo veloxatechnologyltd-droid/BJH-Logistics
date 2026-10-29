@@ -18,6 +18,12 @@ Maintain a file called MEMORY.md. After any significant decision, about directio
 **Why:** These filters support follow-up and prospecting using fields already returned by customer insights and profiles, without adding an API or database dependency.
 **What was rejected:** Calling payments "paid quotes" or deriving payment from quote acceptance; adding a new arbitrary definition of new client.
 
+## 2026-10-29, First-time customer sign-in guidance
+
+**What was decided:** Quote emails tell first-time customers to contact BJH Logistics for their customer account details, immediately before the portal URL; the sign-in screen repeats this guidance.
+**Why:** Customers need a clear way to get credentials when a quote link asks them to sign in.
+**What was rejected:** Leaving first-time customers to guess how to get access or requiring login to open the attached PDF.
+
 ## 2026-10-29, Customer number allocation recovers sequence drift
 
 **What was decided:** Generate new customer numbers through a transaction-locked database function that advances the sequence past the highest stored `CUS-` number before allocating. Keep the existing readable ID format and unique constraint.

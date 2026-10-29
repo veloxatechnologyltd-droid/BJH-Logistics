@@ -116,8 +116,6 @@ Keep it short. This is a status update, not a recap.
 
 ---
 
-Maintain a file called MEMORY.md. After any significant decision, about direction, format, content, approach, or strategy, add an entry:
-
 This repository has an **early local development foundation; it is not production software**. Read [README.md](README.md), [docs/decisions.md](docs/decisions.md), [docs/product.md](docs/product.md), [docs/architecture.md](docs/architecture.md), [docs/workflows.md](docs/workflows.md), then the relevant [CHECKLIST.md](CHECKLIST.md) phase before work. Existing `client_message_extract.md`, `second_meeting_message.md`, `adress.md` and `EVIDENCES/` are client material: preserve them; do not commit or upload them without permission. Use synthetic/redacted fixtures.
 
 ## Work agreement
