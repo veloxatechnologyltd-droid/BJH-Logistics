@@ -8,6 +8,7 @@ import {
   invoiceIssuedMessage,
   milestoneMessage,
   paymentReceivedMessage,
+  quoteIssuedMessage,
   staffMessage,
 } from "../src/notifications/notification-messages";
 import {
@@ -96,6 +97,16 @@ test("money in messages always shows two decimals", () => {
   assert.match(payment.body, /GHS 1,000\.00/);
   assert.match(payment.body, /receipt BJH\/RCT\/2026\/0001/);
   assert.match(payment.smsText, /Balance GHS 1,877\.36/);
+});
+
+test("quote email tells first-time customers how to get account details", () => {
+  const message = quoteIssuedMessage("BJH Logistics", "BJH/Q/SI/2026/0001");
+  assert.match(message.body, /attached as a PDF/);
+  assert.match(
+    message.body,
+    /first time signing in, please contact BJH Logistics for your customer account details\./,
+  );
+  assert.match(message.body, /customer portal below/);
 });
 
 test("a dispatch message names the waybill, driver and vehicle", () => {

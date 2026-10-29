@@ -188,6 +188,12 @@ export function SignInForm() {
   return (
     <section className={styles.signInCard}>
       <h1>{titles[mode]}</h1>
+      {mode === "signin" && (
+        <p className={styles.accountHelp}>
+          First time signing in? Contact BJH Logistics for your customer account
+          details.
+        </p>
+      )}
 
       <form className={styles.form} onSubmit={submit}>
         <label htmlFor="auth-email">
