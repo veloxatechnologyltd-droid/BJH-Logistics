@@ -54,7 +54,9 @@ export function FinanceOverview() {
       .then(setSummary)
       .catch((cause) =>
         setError(
-          cause instanceof Error ? cause.message : "Finance could not be loaded",
+          cause instanceof Error
+            ? cause.message
+            : "Finance could not be loaded",
         ),
       );
 
