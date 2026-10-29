@@ -504,6 +504,29 @@ export interface StockMovementRecord {
   recordedAt: string;
 }
 
+export interface ReportInvoiceRecord {
+  jobId: string;
+  fileNumber: string;
+  customerCompanyName: string;
+  invoice: InvoiceRecord;
+}
+
+export interface ReportPaymentRecord {
+  jobId: string;
+  fileNumber: string;
+  customerCompanyName: string;
+  currency: string;
+  invoiceNumber: string;
+  payment: InvoicePaymentRecord;
+}
+
+export interface ReportStockMovementRecord {
+  jobId: string;
+  fileNumber: string;
+  customerCompanyName: string;
+  movement: StockMovementRecord;
+}
+
 export interface StockBalanceRecord {
   jobId: string;
   fileNumber: string;
@@ -1494,6 +1517,21 @@ export abstract class DatabasePort {
     companyId: string,
   ): Promise<StatementEntryRecord[]>;
   abstract listJobFinance(scope: JobScope): Promise<JobFinanceRecord[]>;
+  abstract listReportInvoices(
+    from: string,
+    to: string,
+    scope: JobScope,
+  ): Promise<ReportInvoiceRecord[]>;
+  abstract listReportPayments(
+    from: string,
+    to: string,
+    scope: JobScope,
+  ): Promise<ReportPaymentRecord[]>;
+  abstract listReportStockMovements(
+    from: string,
+    to: string,
+    scope: JobScope,
+  ): Promise<ReportStockMovementRecord[]>;
   abstract listCustomerInsights(
     companyId: string | null,
   ): Promise<CustomerInsightRecord[]>;

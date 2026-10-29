@@ -18,6 +18,12 @@ Maintain a file called MEMORY.md. After any significant decision, about directio
 **Why:** Customers need a clear way to get credentials when a quote link asks them to sign in.
 **What was rejected:** Leaving first-time customers to guess how to get access or requiring login to open the attached PDF.
 
+## 2026-10-29, Leads appear before untracked quote requests
+
+**What was decided:** On `/customers/leads`, show the lead board before the secondary “Quote requests not yet tracked” list. The secondary list is drawn from quote requests with neither a lead link nor a customer-company link. Customer portal requests are linked to a company on creation, so they do not appear there; unlinked requests may include staff-created requests or email intake that has not been linked.
+**Why:** The Leads page should put its tracked leads first, while retaining a way to convert incoming requests into leads.
+**What was rejected:** Removing the untracked request list or changing how requests are linked.
+
 ## 2026-10-29, Issued quote emails include a PDF
 
 **What was decided:** Both the automatic email on quote issue and a staff-triggered resend include the exact issued quote version as a PDF attachment. The existing portal link stays for customers with accounts. Quote recipients come from the company's notifiable contacts; receiving an email does not create a customer login.
@@ -762,3 +768,9 @@ Read MEMORY.md at the start of every session before doing anything. Never contra
 **What was decided:** The Charge / Description boxes on the quote editor, job costs and invoice lines suggest BJH's 17 common charge names (from their handwritten list, in `apps/web/app/ChargeOptions.tsx`) as staff type; any other name is still accepted. Only names are built in: no amounts.
 **Why:** Evans asked for their regular charges to be built in, then chose names only because BJH's prices depend on other factors (route, cargo, size and so on).
 **What was rejected:** Usual prices in Business settings or in the code (prices vary per shipment; "Prefill from a similar past quote" already copies real past prices); forcing staff to pick only from the list.
+
+## 2026-10-29, Reports hub uses existing scoped records and explicit date bases
+
+**What was decided:** Add a staff-only Reports page with Ghana-date day, Monday-to-Sunday week-to-date, month-to-date, year-to-date and custom date filters. Job opening/closure uses job dates, invoices use issue dates, payments use received dates, stock movements use occurrence dates, and on-hand stock is as of the range end. A single scoped `GET /api/v1/reports?from&to` returns date-filtered invoice, payment and warehouse movement rows plus jobs and stock balances; existing service-line/company scope is enforced in the API. Show current open delay/exception tasks; label current receivables and current job costs/margin as all-time/current. Detailed job, invoice, payment and warehouse movement lists can be downloaded as CSV.
+**Why:** Evans asked for useful shipping-company reports with daily, weekly, monthly and annual filters; period-filtered report rows should be fetched in bulk, and current-state summaries must stay clearly distinguished from period activity.
+**What was rejected:** Per-job invoice and warehouse fetches from the browser; applying a selected period to undated all-time finance totals or implying that current receivables and costs are period flows.

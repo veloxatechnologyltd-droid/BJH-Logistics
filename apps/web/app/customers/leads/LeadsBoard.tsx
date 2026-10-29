@@ -211,31 +211,6 @@ export function LeadsBoard() {
 
       <ErrorPopup message={error} />
 
-      {untracked.length > 0 && (
-        <section className={chart.chartCard} aria-labelledby="untracked-title">
-          <h2 id="untracked-title">Quote requests not yet tracked</h2>
-          <ul className={ui.itemList}>
-            {untracked.map((request) => (
-              <li key={request.id}>
-                <div>
-                  <strong>{request.companyName}</strong>
-                  <p className={ui.muted}>
-                    {request.contactName} · {request.email}
-                  </p>
-                </div>
-                <button
-                  className={ui.secondaryButton}
-                  onClick={() => void track(request)}
-                  type="button"
-                >
-                  Track as lead
-                </button>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
       <section className={styles.directory} aria-label="Leads">
         <div className={styles.searchHeader}>
           <div className={ui.segmented} role="group" aria-label="Show">
@@ -538,6 +513,31 @@ export function LeadsBoard() {
           </div>
         )}
       </section>
+
+      {untracked.length > 0 && (
+        <section className={chart.chartCard} aria-labelledby="untracked-title">
+          <h2 id="untracked-title">Quote requests not yet tracked</h2>
+          <ul className={ui.itemList}>
+            {untracked.map((request) => (
+              <li key={request.id}>
+                <div>
+                  <strong>{request.companyName}</strong>
+                  <p className={ui.muted}>
+                    {request.contactName} · {request.email}
+                  </p>
+                </div>
+                <button
+                  className={ui.secondaryButton}
+                  onClick={() => void track(request)}
+                  type="button"
+                >
+                  Track as lead
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
     </>
   );
 }

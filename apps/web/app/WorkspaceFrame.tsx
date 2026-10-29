@@ -58,6 +58,7 @@ const staffNav: NavGroup[] = [
         label: "Shipping documents",
         icon: "shipping",
       },
+      { href: "/reports", label: "Reports", icon: "invoices" },
     ],
   },
   {

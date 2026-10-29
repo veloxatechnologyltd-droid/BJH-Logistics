@@ -53,6 +53,8 @@ type Summary = {
   }>;
 };
 const summary = (token: string) => call("/api/v1/finance/summary", token);
+const reports = (token: string, from = "2000-01-01", to = "2100-12-31") =>
+  call(`/api/v1/reports?${new URLSearchParams({ from, to })}`, token);
 
 async function openJob(companyId: string, serviceLine: string) {
   const response = await post("/api/v1/jobs", TEST_SUPER_ADMIN_TOKEN, {
@@ -224,5 +226,37 @@ test("a rep sees only their service lines; customers and the signed-out are refu
   assert.equal(
     (await call("/api/v1/finance/summary", "bad-token")).status,
     401,
+  );
+});
+
+test("reports are date-validated, staff-only and restricted to the rep's service lines", async () => {
+  const adminResponse = await reports(TEST_SUPER_ADMIN_TOKEN);
+  assert.equal(adminResponse.status, 200);
+  const admin = await json<{
+    invoices: Array<{ jobId: string }>;
+    jobs: Array<{ id: string }>;
+    payments: Array<{ jobId: string }>;
+  }>(adminResponse);
+  assert.ok(admin.jobs.some((job) => job.id === seaJob));
+  assert.ok(admin.jobs.some((job) => job.id === airJob));
+  assert.ok(admin.invoices.some((row) => row.jobId === seaJob));
+  assert.ok(admin.payments.some((row) => row.jobId === seaJob));
+
+  const rep = await json<{
+    invoices: Array<{ jobId: string }>;
+    jobs: Array<{ id: string }>;
+    payments: Array<{ jobId: string }>;
+  }>(await reports(TEST_MATCHING_TOKEN));
+  assert.ok(rep.jobs.every((job) => job.id !== airJob));
+  assert.ok(rep.invoices.every((row) => row.jobId === seaJob));
+  assert.ok(rep.payments.every((row) => row.jobId === seaJob));
+  assert.equal((await reports(TEST_CUSTOMER_A_TOKEN)).status, 403);
+  assert.equal(
+    (await reports(TEST_SUPER_ADMIN_TOKEN, "2026-02-30", "2026-03-01")).status,
+    400,
+  );
+  assert.equal(
+    (await reports(TEST_SUPER_ADMIN_TOKEN, "2026-03-02", "2026-03-01")).status,
+    400,
   );
 });

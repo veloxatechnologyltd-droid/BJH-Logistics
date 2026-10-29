@@ -48,6 +48,9 @@ import {
   DueDelivery,
   CustomerInsightRecord,
   JobFinanceRecord,
+  ReportInvoiceRecord,
+  ReportPaymentRecord,
+  ReportStockMovementRecord,
   LeadRecord,
   OutstandingInvoiceRecord,
   ShippingDocumentRecord,
@@ -2755,6 +2758,69 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     return result.rows.map((row) => this.mapPayment(row));
   }
 
+  async listReportInvoices(
+    from: string,
+    to: string,
+    scope: JobScope,
+  ): Promise<ReportInvoiceRecord[]> {
+    if (scope.companyIds?.length === 0 || scope.serviceLines?.length === 0) {
+      return [];
+    }
+    const result = await this.pool.query(
+      `SELECT i.*, to_char(i.due_date, 'YYYY-MM-DD') AS due_date_text,
+              job.file_number, company.company_name AS customer_company_name
+       FROM app.invoice i
+       JOIN app.job job ON job.job_id = i.job_id
+       JOIN app.customer_company company ON company.company_id = job.customer_company_id
+       WHERE i.status = 'issued'
+         AND i.issued_at >= ($1::date::timestamp AT TIME ZONE 'Africa/Accra')
+         AND i.issued_at < (($2::date + 1)::timestamp AT TIME ZONE 'Africa/Accra')
+         AND ($3::uuid[] IS NULL OR job.customer_company_id = ANY($3::uuid[]))
+         AND ($4::text[] IS NULL OR job.service_line = ANY($4::text[]))
+       ORDER BY i.issued_at, i.invoice_number`,
+      [from, to, scope.companyIds ?? null, scope.serviceLines ?? null],
+    );
+    return result.rows.map((row) => ({
+      jobId: String(row.job_id),
+      fileNumber: String(row.file_number),
+      customerCompanyName: String(row.customer_company_name),
+      invoice: this.mapInvoice(row),
+    }));
+  }
+
+  async listReportPayments(
+    from: string,
+    to: string,
+    scope: JobScope,
+  ): Promise<ReportPaymentRecord[]> {
+    if (scope.companyIds?.length === 0 || scope.serviceLines?.length === 0) {
+      return [];
+    }
+    const result = await this.pool.query(
+      `SELECT ${PAYMENT_COLUMNS}, job.job_id, job.file_number,
+              company.company_name AS customer_company_name,
+              i.currency, i.invoice_number
+       FROM app.invoice_payment p
+       JOIN app.invoice i ON i.invoice_id = p.invoice_id AND i.status = 'issued'
+       JOIN app.job job ON job.job_id = i.job_id
+       JOIN app.customer_company company ON company.company_id = job.customer_company_id
+       LEFT JOIN app.invoice_payment_reversal r ON r.payment_id = p.payment_id
+       WHERE p.received_on >= $1::date AND p.received_on <= $2::date
+         AND ($3::uuid[] IS NULL OR job.customer_company_id = ANY($3::uuid[]))
+         AND ($4::text[] IS NULL OR job.service_line = ANY($4::text[]))
+       ORDER BY p.received_on, p.recorded_at, p.payment_id`,
+      [from, to, scope.companyIds ?? null, scope.serviceLines ?? null],
+    );
+    return result.rows.map((row) => ({
+      jobId: String(row.job_id),
+      fileNumber: String(row.file_number),
+      customerCompanyName: String(row.customer_company_name),
+      currency: String(row.currency),
+      invoiceNumber: String(row.invoice_number),
+      payment: this.mapPayment(row),
+    }));
+  }
+
   async updateDraftInvoice(
     jobId: string,
     invoiceId: string,
@@ -3430,6 +3496,36 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       [jobId],
     );
     return result.rows.map((row) => this.mapStockMovement(row));
+  }
+
+  async listReportStockMovements(
+    from: string,
+    to: string,
+    scope: JobScope,
+  ): Promise<ReportStockMovementRecord[]> {
+    if (scope.companyIds?.length === 0 || scope.serviceLines?.length === 0) {
+      return [];
+    }
+    const result = await this.pool.query(
+      `SELECT movement.*, location.location_name, job.job_id, job.file_number,
+              company.company_name AS customer_company_name
+       FROM app.stock_movement movement
+       JOIN app.job job ON job.job_id = movement.job_id
+       JOIN app.customer_company company ON company.company_id = job.customer_company_id
+       JOIN app.warehouse_location location ON location.location_id = movement.location_id
+       WHERE movement.occurred_at >= ($1::date::timestamp AT TIME ZONE 'Africa/Accra')
+         AND movement.occurred_at < (($2::date + 1)::timestamp AT TIME ZONE 'Africa/Accra')
+         AND ($3::uuid[] IS NULL OR job.customer_company_id = ANY($3::uuid[]))
+         AND ($4::text[] IS NULL OR job.service_line = ANY($4::text[]))
+       ORDER BY movement.occurred_at, movement.recorded_at, movement.movement_id`,
+      [from, to, scope.companyIds ?? null, scope.serviceLines ?? null],
+    );
+    return result.rows.map((row) => ({
+      jobId: String(row.job_id),
+      fileNumber: String(row.file_number),
+      customerCompanyName: String(row.customer_company_name),
+      movement: this.mapStockMovement(row),
+    }));
   }
 
   async listStockBalances(filter: {

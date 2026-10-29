@@ -97,6 +97,8 @@ import {
 import { WarehouseService } from "./warehouse/warehouse.service";
 import { QuotesController } from "./quotations/quotes.controller";
 import { QuotesService } from "./quotations/quotes.service";
+import { ReportsController } from "./reports/reports.controller";
+import { ReportsService } from "./reports/reports.service";
 
 @Module({
   imports: [
@@ -121,6 +123,7 @@ import { QuotesService } from "./quotations/quotes.service";
     InvoicesController,
     OutstandingInvoicesController,
     FinanceSummaryController,
+    ReportsController,
     PaymentsController,
     StatementsController,
     InboundEmailController,
@@ -158,6 +161,7 @@ import { QuotesService } from "./quotations/quotes.service";
     { provide: SMS_PROVIDER, useFactory: () => createSmsProvider(process.env) },
     JobChargesService,
     InvoicesService,
+    ReportsService,
     StatementsService,
     InboundEmailService,
     { provide: EMAIL_EXTRACTOR, useFactory: () => createEmailExtractor() },

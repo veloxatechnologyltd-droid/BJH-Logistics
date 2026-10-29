@@ -1,0 +1,809 @@
+"use client";
+
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+import { ErrorPopup } from "../ErrorPopup";
+import { useStaffAccess } from "../auth/useStaffAccess";
+import { getFinanceSummary, getReports, listTasks } from "../jobs/jobApi";
+import type {
+  FinanceSummary,
+  Invoice,
+  InvoicePayment,
+  Job,
+  JobTask,
+  StockBalance,
+  StockMovement,
+} from "../jobs/jobApi";
+import {
+  serviceLineLabels,
+  statusLabels,
+  taskKindLabels,
+} from "../jobs/jobApi";
+import { formatMoney } from "../quotes/quoteApi";
+import styles from "../jobs/jobs.module.css";
+import cards from "../finance/finance.module.css";
+import reportStyles from "./reports.module.css";
+
+type Preset = "day" | "week" | "month" | "year" | "custom";
+type Range = { from: string; to: string };
+
+const dateString = (date: Date) => {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Africa/Accra",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const values = Object.fromEntries(
+    parts.map((part) => [part.type, part.value]),
+  );
+  return `${values.year}-${values.month}-${values.day}`;
+};
+
+function rangeFor(preset: Exclude<Preset, "custom">, now = new Date()): Range {
+  const [year, month, day] = dateString(now).split("-").map(Number);
+  const end = new Date(Date.UTC(year, month - 1, day));
+  const start = new Date(end);
+  if (preset === "week")
+    start.setUTCDate(end.getUTCDate() - ((end.getUTCDay() + 6) % 7));
+  else if (preset === "month") start.setUTCDate(1);
+  else if (preset === "year") start.setUTCMonth(0, 1);
+  return { from: dateString(start), to: dateString(end) };
+}
+
+const inRange = (value: string | null | undefined, range: Range) => {
+  if (!value || !range.from || !range.to || range.from > range.to) return false;
+  const day = value.slice(0, 10);
+  return day >= range.from && day <= range.to;
+};
+
+function csvDownload(name: string, rows: Array<Array<string | number>>) {
+  const quote = (value: string | number) =>
+    `"${String(value).replaceAll('"', '""')}"`;
+  const content = rows.map((row) => row.map(quote).join(",")).join("\r\n");
+  const url = URL.createObjectURL(
+    new Blob([content], { type: "text/csv;charset=utf-8" }),
+  );
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = name;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
+type JobRef = Pick<Job, "id" | "fileNumber" | "customerCompanyName">;
+type InvoiceRow = { job: JobRef; invoice: Invoice };
+type PaymentRow = {
+  job: JobRef;
+  currency: string;
+  invoiceNumber: string;
+  payment: InvoicePayment;
+};
+type MovementRow = { job: JobRef; movement: StockMovement };
+
+export function ReportsHome() {
+  const { roles } = useStaffAccess();
+  const isStaff = roles.length > 0;
+  const [preset, setPreset] = useState<Preset>("month");
+  const [range, setRange] = useState<Range>({ from: "", to: "" });
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [tasks, setTasks] = useState<JobTask[]>([]);
+  const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
+  const [payments, setPayments] = useState<PaymentRow[]>([]);
+  const [movements, setMovements] = useState<MovementRow[]>([]);
+  const [finance, setFinance] = useState<FinanceSummary | null>(null);
+  const [stock, setStock] = useState<StockBalance[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => setRange(rangeFor("month")), []);
+
+  useEffect(() => {
+    if (!isStaff || !range.from || !range.to || range.from > range.to) return;
+    let active = true;
+    setLoading(true);
+    Promise.all([
+      getReports(range.from, range.to),
+      getFinanceSummary(),
+      listTasks("", "open"),
+    ])
+      .then(([report, summary, openTasks]) => {
+        if (!active) return;
+        setJobs(report.jobs);
+        setTasks(openTasks);
+        setFinance(summary);
+        setInvoices(
+          report.invoices.map(
+            ({ jobId, fileNumber, customerCompanyName, invoice }) => ({
+              job: { id: jobId, fileNumber, customerCompanyName },
+              invoice,
+            }),
+          ),
+        );
+        setPayments(
+          report.payments.map(
+            ({
+              jobId,
+              fileNumber,
+              customerCompanyName,
+              currency,
+              invoiceNumber,
+              payment,
+            }) => ({
+              job: { id: jobId, fileNumber, customerCompanyName },
+              currency,
+              invoiceNumber,
+              payment,
+            }),
+          ),
+        );
+        setMovements(
+          report.movements.map(
+            ({ jobId, fileNumber, customerCompanyName, movement }) => ({
+              job: { id: jobId, fileNumber, customerCompanyName },
+              movement,
+            }),
+          ),
+        );
+        setStock(report.stockBalances);
+      })
+      .catch((cause) => {
+        if (active)
+          setError(
+            cause instanceof Error
+              ? cause.message
+              : "Reports could not be loaded",
+          );
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [isStaff, range.from, range.to]);
+
+  const setPeriod = (value: Exclude<Preset, "custom">) => {
+    setPreset(value);
+    setRange(rangeFor(value));
+  };
+  const opened = useMemo(
+    () => jobs.filter((job) => inRange(job.openedAt, range)),
+    [jobs, range],
+  );
+  const closed = useMemo(
+    () => jobs.filter((job) => inRange(job.closedAt, range)),
+    [jobs, range],
+  );
+  const activityRows = [
+    ...opened.map((job) => ({
+      job,
+      activity: "Opened",
+      date: job.openedAt.slice(0, 10),
+    })),
+    ...closed.map((job) => ({
+      job,
+      activity: "Closed",
+      date: job.closedAt!.slice(0, 10),
+    })),
+  ].sort((a, b) => a.date.localeCompare(b.date));
+  const periodInvoices = useMemo(
+    () =>
+      invoices.filter(
+        ({ invoice }) =>
+          invoice.status === "issued" && inRange(invoice.issuedAt, range),
+      ),
+    [invoices, range],
+  );
+  const periodPayments = useMemo(
+    () =>
+      payments.filter(
+        ({ payment }) =>
+          !payment.reversal && inRange(payment.receivedOn, range),
+      ),
+    [payments, range],
+  );
+  const issuedAmounts = new Map<string, number>();
+  for (const { invoice } of periodInvoices) {
+    issuedAmounts.set(
+      invoice.currency,
+      (issuedAmounts.get(invoice.currency) ?? 0) + invoice.totalMinor,
+    );
+  }
+  const receivedAmounts = new Map<string, number>();
+  for (const { currency, payment } of periodPayments) {
+    receivedAmounts.set(
+      currency,
+      (receivedAmounts.get(currency) ?? 0) + payment.amountMinor,
+    );
+  }
+  const periodMovements = useMemo(
+    () =>
+      movements.filter(({ movement }) => inRange(movement.occurredAt, range)),
+    [movements, range],
+  );
+  const overdueTasks = tasks.filter(
+    (task) => task.dueDate !== null && task.dueDate < dateString(new Date()),
+  );
+  const exceptionTasks = tasks.filter((task) =>
+    ["delay", "damage", "missing_documents"].includes(task.kind),
+  );
+
+  const invoiceRows = periodInvoices.map(({ job, invoice }) => [
+    invoice.invoiceNumber ?? "",
+    job.fileNumber,
+    job.customerCompanyName,
+    invoice.issuedAt?.slice(0, 10) ?? "",
+    invoice.currency,
+    (invoice.totalMinor / 100).toFixed(2),
+  ]);
+  const paymentRows = periodPayments.map(
+    ({ job, invoiceNumber, currency, payment }) => [
+      payment.receiptNumber ?? "",
+      invoiceNumber,
+      job.fileNumber,
+      job.customerCompanyName,
+      payment.receivedOn,
+      currency,
+      (payment.amountMinor / 100).toFixed(2),
+      payment.method,
+    ],
+  );
+  const stockRows = periodMovements.map(({ job, movement }) => [
+    movement.occurredAt.slice(0, 10),
+    movement.kind,
+    job.fileNumber,
+    job.customerCompanyName,
+    movement.locationName,
+    movement.item,
+    movement.quantity,
+    movement.unit,
+    movement.reference ?? "",
+  ]);
+
+  if (!isStaff)
+    return (
+      <main className={styles.page}>
+        <h1 className={styles.title}>Reports are for staff</h1>
+      </main>
+    );
+
+  return (
+    <main className={styles.page}>
+      <header className={styles.header}>
+        <div>
+          <h1 className={styles.title}>Reports</h1>
+          <p className={styles.muted}>
+            Operations, finance and warehouse activity
+          </p>
+        </div>
+      </header>
+      <ErrorPopup message={error} />
+      <section className={styles.card} aria-label="Report date range">
+        <div className={reportStyles.controls}>
+          <div
+            className={reportStyles.presets}
+            aria-label="Date period"
+            role="group"
+          >
+            {(["day", "week", "month", "year"] as const).map((value) => (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={preset === value}
+                className={preset === value ? reportStyles.activePreset : ""}
+                onClick={() => setPeriod(value)}
+              >
+                {value === "day"
+                  ? "Today"
+                  : value === "week"
+                    ? "This week"
+                    : value === "month"
+                      ? "This month"
+                      : "This year"}
+              </button>
+            ))}
+          </div>
+          <label className={styles.field}>
+            From
+            <input
+              type="date"
+              value={range.from}
+              onChange={(event) => {
+                setPreset("custom");
+                setRange((current) => ({
+                  ...current,
+                  from: event.target.value,
+                }));
+              }}
+            />
+          </label>
+          <label className={styles.field}>
+            To
+            <input
+              type="date"
+              value={range.to}
+              onChange={(event) => {
+                setPreset("custom");
+                setRange((current) => ({ ...current, to: event.target.value }));
+              }}
+            />
+          </label>
+        </div>
+        {range.from > range.to && (
+          <p className={styles.error}>
+            The start date must be on or before the end date.
+          </p>
+        )}
+      </section>
+      {loading && <p className={styles.muted}>Loading reports…</p>}
+
+      <section
+        className={reportStyles.section}
+        aria-labelledby="activity-title"
+      >
+        <div className={reportStyles.heading}>
+          <div>
+            <h2 id="activity-title">Job activity</h2>
+            <p>Jobs opened and closed within the selected dates.</p>
+          </div>
+          <button
+            type="button"
+            disabled={!activityRows.length}
+            onClick={() =>
+              csvDownload(`job-activity-${range.from}-${range.to}.csv`, [
+                [
+                  "Job file",
+                  "Activity",
+                  "Customer",
+                  "Service",
+                  "Current status",
+                  "Date",
+                ],
+                ...activityRows.map(({ job, activity, date }) => [
+                  job.fileNumber,
+                  activity,
+                  job.customerCompanyName,
+                  serviceLineLabels[job.serviceLine],
+                  statusLabels[job.status],
+                  date,
+                ]),
+              ])
+            }
+          >
+            Download CSV
+          </button>
+        </div>
+        <div className={cards.kpis}>
+          <div className={cards.kpi}>
+            <span>Jobs opened</span>
+            <strong>{opened.length}</strong>
+          </div>
+          <div className={cards.kpi}>
+            <span>Jobs closed</span>
+            <strong>{closed.length}</strong>
+          </div>
+          <div className={cards.kpi}>
+            <span>Still open</span>
+            <strong>
+              {
+                jobs.filter(
+                  (job) =>
+                    job.status !== "closed" && job.status !== "cancelled",
+                ).length
+              }
+            </strong>
+            <small>Current total</small>
+          </div>
+        </div>
+        {activityRows.length > 0 && (
+          <div className={cards.tableWrap}>
+            <table className={cards.cardTable}>
+              <thead>
+                <tr>
+                  <th>Job</th>
+                  <th>Activity</th>
+                  <th>Customer</th>
+                  <th>Service</th>
+                  <th>Status</th>
+                  <th>Date</th>
+                </tr>
+              </thead>
+              <tbody>
+                {activityRows.map(({ job, activity, date }, index) => (
+                  <tr key={`${job.id}-${activity}-${index}`}>
+                    <td>
+                      <Link href={`/jobs/${job.id}`}>{job.fileNumber}</Link>
+                    </td>
+                    <td>{activity}</td>
+                    <td>{job.customerCompanyName}</td>
+                    <td>{serviceLineLabels[job.serviceLine]}</td>
+                    <td>{statusLabels[job.status]}</td>
+                    <td>{date}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {!activityRows.length && !loading && (
+          <p className={styles.muted}>No jobs opened in this period.</p>
+        )}
+      </section>
+
+      <section
+        className={reportStyles.section}
+        aria-labelledby="blockers-title"
+      >
+        <div className={reportStyles.heading}>
+          <div>
+            <h2 id="blockers-title">Open delays and exceptions</h2>
+            <p>
+              Current open tasks, including overdue work, delays and missing
+              documents.
+            </p>
+          </div>
+        </div>
+        <div className={cards.kpis}>
+          <div className={cards.kpi}>
+            <span>Open tasks</span>
+            <strong>{tasks.length}</strong>
+          </div>
+          <div className={cards.kpi}>
+            <span>Overdue tasks</span>
+            <strong>{overdueTasks.length}</strong>
+          </div>
+          <div className={cards.kpi}>
+            <span>Delay / exception tasks</span>
+            <strong>{exceptionTasks.length}</strong>
+          </div>
+        </div>
+        {exceptionTasks.length > 0 && (
+          <div className={cards.tableWrap}>
+            <table className={cards.cardTable}>
+              <thead>
+                <tr>
+                  <th>Job</th>
+                  <th>Customer</th>
+                  <th>Issue</th>
+                  <th>Due</th>
+                  <th>Assigned to</th>
+                </tr>
+              </thead>
+              <tbody>
+                {exceptionTasks.map((task) => (
+                  <tr key={task.id}>
+                    <td>
+                      <Link href={`/jobs/${task.jobId}`}>
+                        {task.fileNumber}
+                      </Link>
+                    </td>
+                    <td>{task.customerCompanyName}</td>
+                    <td>
+                      {task.title}
+                      <br />
+                      {taskKindLabels[task.kind]}
+                    </td>
+                    <td>{task.dueDate ?? "—"}</td>
+                    <td>{task.assignedRole.replaceAll("_", " ")}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <section className={reportStyles.section} aria-labelledby="finance-title">
+        <div className={reportStyles.heading}>
+          <div>
+            <h2 id="finance-title">Invoices and payments</h2>
+            <p>
+              Invoices use issue date; receipts use payment date. Balances below
+              are current.
+            </p>
+          </div>
+        </div>
+        <div className={cards.kpis}>
+          <div className={cards.kpi}>
+            <span>Invoices issued</span>
+            <strong>{periodInvoices.length}</strong>
+            <small>
+              {[...issuedAmounts]
+                .map(([currency, amount]) => formatMoney(amount, currency))
+                .join(" · ") || "No invoice value"}
+            </small>
+          </div>
+          <div className={cards.kpi}>
+            <span>Payments received</span>
+            <strong>{periodPayments.length}</strong>
+            <small>
+              {[...receivedAmounts]
+                .map(([currency, amount]) => formatMoney(amount, currency))
+                .join(" · ") || "No payment value"}
+            </small>
+          </div>
+          <div className={cards.kpi}>
+            <span>Current receivables</span>
+            <strong>
+              {finance?.totals
+                .map((row) => formatMoney(row.owingMinor, row.currency))
+                .join(" · ") || "—"}
+            </strong>
+            <small>Across all dates, by currency</small>
+          </div>
+        </div>
+        <div className={reportStyles.split}>
+          <div>
+            <div className={reportStyles.heading}>
+              <h3>Invoices issued</h3>
+              <button
+                type="button"
+                disabled={!invoiceRows.length}
+                onClick={() =>
+                  csvDownload(`invoices-${range.from}-${range.to}.csv`, [
+                    [
+                      "Invoice",
+                      "Job",
+                      "Customer",
+                      "Issued",
+                      "Currency",
+                      "Amount",
+                    ],
+                    ...invoiceRows,
+                  ])
+                }
+              >
+                Download CSV
+              </button>
+            </div>
+            {periodInvoices.length ? (
+              <div className={cards.tableWrap}>
+                <table className={cards.cardTable}>
+                  <thead>
+                    <tr>
+                      <th>Invoice</th>
+                      <th>Job / customer</th>
+                      <th>Issued</th>
+                      <th>Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {periodInvoices.map(({ job, invoice }) => (
+                      <tr key={invoice.id}>
+                        <td>{invoice.invoiceNumber}</td>
+                        <td>
+                          {job.fileNumber}
+                          <br />
+                          {job.customerCompanyName}
+                        </td>
+                        <td>{invoice.issuedAt?.slice(0, 10)}</td>
+                        <td>
+                          {formatMoney(invoice.totalMinor, invoice.currency)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className={styles.muted}>No invoices issued in this period.</p>
+            )}
+          </div>
+          <div>
+            <div className={reportStyles.heading}>
+              <h3>Payments received</h3>
+              <button
+                type="button"
+                disabled={!paymentRows.length}
+                onClick={() =>
+                  csvDownload(`payments-${range.from}-${range.to}.csv`, [
+                    [
+                      "Receipt",
+                      "Invoice",
+                      "Job",
+                      "Customer",
+                      "Received",
+                      "Currency",
+                      "Amount",
+                      "Method",
+                    ],
+                    ...paymentRows,
+                  ])
+                }
+              >
+                Download CSV
+              </button>
+            </div>
+            {periodPayments.length ? (
+              <div className={cards.tableWrap}>
+                <table className={cards.cardTable}>
+                  <thead>
+                    <tr>
+                      <th>Receipt / invoice</th>
+                      <th>Job / customer</th>
+                      <th>Received</th>
+                      <th>Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {periodPayments.map(
+                      ({ job, invoiceNumber, currency, payment }) => (
+                        <tr key={payment.id}>
+                          <td>
+                            {payment.receiptNumber ?? "—"}
+                            <br />
+                            {invoiceNumber}
+                          </td>
+                          <td>
+                            {job.fileNumber}
+                            <br />
+                            {job.customerCompanyName}
+                          </td>
+                          <td>{payment.receivedOn}</td>
+                          <td>{formatMoney(payment.amountMinor, currency)}</td>
+                        </tr>
+                      ),
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className={styles.muted}>
+                No payments received in this period.
+              </p>
+            )}
+          </div>
+        </div>
+        <p>
+          <Link href="/invoices">View unpaid and overdue invoices</Link> ·{" "}
+          <Link href="/finance">View job costs and margins</Link>
+        </p>
+      </section>
+
+      <section
+        className={reportStyles.section}
+        aria-labelledby="warehouse-title"
+      >
+        <div className={reportStyles.heading}>
+          <div>
+            <h2 id="warehouse-title">Warehouse</h2>
+            <p>
+              Stock on hand is as of the end date. Movement rows use movement
+              date.
+            </p>
+          </div>
+          <button
+            type="button"
+            disabled={!stockRows.length}
+            onClick={() =>
+              csvDownload(`warehouse-movements-${range.from}-${range.to}.csv`, [
+                [
+                  "Date",
+                  "Movement",
+                  "Job",
+                  "Customer",
+                  "Location",
+                  "Item",
+                  "Quantity",
+                  "Unit",
+                  "Reference",
+                ],
+                ...stockRows,
+              ])
+            }
+          >
+            Download movements CSV
+          </button>
+        </div>
+        <p className={styles.muted}>
+          Stock as of {range.to || "—"}: {stock.length} item/location balances.
+        </p>
+        <div className={cards.kpis}>
+          <div className={cards.kpi}>
+            <span>Receipts</span>
+            <strong>
+              {
+                periodMovements.filter(
+                  ({ movement }) => movement.kind === "receipt",
+                ).length
+              }
+            </strong>
+          </div>
+          <div className={cards.kpi}>
+            <span>Releases</span>
+            <strong>
+              {
+                periodMovements.filter(
+                  ({ movement }) => movement.kind === "release",
+                ).length
+              }
+            </strong>
+          </div>
+          <div className={cards.kpi}>
+            <span>Held item balances</span>
+            <strong>{stock.length}</strong>
+          </div>
+        </div>
+        {periodMovements.length > 0 && (
+          <div className={cards.tableWrap}>
+            <table className={cards.cardTable}>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Type</th>
+                  <th>Job / customer</th>
+                  <th>Location</th>
+                  <th>Item</th>
+                  <th>Quantity</th>
+                </tr>
+              </thead>
+              <tbody>
+                {periodMovements.map(({ job, movement }) => (
+                  <tr key={movement.id}>
+                    <td>{movement.occurredAt.slice(0, 10)}</td>
+                    <td>
+                      {movement.kind === "receipt" ? "Received" : "Released"}
+                    </td>
+                    <td>
+                      <Link href={`/jobs/${job.id}`}>{job.fileNumber}</Link>
+                      <br />
+                      {job.customerCompanyName}
+                    </td>
+                    <td>{movement.locationName}</td>
+                    <td>{movement.item}</td>
+                    <td>
+                      {movement.quantity} {movement.unit}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+      <section className={reportStyles.section} aria-labelledby="margin-title">
+        <div className={reportStyles.heading}>
+          <div>
+            <h2 id="margin-title">Job costs and margin</h2>
+            <p>
+              Current all-time job totals, not restricted to the selected date
+              range.
+            </p>
+          </div>
+          <Link href="/finance">Open Finance</Link>
+        </div>
+        {finance?.totals.length ? (
+          <div className={cards.kpis}>
+            {finance.totals.map((row) => {
+              const comparable = finance.jobs.filter(
+                (job) =>
+                  job.currency === row.currency && job.marginMinor !== null,
+              );
+              const margin = comparable.reduce(
+                (total, job) => total + (job.marginMinor ?? 0),
+                0,
+              );
+              return (
+                <div className={cards.kpi} key={row.currency}>
+                  <span>{row.currency} invoiced</span>
+                  <strong>
+                    {formatMoney(row.invoicedMinor, row.currency)}
+                  </strong>
+                  <small>
+                    Costs recorded: {formatMoney(row.costMinor, row.currency)}
+                  </small>
+                  <small>
+                    Comparable job margin: {formatMoney(margin, row.currency)}
+                  </small>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p className={styles.muted}>No finance records yet.</p>
+        )}
+      </section>
+    </main>
+  );
+}
