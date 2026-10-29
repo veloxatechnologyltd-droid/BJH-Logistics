@@ -46,6 +46,13 @@
   line-height: 1.55;
 }
 
+.accountHelp {
+  margin: 10px 0 22px;
+  color: var(--brand-muted);
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+
 .form {
   display: grid;
   gap: 16px;

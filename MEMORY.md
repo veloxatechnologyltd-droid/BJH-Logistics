@@ -12,6 +12,12 @@ Maintain a file called MEMORY.md. After any significant decision, about directio
 **Why:** Evans asked to remove the unattractive chart cards from Customers while keeping the information available elsewhere.
 **What was rejected:** Dropping the rankings or creating a separate Reports area when no such destination exists.
 
+## 2026-10-29, First-time customer sign-in guidance
+
+**What was decided:** Quote emails tell first-time customers to contact BJH Logistics for their customer account details, immediately before the portal URL; the sign-in screen repeats this guidance.
+**Why:** Customers need a clear way to get credentials when a quote link asks them to sign in.
+**What was rejected:** Leaving first-time customers to guess how to get access or requiring login to open the attached PDF.
+
 ## 2026-10-29, Issued quote emails include a PDF
 
 **What was decided:** Both the automatic email on quote issue and a staff-triggered resend include the exact issued quote version as a PDF attachment. The existing portal link stays for customers with accounts. Quote recipients come from the company's notifiable contacts; receiving an email does not create a customer login.

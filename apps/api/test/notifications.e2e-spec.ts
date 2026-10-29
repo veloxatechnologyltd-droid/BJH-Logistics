@@ -608,6 +608,15 @@ test("quotes, invoices, payments and deliveries each message the client", async 
     assert.equal(sent.attachments?.length, 1);
     assert.match(sent.attachments[0].filename, /\.pdf$/);
     assert.equal(sent.attachments[0].content.subarray(0, 4).toString(), "%PDF");
+    assert.match(
+      sent.text,
+      /first time signing in, please contact BJH Logistics for your customer account details\./,
+    );
+    assert.ok(
+      sent.text.indexOf("customer account details.") <
+        sent.text.indexOf("View it here:"),
+      "the account help appears before and close to the portal link",
+    );
   }
   assert.equal(
     (await post(`/api/v1/quotes/${quoteId}/send`, TEST_MATCHING_TOKEN, {}))
