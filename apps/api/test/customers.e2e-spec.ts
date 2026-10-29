@@ -3,7 +3,11 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import type { INestApplication } from "@nestjs/common";
 import { createTestApplication, staffFetch } from "./test-application";
-import { beginTestDatabase, endTestDatabase } from "./postgres-test-database";
+import {
+  beginTestDatabase,
+  endTestDatabase,
+  testPostgresPool,
+} from "./postgres-test-database";
 
 let application: INestApplication;
 let baseUrl: string;
@@ -107,6 +111,36 @@ test("same-name customer submissions remain separate records", async () => {
   );
   const matches = (await searchResponse.json()) as Array<{ id: string }>;
   assert.equal(matches.length, 2);
+});
+
+test("customer IDs recover when the sequence is behind an existing customer", async () => {
+  await testPostgresPool.query(
+    `INSERT INTO app.customer_company (company_id, company_name, customer_number)
+     VALUES ($1::uuid, $2, $3)`,
+    ["70000000-0000-4000-8000-000000000010", "Existing Demo Ltd", "CUS-0001"],
+  );
+  await testPostgresPool.query(
+    "SELECT setval('app.customer_number_seq', 1, false)",
+  );
+  const expectedNumber = await testPostgresPool.query(
+    `SELECT COALESCE(MAX(NULLIF(substring(customer_number FROM 5), '')::bigint), 0) + 1
+     AS next_number
+     FROM app.customer_company`,
+  );
+
+  const response = await createCustomer({
+    companyName: "New Demo Ltd",
+    contactName: "New Contact",
+    email: "new@example.test",
+  });
+
+  assert.equal(response.status, 201, await response.clone().text());
+  const created = (await response.json()) as { customerNumber: string };
+  const nextNumber = String(expectedNumber.rows[0]?.next_number);
+  assert.equal(
+    created.customerNumber,
+    `CUS-${nextNumber.padStart(4, "0")}`,
+  );
 });
 
 test("customer profiles save company details and editable primary contacts", async () => {
