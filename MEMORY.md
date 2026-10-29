@@ -1,5 +1,35 @@
 Maintain a file called MEMORY.md. After any significant decision, about direction, format, content, approach, or strategy, add an entry:
 
+## 2026-10-29, Customer profile emails appear in account administration
+
+**What was decided:** The Customer accounts page lists every unique contact and company email recorded on each customer profile, with its company and portal-access status. The super admin can set an initial password there to create a login for an address without one. An existing login or self-signup is linked to an additional company only by a separate admin action; existing customer passwords remain under Account controls.
+**Why:** Evans expects addresses captured through customer records and emailed requests to be visible where he provisions customer access, without retyping each email or silently granting access to another company.
+**What was rejected:** Creating Auth accounts automatically when a contact is saved; silently linking one email to every company that lists it.
+
+## 2026-10-29, Issued quote emails include a PDF
+
+**What was decided:** Both the automatic email on quote issue and a staff-triggered resend include the exact issued quote version as a PDF attachment. The existing portal link stays for customers with accounts. Quote recipients come from the company's notifiable contacts; receiving an email does not create a customer login.
+**Why:** A customer should be able to open the quotation from their email without signing in, while portal access remains company-authorized. Using the issued version tied to the queued message keeps later revisions from changing an earlier email.
+**What was rejected:** Requiring every quote recipient to have a portal account; exposing quotations through a public unauthenticated link.
+
+## 2026-10-29, Website content syncs the company profile and the live site
+
+**What was decided:** The public site combines both sources the client gave: the company profile (`apps/site/profile bjhlogistics.pdf`, kept locally and not committed) and the live bjhlogistics.com. Where both describe the same thing, the profile's wording is used; everything else on the live site is kept. That means 17 services (including ship agency, LCL consolidation and freight forwarding), the live site's project sectors (mining, oil and gas, humanitarian, automotive), its carrier lists and industry affiliations, its four benefits, plus the profile's customers supported, Tema Port clearance terms and the additional telephone 055 680 7983.
+**Why:** Evans asked that the website stay in sync with both the business profile and the existing website, not drop website content the profile omits.
+**What was rejected:** Using the profile alone (an earlier pass did this and removed live-site content); claims in neither source (e.g. Kotoka airport, road transport "across West Africa").
+
+## 2026-10-28, Editorial imagery for the public site
+
+**What was decided:** Use three GPT Image generated, web-optimized editorial scenes for the public site's port hero and sea, air, and inland service cards. Keep logos and operational proof out of generated imagery.
+**Why:** The company profile identifies these as core service paths, and concept images add useful visual context without implying a pictured shipment is a documented BJH job.
+**What was rejected:** Generic abstract artwork, fabricated branded vehicles, and treating generated scenes as evidence of completed projects.
+
+## 2026-10-28, Public company website as a separate app
+
+**What was decided:** Rebuild bjhlogistics.com as a separate Next.js app, `apps/site` (port 3003), with Home, Services, Projects, About, Contact and Request a quote pages, single BJH blue, and light scroll animations (fade-in, count-up, process line, carrier marquee). "Log in" links to the platform's `/sign-in`, which already routes staff to the dashboard and customers to the portal. The quote form opens an email to `quotes@bjhlogistics.com` (or WhatsApp), which the platform's IMAP intake already reads, so no API change.
+**Why:** Keeps the platform untouched (no dashboard move off `/`), deploys independently, and a fast lightweight site suits Google search and mobile-data visitors better than heavy scroll-driven video.
+**What was rejected:** Pages inside `apps/web` (would move the dashboard to `/overview`); Nate Herk's scroll-craft skill (static-only output, needs footage/ffmpeg, heavier pages); a public unauthenticated quote API endpoint (spam/abuse surface, not needed while email intake works). Blog and testimonials left out for now; the current site's testimonials look like placeholders.
+
 ## 2026-10-05, Errors shown as a pop-up
 
 **What was decided:** Action and form errors appear in a centred pop-up (`apps/web/app/ErrorPopup.tsx`) with an OK button instead of a line at the top of the page. Common technical messages (network failure, server error, permission, validation) are reworded in plain language there. Full-page "could not be loaded" states keep their inline panel.

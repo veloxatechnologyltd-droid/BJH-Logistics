@@ -16,6 +16,7 @@ export interface EmailProvider {
     to: string;
     subject: string;
     text: string;
+    attachments?: Array<{ filename: string; content: Buffer }>;
   }): Promise<SendResult>;
 }
 
@@ -31,12 +32,22 @@ export interface SmsProvider {
  */
 export class RecordingEmailProvider implements EmailProvider {
   readonly name = "stub";
-  readonly sent: Array<{ to: string; subject: string; text: string }> = [];
+  readonly sent: Array<{
+    to: string;
+    subject: string;
+    text: string;
+    attachments?: Array<{ filename: string; content: Buffer }>;
+  }> = [];
   /** Recipients whose send should fail, for testing retries. */
   failFor = new Set<string>();
   private readonly logger = new Logger("StubEmail");
 
-  async send(message: { to: string; subject: string; text: string }) {
+  async send(message: {
+    to: string;
+    subject: string;
+    text: string;
+    attachments?: Array<{ filename: string; content: Buffer }>;
+  }) {
     if (this.failFor.has(message.to)) throw new Error("Stub email failure");
     this.sent.push(message);
     this.logger.log(`(not sent) email to ${message.to}: ${message.subject}`);
@@ -84,12 +95,18 @@ export class SmtpEmailProvider implements EmailProvider {
 
   private readonly from: string;
 
-  async send(message: { to: string; subject: string; text: string }) {
+  async send(message: {
+    to: string;
+    subject: string;
+    text: string;
+    attachments?: Array<{ filename: string; content: Buffer }>;
+  }) {
     const info = await this.transport.sendMail({
       from: this.from,
       to: message.to,
       subject: message.subject,
       text: message.text,
+      attachments: message.attachments,
     });
     return { providerMessageId: info.messageId ?? null };
   }

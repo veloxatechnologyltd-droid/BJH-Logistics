@@ -29,6 +29,11 @@
   color: #63798b;
   font-size: 0.74rem;
 }
+.directoryHeading p {
+  margin: 0;
+  color: #63798b;
+  font-size: 0.78rem;
+}
 .invitePanel,
 .directory {
   border: 1px solid #d7e3ed;

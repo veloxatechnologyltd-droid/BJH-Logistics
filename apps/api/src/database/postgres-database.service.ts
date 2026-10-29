@@ -3611,7 +3611,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       const ids = claimed.rows.map((row) => String(row.notification_id));
       const notifications = ids.length
         ? await client.query(
-            `SELECT notification_id, subject, body, sms_text, link_url
+            `SELECT notification_id, company_id, event, dedupe_key, subject, body, sms_text, link_url
              FROM app.notification WHERE notification_id = ANY($1::uuid[])`,
             [ids],
           )
@@ -3624,6 +3624,9 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
         const notification = byId.get(String(row.notification_id))!;
         return {
           id: String(row.delivery_id),
+          companyId: String(notification.company_id),
+          event: String(notification.event),
+          dedupeKey: String(notification.dedupe_key),
           channel: row.channel as "email" | "sms",
           recipient: String(row.recipient),
           attempts: Number(row.attempts),
