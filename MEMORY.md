@@ -12,6 +12,12 @@ Maintain a file called MEMORY.md. After any significant decision, about directio
 **Why:** Evans asked to remove the unattractive chart cards from Customers while keeping the information available elsewhere.
 **What was rejected:** Dropping the rankings or creating a separate Reports area when no such destination exists.
 
+## 2026-10-29, Leads appear before untracked quote requests
+
+**What was decided:** On `/customers/leads`, show the lead board before the secondary “Quote requests not yet tracked” list. The secondary list is drawn from quote requests with neither a lead link nor a customer-company link. Customer portal requests are linked to a company on creation, so they do not appear there; unlinked requests may include staff-created requests or email intake that has not been linked.
+**Why:** The Leads page should put its tracked leads first, while retaining a way to convert incoming requests into leads.
+**What was rejected:** Removing the untracked request list or changing how requests are linked.
+
 ## 2026-10-29, Issued quote emails include a PDF
 
 **What was decided:** Both the automatic email on quote issue and a staff-triggered resend include the exact issued quote version as a PDF attachment. The existing portal link stays for customers with accounts. Quote recipients come from the company's notifiable contacts; receiving an email does not create a customer login.
