@@ -6,6 +6,12 @@ Maintain a file called MEMORY.md. After any significant decision, about directio
 **Why:** Evans expects addresses captured through customer records and emailed requests to be visible where he provisions customer access, without retyping each email or silently granting access to another company.
 **What was rejected:** Creating Auth accounts automatically when a contact is saved; silently linking one email to every company that lists it.
 
+## 2026-10-29, Customer rankings live in Finance
+
+**What was decided:** Keep the revenue and amount-owing rankings and currency selector in Finance under Customer reports; remove those chart cards from the Customers directory.
+**Why:** Evans asked to remove the unattractive chart cards from Customers while keeping the information available elsewhere.
+**What was rejected:** Dropping the rankings or creating a separate Reports area when no such destination exists.
+
 ## 2026-10-29, Issued quote emails include a PDF
 
 **What was decided:** Both the automatic email on quote issue and a staff-triggered resend include the exact issued quote version as a PDF attachment. The existing portal link stays for customers with accounts. Quote recipients come from the company's notifiable contacts; receiving an email does not create a customer login.

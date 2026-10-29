@@ -1,0 +1,10 @@
+.reports {
+  width: min(calc(100% - 36px), 1160px);
+  margin: 0 auto 48px;
+}
+
+.reports > h2 {
+  margin: 0 0 14px;
+  color: #233d55;
+  font-size: 1.05rem;
+}

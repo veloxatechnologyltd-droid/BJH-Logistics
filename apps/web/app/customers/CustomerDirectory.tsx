@@ -7,7 +7,6 @@ import { listCustomerInsights, listCustomers } from "./customerApi";
 import type { CustomerCompany, CustomerInsight } from "./customerApi";
 import { useStaffAccess } from "../auth/useStaffAccess";
 import { formatMoney } from "../quotes/quoteApi";
-import chart from "../finance/finance.module.css";
 import ui from "../jobs/jobs.module.css";
 import styles from "./customerDirectory.module.css";
 import { ErrorPopup, plainMessage } from "../ErrorPopup";
@@ -24,9 +23,6 @@ const shortDate = (value: string | null) =>
         year: "numeric",
       })
     : "—";
-
-const pct = (part: number, whole: number) =>
-  whole > 0 ? Math.max(0, Math.min(100, (part / whole) * 100)) : 0;
 
 /** Whether anyone at the company is switched on to receive messages. */
 const canBeMessaged = (company: CustomerCompany) =>
@@ -108,25 +104,6 @@ export function CustomerDirectory() {
   const unreachable = allCustomers.filter(
     (company) => !canBeMessaged(company),
   ).length;
-
-  const topByRevenue = allCustomers
-    .map((company) => ({
-      company,
-      invoiced: moneyOf(company.id)?.invoicedMinor ?? 0,
-      owing: moneyOf(company.id)
-        ? (moneyOf(company.id)?.invoicedMinor ?? 0) -
-          (moneyOf(company.id)?.receivedMinor ?? 0)
-        : 0,
-    }))
-    .filter((row) => row.invoiced > 0)
-    .sort((a, b) => b.invoiced - a.invoiced);
-  const revenueTotal = topByRevenue.reduce((t, row) => t + row.invoiced, 0);
-  const topFive = topByRevenue.slice(0, 5);
-  const topOwing = topByRevenue
-    .filter((row) => row.owing > 0)
-    .sort((a, b) => b.owing - a.owing)
-    .slice(0, 5);
-  const topFiveTotal = topFive.reduce((t, row) => t + row.invoiced, 0);
 
   const rows = useMemo(() => {
     const figure = (company: CustomerCompany) => {
@@ -217,93 +194,6 @@ export function CustomerDirectory() {
           <small>Companies with no contact switched on for messages</small>
         </div>
       </section>
-
-      {insights && currencies.length > 0 && (
-        <div className={styles.rankingPair}>
-          <section className={chart.chartCard} aria-labelledby="revenue-title">
-            <div className={styles.rankingHeader}>
-              <div>
-                <h2 id="revenue-title">Customers by revenue</h2>
-                <p className={chart.headline}>
-                  {topFive.length
-                    ? topFive.length === 1
-                      ? `One customer accounts for all ${money(revenueTotal)} invoiced`
-                      : `The top ${topFive.length} bring in ${Math.round(pct(topFiveTotal, revenueTotal))}% of ${money(revenueTotal)} invoiced`
-                    : `Nothing invoiced in ${currency} yet`}
-                </p>
-              </div>
-              {currencies.length > 1 && (
-                <div
-                  className={ui.segmented}
-                  role="group"
-                  aria-label="Currency"
-                >
-                  {currencies.map((code) => (
-                    <button
-                      aria-pressed={currency === code}
-                      className={currency === code ? ui.segmentActive : ""}
-                      key={code}
-                      onClick={() => setCurrency(code)}
-                      type="button"
-                    >
-                      {code}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-            {topFive.map((row) => (
-              <div className={chart.row} key={row.company.id}>
-                <div className={chart.rowHead}>
-                  <Link
-                    className={styles.companyLink}
-                    href={`/customers/${row.company.id}`}
-                  >
-                    <strong>{row.company.companyName}</strong>
-                  </Link>
-                  <span>
-                    {money(row.invoiced)}
-                    {row.owing > 0 ? ` · owes ${money(row.owing)}` : ""}
-                  </span>
-                </div>
-                <div
-                  className={`${chart.bar} ${chart.invoiced} ${chart.single}`}
-                  style={{
-                    width: `${pct(row.invoiced, topFive[0].invoiced)}%`,
-                  }}
-                  title={`Invoiced ${money(row.invoiced)}`}
-                />
-              </div>
-            ))}
-          </section>
-          <section className={chart.chartCard} aria-labelledby="owing-title">
-            <h2 id="owing-title">Who owes you most</h2>
-            <p className={chart.headline}>
-              {topOwing.length
-                ? `${money(owingTotal)} still to collect in ${currency}`
-                : `Nobody owes anything in ${currency}`}
-            </p>
-            {topOwing.map((row) => (
-              <div className={chart.row} key={row.company.id}>
-                <div className={chart.rowHead}>
-                  <Link
-                    className={styles.companyLink}
-                    href={`/customers/${row.company.id}`}
-                  >
-                    <strong>{row.company.companyName}</strong>
-                  </Link>
-                  <span>{money(row.owing)}</span>
-                </div>
-                <div
-                  className={`${chart.bar} ${chart.invoiced} ${chart.single}`}
-                  style={{ width: `${pct(row.owing, topOwing[0].owing)}%` }}
-                  title={`Owing ${money(row.owing)}`}
-                />
-              </div>
-            ))}
-          </section>
-        </div>
-      )}
 
       <section className={styles.directory} aria-label="Customer companies">
         <div className={styles.searchHeader}>
