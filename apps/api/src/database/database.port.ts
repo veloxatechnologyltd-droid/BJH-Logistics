@@ -550,6 +550,9 @@ export interface NotificationRecord {
 /** A delivery the dispatcher has claimed and must now send. */
 export interface DueDelivery {
   id: string;
+  companyId: string;
+  event: string;
+  dedupeKey: string;
   channel: "email" | "sms";
   recipient: string;
   /** Attempts including this one. */

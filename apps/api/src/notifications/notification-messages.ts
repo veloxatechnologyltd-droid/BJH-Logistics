@@ -67,7 +67,7 @@ export const quoteIssuedMessage = (
   quoteNumber: string,
 ): Message => ({
   subject: `Your quotation ${quoteNumber} is ready`,
-  body: `Your quotation ${quoteNumber} is ready. You can open and download it below.${sign(sender)}`,
+  body: `Your quotation ${quoteNumber} is attached as a PDF. You can also open it in the customer portal below.${sign(sender)}`,
   smsText: `${sender}: your quotation ${quoteNumber} is ready.`,
 });
 

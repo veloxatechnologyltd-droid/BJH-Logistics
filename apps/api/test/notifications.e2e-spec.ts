@@ -599,6 +599,46 @@ test("quotes, invoices, payments and deliveries each message the client", async 
     logged.rows[0].link_url,
     `https://portal.example.test/quotes/${quoteId}`,
   );
+  await dispatcher.dispatchDue();
+  const quoteEmails = email.sent.filter((item) =>
+    item.subject.includes(quoteNumber),
+  );
+  assert.ok(quoteEmails.length > 0);
+  for (const sent of quoteEmails) {
+    assert.equal(sent.attachments?.length, 1);
+    assert.match(sent.attachments[0].filename, /\.pdf$/);
+    assert.equal(sent.attachments[0].content.subarray(0, 4).toString(), "%PDF");
+  }
+  assert.equal(
+    (await post(`/api/v1/quotes/${quoteId}/send`, TEST_MATCHING_TOKEN, {}))
+      .status,
+    201,
+  );
+  assert.equal(
+    (await post(`/api/v1/quotes/${quoteId}/versions`, TEST_MATCHING_TOKEN, {}))
+      .status,
+    201,
+  );
+  assert.equal(
+    (await post(`/api/v1/quotes/${quoteId}/issue`, TEST_MATCHING_TOKEN, {}))
+      .status,
+    201,
+  );
+  await dispatcher.dispatchDue();
+  const resent = email.sent.filter((item) =>
+    item.subject.includes(quoteNumber),
+  );
+  assert.equal(resent.length, quoteEmails.length * 3);
+  assert.equal(
+    resent.filter((item) => item.attachments?.[0]?.filename.endsWith("-v1.pdf"))
+      .length,
+    quoteEmails.length * 2,
+  );
+  assert.equal(
+    resent.filter((item) => item.attachments?.[0]?.filename.endsWith("-v2.pdf"))
+      .length,
+    quoteEmails.length,
+  );
 
   const invoice = await json<{ id: string }>(
     await post(`/api/v1/jobs/${jobA}/invoices`, TEST_MATCHING_TOKEN, {

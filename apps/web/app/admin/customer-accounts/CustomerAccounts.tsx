@@ -123,6 +123,37 @@ export function CustomerAccounts() {
   const companyName = (id: string) =>
     companies.find((item) => item.id === id)?.companyName ?? id;
 
+  const customerEmails = new Map<
+    string,
+    { companyId: string; companyName: string; email: string; name: string }
+  >();
+  for (const company of companies) {
+    for (const contact of company.contacts) {
+      const address = contact.email.trim().toLowerCase();
+      if (!address) continue;
+      customerEmails.set(`${company.id}:${address}`, {
+        companyId: company.id,
+        companyName: company.companyName,
+        email: contact.email.trim(),
+        name: contact.name,
+      });
+    }
+    const address = company.companyEmail?.trim().toLowerCase();
+    if (address && !customerEmails.has(`${company.id}:${address}`)) {
+      customerEmails.set(`${company.id}:${address}`, {
+        companyId: company.id,
+        companyName: company.companyName,
+        email: company.companyEmail!.trim(),
+        name: "Company email",
+      });
+    }
+  }
+  const contactRows = [...customerEmails.values()].sort(
+    (left, right) =>
+      left.companyName.localeCompare(right.companyName) ||
+      left.email.localeCompare(right.email),
+  );
+
   return (
     <>
       <main className={styles.page}>
@@ -223,7 +254,11 @@ export function CustomerAccounts() {
             </p>
             <div className={styles.userList}>
               {pending.map((account) => (
-                <article className={styles.userCard} key={account.id}>
+                <article
+                  className={styles.userCard}
+                  id={`pending-account-${account.id}`}
+                  key={account.id}
+                >
                   <div className={styles.userHeading}>
                     <div>
                       <h3>{account.email ?? "Email unavailable"}</h3>
@@ -283,10 +318,114 @@ export function CustomerAccounts() {
           </section>
         )}
 
+        <section
+          className={styles.directory}
+          aria-labelledby="contact-emails-title"
+        >
+          <div className={styles.directoryHeading}>
+            <div>
+              <h2 id="contact-emails-title">Customer emails</h2>
+              <p>
+                Captured from customer profiles. Set an initial password to give
+                someone portal access to their company.
+              </p>
+            </div>
+            <span>{contactRows.length} emails</span>
+          </div>
+          {loading ? (
+            <p className={styles.empty} role="status">
+              Loading customer emails…
+            </p>
+          ) : contactRows.length === 0 ? (
+            <p className={styles.empty}>No customer emails recorded yet.</p>
+          ) : (
+            <div className={styles.userList}>
+              {contactRows.map((contact) => {
+                const account = accounts.find(
+                  (item) =>
+                    item.email?.toLowerCase() === contact.email.toLowerCase(),
+                );
+                const waiting = pending.find(
+                  (item) =>
+                    item.email?.toLowerCase() === contact.email.toLowerCase(),
+                );
+                const linked = account?.companies.some(
+                  (item) => item.companyId === contact.companyId,
+                );
+                return (
+                  <article
+                    className={styles.userCard}
+                    key={`${contact.companyId}:${contact.email.toLowerCase()}`}
+                  >
+                    <div className={styles.userHeading}>
+                      <div>
+                        <h3>{contact.email}</h3>
+                        <p>
+                          {contact.name} · {contact.companyName}
+                        </p>
+                      </div>
+                      <span
+                        className={
+                          linked && !account?.suspended
+                            ? styles.activeBadge
+                            : styles.inactiveBadge
+                        }
+                      >
+                        {linked
+                          ? account?.suspended
+                            ? "Suspended"
+                            : "Portal access"
+                          : "No portal access"}
+                      </span>
+                    </div>
+                    {account ? (
+                      <p className={styles.empty}>
+                        {linked
+                          ? "Set a new password under "
+                          : "Link this company under "}
+                        <a href={`#customer-login-${account.id}`}>
+                          Customer logins
+                        </a>
+                        .
+                      </p>
+                    ) : waiting ? (
+                      <p className={styles.empty}>
+                        This email has signed up. Link its company under{" "}
+                        <a href={`#pending-account-${waiting.id}`}>
+                          Waiting for access
+                        </a>
+                        .
+                      </p>
+                    ) : (
+                      <button
+                        className={styles.revokeButton}
+                        onClick={() => {
+                          setEmail(contact.email);
+                          setCompanyId(contact.companyId);
+                          setPassword("");
+                          setCreating(true);
+                          window.scrollTo({ top: 0, behavior: "smooth" });
+                        }}
+                        type="button"
+                      >
+                        Set password and create login
+                      </button>
+                    )}
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
         <section className={styles.directory} aria-labelledby="customers-title">
           <div className={styles.directoryHeading}>
             <div>
               <h2 id="customers-title">Customer logins</h2>
+              <p>
+                Quote emails go to enabled contacts on the customer profile. A
+                login is only needed for portal access.
+              </p>
             </div>
             <span>{accounts.length} accounts</span>
           </div>
@@ -299,7 +438,11 @@ export function CustomerAccounts() {
           ) : (
             <div className={styles.userList}>
               {accounts.map((account) => (
-                <article className={styles.userCard} key={account.id}>
+                <article
+                  className={styles.userCard}
+                  id={`customer-login-${account.id}`}
+                  key={account.id}
+                >
                   <div className={styles.userHeading}>
                     <div>
                       <h3>{account.email ?? "Email unavailable"}</h3>

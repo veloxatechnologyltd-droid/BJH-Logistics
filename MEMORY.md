@@ -1,5 +1,17 @@
 Maintain a file called MEMORY.md. After any significant decision, about direction, format, content, approach, or strategy, add an entry:
 
+## 2026-10-29, Customer profile emails appear in account administration
+
+**What was decided:** The Customer accounts page lists every unique contact and company email recorded on each customer profile, with its company and portal-access status. The super admin can set an initial password there to create a login for an address without one. An existing login or self-signup is linked to an additional company only by a separate admin action; existing customer passwords remain under Account controls.
+**Why:** Evans expects addresses captured through customer records and emailed requests to be visible where he provisions customer access, without retyping each email or silently granting access to another company.
+**What was rejected:** Creating Auth accounts automatically when a contact is saved; silently linking one email to every company that lists it.
+
+## 2026-10-29, Issued quote emails include a PDF
+
+**What was decided:** Both the automatic email on quote issue and a staff-triggered resend include the exact issued quote version as a PDF attachment. The existing portal link stays for customers with accounts. Quote recipients come from the company's notifiable contacts; receiving an email does not create a customer login.
+**Why:** A customer should be able to open the quotation from their email without signing in, while portal access remains company-authorized. Using the issued version tied to the queued message keeps later revisions from changing an earlier email.
+**What was rejected:** Requiring every quote recipient to have a portal account; exposing quotations through a public unauthenticated link.
+
 ## 2026-10-29, Website content syncs the company profile and the live site
 
 **What was decided:** The public site combines both sources the client gave: the company profile (`apps/site/profile bjhlogistics.pdf`, kept locally and not committed) and the live bjhlogistics.com. Where both describe the same thing, the profile's wording is used; everything else on the live site is kept. That means 17 services (including ship agency, LCL consolidation and freight forwarding), the live site's project sectors (mining, oil and gas, humanitarian, automotive), its carrier lists and industry affiliations, its four benefits, plus the profile's customers supported, Tema Port clearance terms and the additional telephone 055 680 7983.

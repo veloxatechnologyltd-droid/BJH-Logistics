@@ -14,6 +14,7 @@ import {
 } from "./providers";
 import { etaReminderMessage } from "./notification-messages";
 import { NotificationsService } from "./notifications.service";
+import { renderQuotePdf } from "../quotations/quote-pdf";
 
 /** A delivery is tried this many times before it is left as failed for a person to retry. */
 export const MAX_ATTEMPTS = 5;
@@ -92,6 +93,7 @@ export class NotificationDispatcher implements OnModuleInit, OnModuleDestroy {
               to: delivery.recipient,
               subject: delivery.subject,
               text: delivery.body,
+              attachments: await this.quoteAttachment(delivery),
             })
           : await this.sms.send({
               to: delivery.recipient,
@@ -115,6 +117,38 @@ export class NotificationDispatcher implements OnModuleInit, OnModuleDestroy {
         `${delivery.channel} delivery ${delivery.id} failed (attempt ${delivery.attempts}): ${reason}`,
       );
     }
+  }
+
+  private async quoteAttachment(delivery: DueDelivery) {
+    if (delivery.event !== "quote_issued" && delivery.event !== "quote_sent") {
+      return undefined;
+    }
+    const versionId = /^quote-(?:issued|sent):([0-9a-f-]{36})(?::|$)/.exec(
+      delivery.dedupeKey,
+    )?.[1];
+    const quoteId = delivery.linkUrl
+      ? /^\/quotes\/([0-9a-f-]{36})$/.exec(
+          new URL(delivery.linkUrl).pathname,
+        )?.[1]
+      : undefined;
+    if (!quoteId || !versionId)
+      throw new Error("Quote PDF reference is missing");
+    const quote = await this.database.findQuote(quoteId, {});
+    if (!quote || quote.customerCompanyId !== delivery.companyId) {
+      throw new Error("Quote PDF was not found for this customer");
+    }
+    const version = quote.versions.find(
+      (item) => item.id === versionId && item.status === "issued",
+    );
+    if (!version) throw new Error("Issued quote version was not found");
+    const settings = await this.database.getBusinessSettings();
+    const content = await renderQuotePdf({
+      quote,
+      version,
+      settings: settings?.settings ?? null,
+    });
+    const filename = `${(quote.quoteNumber ?? "quotation").replace(/[^A-Za-z0-9-]+/g, "-")}-v${version.versionNumber}.pdf`;
+    return [{ filename, content }];
   }
 
   /**
