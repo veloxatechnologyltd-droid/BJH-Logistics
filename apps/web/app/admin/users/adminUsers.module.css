@@ -43,7 +43,8 @@
 }
 .invitePanel {
   display: grid;
-  grid-template-columns: minmax(220px, 0.75fr) 1.25fr;
+  min-width: 0;
+  grid-template-columns: minmax(0, 0.75fr) minmax(0, 1.25fr);
   gap: 28px;
   align-items: center;
   padding: 24px;
@@ -62,15 +63,15 @@
 }
 .inviteForm {
   display: grid;
-  grid-template-columns:
-    minmax(160px, 1fr) minmax(180px, 1fr) minmax(190px, 0.8fr)
-    auto auto;
+  min-width: 0;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   align-items: end;
   gap: 12px;
 }
 .inviteForm label,
 .addRole label {
   display: grid;
+  min-width: 0;
   gap: 6px;
   color: #4c6478;
   font-size: 0.72rem;
@@ -90,6 +91,9 @@
   font: inherit;
   font-size: 0.78rem;
 }
+.inviteForm label {
+  grid-column: span 2;
+}
 .inviteForm button,
 .addRole button,
 .pagination button,
@@ -104,6 +108,14 @@
   font-size: 1rem;
   font-weight: 600;
   cursor: pointer;
+}
+.inviteForm button {
+  grid-column: span 3;
+  justify-self: start;
+  width: 100%;
+  max-width: 260px;
+  min-width: 0;
+  white-space: normal;
 }
 .inviteForm button:disabled,
 .pagination button:disabled {
@@ -122,12 +134,16 @@
   gap: 12px;
 }
 .userCard {
+  min-width: 0;
   border: 1px solid #dce6ed;
   border-radius: 9px;
   padding: 17px;
 }
 .userHeading {
   align-items: flex-start;
+}
+.userHeading > div {
+  min-width: 0;
 }
 .userHeading h3 {
   overflow-wrap: anywhere;
@@ -171,6 +187,10 @@
   font-size: 0.74rem;
   font-weight: 700;
 }
+.roleRow > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .roleRow small {
   display: block;
   margin-top: 4px;
@@ -189,6 +209,10 @@
   font-size: 0.9rem;
   font-weight: 600;
   cursor: pointer;
+}
+.userCard button {
+  max-width: 100%;
+  white-space: normal;
 }
 .noRoles,
 .empty,
@@ -239,11 +263,16 @@
 }
 .addRole {
   display: flex;
+  flex-wrap: wrap;
   align-items: end;
   gap: 9px;
   margin-top: 14px;
 }
+.addRole label {
+  flex: 1 1 220px;
+}
 .addRole select {
+  width: 100%;
   height: 35px;
 }
 .addRole button {
@@ -280,15 +309,21 @@
   color: #28724e;
 }
 
-@media (max-width: 850px) {
+@media (max-width: 1150px) {
   .invitePanel {
     grid-template-columns: 1fr;
   }
+}
+
+@media (max-width: 850px) {
   .inviteForm {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .inviteForm label {
+    grid-column: span 1;
   }
   .inviteForm button {
-    grid-column: 1 / -1;
+    grid-column: span 2;
   }
 }
 
@@ -303,8 +338,9 @@
   .inviteForm {
     grid-template-columns: 1fr;
   }
+  .inviteForm label,
   .inviteForm button {
-    grid-column: auto;
+    grid-column: span 1;
   }
   .heading {
     align-items: flex-start;
