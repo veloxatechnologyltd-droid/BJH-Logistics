@@ -1,0 +1,66 @@
+.section {
+  display: grid;
+  gap: 16px;
+  margin: 20px 0;
+  padding: 20px;
+  border: 1px solid #dbe4ec;
+  border-radius: 14px;
+  background: #fff;
+}
+.controls,
+.presets,
+.heading,
+.split {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.controls {
+  flex-wrap: wrap;
+}
+.presets {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+.presets button,
+.heading button {
+  padding: 8px 12px;
+  border: 1px solid #cbd8e4;
+  border-radius: 8px;
+  background: #fff;
+  color: #193b58;
+  cursor: pointer;
+}
+.presets .activePreset {
+  background: #0b3fae;
+  border-color: #0b3fae;
+  color: #fff;
+}
+.heading {
+  align-items: flex-start;
+}
+.heading h2,
+.heading h3 {
+  margin: 0;
+  color: #233d55;
+}
+.heading p {
+  margin: 5px 0 0;
+  color: #617487;
+}
+.split {
+  align-items: flex-start;
+}
+.split > div {
+  min-width: 0;
+  flex: 1;
+}
+@media (max-width: 760px) {
+  .section {
+    padding: 15px;
+  }
+  .split {
+    display: grid;
+  }
+}

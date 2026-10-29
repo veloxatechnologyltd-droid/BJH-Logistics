@@ -646,6 +646,37 @@ export const getStockReport = (asOf: string, companyId: string) => {
   );
 };
 
+export type ReportsData = {
+  jobs: Job[];
+  invoices: Array<{
+    jobId: string;
+    fileNumber: string;
+    customerCompanyName: string;
+    invoice: Invoice;
+  }>;
+  payments: Array<{
+    jobId: string;
+    fileNumber: string;
+    customerCompanyName: string;
+    currency: string;
+    invoiceNumber: string;
+    payment: InvoicePayment;
+  }>;
+  movements: Array<{
+    jobId: string;
+    fileNumber: string;
+    customerCompanyName: string;
+    movement: StockMovement;
+  }>;
+  asOf: string;
+  stockBalances: StockBalance[];
+};
+
+export const getReports = (from: string, to: string) => {
+  const query = new URLSearchParams({ from, to });
+  return sendApi<ReportsData>(`/reports?${query}`, "GET");
+};
+
 export type NotificationDelivery = {
   id: string;
   channel: "email" | "sms";
