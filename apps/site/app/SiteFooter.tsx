@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import { contact, featuredServices, FOUNDED, telHref } from "./content";
 import { Icon } from "./Icon";
 
@@ -8,8 +9,13 @@ export function SiteFooter() {
       <div className="container footer-grid">
         <div>
           <Link href="/" className="logo" aria-label="BJH Logistics home">
-            <span className="logo-mark">BJH</span>
-            <span className="logo-text">Logistics</span>
+            <Image
+              src="/images/bjh-logo.png"
+              alt="BJH Logistics"
+              width={1006}
+              height={390}
+              className="brand-logo"
+            />
           </Link>
           <p className="footer-about">
             {contact.tagline}, since {FOUNDED}.

@@ -18,6 +18,13 @@ import { HeroShowcase } from "./HeroShowcase";
 import { CtaBand, SectionHeading } from "./Sections";
 
 const yearsInBusiness = new Date().getFullYear() - FOUNDED;
+const partnerLogos: Record<string, string> = {
+  Evergreen: "/images/partners/evergreen-line.svg",
+  "Hapag-Lloyd": "/images/partners/hapag-lloyd.png",
+  PIL: "/images/partners/pil.png",
+  GIFF: "/images/partners/giff.png",
+  Freightnet: "/images/partners/freightnet.png",
+};
 
 export default function HomePage() {
   const marquee = [
@@ -267,7 +274,23 @@ export default function HomePage() {
         <div className="marquee" aria-label={marquee.join(", ")}>
           <div className="marquee-track" aria-hidden="true">
             {[...marquee, ...marquee].map((name, index) => (
-              <span key={`${name}-${index}`}>{name}</span>
+              <span
+                key={`${name}-${index}`}
+                className={
+                  partnerLogos[name] ? "partner-brand" : "partner-name"
+                }
+              >
+                {partnerLogos[name] ? (
+                  <Image
+                    src={partnerLogos[name]}
+                    alt=""
+                    width={190}
+                    height={52}
+                  />
+                ) : (
+                  name
+                )}
+              </span>
             ))}
           </div>
         </div>

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import {
   affiliations,
   benefits,
@@ -127,6 +128,20 @@ export default function AboutPage() {
                 <Icon name="ship" />
               </span>
               <h3>By sea</h3>
+              <div
+                className="network-logos"
+                aria-label="Selected carrier logos"
+              >
+                {[
+                  ["Evergreen", "/images/partners/evergreen-line.svg"],
+                  ["Hapag-Lloyd", "/images/partners/hapag-lloyd.png"],
+                  ["PIL", "/images/partners/pil.png"],
+                ].map(([name, src]) => (
+                  <span key={name} title={name}>
+                    <Image src={src} alt={name} width={100} height={32} />
+                  </span>
+                ))}
+              </div>
               <ul>
                 {carriers.sea.map((name) => (
                   <li key={name}>{name}</li>
@@ -155,6 +170,19 @@ export default function AboutPage() {
                 <Icon name="globe" />
               </span>
               <h3>Industry affiliations</h3>
+              <div
+                className="network-logos"
+                aria-label="Selected network logos"
+              >
+                {[
+                  ["GIFF", "/images/partners/giff.png"],
+                  ["Freightnet", "/images/partners/freightnet.png"],
+                ].map(([name, src]) => (
+                  <span key={name} title={name}>
+                    <Image src={src} alt={name} width={100} height={32} />
+                  </span>
+                ))}
+              </div>
               <dl className="affiliations">
                 {affiliations.map((affiliation) => (
                   <div key={affiliation.name}>

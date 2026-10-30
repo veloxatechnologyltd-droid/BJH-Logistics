@@ -1,5 +1,11 @@
 Maintain a file called MEMORY.md. After any significant decision, about direction, format, content, approach, or strategy, add an entry:
 
+## 2026-10-30, Use BJH's source logo and a limited set of network marks
+
+**What was decided:** Replace the public site's typed BJH mark with the logo extracted from the client profile. Show selected carrier and network logos sourced from their own sites in the homepage strip and About page, with the remaining names as text. Record asset origins and logo-use caveats in `apps/site/ASSETS.md`.
+**Why:** Evans asked for the actual BJH logo and more visual carrier and affiliation treatment; several third-party brands publish restrictions or lack a suitable confirmed asset.
+**What was rejected:** Recreating the BJH mark, using unverified logo files, or treating BJH's approval alone as permission from Maersk, FIATA, or IATA.
+
 ## 2026-10-30, Mobile hero keeps the freight imagery visible
 
 **What was decided:** Use a shorter headline and one-sentence introduction only on narrow screens, with compact actions that share a row when space permits. Keep the full desktop copy and the full-screen slideshow.

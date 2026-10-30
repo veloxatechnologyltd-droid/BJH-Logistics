@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { PLATFORM_URL } from "./content";
@@ -32,8 +33,14 @@ export function SiteHeader() {
     <header className={`site-header${scrolled || open ? " solid" : ""}`}>
       <div className="container header-inner">
         <Link href="/" className="logo" aria-label="BJH Logistics home">
-          <span className="logo-mark">BJH</span>
-          <span className="logo-text">Logistics</span>
+          <Image
+            src="/images/bjh-logo.png"
+            alt="BJH Logistics"
+            width={1006}
+            height={390}
+            className="brand-logo"
+            priority
+          />
         </Link>
 
         <nav className={`nav${open ? " open" : ""}`} aria-label="Main">
