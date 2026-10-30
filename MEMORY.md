@@ -1,5 +1,11 @@
 Maintain a file called MEMORY.md. After any significant decision, about direction, format, content, approach, or strategy, add an entry:
 
+## 2026-10-30, Public site motion uses existing editorial scenes
+
+**What was decided:** Present the three existing illustrative freight images as an automatically advancing, manually controllable homepage showcase, and add restrained card image motion. Pause the showcase during pointer or keyboard interaction and respect reduced-motion settings.
+**Why:** Evans asked for a more engaging public website with slides, scrolling effects and action in motion; the existing site has suitable visuals but its main image was static.
+**What was rejected:** Adding a video show without approved footage or loading heavy third-party animation packages for this bounded visual update.
+
 ## 2026-10-29, Customer profile emails appear in account administration
 
 **What was decided:** The Customer accounts page lists every unique contact and company email recorded on each customer profile, with its company and portal-access status. The super admin can set an initial password there to create a login for an address without one. An existing login or self-signup is linked to an additional company only by a separate admin action; existing customer passwords remain under Account controls.

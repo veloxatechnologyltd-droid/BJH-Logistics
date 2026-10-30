@@ -1,13 +1,24 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 /** Fades `.reveal` elements in and counts up `[data-count]` numbers as they scroll into view. */
 export function ScrollEffects() {
   const pathname = usePathname();
+  const progressRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    const updateProgress = () => {
+      const scrollable =
+        document.documentElement.scrollHeight - window.innerHeight;
+      const progress = scrollable > 0 ? window.scrollY / scrollable : 0;
+      if (progressRef.current)
+        progressRef.current.style.transform = `scaleX(${Math.min(1, Math.max(0, progress))})`;
+    };
+    updateProgress();
+    window.addEventListener("scroll", updateProgress, { passive: true });
+    window.addEventListener("resize", updateProgress);
     const reduced = window.matchMedia(
       "(prefers-reduced-motion: reduce)",
     ).matches;
@@ -45,8 +56,14 @@ export function ScrollEffects() {
     document
       .querySelectorAll<HTMLElement>(".reveal, [data-count]")
       .forEach((element) => observer.observe(element));
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("scroll", updateProgress);
+      window.removeEventListener("resize", updateProgress);
+    };
   }, [pathname]);
 
-  return null;
+  return (
+    <div ref={progressRef} className="scroll-progress" aria-hidden="true" />
+  );
 }

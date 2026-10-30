@@ -14,6 +14,7 @@ import {
   whatsappHref,
 } from "./content";
 import { Icon } from "./Icon";
+import { HeroShowcase } from "./HeroShowcase";
 import { CtaBand, SectionHeading } from "./Sections";
 
 const yearsInBusiness = new Date().getFullYear() - FOUNDED;
@@ -68,13 +69,7 @@ export default function HomePage() {
             </ul>
           </div>
           <div className="hero-visual">
-            <Image
-              src="/images/tema-port-editorial.webp"
-              alt="Illustrative view of a container vessel and port operations"
-              width={1983}
-              height={793}
-              priority
-            />
+            <HeroShowcase />
           </div>
         </div>
         <a href="#stats" className="scroll-cue" aria-label="Scroll down">
