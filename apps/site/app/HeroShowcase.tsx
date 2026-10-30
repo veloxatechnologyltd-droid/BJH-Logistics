@@ -41,8 +41,6 @@ export function HeroShowcase() {
     <div
       className="hero-showcase"
       aria-label="Freight services showcase"
-      onMouseEnter={() => setPaused(true)}
-      onMouseLeave={() => setPaused(false)}
       onFocusCapture={() => setPaused(true)}
       onBlurCapture={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget))
@@ -59,7 +57,7 @@ export function HeroShowcase() {
             src={scene.src}
             alt={active === index ? scene.alt : ""}
             fill
-            sizes="(max-width: 900px) 100vw, 50vw"
+            sizes="100vw"
             priority={index === 0}
           />
         </div>
@@ -69,7 +67,12 @@ export function HeroShowcase() {
           <span>{scenes[active].label}</span>
           <strong>{scenes[active].title}</strong>
         </div>
-        <div className="showcase-controls" aria-label="Choose a freight scene">
+        <div
+          className="showcase-controls"
+          aria-label="Choose a freight scene"
+          onMouseEnter={() => setPaused(true)}
+          onMouseLeave={() => setPaused(false)}
+        >
           {scenes.map((scene, index) => (
             <button
               key={scene.src}

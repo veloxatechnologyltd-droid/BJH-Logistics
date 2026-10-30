@@ -1,5 +1,11 @@
 Maintain a file called MEMORY.md. After any significant decision, about direction, format, content, approach, or strategy, add an entry:
 
+## 2026-10-30, Homepage slideshow fills the hero
+
+**What was decided:** Use the existing three freight scenes as edge-to-edge, automatically advancing hero backgrounds with the headline and quote action over a dark readability overlay. Keep manual scene controls and reduced-motion behavior.
+**Why:** Evans reviewed the live site and explicitly asked for the whole hero to feel cinematic rather than showing the slides in a small card.
+**What was rejected:** The earlier 2026-10-30 inset-card showcase layout; adding video without approved footage.
+
 ## 2026-10-30, Public site motion uses existing editorial scenes
 
 **What was decided:** Present the three existing illustrative freight images as an automatically advancing, manually controllable homepage showcase, and add restrained card image motion. Pause the showcase during pointer or keyboard interaction and respect reduced-motion settings.

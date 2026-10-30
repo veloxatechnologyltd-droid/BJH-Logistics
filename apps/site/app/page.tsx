@@ -28,7 +28,7 @@ export default function HomePage() {
   return (
     <>
       <section className="hero">
-        <div className="hero-grid" aria-hidden="true" />
+        <HeroShowcase />
         <div className="container hero-inner">
           <div className="hero-copy">
             <p className="eyebrow light">Since {FOUNDED} · Tema, Ghana</p>
@@ -67,9 +67,6 @@ export default function HomePage() {
                 <Icon name="project" size={18} /> Project cargo
               </li>
             </ul>
-          </div>
-          <div className="hero-visual">
-            <HeroShowcase />
           </div>
         </div>
         <a href="#stats" className="scroll-cue" aria-label="Scroll down">
