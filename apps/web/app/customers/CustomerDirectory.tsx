@@ -13,6 +13,7 @@ import { ErrorPopup, plainMessage } from "../ErrorPopup";
 
 type LoadState = "loading" | "ready" | "error";
 type StatusFilter = "all" | "active" | "inactive";
+type CustomerFilter = "all" | "quotes" | "paid" | "new";
 type SortKey = "name" | "revenue" | "owing" | "lastJob";
 
 const shortDate = (value: string | null) =>
@@ -42,6 +43,7 @@ export function CustomerDirectory() {
   );
   const [currency, setCurrency] = useState("");
   const [status, setStatus] = useState<StatusFilter>("all");
+  const [customerFilter, setCustomerFilter] = useState<CustomerFilter>("all");
   const [sortKey, setSortKey] = useState<SortKey>("name");
 
   useEffect(() => {
@@ -117,9 +119,28 @@ export function CustomerDirectory() {
       };
     };
     const filtered = customers.filter((company) => {
-      if (status === "all" || !insights) return true;
-      const active = insights.get(company.id)?.active ?? false;
-      return status === "active" ? active : !active;
+      const insight = insights?.get(company.id);
+      if (status !== "all" && insights) {
+        const active = insight?.active ?? false;
+        if (status === "active" ? !active : active) return false;
+      }
+      if (customerFilter === "quotes" && (insight?.quotesSent ?? 0) < 1)
+        return false;
+      if (
+        customerFilter === "paid" &&
+        !insight?.money.some(
+          (entry) =>
+            entry.invoicedMinor > 0 &&
+            entry.receivedMinor >= entry.invoicedMinor,
+        )
+      )
+        return false;
+      if (
+        customerFilter === "new" &&
+        Date.now() - Date.parse(company.createdAt) > customerActiveDays * 86400000
+      )
+        return false;
+      return true;
     });
     return [...filtered].sort((a, b) => {
       if (sortKey === "revenue") return figure(b).invoiced - figure(a).invoiced;
@@ -129,7 +150,7 @@ export function CustomerDirectory() {
       }
       return a.companyName.localeCompare(b.companyName);
     });
-  }, [customers, insights, status, sortKey, currency]);
+  }, [customers, insights, status, customerFilter, sortKey, currency]);
 
   useEffect(() => {
     let active = true;
@@ -257,6 +278,20 @@ export function CustomerDirectory() {
                 </button>
               ))}
             </div>
+            <label className={styles.sortLabel}>
+              Customer activity
+              <select
+                onChange={(event) =>
+                  setCustomerFilter(event.target.value as CustomerFilter)
+                }
+                value={customerFilter}
+              >
+                <option value="all">All customers</option>
+                <option value="quotes">Quotes issued</option>
+                <option value="paid">Paid invoices</option>
+                <option value="new">New clients (90 days)</option>
+              </select>
+            </label>
             <label className={styles.sortLabel}>
               Sort by
               <select
@@ -413,19 +448,23 @@ export function CustomerDirectory() {
                   </tbody>
                 </table>
               </div>
-            ) : query.trim() ? (
+            ) : query.trim() || customerFilter !== "all" || status !== "all" ? (
               <div className={styles.emptyState}>
                 <span className={styles.emptyIcon} aria-hidden="true">
                   ⌕
                 </span>
-                <h2>No customers match</h2>
-                <p>Try another company, contact name, or email address.</p>
+                <h2>No customers match these filters</h2>
+                <p>Adjust the search or choose a different customer filter.</p>
                 <button
                   className={styles.emptyClearButton}
-                  onClick={() => setQuery("")}
+                  onClick={() => {
+                    setQuery("");
+                    setStatus("all");
+                    setCustomerFilter("all");
+                  }}
                   type="button"
                 >
-                  Clear search
+                  Clear search and filters
                 </button>
               </div>
             ) : (

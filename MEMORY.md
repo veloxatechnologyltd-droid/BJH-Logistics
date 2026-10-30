@@ -24,6 +24,12 @@ Maintain a file called MEMORY.md. After any significant decision, about directio
 **Why:** Evans asked for a more engaging public website with slides, scrolling effects and action in motion; the existing site has suitable visuals but its main image was static.
 **What was rejected:** Adding a video show without approved footage or loading heavy third-party animation packages for this bounded visual update.
 
+## 2026-10-30, Public quote form uses the platform intake
+
+**What was decided:** Submit the public website quote form through a server-only route to the platform's existing inbound intake, using the intake secret only on the server. Show success only after intake accepts the request; retain a prefilled email link if intake fails. The website login continues to open the platform sign-in, where customer access follows assigned company membership.
+**Why:** Opening a mail app did not ensure the request reached the system, while the existing intake already records requests for staff. The shared sign-in already serves customer accounts.
+**What was rejected:** Exposing the intake secret in browser code, creating a second public quote database, or inventing a separate website customer login.
+
 ## 2026-10-29, Customer profile emails appear in account administration
 
 **What was decided:** The Customer accounts page lists every unique contact and company email recorded on each customer profile, with its company and portal-access status. The super admin can set an initial password there to create a login for an address without one. An existing login or self-signup is linked to an additional company only by a separate admin action; existing customer passwords remain under Account controls.
@@ -35,6 +41,12 @@ Maintain a file called MEMORY.md. After any significant decision, about directio
 **What was decided:** Keep the revenue and amount-owing rankings and currency selector in Finance under Customer reports; remove those chart cards from the Customers directory.
 **Why:** Evans asked to remove the unattractive chart cards from Customers while keeping the information available elsewhere.
 **What was rejected:** Dropping the rankings or creating a separate Reports area when no such destination exists.
+
+## 2026-10-29, Customer directory filters use recorded lifecycle and billing data
+
+**What was decided:** Add Customers-page filters for companies with issued quotes, companies with fully paid invoices, and profiles created in the last 90 days. Label the payment filter "Paid invoices" because payments are recorded against invoices, not quotations. Keep the existing active/inactive filter and combine it with the new filter.
+**Why:** These filters support follow-up and prospecting using fields already returned by customer insights and profiles, without adding an API or database dependency.
+**What was rejected:** Calling payments "paid quotes" or deriving payment from quote acceptance; adding a new arbitrary definition of new client.
 
 ## 2026-10-29, First-time customer sign-in guidance
 
