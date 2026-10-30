@@ -33,12 +33,20 @@ export default function HomePage() {
           <div className="hero-copy">
             <p className="eyebrow light">Since {FOUNDED} · Tema, Ghana</p>
             <h1>
-              Freight, customs and logistics, <span>handled end to end.</span>
+              <span className="hero-heading-wide">
+                Freight, customs and logistics, <em>handled end to end.</em>
+              </span>
+              <span className="hero-heading-small">
+                Freight, cleared and delivered.
+              </span>
             </h1>
-            <p className="lead">
+            <p className="lead hero-lead-wide">
               BJH Logistics moves your cargo by air, sea and land. We book it,
               clear it, store it and deliver it, so you deal with one team from
               origin to door.
+            </p>
+            <p className="lead hero-lead-small">
+              Air, sea and land logistics from Tema to your door.
             </p>
             <div className="hero-actions">
               <Link href="/request-a-quote" className="btn btn-white">

@@ -348,8 +348,14 @@ svg {
   text-wrap: balance;
 }
 
-.hero h1 span {
+.hero h1 em {
   color: rgba(255, 255, 255, 0.72);
+  font-style: normal;
+}
+
+.hero-heading-small,
+.hero-lead-small {
+  display: none;
 }
 
 .lead {
@@ -1806,6 +1812,16 @@ h2 {
     font-size: clamp(2rem, 9vw, 2.4rem);
   }
 
+  .hero-heading-wide,
+  .hero-lead-wide {
+    display: none;
+  }
+
+  .hero-heading-small,
+  .hero-lead-small {
+    display: block;
+  }
+
   .hero .lead {
     margin-top: 16px;
     font-size: 1rem;
@@ -1860,6 +1876,16 @@ h2 {
   .hero-actions .btn,
   .cta-actions .btn {
     flex: 1 1 100%;
+  }
+
+  .hero-actions {
+    gap: 8px;
+  }
+
+  .hero-actions .btn {
+    flex: 1 1 calc(50% - 4px);
+    padding: 12px 8px;
+    font-size: 0.85rem;
   }
 }
 

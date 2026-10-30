@@ -1,5 +1,11 @@
 Maintain a file called MEMORY.md. After any significant decision, about direction, format, content, approach, or strategy, add an entry:
 
+## 2026-10-30, Mobile hero keeps the freight imagery visible
+
+**What was decided:** Use a shorter headline and one-sentence introduction only on narrow screens, with compact actions that share a row when space permits. Keep the full desktop copy and the full-screen slideshow.
+**Why:** Evans found that the long desktop copy occupied nearly the whole mobile hero and obscured the freight scenes.
+**What was rejected:** Shrinking all text to unreadable sizes or removing the quote and contact actions from mobile.
+
 ## 2026-10-30, Homepage slideshow fills the hero
 
 **What was decided:** Use the existing three freight scenes as edge-to-edge, automatically advancing hero backgrounds with the headline and quote action over a dark readability overlay. Keep manual scene controls and reduced-motion behavior.
