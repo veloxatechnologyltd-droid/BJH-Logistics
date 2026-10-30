@@ -30,6 +30,8 @@ export function QuoteForm() {
     service: preselected?.title ?? "",
   });
   const [sent, setSent] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState(false);
 
   const field = (key: keyof QuoteDetails) => ({
     name: key,
@@ -38,10 +40,24 @@ export function QuoteForm() {
       setDetails((current) => ({ ...current, [key]: event.target.value })),
   });
 
-  const submit = (event: FormEvent) => {
+  const submit = async (event: FormEvent) => {
     event.preventDefault();
-    window.location.href = quoteMailto(contact.quotesEmail, details);
-    setSent(true);
+    if (sending || sent) return;
+    setSending(true);
+    setError(false);
+    try {
+      const response = await fetch("/api/quote-request", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(details),
+      });
+      if (!response.ok) throw new Error("Request not received");
+      setSent(true);
+    } catch {
+      setError(true);
+    } finally {
+      setSending(false);
+    }
   };
 
   return (
@@ -135,8 +151,17 @@ export function QuoteForm() {
       </fieldset>
 
       <div className="form-actions">
-        <button type="submit" className="btn btn-primary">
-          Send by email <Icon name="arrow" size={18} />
+        <button
+          type="submit"
+          className="btn btn-primary"
+          disabled={sending || sent}
+        >
+          {sending
+            ? "Sending…"
+            : sent
+              ? "Request received"
+              : "Send quote request"}{" "}
+          <Icon name="arrow" size={18} />
         </button>
         <a
           href={whatsappHref(
@@ -150,9 +175,19 @@ export function QuoteForm() {
         </a>
       </div>
       <p className="form-note" role="status">
-        {sent
-          ? `Your email app should now be open with your request to ${contact.quotesEmail}. Press send there to finish.`
-          : `"Send by email" opens your email app with the request addressed to ${contact.quotesEmail}.`}
+        {sent ? (
+          "Your request is in our system. Our team will review it."
+        ) : error ? (
+          <>
+            We could not send your request. Try again, or{" "}
+            <a href={quoteMailto(contact.quotesEmail, details)}>
+              send it by email
+            </a>
+            .
+          </>
+        ) : (
+          "Send the details directly to BJH Logistics."
+        )}
       </p>
     </form>
   );

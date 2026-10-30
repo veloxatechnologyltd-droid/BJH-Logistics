@@ -1,5 +1,11 @@
 Maintain a file called MEMORY.md. After any significant decision, about direction, format, content, approach, or strategy, add an entry:
 
+## 2026-10-30, Public quote form uses the platform intake
+
+**What was decided:** Submit the public website quote form through a server-only route to the platform's existing inbound intake, using the intake secret only on the server. Show success only after intake accepts the request; retain a prefilled email link if intake fails. The website login continues to open the platform sign-in, where customer access follows assigned company membership.
+**Why:** Opening a mail app did not ensure the request reached the system, while the existing intake already records requests for staff. The shared sign-in already serves customer accounts.
+**What was rejected:** Exposing the intake secret in browser code, creating a second public quote database, or inventing a separate website customer login.
+
 ## 2026-10-29, Customer profile emails appear in account administration
 
 **What was decided:** The Customer accounts page lists every unique contact and company email recorded on each customer profile, with its company and portal-access status. The super admin can set an initial password there to create a login for an address without one. An existing login or self-signup is linked to an additional company only by a separate admin action; existing customer passwords remain under Account controls.
