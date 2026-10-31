@@ -816,3 +816,9 @@ Read MEMORY.md at the start of every session before doing anything. Never contra
 **What was decided:** Add a staff-only Reports page with Ghana-date day, Monday-to-Sunday week-to-date, month-to-date, year-to-date and custom date filters. Job opening/closure uses job dates, invoices use issue dates, payments use received dates, stock movements use occurrence dates, and on-hand stock is as of the range end. A single scoped `GET /api/v1/reports?from&to` returns date-filtered invoice, payment and warehouse movement rows plus jobs and stock balances; existing service-line/company scope is enforced in the API. Show current open delay/exception tasks; label current receivables and current job costs/margin as all-time/current. Detailed job, invoice, payment and warehouse movement lists can be downloaded as CSV.
 **Why:** Evans asked for useful shipping-company reports with daily, weekly, monthly and annual filters; period-filtered report rows should be fetched in bulk, and current-state summaries must stay clearly distinguished from period activity.
 **What was rejected:** Per-job invoice and warehouse fetches from the browser; applying a selected period to undated all-time finance totals or implying that current receivables and costs are period flows.
+
+## 2026-10-30, Display the additional authorized network marks
+
+**What was decided:** Add Maersk, FIATA, and IATA marks to the homepage network strip and About page using traceable image sources.
+**Why:** Evans confirmed BJH is authorized to show these marks and asked for the public site update to proceed.
+**What was rejected:** Keeping these three names as text after Evans supplied the missing authorization.

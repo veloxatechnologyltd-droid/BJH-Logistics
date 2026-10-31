@@ -133,6 +133,7 @@ export default function AboutPage() {
                 aria-label="Selected carrier logos"
               >
                 {[
+                  ["Maersk", "/images/partners/maersk.svg"],
                   ["Evergreen", "/images/partners/evergreen-line.svg"],
                   ["Hapag-Lloyd", "/images/partners/hapag-lloyd.png"],
                   ["PIL", "/images/partners/pil.png"],
@@ -177,6 +178,8 @@ export default function AboutPage() {
                 {[
                   ["GIFF", "/images/partners/giff.png"],
                   ["Freightnet", "/images/partners/freightnet.png"],
+                  ["FIATA", "/images/partners/fiata.svg"],
+                  ["IATA", "/images/partners/iata.svg"],
                 ].map(([name, src]) => (
                   <span key={name} title={name}>
                     <Image src={src} alt={name} width={100} height={32} />

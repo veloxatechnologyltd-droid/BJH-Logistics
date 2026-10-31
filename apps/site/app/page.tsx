@@ -19,11 +19,14 @@ import { CtaBand, SectionHeading } from "./Sections";
 
 const yearsInBusiness = new Date().getFullYear() - FOUNDED;
 const partnerLogos: Record<string, string> = {
+  Maersk: "/images/partners/maersk.svg",
   Evergreen: "/images/partners/evergreen-line.svg",
   "Hapag-Lloyd": "/images/partners/hapag-lloyd.png",
   PIL: "/images/partners/pil.png",
   GIFF: "/images/partners/giff.png",
   Freightnet: "/images/partners/freightnet.png",
+  FIATA: "/images/partners/fiata.svg",
+  IATA: "/images/partners/iata.svg",
 };
 
 export default function HomePage() {

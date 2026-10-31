@@ -6,5 +6,8 @@
 - `public/images/partners/pil.png`: [PIL website](https://www.pilship.com/wp-content/uploads/2024/05/Group_18367.png).
 - `public/images/partners/giff.png`: [GIFF website](https://giffghana.com/wp-content/uploads/2021/03/Artboard-52.png).
 - `public/images/partners/freightnet.png`: [Freightnet website](https://cdn.freightnet.com/7/images/fn_logo_rev1_min.png).
+- `public/images/partners/maersk.svg`: [Maersk Line logo](https://commons.wikimedia.org/wiki/File:Maersk_Line_Logo,_July_2021.svg), derived from Maersk's official artwork.
+- `public/images/partners/fiata.svg`: [FIATA website](https://fiata.org/imgs/fiata.svg).
+- `public/images/partners/iata.svg`: [IATA website](https://www.iata.org/contentassets/3e83770142a040d688e269bb2f709b7b/iata-logo-header.svg).
 
-Other listed organizations remain text until suitable current logo files and usage rights are confirmed. In particular, [Maersk](https://www.maersk.com/fr-fr/brand-protection), [FIATA](https://fiata.org/use-of-fiata-brand/), and [IATA](https://portal.iata.org/faq/articles/en_US/FAQ/Where-can-I-find-the-IATA-logo-and-how-can-I-use-it-1415811051031/?l=en_US) publish restrictions on third-party logo use. Displaying a name or mark here does not establish a current partnership or accreditation; BJH should review those relationship claims before release.
+Evans confirmed BJH is authorized to display the Maersk, FIATA, and IATA marks on the public site. Other listed organizations remain text until suitable current logo files are available.
