@@ -65,7 +65,8 @@ export default function ContactPage() {
                       <a href={item.href}>{item.text}</a>
                       {"whatsapp" in item && (
                         <>
-                          {" "}·{" "}
+                          {" "}
+                          ·{" "}
                           <a
                             href={item.whatsapp}
                             target="_blank"
