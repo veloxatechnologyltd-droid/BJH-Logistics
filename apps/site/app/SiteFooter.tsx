@@ -1,7 +1,6 @@
 import Link from "next/link";
 import Image from "next/image";
-import { contact, featuredServices, FOUNDED, telHref } from "./content";
-import { Icon } from "./Icon";
+import { contact, featuredServices, FOUNDED } from "./content";
 
 export function SiteFooter() {
   return (
@@ -63,30 +62,6 @@ export function SiteFooter() {
             <li>
               <Link href="/request-a-quote">Request a quote</Link>
             </li>
-          </ul>
-        </div>
-
-        <div>
-          <h3>Contact</h3>
-          <ul className="footer-contact">
-            <li>
-              <Icon name="pin" size={18} />
-              <span>{contact.address.join(", ")}</span>
-            </li>
-            {contact.phoneNumbers.map((phone) => (
-              <li key={phone}>
-                <Icon name="phone" size={18} />
-                <a href={telHref(phone)}>{phone}</a>
-              </li>
-            ))}
-            {[...new Set([...contact.quoteEmails, ...contact.generalEmails])].map(
-              (email) => (
-                <li key={email}>
-                  <Icon name="mail" size={18} />
-                  <a href={`mailto:${email}`}>{email}</a>
-                </li>
-              ),
-            )}
           </ul>
         </div>
       </div>

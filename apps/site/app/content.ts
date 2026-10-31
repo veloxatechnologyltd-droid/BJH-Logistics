@@ -118,6 +118,7 @@ export const serviceGroups: { title: string; services: Service[] }[] = [
         slug: "lcl-consolidation",
         title: "LCL consolidation",
         icon: "boxes",
+        image: "/images/services/lcl-consolidation.webp",
         summary:
           "Shared container capacity for smaller consignments, with consolidation handovers, arrival separation and Ghana release planned together.",
       },
@@ -125,6 +126,7 @@ export const serviceGroups: { title: string; services: Service[] }[] = [
         slug: "freight-forwarding",
         title: "Freight forwarding",
         icon: "globe",
+        image: "/images/services/freight-forwarding.webp",
         summary:
           "Multi-mode planning built around transit mode, cargo profile and timing, with documents and customs aligned and updates from booking to handover.",
       },
@@ -132,6 +134,7 @@ export const serviceGroups: { title: string; services: Service[] }[] = [
         slug: "door-to-door",
         title: "Door-to-door shipping",
         icon: "door",
+        image: "/images/services/door-to-door.webp",
         summary:
           "Pickup, main transport, customs clearance, storage where needed and final delivery in one connected plan.",
       },
@@ -144,6 +147,7 @@ export const serviceGroups: { title: string; services: Service[] }[] = [
         slug: "customs-clearance",
         title: "Customs clearance",
         icon: "customs",
+        image: "/images/services/customs-clearance.webp",
         summary:
           "Document review, entry preparation, examination handling and release coordination for vehicles, general cargo and containerised cargo.",
       },
@@ -151,6 +155,7 @@ export const serviceGroups: { title: string; services: Service[] }[] = [
         slug: "warehousing",
         title: "Warehousing and bonded storage",
         icon: "warehouse",
+        image: "/images/services/warehousing.webp",
         summary:
           "Secure storage, bonded options, cargo handling, controlled staging and inventory support when goods cannot move straight to their destination.",
       },
@@ -158,6 +163,7 @@ export const serviceGroups: { title: string; services: Service[] }[] = [
         slug: "import-export-support",
         title: "Import and export support",
         icon: "anchor",
+        image: "/images/services/import-export-support.webp",
         summary:
           "Guidance on documentation, licences and cargo readiness for cross-border trade.",
       },
@@ -170,6 +176,7 @@ export const serviceGroups: { title: string; services: Service[] }[] = [
         slug: "project-cargo",
         title: "Project cargo handling",
         icon: "project",
+        image: "/images/services/project-cargo.webp",
         summary:
           "Oversized, specialist or demanding cargo moved with route awareness, staging and controlled execution.",
       },
@@ -177,6 +184,7 @@ export const serviceGroups: { title: string; services: Service[] }[] = [
         slug: "offshore-ship-supply",
         title: "Offshore shipping and ship supply",
         icon: "offshore",
+        image: "/images/services/offshore-ship-supply.webp",
         summary:
           "Support for offshore operations, vessel requirements, ship spares, provisions and maritime project coordination.",
       },
@@ -184,6 +192,7 @@ export const serviceGroups: { title: string; services: Service[] }[] = [
         slug: "ship-agency",
         title: "Ship agency",
         icon: "anchor",
+        image: "/images/services/ship-agency.webp",
         summary:
           "Port-call support for vessels calling at Ghanaian ports: port formalities, crew husbandry, local vessel assistance and communication with port authorities.",
       },
@@ -191,6 +200,7 @@ export const serviceGroups: { title: string; services: Service[] }[] = [
         slug: "roro-shipping",
         title: "RoRo shipping",
         icon: "car",
+        image: "/images/services/roro-shipping.webp",
         summary:
           "Roll-on roll-off support for vehicles and automotive cargo, with route, timing, handling and documents coordinated.",
       },
@@ -198,6 +208,7 @@ export const serviceGroups: { title: string; services: Service[] }[] = [
         slug: "container-sales",
         title: "Container sales",
         icon: "container",
+        image: "/images/services/container-sales.webp",
         summary:
           "20ft and 40ft containers for storage, transport support and operational use.",
       },
@@ -205,6 +216,7 @@ export const serviceGroups: { title: string; services: Service[] }[] = [
         slug: "cargo-insurance",
         title: "Cargo insurance",
         icon: "shield",
+        image: "/images/services/cargo-insurance.webp",
         summary:
           "Insurance support for cargo that needs protection against loss, damage, theft and related risks during movement.",
       },
@@ -212,6 +224,7 @@ export const serviceGroups: { title: string; services: Service[] }[] = [
         slug: "import-export-licence",
         title: "Import/export licence support",
         icon: "license",
+        image: "/images/services/import-export-licence.webp",
         summary:
           "Guidance on licensing requirements, document readiness and alignment with Ghanaian import-export processes.",
       },
@@ -219,6 +232,7 @@ export const serviceGroups: { title: string; services: Service[] }[] = [
         slug: "scrap-metal-export",
         title: "Scrap metal export logistics",
         icon: "recycle",
+        image: "/images/services/scrap-metal-export.webp",
         summary:
           "Commercial and operational coordination for scrap metal export movements.",
       },
