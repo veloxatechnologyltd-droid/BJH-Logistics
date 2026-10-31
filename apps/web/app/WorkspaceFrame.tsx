@@ -196,6 +196,9 @@ export function WorkspaceFrame({ children }: { children: ReactNode }) {
     pathname.startsWith("/settings") ||
     pathname.startsWith("/transport") ||
     pathname === "/admin/users";
+  // Until the access check answers we do not know whose menu this is. Showing
+  // the staff one meanwhile made customers see it flash on every refresh.
+  const resolving = status === "loading";
   const groups = isCustomer ? customerNav : staffNav;
   const crumb = pageCrumb(pathname, groups, isCustomer);
 
@@ -230,15 +233,18 @@ export function WorkspaceFrame({ children }: { children: ReactNode }) {
           </span>
           <span className="brand-copy">
             <strong>BJH Logistics</strong>
-            <small>{isCustomer ? "Customer portal" : "Operations"}</small>
+            <small>
+              {resolving ? "" : isCustomer ? "Customer portal" : "Operations"}
+            </small>
           </span>
         </Link>
 
         <nav
           className="workspace-nav"
           aria-label={isCustomer ? "Customer portal" : "Staff workspace"}
+          aria-busy={resolving}
         >
-          {groups.map((group) => (
+          {(resolving ? [] : groups).map((group) => (
             <div className="nav-group" key={group.heading ?? "main"}>
               {group.heading && <p className="nav-heading">{group.heading}</p>}
               {group.items.map((item) => {
@@ -274,24 +280,30 @@ export function WorkspaceFrame({ children }: { children: ReactNode }) {
           ))}
         </nav>
 
-        {!isCustomer && <SettingsSidebarSection active={settingsActive} />}
+        {!resolving && !isCustomer && (
+          <SettingsSidebarSection active={settingsActive} />
+        )}
       </aside>
 
       <div className="workspace-main">
         {/* One header on every page: where you are, who is signed in, sign out. */}
         <header className="topbar">
           <div className="breadcrumb">
-            <Link href={isCustomer ? "/portal" : "/"}>
-              {isCustomer ? "Portal" : "Workspace"}
-            </Link>
-            <span aria-hidden="true">/</span>
-            {crumb.underSettings && (
+            {!resolving && (
               <>
-                <Link href="/settings">Settings</Link>
+                <Link href={isCustomer ? "/portal" : "/"}>
+                  {isCustomer ? "Portal" : "Workspace"}
+                </Link>
                 <span aria-hidden="true">/</span>
+                {crumb.underSettings && (
+                  <>
+                    <Link href="/settings">Settings</Link>
+                    <span aria-hidden="true">/</span>
+                  </>
+                )}
+                <strong>{crumb.label}</strong>
               </>
             )}
-            <strong>{crumb.label}</strong>
           </div>
           <div className="topbar-actions">
             <AuthStatus />
