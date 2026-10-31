@@ -12,6 +12,7 @@
   --radius: 18px;
   --shadow: 0 18px 40px -22px rgba(8, 47, 134, 0.35);
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
   font-family:
     var(--font-sans),
     "Segoe UI",
@@ -653,6 +654,95 @@ svg {
   transform: none;
 }
 
+/* Section headings: eyebrow slides in, title rises, lead follows. */
+
+.motion .section-heading.reveal {
+  opacity: 1;
+  transform: none;
+}
+
+.motion .section-heading.reveal > * {
+  opacity: 0;
+}
+
+.motion .section-heading.reveal.in > * {
+  opacity: 1;
+  animation: heading-rise 0.9s var(--ease) backwards;
+}
+
+.motion .section-heading.reveal.in > .eyebrow {
+  animation-name: eyebrow-slide;
+}
+
+.motion .section-heading.reveal.in > h2 {
+  animation-delay: 0.12s;
+}
+
+.motion .section-heading.reveal.in > .section-lead {
+  animation-delay: 0.26s;
+}
+
+@keyframes heading-rise {
+  from {
+    opacity: 0;
+    transform: translateY(28px);
+  }
+}
+
+@keyframes eyebrow-slide {
+  from {
+    opacity: 0;
+    transform: translateX(-26px);
+    letter-spacing: 0.36em;
+  }
+}
+
+/* Pop: cards bounce up with a little overshoot. The animation only plays the
+   entrance, so hover transitions are not held back by the stagger delay. */
+
+.motion .reveal.pop {
+  transform: none;
+  transition:
+    transform 0.4s var(--ease),
+    box-shadow 0.4s,
+    border-color 0.4s;
+}
+
+.motion .reveal.pop.in {
+  animation: pop-in 0.95s var(--ease) calc(var(--d, 0ms) * var(--stagger, 1))
+    backwards;
+}
+
+@keyframes pop-in {
+  0% {
+    opacity: 0;
+    transform: translateY(56px) scale(0.9) rotate(-2deg);
+  }
+
+  60% {
+    opacity: 1;
+    transform: translateY(-8px) scale(1.02) rotate(0.6deg);
+  }
+
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.motion .benefit.reveal,
+.motion .stat.reveal {
+  transform: translateY(44px) scale(0.94);
+  transition:
+    opacity 0.7s var(--ease),
+    transform 0.9s var(--spring);
+}
+
+.motion .benefit.reveal.in,
+.motion .stat.reveal.in {
+  transform: none;
+}
+
 /* Sections */
 
 .section {
@@ -859,6 +949,168 @@ h2 {
 
 .card-link svg {
   transition: transform 0.3s var(--ease);
+}
+
+/* Service tiles (home "What we do"): image and title, description on demand */
+
+.card-grid.tiles {
+  align-items: start;
+}
+
+.service-tile {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--white);
+  box-shadow: 0 12px 34px -28px rgba(8, 47, 134, 0.7);
+}
+
+.service-tile-media {
+  display: block;
+  width: 100%;
+  height: 210px;
+  object-fit: cover;
+  transition: transform 0.9s var(--ease);
+}
+
+.service-tile-icon {
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, var(--blue-soft), var(--canvas));
+  color: var(--blue);
+}
+
+.service-tile:hover .service-tile-media {
+  transform: scale(1.05);
+}
+
+.motion .service-tile.in .service-tile-media {
+  animation: tile-settle 1.5s var(--ease)
+    calc(var(--d, 0ms) * var(--stagger, 1)) backwards;
+}
+
+@keyframes tile-settle {
+  from {
+    transform: scale(1.25);
+  }
+}
+
+.service-tile-body {
+  padding: 20px 22px 14px;
+}
+
+.service-tile h3 {
+  font-size: 1.2rem;
+}
+
+.tile-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  margin-top: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--blue);
+  font: inherit;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tile-toggle:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+.tile-plus {
+  position: relative;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--blue-soft);
+  transition: background 0.3s;
+}
+
+.tile-plus::before,
+.tile-plus::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  border-radius: 1px;
+  background: var(--blue);
+  transition:
+    transform 0.4s var(--ease),
+    background 0.3s;
+}
+
+.tile-plus::before {
+  width: 10px;
+  height: 2px;
+}
+
+.tile-plus::after {
+  width: 2px;
+  height: 10px;
+}
+
+.tile-toggle:hover .tile-plus {
+  background: var(--blue);
+}
+
+.tile-toggle:hover .tile-plus::before,
+.tile-toggle:hover .tile-plus::after {
+  background: var(--white);
+}
+
+.service-tile[data-open="true"] .tile-plus::after {
+  transform: rotate(90deg) scaleX(0);
+}
+
+.tile-panel {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.45s var(--ease);
+}
+
+.service-tile[data-open="true"] .tile-panel {
+  grid-template-rows: 1fr;
+}
+
+.tile-panel > div {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.tile-panel p {
+  margin-top: 4px;
+  color: var(--muted);
+  opacity: 0;
+  transform: translateY(10px);
+  transition:
+    opacity 0.35s,
+    transform 0.45s var(--ease);
+}
+
+.service-tile[data-open="true"] .tile-panel p {
+  opacity: 1;
+  transform: none;
+  transition-delay: 0.1s;
+}
+
+.tile-panel .card-link {
+  margin: 12px 0 8px;
+}
+
+@media (hover: hover) {
+  .motion .service-tile.reveal.pop.in:hover {
+    transform: translateY(-6px);
+    border-color: transparent;
+    box-shadow: var(--shadow);
+  }
 }
 
 .project-card {
@@ -1835,9 +2087,50 @@ h2 {
   .benefit-grid,
   .benefit-grid.three,
   .card-grid.two,
-  .footer-grid,
   .form-row {
     grid-template-columns: 1fr;
+  }
+
+  .footer-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 36px 24px;
+  }
+
+  .footer-grid > :first-child,
+  .footer-grid > :last-child {
+    grid-column: 1 / -1;
+  }
+
+  .footer-grid > :last-child {
+    padding-top: 32px;
+    border-top: 1px solid rgba(255, 255, 255, 0.12);
+  }
+
+  .site-footer ul {
+    gap: 4px;
+  }
+
+  .site-footer li > a {
+    display: inline-block;
+    padding: 6px 0;
+  }
+
+  .footer-contact li {
+    align-items: center;
+    gap: 12px;
+  }
+
+  .footer-contact li:first-child {
+    align-items: flex-start;
+  }
+
+  .footer-contact li:not(:first-child) svg {
+    margin-top: 0;
+  }
+
+  .footer-contact li:first-child + li,
+  .footer-contact li:has(a[href^="tel:"]) + li:has(a[href^="mailto:"]) {
+    margin-top: 14px;
   }
 
   .hero {
@@ -1909,6 +2202,14 @@ h2 {
   .quote-form,
   .office-card {
     padding: 26px 20px;
+  }
+
+  .service-tile {
+    --stagger: 0;
+  }
+
+  .service-tile-media {
+    height: 190px;
   }
 
   .hero-actions .btn,

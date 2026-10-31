@@ -1,5 +1,23 @@
 Maintain a file called MEMORY.md. After any significant decision, about direction, format, content, approach, or strategy, add an entry:
 
+## 2026-10-31, Homepage service cards collapse to image and title; section motion becomes livelier
+
+**What was decided:** On the homepage "What we do" grid, each service shows only its image (or, for services without a photo, a blue icon panel) and title, with a "Learn more" toggle that opens the summary in place plus a "Full details" link to `/services#slug`. The `/services` page keeps its full cards. Section headings now stagger in (eyebrow slides, title rises, intro follows), the service cards pop in with a small overshoot while their images settle from a slight zoom, and benefit and stat cards use a springier entrance. All of it is CSS plus the existing scroll observer, with no new libraries, and reduced-motion settings still apply.
+**Why:** Evans found the cards busy and long and asked for a more fun, motion-led site on both desktop and phone.
+**What was rejected:** Hiding the description behind a link to another page (Evans wants to open it in place); adding new photography for the three services without an image (a content decision for Evans); an animation library for this bounded change. This loosens the 2026-10-30 "restrained card image motion" decision at Evans's request.
+
+## 2026-10-31, Mobile footer groups its links instead of one long list
+
+**What was decided:** On phones (620px and narrower) show Services and Company side by side, keep the brand block and Contact full width with a divider above Contact, add tap-target padding to footer links, and space the contact rows into address, phones and emails. Desktop and tablet layouts are unchanged. The contact details themselves are unchanged.
+**Why:** Evans found the phone footer clustered; it was one long column of about 25 equally spaced rows with small tap targets.
+**What was rejected:** Collapsing sections into accordions (hides contact details behind taps) and trimming the phone and email lists, which is BJH's content decision.
+
+## 2026-10-31, Public contact page uses the supplied contact groups
+
+**What was decided:** Show the four import/export quote emails, two general-enquiry emails and three telephone/WhatsApp numbers supplied by Evans on the public contact page and footer. Keep `quotes@bjhlogistics.com` as the existing quote-intake destination.
+**Why:** Evans asked to update the website contact details and provided the exact public addresses and phone numbers.
+**What was rejected:** Keeping the old telephone and email details or changing quote intake routing beyond the supplied contact display.
+
 ## 2026-10-30, Use BJH's source logo and a limited set of network marks
 
 **What was decided:** Replace the public site's typed BJH mark with the logo extracted from the client profile. Show selected carrier and network logos sourced from their own sites in the homepage strip and About page, with the remaining names as text. Record asset origins and logo-use caveats in `apps/site/ASSETS.md`.
