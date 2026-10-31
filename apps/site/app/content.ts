@@ -24,7 +24,14 @@ export const contact = {
     "https://www.google.com/maps/search/?api=1&query=House+of+Greener+Pastures+Building+Tema+Community+1+Ghana",
   hotline: "+233 59 841 5519",
   whatsapp: "+233 24 405 8592",
-  telephone: "055 680 7983",
+  quoteEmails: [
+    "enquiries@bjhlogistics.com",
+    "quotes@bjhlogistics.com",
+    "henry@bjhlogistics.com",
+    "sales@bjhlogistics.com",
+  ],
+  generalEmails: ["info@bjhlogistics.com", "enquiries@bjhlogistics.com"],
+  phoneNumbers: ["+233 59 841 5519", "+233 53 526 8538", "+233 24 405 8592"],
   enquiriesEmail: "enquiries@bjhlogistics.com",
   quotesEmail: "quotes@bjhlogistics.com",
   socials: [

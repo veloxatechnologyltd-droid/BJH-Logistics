@@ -28,12 +28,11 @@ export default function RequestQuotePage() {
           <aside className="quote-aside reveal from-right">
             <h2>Prefer to talk?</h2>
             <p>Our team can take your details by phone or WhatsApp.</p>
-            <a href={telHref(contact.hotline)} className="aside-link">
-              <Icon name="phone" size={20} /> {contact.hotline}
-            </a>
-            <a href={telHref(contact.telephone)} className="aside-link">
-              <Icon name="phone" size={20} /> {contact.telephone}
-            </a>
+            {contact.phoneNumbers.map((phone) => (
+              <a key={phone} href={telHref(phone)} className="aside-link">
+                <Icon name="phone" size={20} /> {phone}
+              </a>
+            ))}
             <a
               href={whatsappHref()}
               className="aside-link"
@@ -42,9 +41,11 @@ export default function RequestQuotePage() {
             >
               <Icon name="whatsapp" size={20} /> {contact.whatsapp}
             </a>
-            <a href={`mailto:${contact.quotesEmail}`} className="aside-link">
-              <Icon name="mail" size={20} /> {contact.quotesEmail}
-            </a>
+            {contact.quoteEmails.map((email) => (
+              <a key={email} href={`mailto:${email}`} className="aside-link">
+                <Icon name="mail" size={20} /> {email}
+              </a>
+            ))}
             <h3>For an accurate quotation, include</h3>
             <ul className="checklist">
               {quoteChecklist.map((item) => (
