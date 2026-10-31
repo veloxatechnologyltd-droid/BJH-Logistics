@@ -28,5 +28,5 @@ Evans confirmed BJH is authorized to display the Maersk, FIATA, and IATA marks o
 - `roro-shipping.webp`: [Pexels 2217513](https://www.pexels.com/photo/green-cargo-boat-beside-dock-2217513/).
 - `container-sales.webp`: [Pexels 8782709](https://www.pexels.com/photo/rows-of-containers-8782709/).
 - `cargo-insurance.webp`: [Pexels 15229827](https://www.pexels.com/photo/container-on-truck-trailer-15229827/).
-- `import-export-licence.webp`: [Pexels 9858904](https://www.pexels.com/photo/wooden-stamp-on-an-open-book-9858904/).
+- `import-export-licence.webp`: [Pexels 6358840](https://www.pexels.com/photo/a-person-s-hand-using-a-stamp-6358840/). Replaced a first choice (Pexels 9858904) whose open book was in German.
 - `scrap-metal-export.webp`: [Pexels 36397858](https://www.pexels.com/photo/industrial-scrap-metal-recycling-with-claw-crane-36397858/).
