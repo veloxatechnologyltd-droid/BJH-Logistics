@@ -1,5 +1,17 @@
 Maintain a file called MEMORY.md. After any significant decision, about direction, format, content, approach, or strategy, add an entry:
 
+## 2026-10-31, Footer no longer lists contact details
+
+**What was decided:** Remove the Contact column (address, three phone numbers and all email addresses) from the public footer. Contact details now appear only on the Contact page, which already listed all of them; the footer's Company list still links to it. The footer keeps the brand block with social links, Services and Company. Desktop is three columns; at tablet and phone widths the brand block spans the full row and Services and Company sit side by side.
+**Why:** Evans asked for the contact details to live at Contact us, not in the footer.
+**What was rejected:** Keeping a shortened contact block in the footer. This supersedes the footer parts of "Public contact page uses the supplied contact groups" and "Mobile footer groups its links instead of one long list" (the full-width Contact block). The phone number in the homepage "Ready to move your cargo?" band and the quote page contacts were left alone because Evans named only the footer.
+
+## 2026-10-31, Stock photos for the services without an image
+
+**What was decided:** Give the 14 services that had no photo a Pexels stock photo each, stored as `apps/site/public/images/services/<slug>.webp` (1200x650 WebP, about 1.2 MB in total). All 17 services now show a photo on the Services page, and every homepage tile shows one. Photos were chosen for landscape framing, no legible carrier or company branding, and no identifiable faces. Sources and licence are recorded in `apps/site/ASSETS.md`.
+**Why:** Evans asked why the rest of "What we do" had no images and said to generate them or find them on image sites. Generation needs an image API key and none was provided, so stock photos were used.
+**What was rejected:** Generating new scenes (no key available; the credential search was declined). Photos with legible branding (MSC and ZIM container walls, a Wallenius Wilhelmsen ship), which could imply a BJH link to those companies. Photos of people with visible faces, which could read as BJH staff. This loosens the earlier homepage-cards entry, which rejected adding photography for the three homepage tiles without one, at Evans's request. The stock photos illustrate the services and are not BJH jobs; they can be swapped for BJH's own photos later by replacing the files.
+
 ## 2026-10-31, Homepage service cards collapse to image and title; section motion becomes livelier
 
 **What was decided:** On the homepage "What we do" grid, each service shows only its image (or, for services without a photo, a blue icon panel) and title, with a "Learn more" toggle that opens the summary in place plus a "Full details" link to `/services#slug`. The `/services` page keeps its full cards. Section headings now stagger in (eyebrow slides, title rises, intro follows), the service cards pop in with a small overshoot while their images settle from a slight zoom, and benefit and stat cards use a springier entrance. All of it is CSS plus the existing scroll observer, with no new libraries, and reduced-motion settings still apply.

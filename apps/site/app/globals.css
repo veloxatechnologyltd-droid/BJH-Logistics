@@ -1857,7 +1857,7 @@ h2 {
 
 .footer-grid {
   display: grid;
-  grid-template-columns: 1.4fr 1fr 1fr 1.3fr;
+  grid-template-columns: 1.4fr 1fr 1fr;
   gap: 40px;
 }
 
@@ -1887,16 +1887,6 @@ h2 {
 
 .site-footer a:hover {
   color: var(--white);
-}
-
-.footer-contact li {
-  display: flex;
-  gap: 10px;
-}
-
-.footer-contact svg {
-  flex: none;
-  margin-top: 3px;
 }
 
 .socials {
@@ -1941,6 +1931,10 @@ h2 {
 
   .footer-grid {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .footer-grid > :first-child {
+    grid-column: 1 / -1;
   }
 
   .nav > a:not(.btn) {
@@ -2096,16 +2090,6 @@ h2 {
     gap: 36px 24px;
   }
 
-  .footer-grid > :first-child,
-  .footer-grid > :last-child {
-    grid-column: 1 / -1;
-  }
-
-  .footer-grid > :last-child {
-    padding-top: 32px;
-    border-top: 1px solid rgba(255, 255, 255, 0.12);
-  }
-
   .site-footer ul {
     gap: 4px;
   }
@@ -2113,24 +2097,6 @@ h2 {
   .site-footer li > a {
     display: inline-block;
     padding: 6px 0;
-  }
-
-  .footer-contact li {
-    align-items: center;
-    gap: 12px;
-  }
-
-  .footer-contact li:first-child {
-    align-items: flex-start;
-  }
-
-  .footer-contact li:not(:first-child) svg {
-    margin-top: 0;
-  }
-
-  .footer-contact li:first-child + li,
-  .footer-contact li:has(a[href^="tel:"]) + li:has(a[href^="mailto:"]) {
-    margin-top: 14px;
   }
 
   .hero {
