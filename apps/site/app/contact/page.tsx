@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { contact, telHref, whatsappHref } from "../content";
+import { contact, telHref } from "../content";
 import { Icon } from "../Icon";
 import { PageHero } from "../Sections";
 
@@ -13,35 +13,29 @@ export const metadata: Metadata = {
 export default function ContactPage() {
   const cards = [
     {
-      icon: "phone" as const,
-      title: "Call the hotline",
-      text: contact.hotline,
-      href: telHref(contact.hotline),
-    },
-    {
-      icon: "whatsapp" as const,
-      title: "WhatsApp",
-      text: contact.whatsapp,
-      href: whatsappHref(),
-      external: true,
-    },
-    {
-      icon: "phone" as const,
-      title: "Additional telephone",
-      text: contact.telephone,
-      href: telHref(contact.telephone),
+      icon: "mail" as const,
+      title: "Import/export quote request",
+      links: contact.quoteEmails.map((email) => ({
+        text: email,
+        href: `mailto:${email}`,
+      })),
     },
     {
       icon: "mail" as const,
       title: "General enquiries",
-      text: contact.enquiriesEmail,
-      href: `mailto:${contact.enquiriesEmail}`,
+      links: contact.generalEmails.map((email) => ({
+        text: email,
+        href: `mailto:${email}`,
+      })),
     },
     {
-      icon: "mail" as const,
-      title: "Quotes",
-      text: contact.quotesEmail,
-      href: `mailto:${contact.quotesEmail}`,
+      icon: "phone" as const,
+      title: "Telephone / WhatsApp",
+      links: contact.phoneNumbers.map((phone) => ({
+        text: phone,
+        href: telHref(phone),
+        whatsapp: `https://wa.me/${phone.replace(/\D/g, "")}`,
+      })),
     },
   ];
 
@@ -56,23 +50,35 @@ export default function ContactPage() {
         <div className="container contact-layout">
           <div className="contact-cards">
             {cards.map((card, index) => (
-              <a
+              <div
                 key={card.title}
-                href={card.href}
                 className="contact-card reveal"
                 style={{ transitionDelay: `${index * 80}ms` }}
-                {...(card.external
-                  ? { target: "_blank", rel: "noopener noreferrer" }
-                  : {})}
               >
                 <span className="icon-box">
                   <Icon name={card.icon} />
                 </span>
                 <span>
                   <strong>{card.title}</strong>
-                  <span>{card.text}</span>
+                  {card.links.map((item) => (
+                    <span key={item.text}>
+                      <a href={item.href}>{item.text}</a>
+                      {"whatsapp" in item && (
+                        <>
+                          {" "}·{" "}
+                          <a
+                            href={item.whatsapp}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            WhatsApp
+                          </a>
+                        </>
+                      )}
+                    </span>
+                  ))}
                 </span>
-              </a>
+              </div>
             ))}
           </div>
 

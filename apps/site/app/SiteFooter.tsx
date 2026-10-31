@@ -67,26 +67,20 @@ export function SiteFooter() {
               <Icon name="pin" size={18} />
               <span>{contact.address.join(", ")}</span>
             </li>
-            <li>
-              <Icon name="phone" size={18} />
-              <a href={telHref(contact.hotline)}>{contact.hotline}</a>
-            </li>
-            <li>
-              <Icon name="phone" size={18} />
-              <a href={telHref(contact.telephone)}>{contact.telephone}</a>
-            </li>
-            <li>
-              <Icon name="mail" size={18} />
-              <a href={`mailto:${contact.enquiriesEmail}`}>
-                {contact.enquiriesEmail}
-              </a>
-            </li>
-            <li>
-              <Icon name="mail" size={18} />
-              <a href={`mailto:${contact.quotesEmail}`}>
-                {contact.quotesEmail}
-              </a>
-            </li>
+            {contact.phoneNumbers.map((phone) => (
+              <li key={phone}>
+                <Icon name="phone" size={18} />
+                <a href={telHref(phone)}>{phone}</a>
+              </li>
+            ))}
+            {[...new Set([...contact.quoteEmails, ...contact.generalEmails])].map(
+              (email) => (
+                <li key={email}>
+                  <Icon name="mail" size={18} />
+                  <a href={`mailto:${email}`}>{email}</a>
+                </li>
+              ),
+            )}
           </ul>
         </div>
       </div>
