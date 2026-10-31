@@ -16,6 +16,7 @@ import {
 import { Icon } from "./Icon";
 import { HeroShowcase } from "./HeroShowcase";
 import { CtaBand, SectionHeading } from "./Sections";
+import { ServiceTile } from "./ServiceTile";
 
 const yearsInBusiness = new Date().getFullYear() - FOUNDED;
 const partnerLogos: Record<string, string> = {
@@ -145,32 +146,13 @@ export default function HomePage() {
             We coordinate cargo across sea, air and land, and link it with the
             customs, storage, documents and delivery your shipment needs.
           </SectionHeading>
-          <div className="card-grid">
+          <div className="card-grid tiles">
             {featuredServices.map((service, index) => (
-              <Link
+              <ServiceTile
                 key={service.slug}
-                href={`/services#${service.slug}`}
-                className="service-card reveal"
-                style={{ transitionDelay: `${(index % 3) * 90}ms` }}
-              >
-                {service.image && (
-                  <Image
-                    src={service.image}
-                    alt={`Illustrative ${service.title.toLowerCase()} scene`}
-                    width={1200}
-                    height={650}
-                    className="service-card-image"
-                  />
-                )}
-                <span className="icon-box">
-                  <Icon name={service.icon} />
-                </span>
-                <h3>{service.title}</h3>
-                <p>{service.summary}</p>
-                <span className="card-link">
-                  Learn more <Icon name="arrow" size={16} />
-                </span>
-              </Link>
+                service={service}
+                delay={(index % 3) * 110}
+              />
             ))}
           </div>
           <div className="center-action reveal">
