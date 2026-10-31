@@ -489,3 +489,56 @@ test("customers do not see the internal fields staff see", async () => {
   assert.equal("payments" in invoices[0], false);
   assert.equal(invoices[0].status, "issued");
 });
+
+test("a customer sees a request's quote only once it is issued", async () => {
+  const draft = await json<{ id: string }>(
+    await post("/api/v1/quotes", TEST_MATCHING_TOKEN, {
+      customerCompanyId: companyA,
+      serviceLine: "sea_import",
+      quoteRequestId: requestA,
+      version: {
+        currency: "GHS",
+        title: "Quote for the request",
+        procedureSteps: [],
+        requiredDocuments: [],
+        terms: [],
+        lines: [{ description: "Fee", basis: "fixed", amountMinor: 1000 }],
+      },
+    }),
+  );
+  type Seen = {
+    quoteId: string | null;
+    quoteNumber: string | null;
+    quoteStatus: string | null;
+  };
+  const customerViews = async () => [
+    (
+      await json<Seen[]>(
+        await get("/api/v1/quote-requests", TEST_CUSTOMER_A_TOKEN),
+      )
+    )[0],
+    await json<Seen>(
+      await get(`/api/v1/quote-requests/${requestA}`, TEST_CUSTOMER_A_TOKEN),
+    ),
+  ];
+
+  // Staff see the draft; the customer must not learn that it exists.
+  const staff = await json<Seen>(
+    await get(`/api/v1/quote-requests/${requestA}`, TEST_MATCHING_TOKEN),
+  );
+  assert.equal(staff.quoteId, draft.id);
+  assert.equal(staff.quoteStatus, "draft");
+  for (const view of await customerViews()) {
+    assert.equal(view.quoteId, null);
+    assert.equal(view.quoteNumber, null);
+    assert.equal(view.quoteStatus, null);
+  }
+
+  // Once issued, the customer is told which quote answers the request.
+  await post(`/api/v1/quotes/${draft.id}/issue`, TEST_MATCHING_TOKEN, {});
+  for (const view of await customerViews()) {
+    assert.equal(view.quoteId, draft.id);
+    assert.equal(view.quoteStatus, "issued");
+    assert.match(view.quoteNumber ?? "", /^SYN\/Q/);
+  }
+});

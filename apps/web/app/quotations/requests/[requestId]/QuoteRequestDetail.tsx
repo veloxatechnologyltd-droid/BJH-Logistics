@@ -13,6 +13,7 @@ import {
 import type { QuoteRequest } from "../../quoteRequestApi";
 import styles from "../../quotation.module.css";
 import { ErrorPopup, plainMessage } from "../../../ErrorPopup";
+import { tidyMessage } from "../../../messageText";
 import { AssistantPanel } from "./AssistantPanel";
 import { EmailRequestPanel } from "./EmailRequestPanel";
 
@@ -188,7 +189,7 @@ export function QuoteRequestDetail() {
               aria-labelledby="message-title"
             >
               <h3 id="message-title">Request message</h3>
-              <p>{request.message}</p>
+              <p>{tidyMessage(request.message)}</p>
             </section>
             <EmailRequestPanel
               canEdit={request.canCheck === true}

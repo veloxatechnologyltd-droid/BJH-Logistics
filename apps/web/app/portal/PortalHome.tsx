@@ -10,7 +10,17 @@ import {
 } from "../quotations/quoteRequestApi";
 import type { QuoteRequest } from "../quotations/quoteRequestApi";
 import styles from "../jobs/jobs.module.css";
+import portalStyles from "./portal.module.css";
 import { ErrorPopup } from "../ErrorPopup";
+import { tidyMessage } from "../messageText";
+
+function formatDate(value: string): string {
+  return new Date(value).toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
 
 /** A customer's home: their jobs and quotes, and a form to ask for a quote. */
 export function PortalHome() {
@@ -21,10 +31,14 @@ export function PortalHome() {
   const [companyId, setCompanyId] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [sending, setSending] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      setRequests(await listQuoteRequests());
+      const loaded = await listQuoteRequests();
+      setRequests(loaded);
+      // Save the customer retyping their name: reuse the one from their last request.
+      setContactName((current) => current || loaded[0]?.contactName || "");
     } catch (cause) {
       setError(
         cause instanceof Error ? cause.message : "Requests could not be loaded",
@@ -40,6 +54,7 @@ export function PortalHome() {
     event.preventDefault();
     setError("");
     setNotice("");
+    setSending(true);
     try {
       await createPortalQuoteRequest({
         contactName: contactName.trim(),
@@ -51,6 +66,8 @@ export function PortalHome() {
       await load();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "The request failed");
+    } finally {
+      setSending(false);
     }
   }
 
@@ -63,7 +80,22 @@ export function PortalHome() {
               {companies.map((item) => item.companyName).join(", ") ||
                 "Your account"}
             </h1>
+            {isCustomer && (
+              <p className={portalStyles.lede}>
+                Ask for a quotation and follow your jobs and quotations.
+              </p>
+            )}
           </div>
+          {isCustomer && (
+            <nav className={styles.actions} aria-label="Your records">
+              <Link className={styles.secondaryButton} href="/jobs">
+                Your jobs
+              </Link>
+              <Link className={styles.secondaryButton} href="/quotes">
+                Your quotations
+              </Link>
+            </nav>
+          )}
         </header>
 
         {status === "ready" && !isCustomer && (
@@ -74,23 +106,19 @@ export function PortalHome() {
         )}
 
         {isCustomer && (
-          <>
-            <section className={styles.card} aria-labelledby="portal-links">
-              <h2 id="portal-links">Your records</h2>
-              <div className={styles.actions}>
-                <Link className={styles.primaryLink} href="/jobs">
-                  Your jobs
-                </Link>
-                <Link className={styles.primaryLink} href="/quotes">
-                  Your quotations
-                </Link>
-              </div>
-            </section>
-
+          <div className={portalStyles.columns}>
             <section className={styles.card} aria-labelledby="request-title">
               <h2 id="request-title">Ask for a quotation</h2>
+              <p className={portalStyles.hint}>
+                Tell us what you ship, where from and to, and when. BJH will
+                reply with a quotation.
+              </p>
               <ErrorPopup message={error} />
-              {notice && <p className={styles.notice}>{notice}</p>}
+              {notice && (
+                <p className={styles.notice} role="status">
+                  {notice}
+                </p>
+              )}
               <form className={styles.form} onSubmit={submit}>
                 {companies.length > 1 && (
                   <label className={styles.field}>
@@ -123,13 +151,18 @@ export function PortalHome() {
                   <textarea
                     maxLength={5000}
                     onChange={(event) => setMessage(event.target.value)}
+                    placeholder="For example: sea import, 2 x 40ft containers of fabric from Shanghai to Tema, ready 15 November."
                     required
-                    rows={5}
+                    rows={6}
                     value={message}
                   />
                 </label>
-                <button className={styles.button} type="submit">
-                  Send request
+                <button
+                  className={styles.button}
+                  disabled={sending}
+                  type="submit"
+                >
+                  {sending ? "Sending…" : "Send request"}
                 </button>
               </form>
             </section>
@@ -137,22 +170,55 @@ export function PortalHome() {
             <section className={styles.card} aria-labelledby="sent-title">
               <h2 id="sent-title">Your requests</h2>
               {requests && requests.length === 0 && (
-                <p className={styles.muted}>No requests sent yet.</p>
+                <p className={styles.muted}>
+                  No requests yet. Your requests will appear here once you send
+                  one.
+                </p>
               )}
               {requests && requests.length > 0 && (
-                <ul className={styles.list}>
-                  {requests.map((item) => (
-                    <li key={item.id}>
-                      {new Date(item.createdAt).toLocaleDateString()} ·{" "}
-                      {item.message.length > 120
-                        ? `${item.message.slice(0, 120)}…`
-                        : item.message}
-                    </li>
-                  ))}
-                </ul>
+                <div className={portalStyles.requests}>
+                  {requests.map((item) => {
+                    const text = tidyMessage(item.message);
+                    const ready =
+                      item.quoteStatus === "issued" && item.quoteId !== null;
+                    return (
+                      <details className={styles.messageItem} key={item.id}>
+                        <summary>
+                          <span className={portalStyles.requestMain}>
+                            <span className={portalStyles.requestPreview}>
+                              {text.replace(/\s+/g, " ")}
+                            </span>
+                            <span className={portalStyles.requestDate}>
+                              Sent {formatDate(item.createdAt)}
+                            </span>
+                          </span>
+                          <span
+                            className={`${styles.badge} ${ready ? portalStyles.requestReady : ""}`}
+                          >
+                            {ready ? "Quotation ready" : "Received"}
+                          </span>
+                        </summary>
+                        <div className={styles.messageBody}>
+                          <p>{text}</p>
+                          {ready && (
+                            <div className={portalStyles.requestActions}>
+                              <Link
+                                className={styles.primaryLink}
+                                href={`/quotes/${item.quoteId}`}
+                              >
+                                View quotation
+                                {item.quoteNumber ? ` ${item.quoteNumber}` : ""}
+                              </Link>
+                            </div>
+                          )}
+                        </div>
+                      </details>
+                    );
+                  })}
+                </div>
               )}
             </section>
-          </>
+          </div>
         )}
       </main>
     </>

@@ -398,7 +398,9 @@ export class InboundEmailService {
     const fromName = displayName.slice(0, 200) || null;
     const subject = clip(fields.subject, 500);
     const html = clip(fields.html, MAX_BODY_CHARS * 2);
+    // Mail arrives with Windows line breaks (CRLF); keep plain ones, which browsers draw cleanly.
     const bodyText = (clip(fields.text, MAX_BODY_CHARS) || htmlToText(html))
+      .replace(/\r\n?/g, "\n")
       .slice(0, MAX_BODY_CHARS)
       .trim();
     const receivedAt = Date.parse(clip(fields.received_at, 100));
