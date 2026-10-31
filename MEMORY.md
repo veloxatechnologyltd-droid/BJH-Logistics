@@ -1,5 +1,11 @@
 Maintain a file called MEMORY.md. After any significant decision, about direction, format, content, approach, or strategy, add an entry:
 
+## 2026-10-31, Sidebar waits for the access check instead of showing the staff menu first
+
+**What was decided:** While the session lookup (`/v1/auth/session`) is still loading, the workspace frame shows no menu, no "Operations"/"Customer portal" label, no Settings section and no breadcrumb. Once the lookup answers, the customer or staff version appears. Only `apps/web/app/WorkspaceFrame.tsx` changed.
+**Why:** Until the lookup returned, the user counted as "not a customer", so a customer who refreshed any page saw the full staff menu and Settings for a moment before it swapped to the portal menu.
+**What was rejected:** Remembering the last role in browser storage to draw the right menu instantly (a stale or shared-browser value could show the wrong menu, which is the bug again). Skeleton placeholders (not asked for). Changing the fallback when the lookup fails or returns no role (it still shows the staff menu with the existing "access could not be checked" notice); that is a separate decision.
+
 ## 2026-10-31, Footer no longer lists contact details
 
 **What was decided:** Remove the Contact column (address, three phone numbers and all email addresses) from the public footer. Contact details now appear only on the Contact page, which already listed all of them; the footer's Company list still links to it. The footer keeps the brand block with social links, Services and Company. Desktop is three columns; at tablet and phone widths the brand block spans the full row and Services and Company sit side by side.
