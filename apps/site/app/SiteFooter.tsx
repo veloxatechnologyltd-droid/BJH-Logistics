@@ -79,14 +79,14 @@ export function SiteFooter() {
                 <a href={telHref(phone)}>{phone}</a>
               </li>
             ))}
-            {[...new Set([...contact.quoteEmails, ...contact.generalEmails])].map(
-              (email) => (
-                <li key={email}>
-                  <Icon name="mail" size={18} />
-                  <a href={`mailto:${email}`}>{email}</a>
-                </li>
-              ),
-            )}
+            {[
+              ...new Set([...contact.quoteEmails, ...contact.generalEmails]),
+            ].map((email) => (
+              <li key={email}>
+                <Icon name="mail" size={18} />
+                <a href={`mailto:${email}`}>{email}</a>
+              </li>
+            ))}
           </ul>
         </div>
       </div>

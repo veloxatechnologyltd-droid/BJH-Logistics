@@ -137,7 +137,8 @@ export function CustomerDirectory() {
         return false;
       if (
         customerFilter === "new" &&
-        Date.now() - Date.parse(company.createdAt) > customerActiveDays * 86400000
+        Date.now() - Date.parse(company.createdAt) >
+          customerActiveDays * 86400000
       )
         return false;
       return true;

@@ -137,10 +137,7 @@ test("customer IDs recover when the sequence is behind an existing customer", as
   assert.equal(response.status, 201, await response.clone().text());
   const created = (await response.json()) as { customerNumber: string };
   const nextNumber = String(expectedNumber.rows[0]?.next_number);
-  assert.equal(
-    created.customerNumber,
-    `CUS-${nextNumber.padStart(4, "0")}`,
-  );
+  assert.equal(created.customerNumber, `CUS-${nextNumber.padStart(4, "0")}`);
 });
 
 test("customer profiles save company details and editable primary contacts", async () => {
