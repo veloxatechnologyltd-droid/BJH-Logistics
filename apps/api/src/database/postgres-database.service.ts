@@ -513,7 +513,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
 
   async listKnowledgeEntries(): Promise<KnowledgeEntryRecord[]> {
     const result = await this.pool.query(
-      `SELECT entry_id, title, answer, updated_at, updated_by
+      `SELECT entry_id, title, answer, updated_at, updated_by, needs_review
        FROM app.knowledge_entry
        ORDER BY lower(title), entry_id`,
     );
@@ -528,7 +528,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     const result = await this.pool.query(
       `INSERT INTO app.knowledge_entry (title, answer, updated_by)
        VALUES ($1, $2, $3::uuid)
-       RETURNING entry_id, title, answer, updated_at, updated_by`,
+       RETURNING entry_id, title, answer, updated_at, updated_by, needs_review`,
       [entry.title, entry.answer, entry.updatedBy],
     );
     return this.toKnowledgeEntry(result.rows[0]);
@@ -540,9 +540,10 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
   ): Promise<KnowledgeEntryRecord | null> {
     const result = await this.pool.query(
       `UPDATE app.knowledge_entry
-       SET title = $2, answer = $3, updated_by = $4::uuid, updated_at = clock_timestamp()
+       SET title = $2, answer = $3, updated_by = $4::uuid, updated_at = clock_timestamp(),
+           needs_review = false
        WHERE entry_id::text = $1
-       RETURNING entry_id, title, answer, updated_at, updated_by`,
+       RETURNING entry_id, title, answer, updated_at, updated_by, needs_review`,
       [id, entry.title, entry.answer, entry.updatedBy],
     );
     return result.rows[0] ? this.toKnowledgeEntry(result.rows[0]) : null;
@@ -562,8 +563,23 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       title: String(row.title),
       answer: String(row.answer),
       updatedAt: this.toIsoString(row.updated_at),
-      updatedBy: String(row.updated_by),
+      updatedBy: row.updated_by === null ? null : String(row.updated_by),
+      needsReview: row.needs_review === true,
     };
+  }
+
+  async markKnowledgeEntryReviewed(
+    id: string,
+    reviewedBy: string,
+  ): Promise<KnowledgeEntryRecord | null> {
+    const result = await this.pool.query(
+      `UPDATE app.knowledge_entry
+       SET needs_review = false, updated_by = $2::uuid, updated_at = clock_timestamp()
+       WHERE entry_id::text = $1
+       RETURNING entry_id, title, answer, updated_at, updated_by, needs_review`,
+      [id, reviewedBy],
+    );
+    return result.rows[0] ? this.toKnowledgeEntry(result.rows[0]) : null;
   }
 
   async saveRequestReply(

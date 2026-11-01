@@ -19,7 +19,11 @@ import {
 import { DatabasePort } from "../src/database/database.port";
 import { ReplyDraftError } from "../src/intake/reply-drafter";
 import { automatedSender } from "../src/intake/email-assistant.service";
-import { beginTestDatabase, endTestDatabase } from "./postgres-test-database";
+import {
+  beginTestDatabase,
+  endTestDatabase,
+  testPostgresPool,
+} from "./postgres-test-database";
 import {
   EMAIL_PROVIDER,
   INQUIRY_EMAIL_PROVIDER,
@@ -985,5 +989,92 @@ test("an email in the wrong mailbox is flagged, not acted on, until a person mov
       })
     ).status,
     409,
+  );
+});
+
+test("a drafted knowledge entry is used at once, marked for checking, and cleared by Looks right or an edit", async () => {
+  const drafted = await testPostgresPool.query(
+    `INSERT INTO app.knowledge_entry (title, answer, needs_review, updated_by)
+     VALUES ('Drafted topic', 'Drafted answer.', true, NULL), ('Second draft', 'Another.', true, NULL)
+     RETURNING entry_id`,
+  );
+  const [first, second] = drafted.rows.map((row) => String(row.entry_id));
+  // Nobody wrote it: a draft must be marked for checking.
+  await assert.rejects(
+    testPostgresPool.query(
+      `INSERT INTO app.knowledge_entry (title, answer, needs_review, updated_by) VALUES ('x', 'y', false, NULL)`,
+    ),
+  );
+  type Entry = { id: string; needsReview: boolean; updatedBy: string | null };
+  const listed = await json<Entry[]>(
+    await call("/api/v1/knowledge", TEST_MATCHING_TOKEN),
+  );
+  assert.deepEqual(
+    listed
+      .filter((entry) => [first, second].includes(entry.id))
+      .map((entry) => [entry.needsReview, entry.updatedBy]),
+    [
+      [true, null],
+      [true, null],
+    ],
+  );
+
+  // Drafts already answer inquiries.
+  testReplyDrafter.result = {
+    subject: "Re: hi",
+    body: "Answer.",
+    answered: true,
+    missing: null,
+    sources: ["Drafted topic"],
+  };
+  await deliver("efua@akwaaba.example", "inquiry");
+  assert.ok(
+    testReplyDrafter.calls[0].knowledgeEntries.some(
+      (entry) => entry.title === "Drafted topic",
+    ),
+  );
+
+  // Only the super admin checks them.
+  assert.equal(
+    (
+      await send(
+        "POST",
+        `/api/v1/knowledge/${first}/reviewed`,
+        TEST_MATCHING_TOKEN,
+      )
+    ).status,
+    403,
+  );
+  const checked = await send(
+    "POST",
+    `/api/v1/knowledge/${first}/reviewed`,
+    TEST_SUPER_ADMIN_TOKEN,
+  );
+  assert.equal(checked.status, 201, await checked.clone().text());
+  assert.deepEqual(
+    (({ needsReview, updatedBy }) => ({ needsReview, updatedBy }))(
+      await json<Entry>(checked),
+    ),
+    { needsReview: false, updatedBy: TEST_SUPER_ADMIN_ID },
+  );
+  const edited = await send(
+    "PUT",
+    `/api/v1/knowledge/${second}`,
+    TEST_SUPER_ADMIN_TOKEN,
+    {
+      title: "Second draft",
+      answer: "Corrected by BJH.",
+    },
+  );
+  assert.equal((await json<Entry>(edited)).needsReview, false);
+  assert.equal(
+    (
+      await send(
+        "POST",
+        "/api/v1/knowledge/00000000-0000-4000-8000-000000000000/reviewed",
+        TEST_SUPER_ADMIN_TOKEN,
+      )
+    ).status,
+    404,
   );
 });

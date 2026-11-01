@@ -6,7 +6,9 @@ export type KnowledgeEntry = {
   title: string;
   answer: string;
   updatedAt: string;
-  updatedBy: string;
+  updatedBy: string | null;
+  /** Drafted from BJH's website and company profile; not yet checked. */
+  needsReview: boolean;
 };
 
 const apiBaseUrl =
@@ -42,5 +44,7 @@ export const createKnowledge = (entry: KnowledgeEntryInput) =>
   send<KnowledgeEntry>("", "POST", entry);
 export const updateKnowledge = (id: string, entry: KnowledgeEntryInput) =>
   send<KnowledgeEntry>(`/${encodeURIComponent(id)}`, "PUT", entry);
+export const markKnowledgeReviewed = (id: string) =>
+  send<KnowledgeEntry>(`/${encodeURIComponent(id)}/reviewed`, "POST");
 export const deleteKnowledge = (id: string) =>
   send<void>(`/${encodeURIComponent(id)}`, "DELETE");

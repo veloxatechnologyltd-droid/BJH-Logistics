@@ -82,7 +82,10 @@ export interface KnowledgeEntryRecord {
   title: string;
   answer: string;
   updatedAt: string;
-  updatedBy: string;
+  /** Null on an entry drafted for BJH that nobody has changed yet. */
+  updatedBy: string | null;
+  /** Drafted for BJH from its published material and not yet checked by the super admin. */
+  needsReview: boolean;
 }
 
 export interface QuoteRequestRecord {
@@ -978,6 +981,11 @@ export abstract class DatabasePort {
     entry: { title: string; answer: string; updatedBy: string },
   ): Promise<KnowledgeEntryRecord | null>;
   abstract deleteKnowledgeEntry(id: string): Promise<boolean>;
+  /** The super admin checked a drafted entry and left it as it is. */
+  abstract markKnowledgeEntryReviewed(
+    id: string,
+    reviewedBy: string,
+  ): Promise<KnowledgeEntryRecord | null>;
   /** Records that the reply went out, with the message that carried it. */
   abstract markRequestReplySent(
     requestId: string,
