@@ -6,6 +6,8 @@ import type { RequestKind } from "@bjh/contracts";
 import { ErrorPopup, plainMessage } from "../../../ErrorPopup";
 import {
   draftRequestReply,
+  misfiledLabel,
+  moveRequestMailbox,
   saveRequestReply,
   sendRequestReply,
 } from "../../quoteRequestApi";
@@ -35,17 +37,20 @@ const formatDate = (value: string) =>
 export function AssistantPanel({
   request,
   canEdit,
+  canMove,
   onChange,
 }: {
   request: QuoteRequest;
   canEdit: boolean;
+  /** Any staff member may sort an email into the other inbox. */
+  canMove: boolean;
   onChange: (request: QuoteRequest) => void;
 }) {
   const intake = request.intake;
   const reply = intake?.reply ?? null;
   const [subject, setSubject] = useState(reply?.subject ?? "");
   const [body, setBody] = useState(reply?.body ?? "");
-  const [busy, setBusy] = useState<"" | "draft" | "save" | "send">("");
+  const [busy, setBusy] = useState<"" | "draft" | "save" | "send" | "move">("");
   const [error, setError] = useState("");
 
   // A new draft from the server replaces what is in the boxes.
@@ -57,7 +62,7 @@ export function AssistantPanel({
   if (!intake || intake.extractionStatus !== "done") return null;
 
   async function run(
-    kind: "draft" | "save" | "send",
+    kind: "draft" | "save" | "send" | "move",
     action: () => Promise<QuoteRequest>,
   ) {
     setBusy(kind);
@@ -76,6 +81,8 @@ export function AssistantPanel({
   }
 
   const sent = reply?.sentAt ?? null;
+  const other = request.mailbox === "quotes" ? "inquiries" : "quotes";
+  const misfiled = misfiledLabel(request);
   const ready = subject.trim() !== "" && body.trim() !== "";
   const edited =
     subject !== (reply?.subject ?? "") || body !== (reply?.body ?? "");
@@ -86,6 +93,23 @@ export function AssistantPanel({
       <p className={styles.emailStatus}>
         {intake.kind ? kindLabels[intake.kind] : "Not sorted: decide by hand"}
       </p>
+      {canMove && !sent && !request.quoteId && (
+        <div className={styles.moveRow}>
+          {misfiled && <span>{misfiled}.</span>}
+          <button
+            className={misfiled ? styles.primaryButton : styles.secondaryButton}
+            disabled={busy !== ""}
+            onClick={() =>
+              void run("move", () => moveRequestMailbox(request.id, other))
+            }
+            type="button"
+          >
+            {busy === "move"
+              ? "Moving…"
+              : `Move to ${other === "inquiries" ? "Inquiries" : "Requests"}`}
+          </button>
+        </div>
+      )}
       {intake.assistantNotes.length > 0 && (
         <ul className={styles.assistantNotes}>
           {intake.assistantNotes.map((note, index) => (
@@ -104,6 +128,19 @@ export function AssistantPanel({
       {intake.kind !== "other" && (
         <div className={styles.replyBlock}>
           <h3>Reply to {intake.fromEmail}</h3>
+          {intake.escalation && !sent && (
+            <p className={styles.escalationNote} role="status">
+              <strong>Needs a person:</strong> {intake.escalation.reason} Add
+              the missing facts to the{" "}
+              <Link href="/settings/knowledge">knowledge base</Link> and press
+              Draft again, or write the answer yourself, then send it.
+            </p>
+          )}
+          {reply && reply.sources.length > 0 && (
+            <p className={styles.emailStatus}>
+              Answered from the knowledge base: {reply.sources.join(", ")}.
+            </p>
+          )}
           {sent ? (
             <>
               <p className={styles.emailStatus}>

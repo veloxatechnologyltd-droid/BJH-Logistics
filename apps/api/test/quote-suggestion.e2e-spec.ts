@@ -87,6 +87,8 @@ async function emailRequest(over: Partial<RequestDetails>) {
       companyName: "Synthetic Buyer",
       contactName: "Synthetic Buyer",
       message: "Please quote.",
+      source: "email",
+      mailbox: "quotes",
     },
     attachments: [],
     skipped: [],

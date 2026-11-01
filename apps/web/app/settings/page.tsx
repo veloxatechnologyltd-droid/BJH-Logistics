@@ -24,6 +24,17 @@ export default function SettingsPage() {
           </article>
           <article className="action-card">
             <span className="action-icon" aria-hidden="true">
+              <NavIcon name="messages" />
+            </span>
+            <div className="action-copy">
+              <h3>Knowledge base</h3>
+            </div>
+            <Link className="action-link" href="/settings/knowledge">
+              Edit answers <span aria-hidden="true">→</span>
+            </Link>
+          </article>
+          <article className="action-card">
+            <span className="action-icon" aria-hidden="true">
               <NavIcon name="customers" />
             </span>
             <div className="action-copy">

@@ -52,6 +52,8 @@ export interface RequestIntakeRecord {
   assistantNotes: string[];
   /** The reply the assistant drafted, as a person last saved it; null until one is drafted. */
   reply: RequestReplyRecord | null;
+  /** The assistant could not answer by itself, and why; a person must read and send the reply. */
+  escalation: { at: string; reason: string } | null;
 }
 
 export interface RequestReplyRecord {
@@ -64,6 +66,23 @@ export interface RequestReplyRecord {
   sentBy: string | null;
   /** The assistant sent it by itself (ASSISTANT_AUTO_REPLY), so no person did. */
   sentByAssistant: boolean;
+  /** Titles of the knowledge entries the drafted reply drew on. */
+  sources: string[];
+}
+
+/** How a request reached BJH. The website's quote form takes the same intake as an email. */
+export type QuoteRequestSource = "portal" | "staff" | "email" | "website";
+
+/** Which inbox a request belongs to: quote requests, or questions (inquiries). The mailbox the email reached decides; a person may move it. */
+export type RequestMailbox = "quotes" | "inquiries";
+
+/** One topic the assistant may answer inquiries from, written by BJH. */
+export interface KnowledgeEntryRecord {
+  id: string;
+  title: string;
+  answer: string;
+  updatedAt: string;
+  updatedBy: string;
 }
 
 export interface QuoteRequestRecord {
@@ -73,6 +92,9 @@ export interface QuoteRequestRecord {
   email: string;
   message: string;
   createdAt: string;
+  /** Null on requests made before this was recorded (and for a customer, who is not told). */
+  source: QuoteRequestSource | null;
+  mailbox: RequestMailbox;
   customerCompanyId: string | null;
   customerCompanyName: string | null;
   /** The quote prepared for this request (the newest one), if any. */
@@ -868,7 +890,12 @@ export interface StaffRoleAssignmentRecord {
 export abstract class DatabasePort {
   abstract healthCheck(): Promise<DatabaseHealth>;
   abstract createQuoteRequest(
-    request: Omit<QuoteRequestRecord, "details" | "intake">,
+    request: Omit<
+      QuoteRequestRecord,
+      "details" | "intake" | "source" | "mailbox"
+    > & {
+      source: "portal" | "staff";
+    },
   ): Promise<QuoteRequestRecord>;
   /** A request made from an email, saved with the email and its attachments in one step. */
   abstract createEmailQuoteRequest(input: {
@@ -886,6 +913,8 @@ export abstract class DatabasePort {
       companyName: string;
       contactName: string;
       message: string;
+      source: "email" | "website";
+      mailbox: RequestMailbox;
     };
     attachments: Array<{
       filename: string;
@@ -920,8 +949,35 @@ export abstract class DatabasePort {
   /** Saves the reply of an email request until it is sent; a sent reply never changes. */
   abstract saveRequestReply(
     requestId: string,
-    reply: { subject: string; body: string; model: string | null },
+    reply: {
+      subject: string;
+      body: string;
+      model: string | null;
+      /** Knowledge entry titles the AI drew on; a person's edit keeps the ones saved. */
+      sources?: string[];
+    },
   ): Promise<QuoteRequestRecord | "not_found" | "sent">;
+  /** Marks an email request as needing a person (with why), or clears that with null. */
+  abstract setRequestEscalation(
+    requestId: string,
+    reason: string | null,
+  ): Promise<void>;
+  /** Moves a request to the other inbox; its kind follows, so the assistant treats it as the inbox's kind. */
+  abstract moveRequestMailbox(
+    requestId: string,
+    mailbox: RequestMailbox,
+  ): Promise<QuoteRequestRecord | null>;
+  abstract listKnowledgeEntries(): Promise<KnowledgeEntryRecord[]>;
+  abstract createKnowledgeEntry(entry: {
+    title: string;
+    answer: string;
+    updatedBy: string;
+  }): Promise<KnowledgeEntryRecord>;
+  abstract updateKnowledgeEntry(
+    id: string,
+    entry: { title: string; answer: string; updatedBy: string },
+  ): Promise<KnowledgeEntryRecord | null>;
+  abstract deleteKnowledgeEntry(id: string): Promise<boolean>;
   /** Records that the reply went out, with the message that carried it. */
   abstract markRequestReplySent(
     requestId: string,
@@ -954,9 +1010,11 @@ export abstract class DatabasePort {
   abstract findCustomerByContactEmail(
     email: string,
   ): Promise<{ id: string; companyName: string } | null>;
+  /** The requests of one inbox (quote requests unless asked for inquiries). */
   abstract listQuoteRequests(
     customerCompanyId?: string,
     allowedCompanyIds?: string[],
+    mailbox?: RequestMailbox,
   ): Promise<QuoteRequestRecord[]>;
   abstract findQuoteRequest(
     id: string,
@@ -1546,7 +1604,10 @@ export abstract class DatabasePort {
       | "updatedAt"
       | "stageChangedAt"
       | "createdAt"
-    > & { createdBy: string },
+    > & {
+      /** Null when the assistant opened the lead itself. */
+      createdBy: string | null;
+    },
   ): Promise<LeadRecord | "duplicate_request" | "unknown_reference">;
   abstract saveLead(
     lead: LeadRecord,

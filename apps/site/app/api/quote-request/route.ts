@@ -82,6 +82,9 @@ export async function POST(request: Request) {
   fields.set("subject", quoteSubject(details));
   fields.set("text", `Website quote request\n\n${quoteText(details)}`);
   fields.set("message_id", `website:${randomUUID()}`);
+  // Tells the API this came from the quote form, not an email. Only this
+  // server route can say so: the webhook needs the intake secret.
+  fields.set("source", "website");
 
   try {
     const response = await fetch(

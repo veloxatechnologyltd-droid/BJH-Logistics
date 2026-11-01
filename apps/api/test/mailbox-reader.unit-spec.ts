@@ -5,6 +5,7 @@ import { simpleParser } from "mailparser";
 import {
   inboundFromMail,
   mailboxFromEnvironment,
+  mailboxesFromEnvironment,
 } from "../src/intake/mailbox-reader.service";
 
 const setup = {
@@ -17,6 +18,7 @@ const setup = {
 test("the mailbox is read only when host, user, password and a valid start time are set", () => {
   const ready = mailboxFromEnvironment(setup);
   assert.deepEqual(ready, {
+    name: "quotes",
     host: "mail.example.test",
     port: 993,
     user: "requests@example.test",
@@ -93,4 +95,49 @@ test("an email from the mailbox becomes the webhook's fields; embedded pictures 
     files.map((file) => [file.originalname, file.buffer.toString()]),
     [["packing-list.pdf", "%PDF-1.4 synthetic"]],
   );
+});
+
+test("the inquiries mailbox is read beside the quote mailbox, on the same server, and files its emails as inquiries", async () => {
+  assert.deepEqual(
+    mailboxesFromEnvironment(setup).map((box) => box.name),
+    ["quotes"],
+  );
+  const both = mailboxesFromEnvironment({
+    ...setup,
+    INBOUND_INQUIRY_IMAP_USER: "inquiries@example.test",
+    INBOUND_INQUIRY_IMAP_PASSWORD: "also-not-real",
+  });
+  assert.deepEqual(
+    both.map((box) => [box.name, box.user, box.host, box.since.toISOString()]),
+    [
+      [
+        "quotes",
+        "requests@example.test",
+        "mail.example.test",
+        "2026-10-28T09:00:00.000Z",
+      ],
+      [
+        "inquiries",
+        "inquiries@example.test",
+        "mail.example.test",
+        "2026-10-28T09:00:00.000Z",
+      ],
+    ],
+  );
+  // Without the quote mailbox's server and start time, the inquiries one is not read either.
+  assert.deepEqual(
+    mailboxesFromEnvironment({
+      INBOUND_INQUIRY_IMAP_USER: "inquiries@example.test",
+      INBOUND_INQUIRY_IMAP_PASSWORD: "also-not-real",
+    }),
+    [],
+  );
+  const mail = await simpleParser(
+    "From: Ama <ama@buyer.example>\r\nTo: inquiries@example.test\r\nSubject: Hours\r\n\r\nWhen are you open?",
+  );
+  assert.equal(
+    inboundFromMail(mail, new Date(), "inquiries").fields.mailbox,
+    "inquiries",
+  );
+  assert.equal(inboundFromMail(mail, new Date()).fields.mailbox, "quotes");
 });

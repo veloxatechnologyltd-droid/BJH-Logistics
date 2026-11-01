@@ -10,6 +10,7 @@ import { NavIcon } from "./NavIcon";
 import type { NavIconName } from "./NavIcon";
 import { SettingsSidebarSection } from "./SettingsSidebarSection";
 import { listQuoteRequests } from "./quotations/quoteRequestApi";
+import type { RequestMailbox } from "./quotations/quoteRequestApi";
 
 type NavItem = {
   href: string;
@@ -43,6 +44,7 @@ const staffNav: NavGroup[] = [
     items: [
       { href: "/customers", label: "Customers", icon: "customers" },
       { href: "/quotations", label: "Requests", icon: "quotations" },
+      { href: "/inquiries", label: "Inquiries", icon: "messages" },
       { href: "/quotes", label: "Quotes", icon: "quotes" },
     ],
   },
@@ -74,19 +76,28 @@ const staffNav: NavGroup[] = [
 const collapsedKey = "bjh.sidebar.collapsed";
 const newRequestsEveryMs = 60_000;
 
-/** Emailed requests nobody has checked yet: the inbox's "Needs checking". */
-function useNewRequestCount(enabled: boolean, pathname: string): number {
+/**
+ * The badge beside an inbox: emailed quote requests nobody has checked yet,
+ * or inquiries the assistant could not answer that still need a person.
+ */
+function useNewRequestCount(
+  enabled: boolean,
+  pathname: string,
+  mailbox: RequestMailbox = "quotes",
+): number {
   const [count, setCount] = useState(0);
   useEffect(() => {
     if (!enabled) return;
     let current = true;
     const load = () =>
-      listQuoteRequests()
+      listQuoteRequests(undefined, mailbox)
         .then((requests) => {
           if (current) {
             setCount(
-              requests.filter(
-                (request) => request.intake && !request.intake.reviewedAt,
+              requests.filter((request) =>
+                mailbox === "inquiries"
+                  ? request.intake?.escalation && !request.intake.reply?.sentAt
+                  : request.intake && !request.intake.reviewedAt,
               ).length,
             );
           }
@@ -99,13 +110,14 @@ function useNewRequestCount(enabled: boolean, pathname: string): number {
       current = false;
       window.clearInterval(timer);
     };
-  }, [enabled, pathname]);
+  }, [enabled, pathname, mailbox]);
   return enabled ? count : 0;
 }
 
 /** Pages reached from Settings or a link, not from the main menu. */
 const settingsPages: Array<{ href: string; label: string }> = [
   { href: "/settings/business", label: "Business settings" },
+  { href: "/settings/knowledge", label: "Knowledge base" },
   { href: "/settings/staff", label: "Staff management" },
   { href: "/settings/customer-accounts", label: "Customer accounts" },
   { href: "/settings/notifications", label: "Customer messages" },
@@ -151,6 +163,11 @@ export function WorkspaceFrame({ children }: { children: ReactNode }) {
   const newRequests = useNewRequestCount(
     status === "ready" && !isCustomer,
     pathname,
+  );
+  const inquiriesForAPerson = useNewRequestCount(
+    status === "ready" && !isCustomer,
+    pathname,
+    "inquiries",
   );
 
   // A new password, then the super admin's second step, come before any page.
@@ -253,7 +270,12 @@ export function WorkspaceFrame({ children }: { children: ReactNode }) {
                   : pathname.startsWith(item.href) ||
                     (item.href === "/finance" &&
                       pathname.startsWith("/invoices"));
-                const badge = item.href === "/quotations" ? newRequests : 0;
+                const badge =
+                  item.href === "/quotations"
+                    ? newRequests
+                    : item.href === "/inquiries"
+                      ? inquiriesForAPerson
+                      : 0;
                 const label = badge
                   ? `${item.label}, ${badge} new`
                   : item.label;

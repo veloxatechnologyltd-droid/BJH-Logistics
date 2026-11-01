@@ -9,6 +9,18 @@ import type {
 } from "@bjh/contracts";
 import type { QuoteLine, QuoteVersion } from "../quotes/quoteApi";
 
+/** How a request reached BJH; staff only, and null on requests from before it was recorded. */
+export type RequestSource = "portal" | "staff" | "email" | "website";
+
+export const requestSourceLabels: Record<RequestSource, string> = {
+  portal: "Client portal",
+  staff: "Entered by staff",
+  email: "Email",
+  website: "Website form",
+};
+
+export type RequestMailbox = "quotes" | "inquiries";
+
 export type QuoteRequest = {
   id: string;
   companyName: string;
@@ -16,6 +28,9 @@ export type QuoteRequest = {
   email: string;
   message: string;
   createdAt: string;
+  source: RequestSource | null;
+  /** The inbox it belongs to: quote requests, or questions (inquiries). */
+  mailbox: RequestMailbox;
   customerCompanyId: string | null;
   customerCompanyName: string | null;
   /** The quote prepared for this request (the newest one), if any. */
@@ -61,8 +76,24 @@ export type RequestIntake = {
     sentAt: string | null;
     sentBy: string | null;
     sentByAssistant: boolean;
+    /** Titles of the knowledge entries the drafted reply drew on. */
+    sources: string[];
   } | null;
+  /** The assistant could not answer by itself, and why: a person must read and send the reply. */
+  escalation: { at: string; reason: string } | null;
 };
+
+/** The assistant thinks the email reached the wrong mailbox. */
+export function misfiledLabel(request: QuoteRequest): string | null {
+  const kind = request.intake?.kind;
+  if (request.mailbox === "quotes" && kind === "inquiry") {
+    return "Looks like a question: move to Inquiries";
+  }
+  if (request.mailbox === "inquiries" && kind === "quote") {
+    return "Looks like a quote request: move to Requests";
+  }
+  return null;
+}
 
 export type NewQuoteRequest = QuoteRequestInput;
 
@@ -84,13 +115,16 @@ async function readResponse<T>(response: Response): Promise<T> {
   return (await response.json()) as T;
 }
 
+/** One inbox's requests: quote requests unless inquiries are asked for. */
 export async function listQuoteRequests(
   customerCompanyId?: string,
+  mailbox: RequestMailbox = "quotes",
 ): Promise<QuoteRequest[]> {
   const query = new URLSearchParams();
   if (customerCompanyId) {
     query.set("customerCompanyId", customerCompanyId);
   }
+  if (mailbox !== "quotes") query.set("mailbox", mailbox);
   const queryString = query.size > 0 ? `?${query}` : "";
   return readResponse<QuoteRequest[]>(
     await authenticatedFetch(`${quoteRequestsUrl}${queryString}`),
@@ -181,6 +215,23 @@ export async function getRequestAttachmentLink(
   return readResponse<{ url: string; filename: string }>(
     await authenticatedFetch(
       `${quoteRequestsUrl}/${encodeURIComponent(requestId)}/attachments/${encodeURIComponent(attachmentId)}`,
+    ),
+  );
+}
+
+/** Moves an email request to the other inbox. */
+export async function moveRequestMailbox(
+  requestId: string,
+  mailbox: RequestMailbox,
+): Promise<QuoteRequest> {
+  return readResponse<QuoteRequest>(
+    await authenticatedFetch(
+      `${quoteRequestsUrl}/${encodeURIComponent(requestId)}/mailbox`,
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ mailbox }),
+      },
     ),
   );
 }

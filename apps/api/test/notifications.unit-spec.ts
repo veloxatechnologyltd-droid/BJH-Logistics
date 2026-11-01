@@ -16,6 +16,7 @@ import {
   RecordingEmailProvider,
   RecordingSmsProvider,
   createEmailProvider,
+  createInquiryEmailProvider,
   createSmsProvider,
 } from "../src/notifications/providers";
 import {
@@ -215,4 +216,33 @@ test("links use the configured public address", () => {
     "http://a.test",
   );
   assert.equal(publicWebUrl({}), "http://127.0.0.1:3002");
+});
+
+test("replies to inquiries go out from the inquiries mailbox, never from the quote one", async () => {
+  // No mail server: a stub, as for every message.
+  assert.equal(createInquiryEmailProvider({}).name, "stub");
+  const mail = {
+    EMAIL_SMTP_HOST: "mail.example.test",
+    EMAIL_FROM: "BJH <quote@example.test>",
+  };
+  // Mail is set up but not the inquiries sender: the delivery fails and says why.
+  await assert.rejects(
+    createInquiryEmailProvider(mail).send({
+      to: "a@b.example",
+      subject: "s",
+      text: "t",
+    }),
+    /inquiries mailbox is not set up for sending/,
+  );
+  const inquiries = createInquiryEmailProvider({
+    ...mail,
+    EMAIL_INQUIRY_FROM: "BJH <inquiries@example.test>",
+    EMAIL_INQUIRY_SMTP_USER: "inquiries@example.test",
+    EMAIL_INQUIRY_SMTP_PASSWORD: "not-real",
+  });
+  assert.equal(inquiries.name, "smtp");
+  assert.equal(
+    (inquiries as unknown as { from: string }).from,
+    "BJH <inquiries@example.test>",
+  );
 });

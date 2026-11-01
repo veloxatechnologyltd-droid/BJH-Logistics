@@ -186,6 +186,7 @@ test("a job can only link a quote request from the same company", async () => {
     email: "southwind@example.test",
     message: "Synthetic request",
     createdAt: new Date().toISOString(),
+    source: "staff",
     customerCompanyId: null,
     customerCompanyName: null,
     quoteId: null,
