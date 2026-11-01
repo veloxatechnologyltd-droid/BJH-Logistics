@@ -859,7 +859,8 @@ a:focus-visible {
   gap: 16px;
   margin-top: 18px;
 }
-.notices-primary {
+.notices-popup .notices-primary,
+.notices-popup .notices-primary:visited {
   display: inline-flex;
   align-items: center;
   min-height: 44px;

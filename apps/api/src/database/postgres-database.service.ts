@@ -223,7 +223,10 @@ const jobSelect = `
     job.status,
     job.opened_by,
     job.opened_at,
-    job.closed_at
+    job.closed_at,
+    job.vessel,
+    job.port_of_loading,
+    job.port_of_discharge
   FROM app.job AS job
   JOIN app.customer_company AS company
     ON company.company_id = job.customer_company_id`;
@@ -1095,6 +1098,11 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
          AND ($9::date IS NULL
            OR job.status NOT IN ('closed', 'cancelled')
            OR (COALESCE(job.closed_at, job.opened_at) AT TIME ZONE 'UTC')::date >= $9::date)
+         AND ($13::text IS NULL
+           OR strpos(lower(COALESCE(job.vessel, '')), lower($13)) > 0)
+         AND ($14::text IS NULL
+           OR strpos(lower(COALESCE(job.port_of_loading, '')), lower($14)) > 0
+           OR strpos(lower(COALESCE(job.port_of_discharge, '')), lower($14)) > 0)
        ) AS listed
        LEFT JOIN LATERAL (
          SELECT e.eta_at FROM app.eta_event e
@@ -1125,6 +1133,8 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
         filter.etaFrom ?? null,
         filter.etaTo ?? null,
         filter.assignedTo ?? null,
+        filter.vessel ?? null,
+        filter.port ?? null,
       ],
     );
     return result.rows.map((row) => ({
@@ -1134,6 +1144,23 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
         : null,
       leadUserId: row.lead_user_id ? String(row.lead_user_id) : null,
     }));
+  }
+
+  async updateJobVoyage(
+    jobId: string,
+    voyage: {
+      vessel: string | null;
+      portOfLoading: string | null;
+      portOfDischarge: string | null;
+    },
+  ): Promise<JobRecord | null> {
+    await this.pool.query(
+      `UPDATE app.job
+       SET vessel = $2, port_of_loading = $3, port_of_discharge = $4
+       WHERE job_id = $1::uuid`,
+      [jobId, voyage.vessel, voyage.portOfLoading, voyage.portOfDischarge],
+    );
+    return this.findJob(jobId, {});
   }
 
   async findJob(id: string, scope: JobScope): Promise<JobRecord | null> {
@@ -1165,6 +1192,9 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       openedBy: String(row.opened_by),
       openedAt: this.toIsoString(row.opened_at),
       closedAt: row.closed_at ? this.toIsoString(row.closed_at) : null,
+      vessel: (row.vessel as string | null) ?? null,
+      portOfLoading: (row.port_of_loading as string | null) ?? null,
+      portOfDischarge: (row.port_of_discharge as string | null) ?? null,
     };
   }
 

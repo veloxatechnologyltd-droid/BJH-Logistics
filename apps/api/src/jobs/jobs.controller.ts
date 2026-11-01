@@ -5,6 +5,7 @@ import {
   Inject,
   Param,
   Post,
+  Put,
   Query,
   Req,
   UseGuards,
@@ -79,6 +80,16 @@ export class JobsController {
   @UseGuards(JobScopeGuard)
   statusHistory(@Param("id") id: string, @Req() request: AuthenticatedRequest) {
     return this.jobs.getStatusHistory(id, scopeOf(request));
+  }
+
+  @Put(":id/voyage")
+  @UseGuards(DepartmentStaffGuard, JobScopeGuard)
+  updateVoyage(
+    @Param("id") id: string,
+    @Body() body: unknown,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.jobs.updateVoyage(id, body, scopeOf(request));
   }
 
   @Post(":id/status")

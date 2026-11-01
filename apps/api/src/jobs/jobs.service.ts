@@ -11,6 +11,7 @@ import {
   isUuid,
   jobCreateInputSchema,
   jobListQuerySchema,
+  jobVoyageInputSchema,
   jobStatusChangeInputSchema,
   jobStatusReasonRequired,
   jobStatusTransitions,
@@ -101,9 +102,12 @@ export class JobsService {
     }
     const parsed = parseContract(jobListQuerySchema, filters);
     if (!parsed.success) throw new BadRequestException(parsed.message);
-    const { status, serviceLine, assignedTo, ...rest } = parsed.data;
+    const { status, serviceLine, assignedTo, vessel, port, ...rest } =
+      parsed.data;
     const jobs = await this.database.listJobs(term, scope, {
       ...rest,
+      vessel: vessel?.trim() || undefined,
+      port: port?.trim() || undefined,
       statuses: status,
       serviceLines: serviceLine,
       assignedTo: assignedTo === "me" ? viewerId : assignedTo,
@@ -124,6 +128,23 @@ export class JobsService {
       ...job,
       leadEmail: job.leadUserId ? (emails.get(job.leadUserId) ?? null) : null,
     }));
+  }
+
+  /** Staff on the job's line keep its vessel and ports up to date. */
+  async updateVoyage(
+    id: string,
+    input: unknown,
+    scope: JobScope,
+  ): Promise<JobRecord> {
+    const job = await this.get(id, scope);
+    if (job.status === "closed" || job.status === "cancelled") {
+      throw new ConflictException("Reopen the job before changing it");
+    }
+    const parsed = parseContract(jobVoyageInputSchema, input);
+    if (!parsed.success) throw new BadRequestException(parsed.message);
+    const saved = await this.database.updateJobVoyage(job.id, parsed.data);
+    if (!saved) throw new NotFoundException("Job was not found");
+    return saved;
   }
 
   async get(id: string, scope: JobScope): Promise<JobRecord> {

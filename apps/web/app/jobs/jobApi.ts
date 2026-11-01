@@ -30,6 +30,9 @@ export type Job = {
   openedBy: string;
   openedAt: string;
   closedAt: string | null;
+  vessel: string | null;
+  portOfLoading: string | null;
+  portOfDischarge: string | null;
   /** On the jobs list: the newest ETA and, for staff, the lead's email. */
   currentEtaAt?: string | null;
   leadUserId?: string | null;
@@ -47,7 +50,16 @@ export type JobFilters = {
   etaFrom?: string;
   etaTo?: string;
   closedSince?: string;
+  vessel?: string;
+  /** Port of loading or of discharge. */
+  port?: string;
 };
+
+/** Saves the vessel and ports; an empty value clears it. */
+export const updateVoyage = (
+  id: string,
+  voyage: { vessel: string; portOfLoading: string; portOfDischarge: string },
+) => send<Job>(`/${encodeURIComponent(id)}/voyage`, "PUT", voyage);
 
 export type MilestoneEvent = {
   id: string;

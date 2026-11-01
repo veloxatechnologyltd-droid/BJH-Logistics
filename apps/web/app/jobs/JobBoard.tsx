@@ -149,9 +149,10 @@ export function JobBoard({
                         {serviceLineLabels[job.serviceLine]} · opened{" "}
                         {new Date(job.openedAt).toLocaleDateString()}
                       </p>
-                      {(job.leadEmail || job.currentEtaAt) && (
+                      {(job.vessel || job.leadEmail || job.currentEtaAt) && (
                         <p className={styles.cardMeta}>
                           {[
+                            job.vessel,
                             job.leadEmail,
                             job.currentEtaAt
                               ? `ETA ${new Date(job.currentEtaAt).toLocaleDateString()}`

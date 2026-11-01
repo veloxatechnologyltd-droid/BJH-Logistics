@@ -57,6 +57,8 @@ const empty = {
   openedTo: "",
   etaFrom: "",
   etaTo: "",
+  vessel: "",
+  port: "",
 };
 
 function daysAgo(days: number): string {
@@ -99,6 +101,8 @@ export function JobList() {
       openedTo: filters.openedTo || undefined,
       etaFrom: filters.etaFrom || undefined,
       etaTo: filters.etaTo || undefined,
+      vessel: filters.vessel.trim() || undefined,
+      port: filters.port.trim() || undefined,
       // Years of finished jobs would bury the board; the list keeps them all.
       closedSince:
         view === "board" && !olderOnBoard
@@ -241,8 +245,26 @@ export function JobList() {
         )}
       </div>
       <details className={styles.moreFilters}>
-        <summary className={styles.disclosureSummary}>Dates</summary>
+        <summary className={styles.disclosureSummary}>
+          Dates, vessel and port
+        </summary>
         <div className={styles.filters}>
+          <label className={styles.field}>
+            Vessel
+            <input
+              onChange={(event) => set("vessel")(event.target.value)}
+              placeholder="Part of the vessel name"
+              value={filters.vessel}
+            />
+          </label>
+          <label className={styles.field}>
+            Port
+            <input
+              onChange={(event) => set("port")(event.target.value)}
+              placeholder="Loading or discharge"
+              value={filters.port}
+            />
+          </label>
           {(
             [
               ["openedFrom", "Opened from"],

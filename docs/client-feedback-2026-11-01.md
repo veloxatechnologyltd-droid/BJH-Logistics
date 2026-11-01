@@ -1,6 +1,6 @@
 # Client feedback, 2026-11-01: understanding checklist
 
-Status: **all items built on branch `feat/client-meeting-teams-workflow` (2026-11-01), tested (unit, e2e, pgTAP, headless browser) and awaiting Evans's review; not deployed.** Vessel and port filters are not built: jobs do not store them yet. Each item says what the client asked for, what the system does today, and what would change. Numbered questions (Q1, Q2…) are listed at the end and must be answered before the item is built. Nothing here is ticked until the answers are agreed.
+Status: **all items built on branch `feat/client-meeting-teams-workflow` (2026-11-01), tested (unit, e2e, pgTAP, headless browser) and awaiting Evans's review; not deployed.** Vessel and port were added to jobs (Shipment details) with their own filters. Each item says what the client asked for, what the system does today, and what would change. Numbered questions (Q1, Q2…) are listed at the end and must be answered before the item is built. Nothing here is ticked until the answers are agreed.
 
 ## The picture as I understand it
 
@@ -65,7 +65,7 @@ Customer Service stays the client's single point of contact the whole way throug
 
 - [x] **E1. The Jobs list has no filter.**
   Proposed filters: search (file number, customer, B/L, container), status, import/export, assigned rep, customer, date opened (range). → Q20
-  _E1 and E2 built locally 2026-11-01, awaiting Evans's review:_ all filters except vessel and port, which jobs do not store yet. Tests: `apps/api/test/job-filters.e2e-spec.ts`.
+  _E1 and E2 built locally 2026-11-01, awaiting Evans's review:_ all filters, including vessel and port (recorded on Shipment details, migration `20261101000012`). Tests: `apps/api/test/job-filters.e2e-spec.ts`.
 - [x] **E2. The kanban board will hold 5 years of jobs, so it needs filtering and an easy way to track work.**
   Proposed: by default the board shows **active jobs only**, plus closed or cancelled jobs from the last 30 days. It gets the same filters as the list, a "My jobs" switch and counts on each column. Old jobs stay reachable through the list and search. → Q21
 

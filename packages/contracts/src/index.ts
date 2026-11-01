@@ -424,7 +424,26 @@ export const jobListQuerySchema = z.object({
   etaTo: queryDate("etaTo"),
   /** Leaves out closed and cancelled jobs that finished before this date. */
   closedSince: queryDate("closedSince"),
+  vessel: z
+    .string({ error: "vessel must be text" })
+    .max(120, { error: "vessel must be at most 120 characters" })
+    .optional(),
+  /** Matches the port of loading or of discharge. */
+  port: z
+    .string({ error: "port must be text" })
+    .max(120, { error: "port must be at most 120 characters" })
+    .optional(),
 });
+
+/** The vessel and ports on a job; an empty value clears it. */
+export const jobVoyageInputSchema = z.object(
+  {
+    vessel: optionalText("vessel", 120),
+    portOfLoading: optionalText("portOfLoading", 120),
+    portOfDischarge: optionalText("portOfDischarge", 120),
+  },
+  objectError("A voyage object is required"),
+);
 export type JobListQuery = z.infer<typeof jobListQuerySchema>;
 
 /** A customer is active with an unfinished job or one opened within this many days. */

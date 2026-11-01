@@ -211,6 +211,10 @@ export interface JobRecord {
   openedBy: string;
   openedAt: string;
   closedAt: string | null;
+  /** Free text kept by staff, for finding jobs; the documents stay authoritative. */
+  vessel: string | null;
+  portOfLoading: string | null;
+  portOfDischarge: string | null;
 }
 
 export interface MilestoneEventRecord {
@@ -943,6 +947,10 @@ export interface JobListFilter {
   etaTo?: string;
   /** Closed and cancelled jobs that finished before this day are left out. */
   closedSince?: string;
+  /** Part of the vessel name. */
+  vessel?: string;
+  /** Part of the port of loading or of discharge. */
+  port?: string;
 }
 
 export interface JobListRecord extends JobRecord {
@@ -1194,6 +1202,14 @@ export abstract class DatabasePort {
     scope: JobScope,
     filter?: JobListFilter,
   ): Promise<JobListRecord[]>;
+  abstract updateJobVoyage(
+    jobId: string,
+    voyage: {
+      vessel: string | null;
+      portOfLoading: string | null;
+      portOfDischarge: string | null;
+    },
+  ): Promise<JobRecord | null>;
   abstract findJob(id: string, scope: JobScope): Promise<JobRecord | null>;
   abstract addJobParty(party: {
     jobId: string;

@@ -220,3 +220,72 @@ test("bad filters are refused with a clear message", async () => {
     );
   }
 });
+
+test("staff record the vessel and ports, and the list filters by them", async () => {
+  const [first] = await list(`search=${encodeURIComponent(files.seaImport)}`);
+  assert.ok(first);
+  const jobs = (await (
+    await call("/api/v1/jobs", TEST_SUPER_ADMIN_TOKEN)
+  ).json()) as Array<{ id: string; fileNumber: string }>;
+  const seaImportId = jobs.find(
+    (job) => job.fileNumber === files.seaImport,
+  )!.id;
+
+  const saved = await call(
+    `/api/v1/jobs/${seaImportId}/voyage`,
+    TEST_MATCHING_TOKEN,
+    {
+      method: "PUT",
+      body: JSON.stringify({
+        vessel: "  MSC Synthetic Star ",
+        portOfLoading: "Ningbo",
+        portOfDischarge: "Tema",
+      }),
+    },
+  );
+  assert.equal(saved.status, 200, await saved.clone().text());
+  assert.equal(
+    ((await saved.json()) as { vessel: string }).vessel,
+    "MSC Synthetic Star",
+  );
+
+  assert.deepEqual(numbers(await list("vessel=synthetic%20star")), [
+    files.seaImport,
+  ]);
+  assert.deepEqual(numbers(await list("port=ningbo")), [files.seaImport]);
+  assert.deepEqual(numbers(await list("port=TEMA")), [files.seaImport]);
+  assert.deepEqual(await list("port=Lagos"), []);
+
+  // A rep cannot change a job outside their lines; a closed job is read-only.
+  const exportJob = jobs.find((job) => job.fileNumber === files.airExport)!.id;
+  const outside = await call(
+    `/api/v1/jobs/${exportJob}/voyage`,
+    TEST_MATCHING_TOKEN,
+    {
+      method: "PUT",
+      body: JSON.stringify({ vessel: "X" }),
+    },
+  );
+  assert.equal(outside.status, 404);
+  const cancelled = jobs.find(
+    (job) => job.fileNumber === files.recentClosed,
+  )!.id;
+  const closed = await call(
+    `/api/v1/jobs/${cancelled}/voyage`,
+    TEST_SUPER_ADMIN_TOKEN,
+    {
+      method: "PUT",
+      body: JSON.stringify({ vessel: "X" }),
+    },
+  );
+  assert.equal(closed.status, 409);
+  const tooLong = await call(
+    `/api/v1/jobs/${seaImportId}/voyage`,
+    TEST_SUPER_ADMIN_TOKEN,
+    {
+      method: "PUT",
+      body: JSON.stringify({ vessel: "x".repeat(121) }),
+    },
+  );
+  assert.equal(tooLong.status, 400);
+});
