@@ -2,7 +2,7 @@
 -- one export rep (sea and air each), customer service, sales and finance.
 --
 -- The old per-mode roles stay allowed so the API still deployed keeps working;
--- 20261101000006 converts existing accounts once the new API is live.
+-- 20261101000013 converts existing accounts once the new API is live.
 
 ALTER TABLE app.staff_role_assignment
   DROP CONSTRAINT staff_role_assignment_role_key_check,
