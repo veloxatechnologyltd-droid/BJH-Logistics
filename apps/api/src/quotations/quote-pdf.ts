@@ -1,5 +1,5 @@
 import PDFDocument from "pdfkit";
-import { quoteBasisLabels } from "@bjh/contracts";
+import { quoteBasisLabels, quoteLineTotalMinor } from "@bjh/contracts";
 import type { BusinessSettings } from "@bjh/contracts";
 import type {
   QuoteLineRecord,
@@ -233,9 +233,12 @@ export function renderQuotePdf(
           { title: "Basis", width: width * basisWidth },
         ]
       : [
-          { title: "Charge", width: width * 0.45 },
-          { title: "Amount", width: width * 0.2 },
-          { title: "Basis", width: width * 0.35 },
+          { title: "Charge", width: width * 0.3 },
+          { title: "Size", width: width * 0.09 },
+          { title: "Qty", width: width * 0.07 },
+          { title: "Unit price", width: width * 0.15 },
+          { title: "Total", width: width * 0.16 },
+          { title: "Basis", width: width * 0.23 },
         ];
     const drawHeader = () => {
       const y = doc.y;
@@ -273,7 +276,10 @@ export function renderQuotePdf(
           ]
         : [
             line.description,
+            line.containerSize ?? "",
+            String(line.quantity),
             amountText(line, line.amountMinor, version.currency),
+            amountText(line, quoteLineTotalMinor(line), version.currency),
             basisText(line),
           ];
       doc.font("Helvetica").fontSize(9);
@@ -321,6 +327,26 @@ export function renderQuotePdf(
         .stroke();
       doc.y = y + rowHeight;
     }
+  }
+
+  // A quote of unit prices adds up; one priced per size column does not.
+  if (version.lines.every((line) => line.sizeAmountsMinor === null)) {
+    const total = version.lines.reduce(
+      (sum, line) => sum + (quoteLineTotalMinor(line) ?? 0),
+      0,
+    );
+    doc.moveDown(0.4);
+    doc.font("Helvetica-Bold").fontSize(10).fillColor(INK);
+    doc.text(
+      `Total: ${formatQuoteAmount(total, version.currency)}${
+        version.lines.some((line) => line.amountMinor === null)
+          ? " (at-cost items are billed as incurred)"
+          : ""
+      }`,
+      left,
+      doc.y,
+      { width, align: "right" },
+    );
   }
 
   doc.moveDown(0.6);

@@ -1,7 +1,9 @@
 import { Controller, Get, Inject, Query, Res, UseGuards } from "@nestjs/common";
 import {
   DepartmentStaffGuard,
+  StaffRolesGuard,
   SupabaseIdentityGuard,
+  financeRoles,
 } from "../auth/auth.guards";
 import { StatementsService } from "./statements.service";
 
@@ -13,7 +15,11 @@ interface BinaryResponse {
 
 /** Statements of account: staff only; `companyId` is required, `from` and `to` (YYYY-MM-DD) are optional. */
 @Controller("api/v1/finance/statements")
-@UseGuards(SupabaseIdentityGuard, DepartmentStaffGuard)
+@UseGuards(
+  SupabaseIdentityGuard,
+  DepartmentStaffGuard,
+  StaffRolesGuard(financeRoles),
+)
 export class StatementsController {
   constructor(
     @Inject(StatementsService) private readonly statements: StatementsService,

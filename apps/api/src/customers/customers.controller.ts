@@ -12,10 +12,10 @@ import {
   UseGuards,
 } from "@nestjs/common";
 import {
+  ClientDeskGuard,
   DepartmentStaffGuard,
   SupabaseIdentityGuard,
   StaffCompanyReadGuard,
-  SuperAdminGuard,
 } from "../auth/auth.guards";
 import type { AuthenticatedRequest } from "../auth/auth.guards";
 import { CustomersService } from "./customers.service";
@@ -28,25 +28,25 @@ export class CustomersController {
   ) {}
 
   @Post()
-  @UseGuards(SuperAdminGuard)
+  @UseGuards(ClientDeskGuard)
   create(@Body() body: unknown) {
     return this.customers.create(body);
   }
 
   @Patch(":id")
-  @UseGuards(SuperAdminGuard)
+  @UseGuards(ClientDeskGuard)
   update(@Param("id") id: string, @Body() body: unknown) {
     return this.customers.updateCustomer(id, body);
   }
 
   @Post(":id/contacts")
-  @UseGuards(SuperAdminGuard)
+  @UseGuards(ClientDeskGuard)
   addContact(@Param("id") id: string, @Body() body: unknown) {
     return this.customers.addContact(id, body);
   }
 
   @Patch(":id/contacts/:contactId")
-  @UseGuards(SuperAdminGuard)
+  @UseGuards(ClientDeskGuard)
   updateContact(
     @Param("id") id: string,
     @Param("contactId") contactId: string,

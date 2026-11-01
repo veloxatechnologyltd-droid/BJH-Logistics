@@ -53,7 +53,7 @@ test("passwords the admin sets are temporary", async () => {
     body: JSON.stringify({
       email: "new-rep@example.test",
       password: "admin-chosen-password",
-      roleKey: "air_import_rep",
+      roleKey: "import_rep",
     }),
   });
   assert.equal(created.status, 201);

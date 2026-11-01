@@ -96,6 +96,30 @@ export const paymentReceivedMessage = (
   smsText: `${sender}: payment of ${money(amountMinor, currency)} received for ${invoiceNumber}. Balance ${money(balanceMinor, currency)}.`,
 });
 
+/** Customer service writing in the client's conversation; the tag lets an emailed reply find its way back. */
+export const chatMessage = (
+  sender: string,
+  tag: string | null,
+  body: string,
+): Message => ({
+  subject: `Message from ${sender}${tag ? ` ${tag}` : ""}`,
+  body: `${body}\n\nYou can reply to this email or answer in your customer portal.${sign(sender)}`,
+  smsText: `${sender}: you have a new message. ${body.length > 80 ? `${body.slice(0, 77)}...` : body}`,
+});
+
+/** A receipt sent on request by customer service or finance; the PDF is attached to the email. */
+export const receiptSentMessage = (
+  sender: string,
+  receiptNumber: string,
+  invoiceNumber: string,
+  amountMinor: number,
+  currency: string,
+): Message => ({
+  subject: `Receipt ${receiptNumber} for invoice ${invoiceNumber}`,
+  body: `Please find attached receipt ${receiptNumber} for your payment of ${money(amountMinor, currency)} against invoice ${invoiceNumber}.${sign(sender)}`,
+  smsText: `${sender}: receipt ${receiptNumber} for ${money(amountMinor, currency)} (${invoiceNumber}) has been emailed to you.`,
+});
+
 /** One payment that settled several invoices: a single message, not one per invoice. */
 export const paymentsReceivedMessage = (
   sender: string,

@@ -149,7 +149,14 @@ export class JobChargesService {
             : ("service" as const),
         description: line.description,
         currency: quote.currency,
-        quantity: line.basis === "per_container" ? quantity : 1,
+        // A line that states its own quantity keeps it; otherwise a per-container
+        // line takes the number of containers given when importing.
+        quantity:
+          line.quantity > 1
+            ? line.quantity
+            : line.basis === "per_container"
+              ? quantity
+              : 1,
         unitQuotedMinor: unit,
         quoteLineId: line.id,
         quoteContainerSize: line.sizeAmountsMinor ? containerSize : null,

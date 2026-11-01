@@ -67,7 +67,17 @@ import {
   StockBalanceRecord,
   StockMovementRecord,
   WarehouseLocationRecord,
+  InvoiceAcceptanceRecord,
   InvoicePaymentRecord,
+  JobAssignmentRecord,
+  JobListFilter,
+  JobListRecord,
+  StaffNotificationRecord,
+  ChatMessageRecord,
+  LeadActivityRecord,
+  SalesPeriodRecord,
+  SalesServiceReportRecord,
+  ChatThreadRecord,
   PaymentBatchLine,
   PaymentBatchResult,
   InvoiceRecord,
@@ -213,7 +223,10 @@ const jobSelect = `
     job.status,
     job.opened_by,
     job.opened_at,
-    job.closed_at
+    job.closed_at,
+    job.vessel,
+    job.port_of_loading,
+    job.port_of_discharge
   FROM app.job AS job
   JOIN app.customer_company AS company
     ON company.company_id = job.customer_company_id`;
@@ -1035,12 +1048,19 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     }
   }
 
-  async listJobs(search: string, scope: JobScope): Promise<JobRecord[]> {
+  async listJobs(
+    search: string,
+    scope: JobScope,
+    filter: JobListFilter = {},
+  ): Promise<JobListRecord[]> {
     if (scope.companyIds?.length === 0 || scope.serviceLines?.length === 0) {
       return [];
     }
+    // Dates are Ghana days; Ghana keeps UTC all year.
     const result = await this.pool.query(
-      `${jobSelect}
+      `SELECT listed.*, eta.eta_at AS current_eta_at, lead.user_id AS lead_user_id
+       FROM (
+       ${jobSelect}
        WHERE ($1 = ''
          OR strpos(lower(job.file_number), lower($1)) > 0
          OR strpos(lower(company.company_name), lower($1)) > 0
@@ -1070,10 +1090,77 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
                OR strpos(lower(COALESCE(entry.counterparty, '')), lower($1)) > 0))))
          AND ($2::uuid[] IS NULL OR job.customer_company_id = ANY($2::uuid[]))
          AND ($3::text[] IS NULL OR job.service_line = ANY($3::text[]))
-       ORDER BY job.opened_at DESC, job.file_number DESC`,
-      [search, scope.companyIds ?? null, scope.serviceLines ?? null],
+         AND ($4::text[] IS NULL OR job.status = ANY($4::text[]))
+         AND ($5::text[] IS NULL OR job.service_line = ANY($5::text[]))
+         AND ($6::uuid IS NULL OR job.customer_company_id = $6::uuid)
+         AND ($7::date IS NULL OR (job.opened_at AT TIME ZONE 'UTC')::date >= $7::date)
+         AND ($8::date IS NULL OR (job.opened_at AT TIME ZONE 'UTC')::date <= $8::date)
+         AND ($9::date IS NULL
+           OR job.status NOT IN ('closed', 'cancelled')
+           OR (COALESCE(job.closed_at, job.opened_at) AT TIME ZONE 'UTC')::date >= $9::date)
+         AND ($13::text IS NULL
+           OR strpos(lower(COALESCE(job.vessel, '')), lower($13)) > 0)
+         AND ($14::text IS NULL
+           OR strpos(lower(COALESCE(job.port_of_loading, '')), lower($14)) > 0
+           OR strpos(lower(COALESCE(job.port_of_discharge, '')), lower($14)) > 0)
+       ) AS listed
+       LEFT JOIN LATERAL (
+         SELECT e.eta_at FROM app.eta_event e
+         WHERE e.job_id = listed.job_id
+         ORDER BY e.recorded_at DESC, e.eta_id DESC
+         LIMIT 1
+       ) AS eta ON true
+       LEFT JOIN app.job_assignment AS lead
+         ON lead.job_id = listed.job_id AND lead.kind = 'lead'
+        AND lead.removed_at IS NULL
+       WHERE ($10::date IS NULL OR (eta.eta_at AT TIME ZONE 'UTC')::date >= $10::date)
+         AND ($11::date IS NULL OR (eta.eta_at AT TIME ZONE 'UTC')::date <= $11::date)
+         AND ($12::uuid IS NULL OR EXISTS (
+           SELECT 1 FROM app.job_assignment AS member
+           WHERE member.job_id = listed.job_id AND member.user_id = $12::uuid
+             AND member.removed_at IS NULL))
+       ORDER BY listed.opened_at DESC, listed.file_number DESC`,
+      [
+        search,
+        scope.companyIds ?? null,
+        scope.serviceLines ?? null,
+        filter.statuses ?? null,
+        filter.serviceLines ?? null,
+        filter.customerCompanyId ?? null,
+        filter.openedFrom ?? null,
+        filter.openedTo ?? null,
+        filter.closedSince ?? null,
+        filter.etaFrom ?? null,
+        filter.etaTo ?? null,
+        filter.assignedTo ?? null,
+        filter.vessel ?? null,
+        filter.port ?? null,
+      ],
     );
-    return result.rows.map((row) => this.mapJob(row));
+    return result.rows.map((row) => ({
+      ...this.mapJob(row),
+      currentEtaAt: row.current_eta_at
+        ? this.toIsoString(row.current_eta_at)
+        : null,
+      leadUserId: row.lead_user_id ? String(row.lead_user_id) : null,
+    }));
+  }
+
+  async updateJobVoyage(
+    jobId: string,
+    voyage: {
+      vessel: string | null;
+      portOfLoading: string | null;
+      portOfDischarge: string | null;
+    },
+  ): Promise<JobRecord | null> {
+    await this.pool.query(
+      `UPDATE app.job
+       SET vessel = $2, port_of_loading = $3, port_of_discharge = $4
+       WHERE job_id = $1::uuid`,
+      [jobId, voyage.vessel, voyage.portOfLoading, voyage.portOfDischarge],
+    );
+    return this.findJob(jobId, {});
   }
 
   async findJob(id: string, scope: JobScope): Promise<JobRecord | null> {
@@ -1105,6 +1192,9 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       openedBy: String(row.opened_by),
       openedAt: this.toIsoString(row.opened_at),
       closedAt: row.closed_at ? this.toIsoString(row.closed_at) : null,
+      vessel: (row.vessel as string | null) ?? null,
+      portOfLoading: (row.port_of_loading as string | null) ?? null,
+      portOfDischarge: (row.port_of_discharge as string | null) ?? null,
     };
   }
 
@@ -2236,8 +2326,8 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       await client.query(
         `INSERT INTO app.quote_line
           (version_id, position, section, description, details, basis,
-           basis_note, amount_minor, size_amounts_minor)
-         VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9::bigint[])`,
+           basis_note, amount_minor, size_amounts_minor, quantity, container_size)
+         VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9::bigint[], $10, $11)`,
         [
           versionId,
           position,
@@ -2248,6 +2338,8 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
           line.basisNote,
           line.amountMinor,
           line.sizeAmountsMinor,
+          line.quantity,
+          line.containerSize,
         ],
       );
     }
@@ -2315,6 +2407,8 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       basis: line.basis as QuoteBasis,
       basisNote: optional(line.basis_note),
       amountMinor: minor(line.amount_minor),
+      quantity: line.quantity === undefined ? 1 : Number(line.quantity),
+      containerSize: optional(line.container_size),
       sizeAmountsMinor: line.size_amounts_minor
         ? (line.size_amounts_minor as unknown[]).map(Number)
         : null,
@@ -3114,6 +3208,585 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     } finally {
       client.release();
     }
+  }
+
+  async listInvoiceAcceptances(
+    jobId: string,
+  ): Promise<InvoiceAcceptanceRecord[]> {
+    const result = await this.pool.query(
+      `SELECT a.* FROM app.invoice_acceptance a
+       JOIN app.invoice i ON i.invoice_id = a.invoice_id
+       WHERE i.job_id = $1::uuid
+       ORDER BY a.accepted_at`,
+      [jobId],
+    );
+    return result.rows.map((row) => this.mapInvoiceAcceptance(row));
+  }
+
+  async recordInvoiceAcceptance(
+    jobId: string,
+    invoiceId: string,
+    acceptance: {
+      acceptedBy: string;
+      signatoryName: string;
+      via: InvoiceAcceptanceRecord["via"];
+    },
+  ): Promise<
+    InvoiceAcceptanceRecord | "not_found" | "not_issued" | "already_accepted"
+  > {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const invoice = await client.query(
+        `SELECT status FROM app.invoice
+         WHERE invoice_id = $2::uuid AND job_id = $1::uuid FOR UPDATE`,
+        [jobId, invoiceId],
+      );
+      if (invoice.rows.length === 0) {
+        await client.query("ROLLBACK");
+        return "not_found";
+      }
+      if (invoice.rows[0].status !== "issued") {
+        await client.query("ROLLBACK");
+        return "not_issued";
+      }
+      const inserted = await client.query(
+        `INSERT INTO app.invoice_acceptance
+           (invoice_id, accepted_by, signatory_name, via)
+         VALUES ($1::uuid, $2::uuid, $3, $4)
+         ON CONFLICT (invoice_id) DO NOTHING
+         RETURNING *`,
+        [
+          invoiceId,
+          acceptance.acceptedBy,
+          acceptance.signatoryName,
+          acceptance.via,
+        ],
+      );
+      await client.query("COMMIT");
+      return inserted.rows.length === 0
+        ? "already_accepted"
+        : this.mapInvoiceAcceptance(inserted.rows[0]);
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async listJobAssignments(jobId: string): Promise<JobAssignmentRecord[]> {
+    const result = await this.pool.query(
+      `SELECT * FROM app.job_assignment WHERE job_id = $1::uuid
+       ORDER BY assigned_at, assignment_id`,
+      [jobId],
+    );
+    return result.rows.map((row) => this.mapJobAssignment(row));
+  }
+
+  async assignJob(
+    jobId: string,
+    assignment: {
+      userId: string;
+      kind: JobAssignmentRecord["kind"];
+      assignedBy: string;
+      overrideReason: string | null;
+    },
+  ): Promise<JobAssignmentRecord | "already_on_job"> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      // Serialises assignments on one job, so two people cannot both become lead.
+      await client.query(
+        "SELECT 1 FROM app.job WHERE job_id = $1::uuid FOR UPDATE",
+        [jobId],
+      );
+      const existing = await client.query(
+        `SELECT kind FROM app.job_assignment
+         WHERE job_id = $1::uuid AND user_id = $2::uuid AND removed_at IS NULL`,
+        [jobId, assignment.userId],
+      );
+      // An assistant may be promoted to lead; anything else is a repeat.
+      const promoting =
+        assignment.kind === "lead" && existing.rows[0]?.kind === "assistant";
+      if (existing.rows.length > 0 && !promoting) {
+        await client.query("ROLLBACK");
+        return "already_on_job";
+      }
+      await client.query(
+        `UPDATE app.job_assignment
+         SET removed_by = $2::uuid, removed_at = clock_timestamp()
+         WHERE job_id = $1::uuid AND removed_at IS NULL
+           AND (($3 = 'lead' AND kind = 'lead') OR user_id = $4::uuid)`,
+        [jobId, assignment.assignedBy, assignment.kind, assignment.userId],
+      );
+      const inserted = await client.query(
+        `INSERT INTO app.job_assignment
+           (job_id, user_id, kind, assigned_by, override_reason)
+         VALUES ($1::uuid, $2::uuid, $3, $4::uuid, $5)
+         RETURNING *`,
+        [
+          jobId,
+          assignment.userId,
+          assignment.kind,
+          assignment.assignedBy,
+          assignment.overrideReason,
+        ],
+      );
+      await client.query("COMMIT");
+      return this.mapJobAssignment(inserted.rows[0]);
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async removeJobAssignment(
+    jobId: string,
+    assignmentId: string,
+    removedBy: string,
+  ): Promise<JobAssignmentRecord | "not_found"> {
+    const result = await this.pool.query(
+      `UPDATE app.job_assignment
+       SET removed_by = $3::uuid, removed_at = clock_timestamp()
+       WHERE job_id = $1::uuid AND assignment_id = $2::uuid
+         AND removed_at IS NULL
+       RETURNING *`,
+      [jobId, assignmentId, removedBy],
+    );
+    return result.rows.length === 0
+      ? "not_found"
+      : this.mapJobAssignment(result.rows[0]);
+  }
+
+  private mapInvoiceAcceptance(
+    row: Record<string, unknown>,
+  ): InvoiceAcceptanceRecord {
+    return {
+      invoiceId: String(row.invoice_id),
+      acceptedAt: this.toIsoString(row.accepted_at),
+      acceptedBy: String(row.accepted_by),
+      signatoryName: String(row.signatory_name),
+      via: row.via as InvoiceAcceptanceRecord["via"],
+    };
+  }
+
+  private mapJobAssignment(row: Record<string, unknown>): JobAssignmentRecord {
+    return {
+      id: String(row.assignment_id),
+      jobId: String(row.job_id),
+      userId: String(row.user_id),
+      kind: row.kind as JobAssignmentRecord["kind"],
+      assignedBy: String(row.assigned_by),
+      assignedAt: this.toIsoString(row.assigned_at),
+      overrideReason: (row.override_reason as string | null) ?? null,
+      removedBy: (row.removed_by as string | null) ?? null,
+      removedAt: row.removed_at ? this.toIsoString(row.removed_at) : null,
+    };
+  }
+
+  async listLeadActivities(leadId: string): Promise<LeadActivityRecord[]> {
+    const result = await this.pool.query(
+      `SELECT activity.*, author.email AS created_by_email
+       FROM app.lead_activity AS activity
+       LEFT JOIN auth.users AS author ON author.id = activity.created_by
+       WHERE activity.lead_id = $1::uuid
+       ORDER BY activity.occurred_at DESC, activity.activity_id`,
+      [leadId],
+    );
+    return result.rows.map((row) => this.mapLeadActivity(row));
+  }
+
+  async addLeadActivity(activity: {
+    leadId: string;
+    kind: LeadActivityRecord["kind"];
+    note: string;
+    occurredAt: string;
+    createdBy: string;
+  }): Promise<LeadActivityRecord | "not_found"> {
+    const result = await this.pool.query(
+      `WITH added AS (
+         INSERT INTO app.lead_activity (lead_id, kind, note, occurred_at, created_by)
+         SELECT lead_id, $2, $3, $4::timestamptz, $5::uuid
+         FROM app.lead WHERE lead_id = $1::uuid
+         RETURNING *
+       )
+       SELECT added.*, author.email AS created_by_email
+       FROM added LEFT JOIN auth.users AS author ON author.id = added.created_by`,
+      [
+        activity.leadId,
+        activity.kind,
+        activity.note,
+        activity.occurredAt,
+        activity.createdBy,
+      ],
+    );
+    return result.rows[0] ? this.mapLeadActivity(result.rows[0]) : "not_found";
+  }
+
+  async winLeadsForAcceptedQuote(
+    companyId: string,
+    quoteRequestId: string | null,
+  ): Promise<number> {
+    const result = await this.pool.query(
+      `UPDATE app.lead
+       SET stage = 'won',
+           customer_company_id = COALESCE(customer_company_id, $1::uuid),
+           lost_reason = NULL,
+           stage_changed_at = clock_timestamp(),
+           updated_at = clock_timestamp()
+       WHERE stage IN ('new', 'contacted', 'quoted')
+         AND (customer_company_id = $1::uuid
+           OR ($2::uuid IS NOT NULL AND quote_request_id = $2::uuid))`,
+      [companyId, quoteRequestId],
+    );
+    return result.rowCount ?? 0;
+  }
+
+  async salesPeriod(from: string, to: string): Promise<SalesPeriodRecord> {
+    const result = await this.pool.query(
+      `SELECT
+         (SELECT count(*) FROM app.lead
+          WHERE (created_at AT TIME ZONE 'UTC')::date >= $1::date
+            AND (created_at AT TIME ZONE 'UTC')::date < $2::date) AS new_leads,
+         (SELECT coalesce(json_agg(company.company_name ORDER BY first.accepted_at), '[]'::json)
+          FROM (
+            SELECT q.customer_company_id, min(d.decided_at) AS accepted_at
+            FROM app.quote_decision AS d
+            JOIN app.quote AS q ON q.quote_id = d.quote_id
+            WHERE d.decision = 'accepted'
+            GROUP BY q.customer_company_id
+          ) AS first
+          JOIN app.customer_company AS company
+            ON company.company_id = first.customer_company_id
+          WHERE (first.accepted_at AT TIME ZONE 'UTC')::date >= $1::date
+            AND (first.accepted_at AT TIME ZONE 'UTC')::date < $2::date
+         ) AS converted_companies`,
+      [from, to],
+    );
+    const row = result.rows[0];
+    const companies = (row.converted_companies as string[]) ?? [];
+    return {
+      newLeads: Number(row.new_leads),
+      converted: companies.length,
+      convertedCompanies: companies,
+    };
+  }
+
+  async reportSalesAndService(
+    from: string,
+    to: string,
+  ): Promise<SalesServiceReportRecord> {
+    const result = await this.pool.query(
+      `WITH period_leads AS (
+         SELECT source FROM app.lead
+         WHERE (created_at AT TIME ZONE 'UTC')::date BETWEEN $1::date AND $2::date
+       ),
+       period_requests AS (
+         SELECT request_id, created_at, source, mailbox, kind, reply_sent_at
+         FROM app.quote_request
+         WHERE (created_at AT TIME ZONE 'UTC')::date BETWEEN $1::date AND $2::date
+       ),
+       first_issue AS (
+         SELECT q.quote_id, q.quote_request_id, min(v.issued_at) AS issued_at
+         FROM app.quote AS q
+         JOIN app.quote_version AS v ON v.quote_id = q.quote_id
+         WHERE v.status = 'issued'
+         GROUP BY q.quote_id, q.quote_request_id
+       ),
+       period_decisions AS (
+         SELECT decision FROM app.quote_decision
+         WHERE (decided_at AT TIME ZONE 'UTC')::date BETWEEN $1::date AND $2::date
+       )
+       SELECT
+         (SELECT count(*) FROM period_leads) AS new_leads,
+         (SELECT coalesce(json_object_agg(source, n), '{}'::json)
+          FROM (SELECT source, count(*) AS n FROM period_leads GROUP BY source) AS x
+         ) AS leads_by_source,
+         (SELECT coalesce(json_object_agg(stage, n), '{}'::json)
+          FROM (SELECT stage, count(*) AS n FROM app.lead GROUP BY stage) AS x
+         ) AS pipeline,
+         (SELECT coalesce(json_object_agg(source, n), '{}'::json)
+          FROM (SELECT coalesce(source, 'earlier') AS source, count(*) AS n
+                FROM period_requests WHERE mailbox = 'quotes'
+                GROUP BY coalesce(source, 'earlier')) AS x
+         ) AS requests_by_source,
+         (SELECT count(*) FROM period_requests WHERE mailbox = 'inquiries') AS inquiries,
+         (SELECT count(*) FROM period_requests
+          WHERE mailbox = 'inquiries' AND reply_sent_at IS NOT NULL) AS inquiries_answered,
+         (SELECT count(*) FROM first_issue
+          WHERE (issued_at AT TIME ZONE 'UTC')::date BETWEEN $1::date AND $2::date
+         ) AS quotes_issued,
+         (SELECT count(*) FROM period_decisions WHERE decision = 'accepted') AS accepted,
+         (SELECT count(*) FROM period_decisions WHERE decision = 'rejected') AS rejected,
+         (SELECT percentile_cont(0.5) WITHIN GROUP (
+            ORDER BY extract(epoch FROM (issue.issued_at - request.created_at)) / 3600)
+          FROM period_requests AS request
+          JOIN LATERAL (
+            SELECT min(issued_at) AS issued_at FROM first_issue
+            WHERE first_issue.quote_request_id = request.request_id
+          ) AS issue ON issue.issued_at IS NOT NULL
+         ) AS median_hours,
+         (SELECT count(*) FROM period_requests AS request
+          WHERE request.mailbox = 'quotes' AND request.kind IS DISTINCT FROM 'other'
+            AND NOT EXISTS (SELECT 1 FROM first_issue
+                            WHERE first_issue.quote_request_id = request.request_id)
+         ) AS waiting`,
+      [from, to],
+    );
+    const row = result.rows[0];
+    const counts = (value: unknown) =>
+      Object.fromEntries(
+        Object.entries((value as Record<string, unknown>) ?? {}).map(
+          ([key, n]) => [key, Number(n)],
+        ),
+      );
+    return {
+      newLeads: Number(row.new_leads),
+      leadsBySource: counts(row.leads_by_source),
+      pipeline: counts(row.pipeline),
+      requestsBySource: counts(row.requests_by_source),
+      inquiries: Number(row.inquiries),
+      inquiriesAnswered: Number(row.inquiries_answered),
+      quotesIssued: Number(row.quotes_issued),
+      quotesAccepted: Number(row.accepted),
+      quotesRejected: Number(row.rejected),
+      medianHoursToQuote:
+        row.median_hours === null
+          ? null
+          : Math.round(Number(row.median_hours) * 10) / 10,
+      waitingForQuote: Number(row.waiting),
+    };
+  }
+
+  private mapLeadActivity(row: Record<string, unknown>): LeadActivityRecord {
+    return {
+      id: String(row.activity_id),
+      leadId: String(row.lead_id),
+      kind: row.kind as LeadActivityRecord["kind"],
+      note: String(row.note),
+      occurredAt: this.toIsoString(row.occurred_at),
+      createdBy: String(row.created_by),
+      createdByEmail: row.created_by_email
+        ? String(row.created_by_email)
+        : null,
+    };
+  }
+
+  async listChatThreads(): Promise<ChatThreadRecord[]> {
+    const result = await this.pool.query(
+      `SELECT DISTINCT ON (m.company_id)
+              m.company_id, company.company_name, company.customer_number,
+              m.created_at AS last_message_at, m.body AS last_body,
+              m.direction AS last_direction,
+              (SELECT count(*) FROM app.chat_message AS u
+               WHERE u.company_id = m.company_id
+                 AND u.direction = 'from_client' AND u.read_at IS NULL) AS unread
+       FROM app.chat_message AS m
+       JOIN app.customer_company AS company ON company.company_id = m.company_id
+       ORDER BY m.company_id, m.created_at DESC, m.message_id DESC`,
+    );
+    return result.rows
+      .map((row) => ({
+        companyId: String(row.company_id),
+        companyName: String(row.company_name),
+        customerNumber: row.customer_number
+          ? String(row.customer_number)
+          : null,
+        lastMessageAt: this.toIsoString(row.last_message_at),
+        lastBody: String(row.last_body),
+        lastDirection: row.last_direction as ChatMessageRecord["direction"],
+        unread: Number(row.unread),
+      }))
+      .sort((a, b) => b.lastMessageAt.localeCompare(a.lastMessageAt));
+  }
+
+  async listChatMessages(companyId: string): Promise<ChatMessageRecord[]> {
+    const result = await this.pool.query(
+      `SELECT * FROM app.chat_message WHERE company_id = $1::uuid
+       ORDER BY created_at, message_id`,
+      [companyId],
+    );
+    return result.rows.map((row) => this.mapChatMessage(row));
+  }
+
+  async addChatMessage(
+    message: Omit<ChatMessageRecord, "id" | "createdAt" | "readAt">,
+  ): Promise<ChatMessageRecord> {
+    const result = await this.pool.query(
+      `INSERT INTO app.chat_message
+         (company_id, direction, channel, body, author_user_id, author_name,
+          email_from, job_id)
+       VALUES ($1::uuid, $2, $3, $4, $5::uuid, $6, $7, $8::uuid)
+       RETURNING *`,
+      [
+        message.companyId,
+        message.direction,
+        message.channel,
+        message.body,
+        message.authorUserId,
+        message.authorName,
+        message.emailFrom,
+        message.jobId,
+      ],
+    );
+    return this.mapChatMessage(result.rows[0]);
+  }
+
+  async markChatRead(
+    companyId: string,
+    direction: ChatMessageRecord["direction"],
+  ): Promise<void> {
+    await this.pool.query(
+      `UPDATE app.chat_message SET read_at = clock_timestamp()
+       WHERE company_id = $1::uuid AND direction = $2 AND read_at IS NULL`,
+      [companyId, direction],
+    );
+  }
+
+  async findCompanyByCustomerNumber(
+    customerNumber: string,
+  ): Promise<string | null> {
+    const result = await this.pool.query(
+      `SELECT company_id FROM app.customer_company
+       WHERE upper(customer_number) = upper($1)`,
+      [customerNumber],
+    );
+    return result.rows[0] ? String(result.rows[0].company_id) : null;
+  }
+
+  private mapChatMessage(row: Record<string, unknown>): ChatMessageRecord {
+    const optional = (value: unknown) => (value ? String(value) : null);
+    return {
+      id: String(row.message_id),
+      companyId: String(row.company_id),
+      direction: row.direction as ChatMessageRecord["direction"],
+      channel: row.channel as ChatMessageRecord["channel"],
+      body: String(row.body),
+      authorUserId: optional(row.author_user_id),
+      authorName: optional(row.author_name),
+      emailFrom: optional(row.email_from),
+      jobId: optional(row.job_id),
+      createdAt: this.toIsoString(row.created_at),
+      readAt: row.read_at ? this.toIsoString(row.read_at) : null,
+    };
+  }
+
+  async listStaffNotifications(
+    userId: string,
+  ): Promise<StaffNotificationRecord[]> {
+    const result = await this.pool.query(
+      `SELECT * FROM app.staff_notification
+       WHERE user_id = $1::uuid AND dismissed_at IS NULL
+       ORDER BY due_at, notification_id`,
+      [userId],
+    );
+    return result.rows.map((row) => this.mapStaffNotification(row));
+  }
+
+  async createStaffReminder(reminder: {
+    userId: string;
+    quoteRequestId: string | null;
+    title: string;
+    note: string | null;
+    dueAt: string;
+    createdBy: string;
+  }): Promise<StaffNotificationRecord> {
+    const result = await this.pool.query(
+      `INSERT INTO app.staff_notification
+         (user_id, kind, quote_request_id, title, note, due_at, created_by)
+       VALUES ($1::uuid, 'reminder', $2::uuid, $3, $4, $5::timestamptz, $6::uuid)
+       RETURNING *`,
+      [
+        reminder.userId,
+        reminder.quoteRequestId,
+        reminder.title,
+        reminder.note,
+        reminder.dueAt,
+        reminder.createdBy,
+      ],
+    );
+    return this.mapStaffNotification(result.rows[0]);
+  }
+
+  async updateStaffNotification(
+    userId: string,
+    notificationId: string,
+    change: { dismiss: true } | { dueAt: string },
+  ): Promise<StaffNotificationRecord | "not_found"> {
+    const result = await this.pool.query(
+      `UPDATE app.staff_notification
+       SET dismissed_at = CASE WHEN $3::boolean THEN clock_timestamp() ELSE dismissed_at END,
+           due_at = COALESCE($4::timestamptz, due_at)
+       WHERE notification_id = $2::uuid AND user_id = $1::uuid
+         AND dismissed_at IS NULL
+       RETURNING *`,
+      [
+        userId,
+        notificationId,
+        "dismiss" in change,
+        "dueAt" in change ? change.dueAt : null,
+      ],
+    );
+    return result.rows.length === 0
+      ? "not_found"
+      : this.mapStaffNotification(result.rows[0]);
+  }
+
+  async raiseOverdueRequestNotices(
+    afterHours: number,
+    withinDays: number,
+  ): Promise<number> {
+    const result = await this.pool.query(
+      `INSERT INTO app.staff_notification (user_id, kind, quote_request_id, title)
+       SELECT desk.user_id,
+              CASE WHEN r.mailbox = 'inquiries' THEN 'inquiry_overdue' ELSE 'request_overdue' END,
+              r.request_id,
+              left(CASE WHEN r.mailbox = 'inquiries'
+                     THEN 'No reply yet to the inquiry from ' || r.company_name
+                     ELSE 'No quote sent yet for the request from ' || r.company_name
+                   END, 200)
+       FROM app.quote_request AS r
+       CROSS JOIN (
+         SELECT DISTINCT user_id FROM app.staff_role_assignment
+         WHERE role_key = 'customer_service_rep' AND revoked_at IS NULL
+       ) AS desk
+       WHERE r.created_at <= clock_timestamp() - make_interval(hours => $1)
+         AND r.created_at >= clock_timestamp() - make_interval(days => $2)
+         AND r.kind IS DISTINCT FROM 'other'
+         AND CASE WHEN r.mailbox = 'inquiries'
+               THEN r.reply_sent_at IS NULL
+               ELSE NOT EXISTS (
+                 SELECT 1 FROM app.quote AS q
+                 JOIN app.quote_version AS v ON v.quote_id = q.quote_id
+                 WHERE q.quote_request_id = r.request_id AND v.status = 'issued')
+             END
+       ON CONFLICT (user_id, kind, quote_request_id) WHERE kind <> 'reminder'
+       DO NOTHING`,
+      [afterHours, withinDays],
+    );
+    return result.rowCount ?? 0;
+  }
+
+  private mapStaffNotification(
+    row: Record<string, unknown>,
+  ): StaffNotificationRecord {
+    return {
+      id: String(row.notification_id),
+      userId: String(row.user_id),
+      kind: row.kind as StaffNotificationRecord["kind"],
+      quoteRequestId: row.quote_request_id
+        ? String(row.quote_request_id)
+        : null,
+      title: String(row.title),
+      note: (row.note as string | null) ?? null,
+      dueAt: this.toIsoString(row.due_at),
+      createdAt: this.toIsoString(row.created_at),
+      createdBy: row.created_by ? String(row.created_by) : null,
+      dismissedAt: row.dismissed_at ? this.toIsoString(row.dismissed_at) : null,
+    };
   }
 
   async recordInvoicePayment(

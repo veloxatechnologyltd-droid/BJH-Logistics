@@ -76,6 +76,29 @@ const paths = {
       <path d="M3 16h18l-2.5 4.5h-13z" />
     </>
   ),
+  helper: (
+    <>
+      <path d="M12 3l1.8 4.6L18.5 9l-4.7 1.5L12 15l-1.8-4.5L5.5 9l4.7-1.4z" />
+      <path d="M18 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z" />
+    </>
+  ),
+  chat: (
+    <>
+      <path d="M4 5h16v11H9l-5 4z" />
+      <path d="M8 9.5h8M8 12.5h5" />
+    </>
+  ),
+  leads: (
+    <>
+      <path d="M3 4.5h18l-7 8V19l-4 1.5v-8z" />
+    </>
+  ),
+  reports: (
+    <>
+      <path d="M4 20h16" />
+      <path d="M7 16v-5M12 16V7M17 16v-8" />
+    </>
+  ),
   settings: (
     <>
       <path d="M4 7h9M17 7h3M4 17h3M11 17h9" />

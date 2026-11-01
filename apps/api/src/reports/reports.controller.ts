@@ -27,6 +27,10 @@ export class ReportsController {
     @Query() query: Record<string, unknown>,
     @Req() request: AuthenticatedRequest,
   ) {
-    return this.reports.report(query, scopeOf(request));
+    return this.reports.report(
+      query,
+      scopeOf(request),
+      request.staffRoles ?? [],
+    );
   }
 }

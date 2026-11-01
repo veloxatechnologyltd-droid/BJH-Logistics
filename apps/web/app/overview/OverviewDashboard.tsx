@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { canWorkFinance } from "../auth/roleAccess";
 import { useStaffAccess } from "../auth/useStaffAccess";
 import {
   getOutstandingInvoices,
@@ -154,6 +155,8 @@ function Donut({
 
 export function OverviewDashboard() {
   const { status, roles } = useStaffAccess();
+  // Money figures are for finance and the super admin only.
+  const finance = canWorkFinance(roles);
   const [jobs, setJobs] = useState<Source<Job[]>>(loading);
   const [tasks, setTasks] = useState<Source<JobTask[]>>(loading);
   const [money, setMoney] =
@@ -175,14 +178,14 @@ export function OverviewDashboard() {
       };
     void settle(listJobs("")).then(feed(setJobs));
     void settle(listTasks("", "open")).then(feed(setTasks));
-    void settle(getOutstandingInvoices("")).then(feed(setMoney));
+    if (finance) void settle(getOutstandingInvoices("")).then(feed(setMoney));
     void settle(listQuoteRequests()).then(feed(setRequests));
     void settle(listQuotes()).then(feed(setQuotes));
 
     return () => {
       active = false;
     };
-  }, [roles.length, status]);
+  }, [roles.length, status, finance]);
 
   if (status === "ready" && roles.length === 0) {
     return (
@@ -277,17 +280,22 @@ export function OverviewDashboard() {
       source: jobs,
     },
   ].filter((item) => item.source.state === "ready" && item.value > 0);
-  const stillLoading = [jobs, tasks, money, requests, quotes].some(
-    (source) => source.state === "loading",
-  );
+  const stillLoading = [
+    jobs,
+    tasks,
+    ...(finance ? [money] : []),
+    requests,
+    quotes,
+  ].some((source) => source.state === "loading");
 
-  const kpis: Array<{
+  type Kpi = {
     label: string;
     value: string;
     note: string;
     href: string;
     icon: NavIconName;
-  }> = [
+  };
+  const allKpis: Kpi[] = [
     {
       label: "Active jobs",
       value: show(jobs, activeJobs.length),
@@ -310,6 +318,7 @@ export function OverviewDashboard() {
       icon: "tasks",
     },
   ];
+  const kpis = allKpis.filter((kpi) => finance || kpi.icon !== "invoices");
 
   const unavailable = (source: Source<unknown>, name: string) =>
     source.state === "loading" ? (
@@ -425,48 +434,50 @@ export function OverviewDashboard() {
           )}
         </article>
 
-        <article className={styles.panel}>
-          <div className={styles.panelHeading}>
-            <h2>Money owed to us</h2>
-            <Link className={styles.panelLink} href="/invoices">
-              Invoices <span aria-hidden="true">→</span>
-            </Link>
-          </div>
-          {money.state !== "ready" ? (
-            unavailable(money, "invoices")
-          ) : invoices.length === 0 ? (
-            <p className={styles.empty}>No unpaid invoices.</p>
-          ) : (
-            <>
-              <Donut
-                centerLabel="unpaid"
-                centerValue={String(invoices.length)}
-                segments={[
-                  {
-                    label: "Overdue",
-                    value: overdueInvoices.length,
-                    color: "#dc2626",
-                  },
-                  {
-                    label: "Not yet due",
-                    value: invoices.length - overdueInvoices.length,
-                    color: "#16a34a",
-                  },
-                ]}
-              />
-              <ul className={styles.totals}>
-                {totals.map((total) => (
-                  <li key={total.currency}>
-                    <span>{total.currency} outstanding</span>
-                    <strong>
-                      {formatMoney(total.outstandingMinor, total.currency)}
-                    </strong>
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-        </article>
+        {finance && (
+          <article className={styles.panel}>
+            <div className={styles.panelHeading}>
+              <h2>Money owed to us</h2>
+              <Link className={styles.panelLink} href="/invoices">
+                Invoices <span aria-hidden="true">→</span>
+              </Link>
+            </div>
+            {money.state !== "ready" ? (
+              unavailable(money, "invoices")
+            ) : invoices.length === 0 ? (
+              <p className={styles.empty}>No unpaid invoices.</p>
+            ) : (
+              <>
+                <Donut
+                  centerLabel="unpaid"
+                  centerValue={String(invoices.length)}
+                  segments={[
+                    {
+                      label: "Overdue",
+                      value: overdueInvoices.length,
+                      color: "#dc2626",
+                    },
+                    {
+                      label: "Not yet due",
+                      value: invoices.length - overdueInvoices.length,
+                      color: "#16a34a",
+                    },
+                  ]}
+                />
+                <ul className={styles.totals}>
+                  {totals.map((total) => (
+                    <li key={total.currency}>
+                      <span>{total.currency} outstanding</span>
+                      <strong>
+                        {formatMoney(total.outstandingMinor, total.currency)}
+                      </strong>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </article>
+        )}
       </section>
 
       <section className={styles.grid} aria-label="Recent work">

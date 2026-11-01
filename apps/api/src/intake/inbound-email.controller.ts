@@ -18,6 +18,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { EmailAssistantService } from "./email-assistant.service";
 import { InboundEmailService } from "./inbound-email.service";
 import { MailboxReaderService } from "./mailbox-reader.service";
+import { RequestCopyService } from "./request-copy.service";
 import type { ReceivedFile } from "./inbound-email.service";
 
 /** The secret an email service sends: as a Bearer token, as the password of Basic auth (how most services call a webhook URL), or in `x-inbound-secret`. */
@@ -81,6 +82,7 @@ export class InboundEmailController {
     private readonly assistant: EmailAssistantService,
     @Inject(MailboxReaderService)
     private readonly mailbox: MailboxReaderService,
+    @Inject(RequestCopyService) private readonly copies: RequestCopyService,
   ) {}
 
   @Post()
@@ -99,6 +101,18 @@ export class InboundEmailController {
     @UploadedFiles() files: ReceivedFile[] | undefined,
   ) {
     const received = await this.inbound.receive(fields ?? {}, files ?? []);
+    // A website request is also copied to the quote mailbox, where staff look.
+    if (!received.duplicate && fields?.source === "website") {
+      const text = (key: string) =>
+        typeof fields[key] === "string" ? (fields[key] as string) : "";
+      await this.copies.send({
+        id: received.requestId,
+        channel: "website",
+        from: text("from_name") || text("from_email"),
+        email: text("from_email"),
+        message: text("text"),
+      });
+    }
     // Once read, the assistant links the customer and drafts the quote and the reply.
     if (!received.duplicate && received.reading === "done") {
       await this.assistant.afterReading(received.requestId);

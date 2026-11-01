@@ -6,9 +6,13 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import {
+  legacyRoleReplacement,
+  legacyStaffRoleKeys,
   parseContract,
   staffCreateInputSchema,
   staffRoleInputSchema,
+  staffRoleKeys,
+  type LegacyStaffRoleKey,
   type StaffCreateInput,
   type StaffRoleInput,
 } from "@bjh/contracts";
@@ -20,13 +24,16 @@ import type {
   StaffDirectoryUser,
 } from "./staff-admin.port";
 
-const staffRoles: StaffRoleKey[] = [
-  "super_admin",
-  "air_import_rep",
-  "air_export_rep",
-  "sea_import_rep",
-  "sea_export_rep",
-];
+// Legacy roles can still be revoked, though no longer assigned.
+const staffRoles: StaffRoleKey[] = [...staffRoleKeys, ...legacyStaffRoleKeys];
+
+/** A suspended account may have been suspended under a legacy role: restore its replacement. */
+function currentRoles(roles: StaffRoleKey[]): StaffRoleKey[] {
+  const current = roles.map(
+    (role) => legacyRoleReplacement[role as LegacyStaffRoleKey] ?? role,
+  );
+  return [...new Set(current)];
+}
 const pageSize = 100;
 
 @Injectable()
@@ -104,7 +111,7 @@ export class AdminStaffService {
 
     if (!suspended) {
       const restored: StaffRoleKey[] = [];
-      for (const roleKey of user.suspendedRoles) {
+      for (const roleKey of currentRoles(user.suspendedRoles)) {
         const assignment = await this.database.assignStaffRole(
           userId,
           roleKey,

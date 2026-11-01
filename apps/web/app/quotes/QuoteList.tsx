@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { canWorkQuotes } from "../auth/roleAccess";
 import { useStaffAccess } from "../auth/useStaffAccess";
 import { serviceLineLabels } from "../jobs/jobApi";
 import styles from "../jobs/jobs.module.css";
@@ -43,7 +44,7 @@ export function QuoteList() {
         <div>
           <h1 className={styles.title}>Quotes</h1>
         </div>
-        {roles.length > 0 && (
+        {canWorkQuotes(roles) && (
           <Link className={styles.primaryLink} href="/quotes/new">
             Prepare a quote
           </Link>

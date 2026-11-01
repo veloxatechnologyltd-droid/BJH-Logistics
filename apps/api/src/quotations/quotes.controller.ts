@@ -14,7 +14,9 @@ import {
 import {
   DepartmentStaffGuard,
   JobScopeGuard,
+  StaffRolesGuard,
   SupabaseIdentityGuard,
+  quoteDeskRoles,
 } from "../auth/auth.guards";
 import type { AuthenticatedRequest } from "../auth/auth.guards";
 import { QuotesService } from "./quotes.service";
@@ -38,7 +40,7 @@ export class QuotesController {
   constructor(@Inject(QuotesService) private readonly quotes: QuotesService) {}
 
   @Post()
-  @UseGuards(DepartmentStaffGuard)
+  @UseGuards(DepartmentStaffGuard, StaffRolesGuard(quoteDeskRoles))
   create(@Body() body: unknown, @Req() request: AuthenticatedRequest) {
     return this.quotes.create(
       body,
@@ -79,7 +81,11 @@ export class QuotesController {
   }
 
   @Put(":id/draft")
-  @UseGuards(DepartmentStaffGuard, JobScopeGuard)
+  @UseGuards(
+    DepartmentStaffGuard,
+    JobScopeGuard,
+    StaffRolesGuard(quoteDeskRoles),
+  )
   saveDraft(
     @Param("id") id: string,
     @Body() body: unknown,
@@ -89,7 +95,11 @@ export class QuotesController {
   }
 
   @Post(":id/versions")
-  @UseGuards(DepartmentStaffGuard, JobScopeGuard)
+  @UseGuards(
+    DepartmentStaffGuard,
+    JobScopeGuard,
+    StaffRolesGuard(quoteDeskRoles),
+  )
   startVersion(@Param("id") id: string, @Req() request: AuthenticatedRequest) {
     return this.quotes.startVersion(
       id,
@@ -99,13 +109,21 @@ export class QuotesController {
   }
 
   @Post(":id/issue")
-  @UseGuards(DepartmentStaffGuard, JobScopeGuard)
+  @UseGuards(
+    DepartmentStaffGuard,
+    JobScopeGuard,
+    StaffRolesGuard(quoteDeskRoles),
+  )
   issue(@Param("id") id: string, @Req() request: AuthenticatedRequest) {
     return this.quotes.issue(id, request.authUser!.userId, scopeOf(request));
   }
 
   @Post(":id/send")
-  @UseGuards(DepartmentStaffGuard, JobScopeGuard)
+  @UseGuards(
+    DepartmentStaffGuard,
+    JobScopeGuard,
+    StaffRolesGuard(quoteDeskRoles),
+  )
   send(@Param("id") id: string, @Req() request: AuthenticatedRequest) {
     return this.quotes.send(id, request.authUser!.userId, scopeOf(request));
   }
@@ -126,7 +144,11 @@ export class QuotesController {
   }
 
   @Post(":id/decision")
-  @UseGuards(DepartmentStaffGuard, JobScopeGuard)
+  @UseGuards(
+    DepartmentStaffGuard,
+    JobScopeGuard,
+    StaffRolesGuard(quoteDeskRoles),
+  )
   decide(
     @Param("id") id: string,
     @Body() body: unknown,

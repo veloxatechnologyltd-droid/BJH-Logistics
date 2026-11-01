@@ -5,6 +5,7 @@ import {
   chargeImportInputSchema,
   milestoneTemplates,
   serviceLineKeys,
+  serviceLinesForRoles,
   parseContract,
   quoteRequestInputSchema,
   quoteVersionInputSchema,
@@ -185,15 +186,19 @@ test("staff contracts reject unsupported roles and tolerate missing strings", ()
     message(staffRoleInputSchema, { roleKey: "boss" }),
     "roleKey is not a supported staff role",
   );
+  assert.equal(
+    message(staffRoleInputSchema, { roleKey: "sea_import_rep" }),
+    "roleKey is not a supported staff role",
+  );
   assert.equal(message(staffRoleInputSchema, { roleKey: "super_admin" }), "ok");
   assert.equal(message(staffRoleInputSchema, null), "A roleKey is required");
   const created = parseContract(staffCreateInputSchema, {
     email: 5,
-    roleKey: "air_import_rep",
+    roleKey: "import_rep",
   });
   assert.deepEqual(created, {
     success: true,
-    data: { email: "", password: "", roleKey: "air_import_rep" },
+    data: { email: "", password: "", roleKey: "import_rep" },
   });
   assert.equal(
     message(staffCreateInputSchema, undefined),
@@ -216,4 +221,33 @@ test("every freight service line has a milestone template with unique keys", () 
   }
   const airImport = milestoneTemplates.air_import.map((item) => item.key);
   assert.equal(airImport.includes("eir_received"), false);
+});
+
+test("import and export reps cover sea and air; client-facing and finance roles see every line", () => {
+  assert.deepEqual(serviceLinesForRoles(["import_rep"]), [
+    "sea_import",
+    "air_import",
+    "warehousing",
+    "road_transport",
+  ]);
+  assert.deepEqual(serviceLinesForRoles(["export_rep"]), [
+    "sea_export",
+    "air_export",
+    "warehousing",
+    "road_transport",
+  ]);
+  for (const role of [
+    "customer_service_rep",
+    "sales_rep",
+    "finance_rep",
+  ] as const) {
+    assert.deepEqual(serviceLinesForRoles([role]), [...serviceLineKeys]);
+  }
+  // A not-yet-converted legacy role keeps exactly its old line.
+  assert.deepEqual(serviceLinesForRoles(["air_import_rep"]), [
+    "air_import",
+    "warehousing",
+    "road_transport",
+  ]);
+  assert.deepEqual(serviceLinesForRoles(["super_admin"]), []);
 });

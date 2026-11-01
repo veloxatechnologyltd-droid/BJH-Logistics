@@ -5,7 +5,10 @@ import {
   Inject,
   Injectable,
   UnauthorizedException,
+  mixin,
 } from "@nestjs/common";
+import type { Type } from "@nestjs/common";
+import { legacyStaffRoleKeys, serviceLinesForRoles } from "@bjh/contracts";
 import { DatabasePort } from "../database/database.port";
 import type { ServiceLine, StaffRoleKey } from "../database/database.port";
 import { SupabaseAuthVerifier } from "./supabase-auth-verifier";
@@ -174,15 +177,30 @@ export class DepartmentStaffGuard implements CanActivate {
   }
 }
 
-/** Warehousing and road transport have no department of their own: any rep works them. */
-const sharedServiceLines: ServiceLine[] = ["warehousing", "road_transport"];
+export { serviceLinesForRoles };
 
-/** Service lines a department role works on; `super_admin` maps to none. */
-export function serviceLinesForRoles(roles: StaffRoleKey[]): ServiceLine[] {
-  const own = roles
-    .filter((role) => role !== "super_admin")
-    .map((role) => role.replace(/_rep$/, "") as ServiceLine);
-  return own.length > 0 ? [...own, ...sharedServiceLines] : own;
+/** Customer service and sales face the client: they keep customer records and requests. */
+const clientDeskRoles: StaffRoleKey[] = [
+  "super_admin",
+  "customer_service_rep",
+  "sales_rep",
+];
+
+@Injectable()
+export class ClientDeskGuard implements CanActivate {
+  constructor(@Inject(DatabasePort) private readonly database: DatabasePort) {}
+
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
+    if (!request.authUser) throw new UnauthorizedException();
+    const roles = await loadStaffRoles(this.database, request);
+    if (!roles.some((role) => clientDeskRoles.includes(role))) {
+      throw new ForbiddenException(
+        "A super admin, customer service or sales role is required",
+      );
+    }
+    return true;
+  }
 }
 
 /** Super admins see every job, reps their own service lines, customers their companies. */
@@ -208,4 +226,54 @@ export class JobScopeGuard implements CanActivate {
     request.allowedCompanyIds = companyIds;
     return true;
   }
+}
+
+/**
+ * Accounts not yet moved off the old per-mode roles keep what those roles could
+ * do, so production keeps working until the conversion migration runs.
+ */
+const legacyRoles: StaffRoleKey[] = [...legacyStaffRoleKeys];
+
+/** Invoices, payments, receipts, costs and statements: finance and the boss. */
+export const financeRoles: StaffRoleKey[] = [
+  "super_admin",
+  "finance_rep",
+  ...legacyRoles,
+];
+/** Customer service also reads invoices and receipts: it records acceptance and sends receipts. */
+export const financeReadRoles: StaffRoleKey[] = [
+  ...financeRoles,
+  "customer_service_rep",
+];
+/** Customer service prepares and issues quotes; sales may too. */
+export const quoteDeskRoles: StaffRoleKey[] = [
+  "super_admin",
+  "customer_service_rep",
+  "sales_rep",
+  ...legacyRoles,
+];
+
+/**
+ * Requires one of `allowed` from staff. With `customers: true` a customer
+ * account passes too, for routes that also serve the portal; the route's own
+ * scope guard still limits them to their companies.
+ */
+export function StaffRolesGuard(
+  allowed: StaffRoleKey[],
+  options: { customers?: boolean } = {},
+): Type<CanActivate> {
+  @Injectable()
+  class RolesGuard implements CanActivate {
+    constructor(@Inject(DatabasePort) readonly database: DatabasePort) {}
+
+    async canActivate(context: ExecutionContext): Promise<boolean> {
+      const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
+      if (!request.authUser) throw new UnauthorizedException();
+      const roles = await loadStaffRoles(this.database, request);
+      if (roles.some((role) => allowed.includes(role))) return true;
+      if (roles.length === 0 && options.customers) return true;
+      throw new ForbiddenException("Your role does not have access to this");
+    }
+  }
+  return mixin(RolesGuard);
 }

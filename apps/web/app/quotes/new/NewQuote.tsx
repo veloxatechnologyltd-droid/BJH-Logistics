@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { canWorkQuotes } from "../../auth/roleAccess";
+import { useStaffAccess } from "../../auth/useStaffAccess";
 import { QuoteEditor } from "../QuoteEditor";
 import type { QuoteVersion } from "../quoteApi";
 import { getQuoteSuggestion } from "../../quotations/quoteRequestApi";
@@ -33,6 +35,7 @@ export function NewQuote({
 }: {
   fromRequest?: { requestId: string; customerId: string };
 }) {
+  const { roles, status } = useStaffAccess();
   const [suggestion, setSuggestion] = useState<QuoteSuggestion | null>(null);
   const [state, setState] = useState<"idle" | "loading" | "error">("idle");
   const [error, setError] = useState("");
@@ -91,6 +94,17 @@ export function NewQuote({
       )}
     </section>
   );
+
+  if (status === "ready" && !canWorkQuotes(roles)) {
+    return (
+      <main className={styles.page}>
+        <h1 className={styles.title}>Prepare a quote</h1>
+        <p className={styles.muted}>
+          Quotes are prepared and issued by customer service or sales.
+        </p>
+      </main>
+    );
+  }
 
   return (
     <QuoteEditor

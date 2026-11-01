@@ -8,6 +8,7 @@ import type { CustomerCompany } from "../customers/customerApi";
 import { getOutstandingInvoices } from "../jobs/jobApi";
 import type { OutstandingInvoice } from "../jobs/jobApi";
 import { formatMoney } from "../quotes/quoteApi";
+import { ReceiptList } from "../finance/ReceiptList";
 import { RecordPayment } from "../finance/RecordPayment";
 import { FinanceTabs } from "./FinanceTabs";
 import styles from "../jobs/jobs.module.css";
@@ -176,6 +177,7 @@ export function Receivables() {
             </div>
           </section>
         )}
+        {!isStaff && <ReceiptList />}
       </main>
     </>
   );

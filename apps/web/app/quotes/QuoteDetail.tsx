@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { quoteBasisLabels } from "@bjh/contracts";
+import { canWorkQuotes } from "../auth/roleAccess";
 import { useStaffAccess } from "../auth/useStaffAccess";
 import { serviceLineLabels } from "../jobs/jobApi";
 import styles from "../jobs/jobs.module.css";
@@ -74,7 +75,12 @@ function VersionView({ version }: { version: QuoteVersion }) {
                       </th>
                     ))
                   ) : (
-                    <th scope="col">Amount</th>
+                    <>
+                      <th scope="col">Size</th>
+                      <th scope="col">Qty</th>
+                      <th scope="col">Unit price</th>
+                      <th scope="col">Total</th>
+                    </>
                   )}
                   {sized && hasSingleAmount && <th scope="col">Amount</th>}
                   <th scope="col">Basis</th>
@@ -116,9 +122,22 @@ function VersionView({ version }: { version: QuoteVersion }) {
                         )}
                       </>
                     ) : (
-                      <td>
-                        {amountText(line, line.amountMinor, version.currency)}
-                      </td>
+                      <>
+                        <td>{line.containerSize ?? ""}</td>
+                        <td>{line.quantity}</td>
+                        <td>
+                          {amountText(line, line.amountMinor, version.currency)}
+                        </td>
+                        <td>
+                          {amountText(
+                            line,
+                            line.amountMinor === null
+                              ? null
+                              : line.amountMinor * line.quantity,
+                            version.currency,
+                          )}
+                        </td>
+                      </>
                     )}
                     <td>
                       {line.basis === "at_cost" && line.basisNote
@@ -134,6 +153,23 @@ function VersionView({ version }: { version: QuoteVersion }) {
           </div>
         );
       })}
+      {version.lines.every((line) => line.sizeAmountsMinor === null) && (
+        <p>
+          <strong>
+            Total{" "}
+            {formatMoney(
+              version.lines.reduce(
+                (sum, line) => sum + (line.amountMinor ?? 0) * line.quantity,
+                0,
+              ),
+              version.currency,
+            )}
+          </strong>
+          {version.lines.some((line) => line.amountMinor === null)
+            ? " (at-cost items are billed as incurred)"
+            : ""}
+        </p>
+      )}
       <p className={styles.muted}>
         All amounts are in {version.currency} unless otherwise stated.
       </p>
@@ -191,6 +227,8 @@ function VersionView({ version }: { version: QuoteVersion }) {
 export function QuoteDetail({ quoteId }: { quoteId: string }) {
   const { roles } = useStaffAccess();
   const isStaff = roles.length > 0;
+  // Customer service and sales prepare, issue and decide quotes; others read them.
+  const canQuote = canWorkQuotes(roles);
   const [quote, setQuote] = useState<Quote | null>(null);
   const [loadError, setLoadError] = useState("");
   const [error, setError] = useState("");
@@ -350,7 +388,7 @@ export function QuoteDetail({ quoteId }: { quoteId: string }) {
               {current.status === "draft" ? "PDF (draft)" : "PDF"}
             </button>
           )}
-          {isStaff && draft && (
+          {canQuote && draft && (
             <>
               <button
                 className={styles.secondaryButton}
@@ -370,7 +408,7 @@ export function QuoteDetail({ quoteId }: { quoteId: string }) {
               )}
             </>
           )}
-          {isStaff && !draft && !accepted && (
+          {canQuote && !draft && !accepted && (
             <button
               className={
                 latestDecision ? styles.button : styles.secondaryButton
@@ -381,7 +419,7 @@ export function QuoteDetail({ quoteId }: { quoteId: string }) {
               New version
             </button>
           )}
-          {isStaff && !draft && latestIssued && !latestDecision && (
+          {canQuote && !draft && latestIssued && !latestDecision && (
             <button
               className={styles.button}
               onClick={() => setDeciding((value) => !value)}
@@ -400,7 +438,7 @@ export function QuoteDetail({ quoteId }: { quoteId: string }) {
 
       <ErrorPopup message={error} />
 
-      {isStaff && deciding && latestIssued && !latestDecision && (
+      {canQuote && deciding && latestIssued && !latestDecision && (
         <section className={styles.card} aria-labelledby="decision-title">
           <h2 id="decision-title">
             Client&apos;s decision on version {latestIssued.versionNumber}

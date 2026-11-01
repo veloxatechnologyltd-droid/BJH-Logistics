@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
+import { departmentRoleKeys, staffRoleLabels } from "@bjh/contracts";
+import type { HeldStaffRoleKey } from "@bjh/contracts";
 import { authenticatedFetch } from "../../auth/authenticatedFetch";
 import styles from "./adminUsers.module.css";
 import { ErrorPopup } from "../../ErrorPopup";
@@ -9,16 +11,11 @@ import { ErrorPopup } from "../../ErrorPopup";
 const apiBaseUrl =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:3001/api";
 const staffUrl = `${apiBaseUrl.replace(/\/$/, "")}/v1/admin/staff`;
-const roles = [
-  ["super_admin", "Super admin"],
-  ["air_import_rep", "Air import representative"],
-  ["air_export_rep", "Air export representative"],
-  ["sea_import_rep", "Sea import representative"],
-  ["sea_export_rep", "Sea export representative"],
-] as const;
-const assignableRoles = roles.filter(([key]) => key !== "super_admin");
+const assignableRoles = departmentRoleKeys.map(
+  (key) => [key, staffRoleLabels[key]] as const,
+);
 
-type RoleKey = (typeof roles)[number][0];
+type RoleKey = HeldStaffRoleKey;
 type Assignment = {
   id: string;
   roleKey: RoleKey;
@@ -49,7 +46,7 @@ async function readResponse<T>(response: Response): Promise<T> {
 }
 
 function roleLabel(roleKey: string): string {
-  return roles.find(([key]) => key === roleKey)?.[1] ?? roleKey;
+  return staffRoleLabels[roleKey as RoleKey] ?? roleKey;
 }
 
 function formatDate(value: string): string {
@@ -65,7 +62,7 @@ export function AdminUsers() {
   const [hasMore, setHasMore] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [roleKey, setRoleKey] = useState<RoleKey>("air_import_rep");
+  const [roleKey, setRoleKey] = useState<RoleKey>("import_rep");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -438,7 +435,7 @@ export function AdminUsers() {
                     >
                       <label>
                         Add a role
-                        <select name="roleKey" defaultValue="air_import_rep">
+                        <select name="roleKey" defaultValue="import_rep">
                           {assignableRoles.map(([key, label]) => (
                             <option key={key} value={key}>
                               {label}

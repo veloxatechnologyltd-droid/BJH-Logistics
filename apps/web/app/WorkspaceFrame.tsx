@@ -9,6 +9,8 @@ import { useStaffAccess } from "./auth/useStaffAccess";
 import { NavIcon } from "./NavIcon";
 import type { NavIconName } from "./NavIcon";
 import { SettingsSidebarSection } from "./SettingsSidebarSection";
+import { StaffNotices } from "./StaffNotices";
+import { listChatThreads } from "./chat/chatApi";
 import { listQuoteRequests } from "./quotations/quoteRequestApi";
 import type { RequestMailbox } from "./quotations/quoteRequestApi";
 
@@ -17,6 +19,8 @@ type NavItem = {
   label: string;
   icon: NavIconName;
   exact?: boolean;
+  /** Only these staff roles see the item; everyone when absent. */
+  roles?: string[];
 };
 
 type NavGroup = { heading?: string; items: NavItem[] };
@@ -30,22 +34,44 @@ const customerNav: NavGroup[] = [
       { href: "/warehouse", label: "Your stock", icon: "warehouse" },
       { href: "/documents", label: "Your documents", icon: "documents" },
       { href: "/invoices", label: "Your invoices", icon: "invoices" },
+      { href: "/portal/messages", label: "Messages", icon: "messages" },
     ],
   },
 ];
 
-/** Ordered the way the work flows: customer, request, quote, job, money. */
+/**
+ * The four teams BJH works in (client meeting, 2026-11-01), in the order work
+ * flows: sales finds the client, customer service handles them, operations
+ * runs the job, finance bills it. Finance is shown only to finance and the boss.
+ */
 const staffNav: NavGroup[] = [
   {
-    items: [{ href: "/", label: "Overview", icon: "overview", exact: true }],
+    items: [
+      { href: "/", label: "Overview", icon: "overview", exact: true },
+      { href: "/reports", label: "Reports", icon: "reports" },
+      { href: "/assistant", label: "AI helper", icon: "helper" },
+    ],
   },
   {
     heading: "SALES",
     items: [
+      { href: "/customers/leads", label: "Leads", icon: "leads" },
       { href: "/customers", label: "Customers", icon: "customers" },
+    ],
+  },
+  {
+    heading: "CUSTOMER SERVICE",
+    items: [
       { href: "/quotations", label: "Requests", icon: "quotations" },
       { href: "/inquiries", label: "Inquiries", icon: "messages" },
       { href: "/quotes", label: "Quotes", icon: "quotes" },
+      {
+        href: "/chat",
+        label: "Client chat",
+        icon: "chat",
+        roles: ["super_admin", "customer_service_rep"],
+      },
+      { href: "/messages", label: "Messages", icon: "messages" },
     ],
   },
   {
@@ -60,18 +86,48 @@ const staffNav: NavGroup[] = [
         label: "Shipping documents",
         icon: "shipping",
       },
-      { href: "/reports", label: "Reports", icon: "invoices" },
     ],
   },
   {
     heading: "FINANCE",
-    items: [{ href: "/finance", label: "Finance", icon: "invoices" }],
-  },
-  {
-    heading: "CLIENTS",
-    items: [{ href: "/messages", label: "Messages", icon: "messages" }],
+    items: [
+      {
+        href: "/finance",
+        label: "Finance",
+        icon: "invoices",
+        roles: ["super_admin", "finance_rep"],
+      },
+    ],
   },
 ];
+
+/** The staff menu as this person sees it; groups left empty disappear. */
+function visibleGroups(groups: NavGroup[], roles: string[]): NavGroup[] {
+  return groups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter(
+        (item) =>
+          !item.roles || item.roles.some((role) => roles.includes(role)),
+      ),
+    }))
+    .filter((group) => group.items.length > 0);
+}
+
+/** The menu entry for this page: the longest match, so Leads is not also Customers. */
+function activeHref(pathname: string, groups: NavGroup[]): string | undefined {
+  // Staff reach invoices from the Finance menu (its Invoices tab).
+  if (pathname === "/invoices" || pathname.startsWith("/invoices/")) {
+    const finance = groups
+      .flatMap((group) => group.items)
+      .find((item) => item.href === "/finance");
+    if (finance) return finance.href;
+  }
+  return groups
+    .flatMap((group) => group.items)
+    .filter((entry) => matches(pathname, entry.href, entry.exact))
+    .sort((a, b) => b.href.length - a.href.length)[0]?.href;
+}
 
 const collapsedKey = "bjh.sidebar.collapsed";
 const newRequestsEveryMs = 60_000;
@@ -111,6 +167,30 @@ function useNewRequestCount(
       window.clearInterval(timer);
     };
   }, [enabled, pathname, mailbox]);
+  return enabled ? count : 0;
+}
+
+/** Client messages customer service has not opened yet, for the Client chat badge. */
+function useChatUnread(enabled: boolean, pathname: string): number {
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    if (!enabled) return;
+    let current = true;
+    const load = () =>
+      listChatThreads()
+        .then((threads) => {
+          if (current)
+            setCount(threads.reduce((sum, item) => sum + item.unread, 0));
+        })
+        // The badge is a hint; the chat page shows any failure.
+        .catch(() => undefined);
+    void load();
+    const timer = window.setInterval(load, newRequestsEveryMs);
+    return () => {
+      current = false;
+      window.clearInterval(timer);
+    };
+  }, [enabled, pathname]);
   return enabled ? count : 0;
 }
 
@@ -157,7 +237,7 @@ function pageCrumb(
 export function WorkspaceFrame({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { isCustomer, status, mustChangePassword, twoFactorRequired } =
+  const { isCustomer, roles, status, mustChangePassword, twoFactorRequired } =
     useStaffAccess();
   const [collapsed, setCollapsed] = useState(false);
   const newRequests = useNewRequestCount(
@@ -168,6 +248,11 @@ export function WorkspaceFrame({ children }: { children: ReactNode }) {
     status === "ready" && !isCustomer,
     pathname,
     "inquiries",
+  );
+  const unreadChat = useChatUnread(
+    status === "ready" &&
+      (roles.includes("customer_service_rep") || roles.includes("super_admin")),
+    pathname,
   );
 
   // A new password, then the super admin's second step, come before any page.
@@ -216,8 +301,9 @@ export function WorkspaceFrame({ children }: { children: ReactNode }) {
   // Until the access check answers we do not know whose menu this is. Showing
   // the staff one meanwhile made customers see it flash on every refresh.
   const resolving = status === "loading";
-  const groups = isCustomer ? customerNav : staffNav;
+  const groups = isCustomer ? customerNav : visibleGroups(staffNav, roles);
   const crumb = pageCrumb(pathname, groups, isCustomer);
+  const current = activeHref(pathname, groups);
 
   return (
     <div className={`workspace-shell${collapsed ? " collapsed" : ""}`}>
@@ -265,17 +351,15 @@ export function WorkspaceFrame({ children }: { children: ReactNode }) {
             <div className="nav-group" key={group.heading ?? "main"}>
               {group.heading && <p className="nav-heading">{group.heading}</p>}
               {group.items.map((item) => {
-                const active = item.exact
-                  ? pathname === item.href
-                  : pathname.startsWith(item.href) ||
-                    (item.href === "/finance" &&
-                      pathname.startsWith("/invoices"));
+                const active = item.href === current;
                 const badge =
                   item.href === "/quotations"
                     ? newRequests
                     : item.href === "/inquiries"
                       ? inquiriesForAPerson
-                      : 0;
+                      : item.href === "/chat"
+                        ? unreadChat
+                        : 0;
                 const label = badge
                   ? `${item.label}, ${badge} new`
                   : item.label;
@@ -328,6 +412,9 @@ export function WorkspaceFrame({ children }: { children: ReactNode }) {
             )}
           </div>
           <div className="topbar-actions">
+            {!resolving && !isCustomer && status === "ready" && (
+              <StaffNotices />
+            )}
             <AuthStatus />
           </div>
         </header>

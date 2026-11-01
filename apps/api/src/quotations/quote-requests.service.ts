@@ -21,6 +21,7 @@ import {
   StaffRoleKey,
 } from "../database/database.port";
 import { inChargeOf } from "../intake/inbound-email.service";
+import { RequestCopyService } from "../intake/request-copy.service";
 import { suggestQuote } from "./quote-suggestion";
 import type { PastQuote, QuoteSuggestion } from "./quote-suggestion";
 
@@ -48,7 +49,10 @@ function forCustomer(request: QuoteRequestRecord): QuoteRequestRecord {
 
 @Injectable()
 export class QuoteRequestsService {
-  constructor(@Inject(DatabasePort) private readonly database: DatabasePort) {}
+  constructor(
+    @Inject(DatabasePort) private readonly database: DatabasePort,
+    @Inject(RequestCopyService) private readonly copies: RequestCopyService,
+  ) {}
 
   async create(input: unknown): Promise<QuoteRequestRecord> {
     const details = this.validate(input);
@@ -117,6 +121,13 @@ export class QuoteRequestsService {
       created.id,
       company.id,
     );
+    await this.copies.send({
+      id: created.id,
+      channel: "portal",
+      from: `${parsed.data.contactName} (${company.companyName})`,
+      email: user.email,
+      message: parsed.data.message,
+    });
     return forCustomer(linked ?? created);
   }
 

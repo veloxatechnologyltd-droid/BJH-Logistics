@@ -246,6 +246,13 @@ export class QuotesService {
         "That version already has a different recorded decision",
       );
     }
+    // Accepting a quote is what converts a client: their open leads are won.
+    if (result.decision.decision === "accepted") {
+      await this.database.winLeadsForAcceptedQuote(
+        quote.customerCompanyId,
+        quote.quoteRequestId,
+      );
+    }
     return result;
   }
 

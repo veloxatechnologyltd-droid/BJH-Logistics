@@ -1,5 +1,10 @@
 import { BadRequestException, Inject, Injectable } from "@nestjs/common";
-import { DatabasePort, JobScope } from "../database/database.port";
+import { financeRoles } from "../auth/auth.guards";
+import {
+  DatabasePort,
+  JobScope,
+  StaffRoleKey,
+} from "../database/database.port";
 import { WarehouseService } from "../warehouse/warehouse.service";
 
 @Injectable()
@@ -9,7 +14,8 @@ export class ReportsService {
     @Inject(WarehouseService) private readonly warehouse: WarehouseService,
   ) {}
 
-  async report(query: unknown, scope: JobScope) {
+  /** Money figures go only to finance and the super admin. */
+  async report(query: unknown, scope: JobScope, roles: StaffRoleKey[] = []) {
     if (!query || typeof query !== "object" || Array.isArray(query)) {
       throw new BadRequestException("from and to dates are required");
     }
@@ -20,20 +26,52 @@ export class ReportsService {
     if (from > to) {
       throw new BadRequestException("from must be on or before to");
     }
-    const [jobs, invoices, payments, movements, stock] = await Promise.all([
+    const finance = roles.some((role) => financeRoles.includes(role));
+    const nextDay = new Date(Date.parse(`${to}T00:00:00Z`) + 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+    const [
+      jobs,
+      invoices,
+      payments,
+      movements,
+      stock,
+      salesAndService,
+      conversions,
+    ] = await Promise.all([
       this.database.listJobs("", scope),
-      this.database.listReportInvoices(from, to, scope),
-      this.database.listReportPayments(from, to, scope),
+      finance ? this.database.listReportInvoices(from, to, scope) : [],
+      finance ? this.database.listReportPayments(from, to, scope) : [],
       this.database.listReportStockMovements(from, to, scope),
       this.warehouse.report(to, undefined, scope),
+      this.database.reportSalesAndService(from, to),
+      this.database.salesPeriod(from, nextDay),
     ]);
     return {
+      finance,
       jobs,
       invoices,
       payments,
       movements,
       asOf: stock.asOf,
       stockBalances: stock.balances,
+      sales: {
+        newLeads: salesAndService.newLeads,
+        leadsBySource: salesAndService.leadsBySource,
+        pipeline: salesAndService.pipeline,
+        converted: conversions.converted,
+        convertedCompanies: conversions.convertedCompanies,
+      },
+      service: {
+        requestsBySource: salesAndService.requestsBySource,
+        inquiries: salesAndService.inquiries,
+        inquiriesAnswered: salesAndService.inquiriesAnswered,
+        quotesIssued: salesAndService.quotesIssued,
+        quotesAccepted: salesAndService.quotesAccepted,
+        quotesRejected: salesAndService.quotesRejected,
+        medianHoursToQuote: salesAndService.medianHoursToQuote,
+        waitingForQuote: salesAndService.waitingForQuote,
+      },
     };
   }
 

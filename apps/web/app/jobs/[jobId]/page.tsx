@@ -8,6 +8,7 @@ import { formatDate } from "../jobFormat";
 import { JobEta } from "../JobEta";
 import { JobStage } from "../JobStage";
 import { JobSteps } from "../JobSteps";
+import { JobTeam } from "../JobTeam";
 import { useJob } from "../JobShell";
 import styles from "../jobs.module.css";
 
@@ -63,6 +64,8 @@ export default function JobOverviewPage() {
           </div>
         </details>
       </section>
+
+      {isStaff && <JobTeam closedJob={closedJob} jobId={job.id} />}
 
       <JobEta canEdit={isStaff && !closedJob} jobId={job.id} />
 

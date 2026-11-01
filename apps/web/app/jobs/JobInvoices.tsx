@@ -8,7 +8,10 @@ import type { PaymentMethod } from "@bjh/contracts";
 import { formatMoney, getQuote, toMinor } from "../quotes/quoteApi";
 import { popularCurrencies } from "../settings/business/BusinessSettingsForm";
 import { getSettings } from "../settings/business/settingsApi";
+import { canWorkFinance } from "../auth/roleAccess";
+import { useStaffAccess } from "../auth/useStaffAccess";
 import {
+  acceptInvoice,
   createInvoice,
   createInvoiceFromCharges,
   fetchInvoicePdf,
@@ -17,6 +20,7 @@ import {
   listInvoices,
   recordInvoicePayment,
   reverseInvoicePayment,
+  sendReceipt,
   updateInvoice,
   voidInvoice,
 } from "./jobApi";
@@ -91,6 +95,14 @@ export function JobInvoices({
   const [evidence, setEvidence] = useState("");
   const [paymentNote, setPaymentNote] = useState("");
   const [adding, setAdding] = useState(false);
+  const [accepting, setAccepting] = useState<string | null>(null);
+  const [signatory, setSignatory] = useState("");
+  const { roles, isSuperAdmin } = useStaffAccess();
+  // The client accepts in the portal; on the staff side customer service records it.
+  const canRecordAcceptance =
+    !isStaff || isSuperAdmin || roles.includes("customer_service_rep");
+  // Customer service reads invoices and receipts; only finance changes them.
+  const finance = isStaff && canWorkFinance(roles);
 
   const load = useCallback(async () => {
     try {
@@ -116,7 +128,7 @@ export function JobInvoices({
         .getElementById("invoices-title")
         ?.scrollIntoView({ block: "start" });
     if (
-      !isStaff ||
+      !finance ||
       new URLSearchParams(window.location.search).get("pay") !== "1"
     )
       return;
@@ -126,7 +138,7 @@ export function JobInvoices({
     if (!owing) return;
     setPaying(owing.id);
     setAmount((owing.outstandingMinor / 100).toFixed(2));
-  }, [invoices, isStaff, payLinkHandled]);
+  }, [invoices, finance, payLinkHandled]);
 
   // A new invoice starts in the currency of the accepted quote version.
   useEffect(() => {
@@ -309,7 +321,7 @@ export function JobInvoices({
     <section className={styles.card} aria-labelledby="invoices-title">
       <div className={styles.stepsHeading}>
         <h2 id="invoices-title">Invoices and payments</h2>
-        {isStaff && canEdit && !adding && (
+        {finance && canEdit && !adding && (
           <button
             className={styles.secondaryButton}
             onClick={() => setAdding(true)}
@@ -347,6 +359,15 @@ export function JobInvoices({
                   ? ` · void: ${invoice.voidReason}`
                   : ""}
               </div>
+              {invoice.acceptance && (
+                <span className={styles.muted}>
+                  Accepted by {invoice.acceptance.signatoryName} on{" "}
+                  {new Date(invoice.acceptance.acceptedAt).toLocaleDateString()}
+                  {invoice.acceptance.via === "portal"
+                    ? " in the portal"
+                    : " (recorded by customer service)"}
+                </span>
+              )}
               <span className={styles.muted}>
                 {invoice.lines
                   .map(
@@ -398,9 +419,31 @@ export function JobInvoices({
                             >
                               Receipt {payment.receiptNumber}
                             </button>
+                            {!payment.reversal && (
+                              <button
+                                className={styles.textButton}
+                                onClick={() =>
+                                  void run(
+                                    () =>
+                                      sendReceipt(
+                                        jobId,
+                                        invoice.id,
+                                        payment.id,
+                                      ),
+                                    () =>
+                                      setNotice(
+                                        `Receipt ${payment.receiptNumber} is on its way to the client.`,
+                                      ),
+                                  )
+                                }
+                                type="button"
+                              >
+                                Email receipt
+                              </button>
+                            )}
                           </>
                         )}
-                        {!payment.reversal && (
+                        {finance && !payment.reversal && (
                           <>
                             {" "}
                             <button
@@ -426,7 +469,7 @@ export function JobInvoices({
                   </ul>
                 </details>
               )}
-              {isStaff && canEdit && invoice.status === "draft" && (
+              {finance && canEdit && invoice.status === "draft" && (
                 <div className={styles.actions}>
                   <button
                     className={styles.button}
@@ -465,7 +508,7 @@ export function JobInvoices({
                   </button>
                 </div>
               )}
-              {isStaff &&
+              {finance &&
                 editing === invoice.id &&
                 invoice.status === "draft" && (
                   <form
@@ -562,9 +605,9 @@ export function JobInvoices({
                     </div>
                   </form>
                 )}
-              {(invoice.status !== "draft" || !(isStaff && canEdit)) && (
+              {(invoice.status !== "draft" || !(finance && canEdit)) && (
                 <div className={styles.actions}>
-                  {isStaff &&
+                  {finance &&
                     invoice.status === "issued" &&
                     invoice.outstandingMinor > 0 && (
                       <button
@@ -580,6 +623,23 @@ export function JobInvoices({
                         Record payment
                       </button>
                     )}
+                  {canRecordAcceptance &&
+                    invoice.status === "issued" &&
+                    !invoice.acceptance && (
+                      <button
+                        className={styles.secondaryButton}
+                        onClick={() =>
+                          setAccepting(
+                            accepting === invoice.id ? null : invoice.id,
+                          )
+                        }
+                        type="button"
+                      >
+                        {isStaff
+                          ? "Record client acceptance"
+                          : "Accept invoice"}
+                      </button>
+                    )}
                   <button
                     className={styles.textButton}
                     onClick={() => void openPdf(invoice.id)}
@@ -588,7 +648,7 @@ export function JobInvoices({
                     {invoice.status === "draft" ? "Preview PDF" : "PDF"}
                   </button>
                   {/* The API refuses to void while payments stand; reverse them first. */}
-                  {isStaff &&
+                  {finance &&
                     canEdit &&
                     invoice.status === "issued" &&
                     invoice.paidMinor === 0 && (
@@ -607,7 +667,46 @@ export function JobInvoices({
                 </div>
               )}
 
-              {isStaff && paying === invoice.id && (
+              {accepting === invoice.id && (
+                <form
+                  className={styles.form}
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void run(
+                      () => acceptInvoice(jobId, invoice.id, signatory.trim()),
+                      () => {
+                        setAccepting(null);
+                        setSignatory("");
+                      },
+                    );
+                  }}
+                >
+                  <label className={styles.field}>
+                    {isStaff
+                      ? "Name of the person at the client who accepted"
+                      : "Your name"}
+                    <input
+                      onChange={(event) => setSignatory(event.target.value)}
+                      required
+                      value={signatory}
+                    />
+                  </label>
+                  <div className={styles.actions}>
+                    <button className={styles.button} type="submit">
+                      {isStaff ? "Save acceptance" : "Accept invoice"}
+                    </button>
+                    <button
+                      className={styles.secondaryButton}
+                      onClick={() => setAccepting(null)}
+                      type="button"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {finance && paying === invoice.id && (
                 <form
                   className={styles.form}
                   onSubmit={(event) => submitPayment(event, invoice)}
@@ -685,7 +784,7 @@ export function JobInvoices({
           ))}
         </ul>
       )}
-      {isStaff && (
+      {finance && (
         <>
           {canEdit && adding && (
             <form

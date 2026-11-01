@@ -54,12 +54,12 @@ before(async () => {
   const database = application.get(DatabasePort);
   await database.assignStaffRole(
     TEST_MATCHING_USER_ID,
-    "sea_import_rep",
+    "import_rep",
     TEST_SUPER_ADMIN_ID,
   );
   await database.assignStaffRole(
     TEST_UNASSIGNED_USER_ID,
-    "air_export_rep",
+    "export_rep",
     TEST_SUPER_ADMIN_ID,
   );
   const companyA = randomUUID();
@@ -188,7 +188,7 @@ test("staff create tasks for a department and list that department's open work",
     {
       kind: "missing_documents",
       title: "  Chase packing list  ",
-      assignedRole: "sea_import_rep",
+      assignedRole: "import_rep",
       dueDate: "2026-10-02",
     },
   );
@@ -203,15 +203,15 @@ test("staff create tasks for a department and list that department's open work",
 
   await post(`/api/v1/jobs/${seaJobId}/tasks`, TEST_SUPER_ADMIN_TOKEN, {
     title: "Air desk follow-up",
-    assignedRole: "air_export_rep",
+    assignedRole: "export_rep",
   });
   await post(`/api/v1/jobs/${otherSeaJobId}/tasks`, TEST_SUPER_ADMIN_TOKEN, {
     title: "Other company task",
-    assignedRole: "sea_import_rep",
+    assignedRole: "import_rep",
   });
 
   const mine = (await (
-    await call("/api/v1/tasks?assignedRole=sea_import_rep", TEST_MATCHING_TOKEN)
+    await call("/api/v1/tasks?assignedRole=import_rep", TEST_MATCHING_TOKEN)
   ).json()) as Array<{ title: string; fileNumber: string }>;
   assert.deepEqual(
     mine.map((item) => item.title),
@@ -254,7 +254,7 @@ test("completing a task records who and when, once", async () => {
   assert.equal(wrongJob.status, 404);
 
   const open = (await (
-    await call("/api/v1/tasks?assignedRole=sea_import_rep", TEST_MATCHING_TOKEN)
+    await call("/api/v1/tasks?assignedRole=import_rep", TEST_MATCHING_TOKEN)
   ).json()) as Array<{ title: string }>;
   assert.deepEqual(
     open.map((item) => item.title),
@@ -262,7 +262,7 @@ test("completing a task records who and when, once", async () => {
   );
   const all = (await (
     await call(
-      "/api/v1/tasks?assignedRole=sea_import_rep&status=all",
+      "/api/v1/tasks?assignedRole=import_rep&status=all",
       TEST_MATCHING_TOKEN,
     )
   ).json()) as Array<{ title: string; status: string }>;
@@ -273,24 +273,25 @@ test("completing a task records who and when, once", async () => {
 test("invalid task requests and filters are rejected", async () => {
   const cases: Array<[unknown, string]> = [
     [[], "A task object is required"],
-    [{ assignedRole: "sea_import_rep" }, "title is required"],
+    [{ assignedRole: "import_rep" }, "title is required"],
     [
       { title: "x" },
       "assignedRole must be one of " +
         [
           "super_admin",
-          "air_import_rep",
-          "air_export_rep",
-          "sea_import_rep",
-          "sea_export_rep",
+          "import_rep",
+          "export_rep",
+          "customer_service_rep",
+          "sales_rep",
+          "finance_rep",
         ].join(", "),
     ],
     [
-      { title: "x", assignedRole: "sea_import_rep", kind: "chore" },
+      { title: "x", assignedRole: "import_rep", kind: "chore" },
       "kind must be one of task, missing_documents, damage, delay, other",
     ],
     [
-      { title: "x", assignedRole: "sea_import_rep", dueDate: "2026-13-45" },
+      { title: "x", assignedRole: "import_rep", dueDate: "2026-13-45" },
       "dueDate must be a date (YYYY-MM-DD)",
     ],
   ];
@@ -322,7 +323,7 @@ test("access boundaries: other departments, customers and closed jobs", async ()
   const wrongDepartmentTask = await post(
     `/api/v1/jobs/${seaJobId}/tasks`,
     TEST_UNASSIGNED_TOKEN,
-    { title: "x", assignedRole: "sea_import_rep" },
+    { title: "x", assignedRole: "import_rep" },
   );
   assert.equal(wrongDepartmentTask.status, 404);
   const wrongDepartmentEta = await post(
@@ -346,7 +347,7 @@ test("access boundaries: other departments, customers and closed jobs", async ()
   const customerCreate = await post(
     `/api/v1/jobs/${seaJobId}/tasks`,
     TEST_CUSTOMER_A_TOKEN,
-    { title: "x", assignedRole: "sea_import_rep" },
+    { title: "x", assignedRole: "import_rep" },
   );
   assert.equal(customerCreate.status, 403);
   const customerList = await call("/api/v1/tasks", TEST_CUSTOMER_A_TOKEN);
@@ -403,7 +404,7 @@ test("access boundaries: other departments, customers and closed jobs", async ()
   const taskOnCancelled = await post(
     `/api/v1/jobs/${otherSeaJobId}/tasks`,
     TEST_SUPER_ADMIN_TOKEN,
-    { title: "x", assignedRole: "sea_import_rep" },
+    { title: "x", assignedRole: "import_rep" },
   );
   assert.equal(taskOnCancelled.status, 409);
   const finished = await post(

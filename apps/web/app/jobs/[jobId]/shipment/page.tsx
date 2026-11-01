@@ -10,6 +10,7 @@ import {
   removeReference,
 } from "../../jobApi";
 import { JobExtractions } from "../../JobExtractions";
+import { JobVoyage } from "../../JobVoyage";
 import { useJob } from "../../JobShell";
 import styles from "../../jobs.module.css";
 
@@ -74,6 +75,12 @@ export default function JobShipmentPage() {
     ]);
   return (
     <>
+      <JobVoyage
+        canEdit={isStaff && !closedJob}
+        job={job}
+        key={`${job.vessel}|${job.portOfLoading}|${job.portOfDischarge}`}
+        onSaved={reload}
+      />
       <section className={styles.card} aria-labelledby="parties-title">
         <div className={styles.stepsHeading}>
           <h2 id="parties-title">Parties</h2>

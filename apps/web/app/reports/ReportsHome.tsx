@@ -3,7 +3,9 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { ErrorPopup } from "../ErrorPopup";
+import { canWorkFinance } from "../auth/roleAccess";
 import { useStaffAccess } from "../auth/useStaffAccess";
+import { sourceLabels, stageLabels } from "../customers/leadApi";
 import { getFinanceSummary, getReports, listTasks } from "../jobs/jobApi";
 import type {
   FinanceSummary,
@@ -11,6 +13,7 @@ import type {
   InvoicePayment,
   Job,
   JobTask,
+  ReportsData,
 } from "../jobs/jobApi";
 import {
   serviceLineLabels,
@@ -24,12 +27,54 @@ import reportStyles from "./reports.module.css";
 
 type Preset = "day" | "week" | "month" | "year" | "custom";
 type Range = { from: string; to: string };
-type ReportTab = "operations" | "finance";
+type ReportTab = "sales" | "service" | "operations" | "finance";
 
+/** One tab per team, in the order work flows; Finance only for finance. */
 const reportTabs: Array<{ key: ReportTab; label: string }> = [
+  { key: "sales", label: "Sales" },
+  { key: "service", label: "Customer service" },
   { key: "operations", label: "Operations" },
   { key: "finance", label: "Finance" },
 ];
+
+const requestSourceLabels: Record<string, string> = {
+  portal: "Client portal",
+  staff: "Entered by staff",
+  email: "Email",
+  website: "Website form",
+  earlier: "Earlier requests",
+};
+
+/** Horizontal bars in one blue, longest first, with the count beside each. */
+function BarList({
+  rows,
+  empty,
+}: {
+  rows: Array<[string, number]>;
+  empty: string;
+}) {
+  const shown = rows.filter(([, value]) => value > 0);
+  if (shown.length === 0) return <p className={styles.muted}>{empty}</p>;
+  const top = Math.max(...shown.map(([, value]) => value));
+  return (
+    <ul className={reportStyles.bars}>
+      {shown
+        .sort((a, b) => b[1] - a[1])
+        .map(([label, value]) => (
+          <li key={label}>
+            <span className={reportStyles.barLabel}>{label}</span>
+            <span className={reportStyles.barTrack}>
+              <span
+                className={reportStyles.barFill}
+                style={{ width: `${Math.max(4, (value / top) * 100)}%` }}
+              />
+            </span>
+            <strong>{value}</strong>
+          </li>
+        ))}
+    </ul>
+  );
+}
 
 const dateString = (date: Date) => {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -88,7 +133,10 @@ export function ReportsHome() {
   const { roles } = useStaffAccess();
   const isStaff = roles.length > 0;
   const [preset, setPreset] = useState<Preset>("month");
-  const [tab, setTab] = useState<ReportTab>("operations");
+  const [tab, setTab] = useState<ReportTab>("sales");
+  const [sales, setSales] = useState<ReportsData["sales"] | null>(null);
+  const [service, setService] = useState<ReportsData["service"] | null>(null);
+  const showFinance = canWorkFinance(roles);
   const [range, setRange] = useState<Range>({ from: "", to: "" });
   const [jobs, setJobs] = useState<Job[]>([]);
   const [tasks, setTasks] = useState<JobTask[]>([]);
@@ -106,12 +154,14 @@ export function ReportsHome() {
     setLoading(true);
     Promise.all([
       getReports(range.from, range.to),
-      getFinanceSummary(),
+      showFinance ? getFinanceSummary() : Promise.resolve(null),
       listTasks("", "open"),
     ])
       .then(([report, summary, openTasks]) => {
         if (!active) return;
         setJobs(report.jobs);
+        setSales(report.sales);
+        setService(report.service);
         setTasks(openTasks);
         setFinance(summary);
         setInvoices(
@@ -154,7 +204,7 @@ export function ReportsHome() {
     return () => {
       active = false;
     };
-  }, [isStaff, range.from, range.to]);
+  }, [isStaff, range.from, range.to, showFinance]);
 
   const setPeriod = (value: Exclude<Preset, "custom">) => {
     setPreset(value);
@@ -250,7 +300,10 @@ export function ReportsHome() {
       <header className={styles.header}>
         <div>
           <h1 className={styles.title}>Reports</h1>
-          <p className={styles.muted}>Operations and finance activity</p>
+          <p className={styles.muted}>
+            Sales, customer service, operations
+            {showFinance ? " and finance" : ""}
+          </p>
         </div>
       </header>
       <ErrorPopup message={error} />
@@ -312,20 +365,159 @@ export function ReportsHome() {
         )}
       </section>
       <div className={reportStyles.tabs} role="tablist" aria-label="Reports">
-        {reportTabs.map((entry) => (
-          <button
-            aria-selected={tab === entry.key}
-            className={`${reportStyles.tab}${tab === entry.key ? ` ${reportStyles.tabActive}` : ""}`}
-            key={entry.key}
-            onClick={() => setTab(entry.key)}
-            role="tab"
-            type="button"
-          >
-            {entry.label}
-          </button>
-        ))}
+        {reportTabs
+          .filter((entry) => entry.key !== "finance" || showFinance)
+          .map((entry) => (
+            <button
+              aria-selected={tab === entry.key}
+              className={`${reportStyles.tab}${tab === entry.key ? ` ${reportStyles.tabActive}` : ""}`}
+              key={entry.key}
+              onClick={() => setTab(entry.key)}
+              role="tab"
+              type="button"
+            >
+              {entry.label}
+            </button>
+          ))}
       </div>
       {loading && <p className={styles.muted}>Loading reports…</p>}
+
+      <section
+        className={reportStyles.section}
+        aria-labelledby="sales-title"
+        hidden={tab !== "sales"}
+      >
+        <div className={reportStyles.heading}>
+          <div>
+            <h2 id="sales-title">Leads and conversions</h2>
+            <p>
+              New leads logged, and clients who accepted their first quote,
+              within the selected dates.
+            </p>
+          </div>
+        </div>
+        {sales && (
+          <>
+            <div className={cards.kpis}>
+              <div className={cards.kpi}>
+                <span>New leads</span>
+                <strong>{sales.newLeads}</strong>
+              </div>
+              <div className={cards.kpi}>
+                <span>Converted clients</span>
+                <strong>{sales.converted}</strong>
+                {sales.convertedCompanies.length > 0 && (
+                  <small>{sales.convertedCompanies.join(", ")}</small>
+                )}
+              </div>
+              <div className={cards.kpi}>
+                <span>Conversion</span>
+                <strong>
+                  {sales.newLeads > 0
+                    ? `${Math.round((sales.converted / sales.newLeads) * 100)}%`
+                    : "—"}
+                </strong>
+                <small>Converted clients per new lead</small>
+              </div>
+            </div>
+            <div className={reportStyles.split}>
+              <div className={reportStyles.chart}>
+                <h3>Where leads came from</h3>
+                <BarList
+                  empty="No leads in these dates."
+                  rows={Object.entries(sales.leadsBySource).map(
+                    ([key, value]) => [
+                      sourceLabels[key as keyof typeof sourceLabels] ?? key,
+                      value,
+                    ],
+                  )}
+                />
+              </div>
+              <div className={reportStyles.chart}>
+                <h3>Pipeline today</h3>
+                <BarList
+                  empty="No leads yet."
+                  rows={Object.entries(sales.pipeline).map(([key, value]) => [
+                    stageLabels[key as keyof typeof stageLabels] ?? key,
+                    value,
+                  ])}
+                />
+              </div>
+            </div>
+            <Link className={styles.link} href="/customers/leads">
+              Open the leads board →
+            </Link>
+          </>
+        )}
+      </section>
+
+      <section
+        className={reportStyles.section}
+        aria-labelledby="service-title"
+        hidden={tab !== "service"}
+      >
+        <div className={reportStyles.heading}>
+          <div>
+            <h2 id="service-title">Requests, quotes and replies</h2>
+            <p>How client requests were handled within the selected dates.</p>
+          </div>
+        </div>
+        {service && (
+          <>
+            <div className={cards.kpis}>
+              <div className={cards.kpi}>
+                <span>Quotes issued</span>
+                <strong>{service.quotesIssued}</strong>
+              </div>
+              <div className={cards.kpi}>
+                <span>Accepted · rejected</span>
+                <strong>
+                  {service.quotesAccepted} · {service.quotesRejected}
+                </strong>
+                <small>
+                  {service.quotesAccepted + service.quotesRejected > 0
+                    ? `Win rate ${Math.round(
+                        (service.quotesAccepted /
+                          (service.quotesAccepted + service.quotesRejected)) *
+                          100,
+                      )}%`
+                    : "No decisions yet"}
+                </small>
+              </div>
+              <div className={cards.kpi}>
+                <span>Time to quote</span>
+                <strong>
+                  {service.medianHoursToQuote === null
+                    ? "—"
+                    : service.medianHoursToQuote < 48
+                      ? `${service.medianHoursToQuote} h`
+                      : `${Math.round(service.medianHoursToQuote / 24)} days`}
+                </strong>
+                <small>Typical time from request to first quote</small>
+              </div>
+              <div className={cards.kpi}>
+                <span>Still waiting for a quote</span>
+                <strong>{service.waitingForQuote}</strong>
+              </div>
+              <div className={cards.kpi}>
+                <span>Inquiries answered</span>
+                <strong>
+                  {service.inquiriesAnswered} of {service.inquiries}
+                </strong>
+              </div>
+            </div>
+            <div className={reportStyles.chart}>
+              <h3>Quote requests by channel</h3>
+              <BarList
+                empty="No quote requests in these dates."
+                rows={Object.entries(service.requestsBySource).map(
+                  ([key, value]) => [requestSourceLabels[key] ?? key, value],
+                )}
+              />
+            </div>
+          </>
+        )}
+      </section>
 
       <section
         className={reportStyles.section}

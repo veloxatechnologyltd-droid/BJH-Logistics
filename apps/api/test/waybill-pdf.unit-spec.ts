@@ -47,6 +47,9 @@ const job: JobRecord = {
   openedBy: "user",
   openedAt: "2026-09-20T09:00:00.000Z",
   closedAt: null,
+  vessel: null,
+  portOfLoading: null,
+  portOfDischarge: null,
 };
 
 const party = (role: JobPartyRecord["role"], name: string): JobPartyRecord => ({

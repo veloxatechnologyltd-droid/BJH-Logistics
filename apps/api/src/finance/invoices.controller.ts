@@ -14,7 +14,10 @@ import {
 import {
   DepartmentStaffGuard,
   JobScopeGuard,
+  StaffRolesGuard,
   SupabaseIdentityGuard,
+  financeReadRoles,
+  financeRoles,
 } from "../auth/auth.guards";
 import type { AuthenticatedRequest } from "../auth/auth.guards";
 import { InvoicesService } from "./invoices.service";
@@ -41,13 +44,16 @@ export class InvoicesController {
   ) {}
 
   @Get()
-  @UseGuards(JobScopeGuard)
+  @UseGuards(
+    JobScopeGuard,
+    StaffRolesGuard(financeReadRoles, { customers: true }),
+  )
   list(@Param("id") id: string, @Req() request: AuthenticatedRequest) {
     return this.invoices.list(id, scopeOf(request));
   }
 
   @Post()
-  @UseGuards(DepartmentStaffGuard, JobScopeGuard)
+  @UseGuards(DepartmentStaffGuard, JobScopeGuard, StaffRolesGuard(financeRoles))
   create(
     @Param("id") id: string,
     @Body() body: unknown,
@@ -62,7 +68,7 @@ export class InvoicesController {
   }
 
   @Post("from-charges")
-  @UseGuards(DepartmentStaffGuard, JobScopeGuard)
+  @UseGuards(DepartmentStaffGuard, JobScopeGuard, StaffRolesGuard(financeRoles))
   createFromCharges(
     @Param("id") id: string,
     @Body() body: unknown,
@@ -77,7 +83,7 @@ export class InvoicesController {
   }
 
   @Put(":invoiceId")
-  @UseGuards(DepartmentStaffGuard, JobScopeGuard)
+  @UseGuards(DepartmentStaffGuard, JobScopeGuard, StaffRolesGuard(financeRoles))
   update(
     @Param("id") id: string,
     @Param("invoiceId") invoiceId: string,
@@ -88,7 +94,7 @@ export class InvoicesController {
   }
 
   @Post(":invoiceId/issue")
-  @UseGuards(DepartmentStaffGuard, JobScopeGuard)
+  @UseGuards(DepartmentStaffGuard, JobScopeGuard, StaffRolesGuard(financeRoles))
   issue(
     @Param("id") id: string,
     @Param("invoiceId") invoiceId: string,
@@ -103,7 +109,7 @@ export class InvoicesController {
   }
 
   @Post(":invoiceId/void")
-  @UseGuards(DepartmentStaffGuard, JobScopeGuard)
+  @UseGuards(DepartmentStaffGuard, JobScopeGuard, StaffRolesGuard(financeRoles))
   voidInvoice(
     @Param("id") id: string,
     @Param("invoiceId") invoiceId: string,
@@ -119,8 +125,29 @@ export class InvoicesController {
     );
   }
 
-  @Get(":invoiceId/pdf")
+  @Post(":invoiceId/accept")
   @UseGuards(JobScopeGuard)
+  accept(
+    @Param("id") id: string,
+    @Param("invoiceId") invoiceId: string,
+    @Body() body: unknown,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.invoices.accept(
+      id,
+      invoiceId,
+      body,
+      request.authUser!.userId,
+      request.staffRoles ?? [],
+      scopeOf(request),
+    );
+  }
+
+  @Get(":invoiceId/pdf")
+  @UseGuards(
+    JobScopeGuard,
+    StaffRolesGuard(financeReadRoles, { customers: true }),
+  )
   async pdf(
     @Param("id") id: string,
     @Param("invoiceId") invoiceId: string,
@@ -139,7 +166,7 @@ export class InvoicesController {
   }
 
   @Post(":invoiceId/payments")
-  @UseGuards(DepartmentStaffGuard, JobScopeGuard)
+  @UseGuards(DepartmentStaffGuard, JobScopeGuard, StaffRolesGuard(financeRoles))
   recordPayment(
     @Param("id") id: string,
     @Param("invoiceId") invoiceId: string,
@@ -155,8 +182,12 @@ export class InvoicesController {
     );
   }
 
+  /** Customers get their own company's receipts too (client meeting, 2026-11-01). */
   @Get(":invoiceId/payments/:paymentId/receipt")
-  @UseGuards(DepartmentStaffGuard, JobScopeGuard)
+  @UseGuards(
+    JobScopeGuard,
+    StaffRolesGuard(financeReadRoles, { customers: true }),
+  )
   async receipt(
     @Param("id") id: string,
     @Param("invoiceId") invoiceId: string,
@@ -177,7 +208,7 @@ export class InvoicesController {
   }
 
   @Post(":invoiceId/payments/:paymentId/reverse")
-  @UseGuards(DepartmentStaffGuard, JobScopeGuard)
+  @UseGuards(DepartmentStaffGuard, JobScopeGuard, StaffRolesGuard(financeRoles))
   reversePayment(
     @Param("id") id: string,
     @Param("invoiceId") invoiceId: string,
@@ -194,11 +225,54 @@ export class InvoicesController {
       scopeOf(request),
     );
   }
+
+  /** Emails the receipt PDF to the client's contacts; customer service or finance. */
+  @Post(":invoiceId/payments/:paymentId/receipt/send")
+  @UseGuards(
+    DepartmentStaffGuard,
+    JobScopeGuard,
+    StaffRolesGuard(financeReadRoles),
+  )
+  sendReceipt(
+    @Param("id") id: string,
+    @Param("invoiceId") invoiceId: string,
+    @Param("paymentId") paymentId: string,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.invoices.sendReceipt(
+      id,
+      invoiceId,
+      paymentId,
+      request.authUser!.userId,
+      scopeOf(request),
+    );
+  }
+}
+
+/** Every receipt the caller may see: staff with finance or customer service, customers their own. */
+@Controller("api/v1/receipts")
+@UseGuards(
+  SupabaseIdentityGuard,
+  JobScopeGuard,
+  StaffRolesGuard(financeReadRoles, { customers: true }),
+)
+export class ReceiptsController {
+  constructor(
+    @Inject(InvoicesService) private readonly invoices: InvoicesService,
+  ) {}
+
+  @Get()
+  list(@Req() request: AuthenticatedRequest) {
+    return this.invoices.receipts(scopeOf(request));
+  }
 }
 
 /** Unpaid invoices across jobs: staff see their service lines, customers their own company. */
 @Controller("api/v1/invoices/outstanding")
-@UseGuards(SupabaseIdentityGuard)
+@UseGuards(
+  SupabaseIdentityGuard,
+  StaffRolesGuard(financeRoles, { customers: true }),
+)
 export class OutstandingInvoicesController {
   constructor(
     @Inject(InvoicesService) private readonly invoices: InvoicesService,
@@ -216,7 +290,12 @@ export class OutstandingInvoicesController {
 
 /** Internal money overview (costs and margins): staff only, within their service lines. */
 @Controller("api/v1/finance/summary")
-@UseGuards(SupabaseIdentityGuard, DepartmentStaffGuard, JobScopeGuard)
+@UseGuards(
+  SupabaseIdentityGuard,
+  DepartmentStaffGuard,
+  JobScopeGuard,
+  StaffRolesGuard(financeRoles),
+)
 export class FinanceSummaryController {
   constructor(
     @Inject(InvoicesService) private readonly invoices: InvoicesService,
@@ -230,7 +309,12 @@ export class FinanceSummaryController {
 
 /** One customer payment applied across several of their invoices at once: staff only, within their service lines. */
 @Controller("api/v1/payments")
-@UseGuards(SupabaseIdentityGuard, DepartmentStaffGuard, JobScopeGuard)
+@UseGuards(
+  SupabaseIdentityGuard,
+  DepartmentStaffGuard,
+  JobScopeGuard,
+  StaffRolesGuard(financeRoles),
+)
 export class PaymentsController {
   constructor(
     @Inject(InvoicesService) private readonly invoices: InvoicesService,
