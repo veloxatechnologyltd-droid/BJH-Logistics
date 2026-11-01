@@ -1,7 +1,7 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { allServices, contact, whatsappHref } from "../content";
 import { Icon } from "../Icon";
 import { quoteMailto, quoteText, type QuoteDetails } from "./quoteEmail";
@@ -32,6 +32,15 @@ export function QuoteForm() {
   const [sent, setSent] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState(false);
+  const confirmation = useRef<HTMLHeadingElement>(null);
+
+  // The form is long, so the sender may be scrolled well down the page when it
+  // is sent. Bring the confirmation into view and announce it.
+  useEffect(() => {
+    if (!sent) return;
+    confirmation.current?.scrollIntoView({ block: "center" });
+    confirmation.current?.focus({ preventScroll: true });
+  }, [sent]);
 
   const field = (key: keyof QuoteDetails) => ({
     name: key,
@@ -42,7 +51,7 @@ export function QuoteForm() {
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (sending || sent) return;
+    if (sending) return;
     setSending(true);
     setError(false);
     try {
@@ -59,6 +68,24 @@ export function QuoteForm() {
       setSending(false);
     }
   };
+
+  if (sent) {
+    return (
+      <div className="quote-form quote-sent">
+        <span className="quote-sent-icon">
+          <Icon name="check" size={32} />
+        </span>
+        <h2 ref={confirmation} tabIndex={-1}>
+          Request received
+        </h2>
+        <p>
+          Thank you, {details.name.trim().split(/\s+/)[0]}. Your quote request
+          is with the BJH Logistics team. We will review it and get back to you
+          at <strong>{details.email}</strong>.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <form className="quote-form" onSubmit={submit}>
@@ -151,16 +178,8 @@ export function QuoteForm() {
       </fieldset>
 
       <div className="form-actions">
-        <button
-          type="submit"
-          className="btn btn-primary"
-          disabled={sending || sent}
-        >
-          {sending
-            ? "Sending…"
-            : sent
-              ? "Request received"
-              : "Send quote request"}{" "}
+        <button type="submit" className="btn btn-primary" disabled={sending}>
+          {sending ? "Sending…" : "Send quote request"}{" "}
           <Icon name="arrow" size={18} />
         </button>
         <a
@@ -175,9 +194,7 @@ export function QuoteForm() {
         </a>
       </div>
       <p className="form-note" role="status">
-        {sent ? (
-          "Your request is in our system. Our team will review it."
-        ) : error ? (
+        {error ? (
           <>
             We could not send your request. Try again, or{" "}
             <a href={quoteMailto(contact.quotesEmail, details)}>

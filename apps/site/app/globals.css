@@ -1787,6 +1787,40 @@ h2 {
   color: var(--muted);
 }
 
+.quote-sent {
+  justify-items: center;
+  padding-block: 72px;
+  text-align: center;
+}
+
+.quote-sent-icon {
+  display: grid;
+  place-items: center;
+  width: 68px;
+  height: 68px;
+  border-radius: 50%;
+  background: var(--blue-soft);
+  color: var(--blue);
+}
+
+.quote-sent h2 {
+  font-size: 1.6rem;
+}
+
+.quote-sent h2:focus {
+  outline: none;
+}
+
+.quote-sent p {
+  max-width: 44ch;
+  color: var(--muted);
+}
+
+.quote-sent strong {
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
 .quote-aside {
   position: sticky;
   top: 100px;
