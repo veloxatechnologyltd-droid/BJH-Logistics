@@ -93,6 +93,11 @@ EMAIL_INQUIRY_SMTP_PASSWORD=...
   the entries, the Email assistant text in Business settings and the sender's own
   jobs, as before. The reply records which entries it used ("Answered from the
   knowledge base: ...").
+- **Starting entries.** Migration `20261101000004` loads 18 entries drafted from
+  BJH's own published profile and website (no prices, hours or transit times). Each
+  is marked "Drafted from your website: check it" until the super admin presses
+  **Looks right** (`POST /api/v1/knowledge/:id/reviewed`) or edits it; they answer
+  inquiries straight away.
 - **Escalation.** With each draft, Claude says whether every question was
   answered from those facts. If not, or if it could not tell what the email asks,
   or no reply could be drafted, the inquiry is marked **Needs a person** with the

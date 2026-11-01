@@ -67,6 +67,21 @@ export class KnowledgeController {
     return updated;
   }
 
+  /** The super admin checked a drafted entry and keeps it as it is. */
+  @Post(":id/reviewed")
+  @UseGuards(SuperAdminGuard)
+  async reviewed(
+    @Param("id") id: string,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    const entry = await this.database.markKnowledgeEntryReviewed(
+      id,
+      request.authUser!.userId,
+    );
+    if (!entry) throw new NotFoundException("Knowledge entry was not found");
+    return entry;
+  }
+
   @Delete(":id")
   @UseGuards(SuperAdminGuard)
   @HttpCode(204)

@@ -10,6 +10,7 @@ import {
   createKnowledge,
   deleteKnowledge,
   listKnowledge,
+  markKnowledgeReviewed,
   updateKnowledge,
 } from "./knowledgeApi";
 import type { KnowledgeEntry } from "./knowledgeApi";
@@ -134,6 +135,14 @@ export function KnowledgeBase() {
             in Business settings; anything they do not cover goes to a person.
             {!isSuperAdmin && " · View only"}
           </p>
+          {entries.some((entry) => entry.needsReview) && (
+            <p className={styles.notice}>
+              {entries.filter((entry) => entry.needsReview).length} entries were
+              drafted from BJH&apos;s website and company profile. They are
+              already used to answer inquiries: check each one, correct it, or
+              delete it.
+            </p>
+          )}
         </div>
         <Link className={styles.secondaryButton} href="/settings">
           Back to settings
@@ -172,9 +181,14 @@ export function KnowledgeBase() {
         ) : (
           <section className={styles.card} key={entry.id}>
             <h2>{entry.title}</h2>
+            {entry.needsReview && (
+              <p className={styles.muted}>
+                <strong>Drafted from your website: check it</strong>
+              </p>
+            )}
             <p style={{ whiteSpace: "pre-wrap" }}>{entry.answer}</p>
             <p className={styles.muted}>
-              Last changed{" "}
+              {entry.needsReview ? "Drafted" : "Last changed"}{" "}
               {new Intl.DateTimeFormat("en-GH", {
                 dateStyle: "medium",
                 timeStyle: "short",
@@ -183,6 +197,21 @@ export function KnowledgeBase() {
             </p>
             {isSuperAdmin && editing === null && (
               <div className={styles.actions}>
+                {entry.needsReview && (
+                  <button
+                    className={styles.button}
+                    disabled={busy}
+                    onClick={() =>
+                      void act(
+                        () => markKnowledgeReviewed(entry.id),
+                        "Marked as checked.",
+                      )
+                    }
+                    type="button"
+                  >
+                    Looks right
+                  </button>
+                )}
                 <button
                   className={styles.secondaryButton}
                   onClick={() => open(entry)}
