@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import type { LeadSource, LeadStage, LeadUpdateInput } from "@bjh/contracts";
 import { leadSourceKeys, leadStageKeys } from "@bjh/contracts";
 import { listCustomers } from "../customerApi";
@@ -16,9 +16,6 @@ import {
 import type { Lead, SalesSummary } from "../leadApi";
 import { getSalesSummary } from "../leadApi";
 import { LeadActivities } from "./LeadActivities";
-import { listQuoteRequests } from "../../quotations/quoteRequestApi";
-import type { QuoteRequest } from "../../quotations/quoteRequestApi";
-import chart from "../../finance/finance.module.css";
 import ui from "../../jobs/jobs.module.css";
 import styles from "../customerDirectory.module.css";
 import { ErrorPopup } from "../../ErrorPopup";
@@ -52,7 +49,6 @@ const emptyForm = {
 export function LeadsBoard() {
   const [leads, setLeads] = useState<Lead[] | null>(null);
   const [summary, setSummary] = useState<SalesSummary | null>(null);
-  const [requests, setRequests] = useState<QuoteRequest[]>([]);
   const [customers, setCustomers] = useState<CustomerCompany[]>([]);
   const [error, setError] = useState("");
   const [filter, setFilter] = useState<Filter>("open");
@@ -74,21 +70,11 @@ export function LeadsBoard() {
     getSalesSummary()
       .then(setSummary)
       .catch(() => undefined);
-    // Requests and customers only enrich the page; the board works without them.
-    listQuoteRequests()
-      .then(setRequests)
-      .catch(() => undefined);
+    // Customers only enrich the page; the board works without them.
     listCustomers("")
       .then(setCustomers)
       .catch(() => undefined);
   }, []);
-
-  const untracked = useMemo(() => {
-    const tracked = new Set((leads ?? []).map((lead) => lead.quoteRequestId));
-    return requests.filter(
-      (request) => !tracked.has(request.id) && !request.customerCompanyId,
-    );
-  }, [leads, requests]);
 
   const count = (stage: LeadStage) =>
     (leads ?? []).filter((lead) => lead.stage === stage).length;
@@ -162,23 +148,6 @@ export function LeadsBoard() {
       setError(message(cause, "The lead could not be added"));
     } finally {
       setBusy(false);
-    }
-  }
-
-  async function track(request: QuoteRequest) {
-    setError("");
-    try {
-      const created = await createLead({
-        companyName: request.companyName,
-        contactName: request.contactName,
-        email: request.email,
-        source: "quote_request",
-        notes: request.message.slice(0, 2000),
-        quoteRequestId: request.id,
-      });
-      setLeads((current) => [created, ...(current ?? [])]);
-    } catch (cause) {
-      setError(message(cause, "The request could not be tracked"));
     }
   }
 
@@ -551,30 +520,6 @@ export function LeadsBoard() {
         )}
       </section>
 
-      {untracked.length > 0 && (
-        <section className={chart.chartCard} aria-labelledby="untracked-title">
-          <h2 id="untracked-title">Quote requests not yet tracked</h2>
-          <ul className={ui.itemList}>
-            {untracked.map((request) => (
-              <li key={request.id}>
-                <div>
-                  <strong>{request.companyName}</strong>
-                  <p className={ui.muted}>
-                    {request.contactName} · {request.email}
-                  </p>
-                </div>
-                <button
-                  className={ui.secondaryButton}
-                  onClick={() => void track(request)}
-                  type="button"
-                >
-                  Track as lead
-                </button>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
     </>
   );
 }
