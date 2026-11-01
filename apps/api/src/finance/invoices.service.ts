@@ -1,11 +1,13 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
 import {
+  invoiceAcceptanceInputSchema,
   invoiceFromChargesInputSchema,
   invoiceInputSchema,
   invoiceReasonInputSchema,
@@ -16,11 +18,13 @@ import {
 } from "@bjh/contracts";
 import {
   DatabasePort,
+  InvoiceAcceptanceRecord,
   InvoiceLineRecord,
   InvoicePaymentRecord,
   InvoiceRecord,
   JobRecord,
   JobScope,
+  StaffRoleKey,
 } from "../database/database.port";
 import { JobsService } from "../jobs/jobs.service";
 import { JobChargesService, JobChargeView } from "./job-charges.service";
@@ -28,6 +32,7 @@ import { computeInvoiceTotals } from "./invoice-totals";
 import {
   invoiceIssuedMessage,
   paymentReceivedMessage,
+  receiptSentMessage,
   paymentsReceivedMessage,
 } from "../notifications/notification-messages";
 import { NotificationsService } from "../notifications/notifications.service";
@@ -42,6 +47,8 @@ export interface InvoiceView extends InvoiceRecord {
   paymentStatus: "draft" | "void" | "unpaid" | "partial" | "paid";
   /** The full ledger, for staff only; customers see the balance, not the ledger. */
   payments?: InvoicePaymentRecord[];
+  /** The client's acceptance, once given; it lets customer service assign the job. */
+  acceptance: InvoiceAcceptanceRecord | null;
 }
 
 /** A job charge an invoice started from charges did not include, and why. */
@@ -89,9 +96,10 @@ export class InvoicesService {
   async list(id: string, scope: JobScope): Promise<InvoiceView[]> {
     const job = await this.jobs.get(id, scope);
     const isCustomer = scope.companyIds !== undefined;
-    const [invoices, payments] = await Promise.all([
+    const [invoices, payments, acceptances] = await Promise.all([
       this.database.listInvoices(job.id),
       this.database.listInvoicePayments(job.id),
+      this.database.listInvoiceAcceptances(job.id),
     ]);
     return (
       invoices
@@ -102,9 +110,59 @@ export class InvoicesService {
             invoice,
             payments.filter((payment) => payment.invoiceId === invoice.id),
             !isCustomer,
+            acceptances.find((item) => item.invoiceId === invoice.id),
           ),
         )
     );
+  }
+
+  /**
+   * Records that the client accepted an issued invoice, once. A customer accepts
+   * their own company's in the portal; on the staff side customer service (or
+   * the super admin) records it on the client's word.
+   */
+  async accept(
+    id: string,
+    invoiceId: string,
+    input: unknown,
+    actorId: string,
+    roles: StaffRoleKey[],
+    scope: JobScope,
+  ): Promise<InvoiceAcceptanceRecord> {
+    const isCustomer = scope.companyIds !== undefined;
+    if (
+      !isCustomer &&
+      !roles.includes("super_admin") &&
+      !roles.includes("customer_service_rep")
+    ) {
+      throw new ForbiddenException(
+        "Only customer service records a client's acceptance",
+      );
+    }
+    const parsed = parseContract(invoiceAcceptanceInputSchema, input);
+    if (!parsed.success) throw new BadRequestException(parsed.message);
+    const job = await this.jobs.get(id, scope);
+    const result = isUuid(invoiceId)
+      ? await this.database.recordInvoiceAcceptance(job.id, invoiceId, {
+          acceptedBy: actorId,
+          signatoryName: parsed.data.signatoryName,
+          via: isCustomer ? "portal" : "staff",
+        })
+      : "not_found";
+    if (result === "not_found") {
+      throw new NotFoundException("Invoice was not found on this job");
+    }
+    if (result === "not_issued") {
+      // A customer is never shown drafts, so they get the same answer as for a missing one.
+      if (isCustomer) {
+        throw new NotFoundException("Invoice was not found on this job");
+      }
+      throw new ConflictException("Only an issued invoice can be accepted");
+    }
+    if (result === "already_accepted") {
+      throw new ConflictException("This invoice has already been accepted");
+    }
+    return result;
   }
 
   async create(
@@ -660,31 +718,92 @@ export class InvoicesService {
     };
   }
 
+  /**
+   * Every numbered receipt the caller may see, newest first. Customers get
+   * their own companies' receipts, without staff-only evidence or recorder.
+   */
+  async receipts(scope: JobScope) {
+    const today = new Date().toISOString().slice(0, 10);
+    const rows = await this.database.listReportPayments(
+      "2000-01-01",
+      today,
+      scope,
+    );
+    const isCustomer = scope.companyIds !== undefined;
+    return rows
+      .filter((row) => row.payment.receiptNumber !== null)
+      .reverse()
+      .map((row) => ({
+        paymentId: row.payment.id,
+        invoiceId: row.payment.invoiceId,
+        jobId: row.jobId,
+        fileNumber: row.fileNumber,
+        customerCompanyName: row.customerCompanyName,
+        invoiceNumber: row.invoiceNumber,
+        receiptNumber: row.payment.receiptNumber,
+        currency: row.currency,
+        amountMinor: row.payment.amountMinor,
+        receivedOn: row.payment.receivedOn,
+        method: row.payment.method,
+        reference: isCustomer ? null : row.payment.reference,
+        reversed: row.payment.reversal !== null,
+      }));
+  }
+
+  /** Queues the receipt, PDF attached, to the client's contacts; a resend is a new message. */
+  async sendReceipt(
+    id: string,
+    invoiceId: string,
+    paymentId: string,
+    sentBy: string,
+    scope: JobScope,
+  ): Promise<{ queued: boolean }> {
+    const job = await this.jobs.get(id, scope);
+    const invoice = await this.find(job.id, invoiceId);
+    const payment = isUuid(paymentId)
+      ? (await this.database.listInvoicePayments(job.id)).find(
+          (item) => item.id === paymentId && item.invoiceId === invoice.id,
+        )
+      : undefined;
+    if (!payment?.receiptNumber || !invoice.invoiceNumber) {
+      throw new NotFoundException("Receipt was not found on this invoice");
+    }
+    const receiptNumber = payment.receiptNumber;
+    const invoiceNumber = invoice.invoiceNumber;
+    const result = await this.notifications.notify({
+      companyId: job.customerCompanyId,
+      jobId: job.id,
+      event: "receipt_sent",
+      dedupeKey: `receipt-sent:${payment.id}:${Date.now()}`,
+      message: (sender) =>
+        receiptSentMessage(
+          sender,
+          receiptNumber,
+          invoiceNumber,
+          payment.amountMinor,
+          invoice.currency,
+        ),
+      linkPath: `/jobs/${job.id}/money`,
+      createdBy: sentBy,
+    });
+    if (!result || result === "duplicate") {
+      throw new ConflictException("The receipt could not be queued");
+    }
+    if (result.deliveries.length === 0) {
+      throw new ConflictException(
+        "This customer has no contact to send the receipt to",
+      );
+    }
+    return { queued: true };
+  }
+
   private view(
     invoice: InvoiceRecord,
     payments: InvoicePaymentRecord[],
     includeLedger: boolean,
+    acceptance?: InvoiceAcceptanceRecord,
   ): InvoiceView {
-    const paidMinor = payments
-      .filter((payment) => payment.reversal === null)
-      .reduce((sum, payment) => sum + payment.amountMinor, 0);
-    const open = invoice.status === "issued";
-    const outstandingMinor = open ? invoice.totalMinor - paidMinor : 0;
-    const paymentStatus =
-      invoice.status !== "issued"
-        ? invoice.status
-        : paidMinor === 0
-          ? "unpaid"
-          : outstandingMinor === 0
-            ? "paid"
-            : "partial";
-    return {
-      ...invoice,
-      paidMinor,
-      outstandingMinor,
-      paymentStatus,
-      ...(includeLedger ? { payments } : {}),
-    };
+    return invoiceView(invoice, payments, includeLedger, acceptance);
   }
 
   private async find(jobId: string, invoiceId: string): Promise<InvoiceRecord> {
@@ -717,4 +836,34 @@ export class InvoicesService {
     }
     return job;
   }
+}
+
+/** An invoice with its balance worked out from the standing payments. */
+export function invoiceView(
+  invoice: InvoiceRecord,
+  payments: InvoicePaymentRecord[],
+  includeLedger: boolean,
+  acceptance?: InvoiceAcceptanceRecord,
+): InvoiceView {
+  const paidMinor = payments
+    .filter((payment) => payment.reversal === null)
+    .reduce((sum, payment) => sum + payment.amountMinor, 0);
+  const open = invoice.status === "issued";
+  const outstandingMinor = open ? invoice.totalMinor - paidMinor : 0;
+  const paymentStatus =
+    invoice.status !== "issued"
+      ? invoice.status
+      : paidMinor === 0
+        ? "unpaid"
+        : outstandingMinor === 0
+          ? "paid"
+          : "partial";
+  return {
+    ...invoice,
+    paidMinor,
+    outstandingMinor,
+    paymentStatus,
+    ...(includeLedger ? { payments } : {}),
+    acceptance: acceptance ?? null,
+  };
 }

@@ -27,6 +27,25 @@ export class LeadsController {
     return this.leads.list();
   }
 
+  @Get("summary")
+  summary() {
+    return this.leads.summary();
+  }
+
+  @Get(":id/activities")
+  activities(@Param("id") id: string) {
+    return this.leads.activities(id);
+  }
+
+  @Post(":id/activities")
+  addActivity(
+    @Param("id") id: string,
+    @Body() body: unknown,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.leads.addActivity(id, body, request.authUser!.userId);
+  }
+
   @Post()
   create(@Body() body: unknown, @Req() request: AuthenticatedRequest) {
     return this.leads.create(body, request.authUser!.userId);

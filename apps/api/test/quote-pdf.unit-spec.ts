@@ -24,6 +24,8 @@ const line = (
   basis: "fixed",
   basisNote: null,
   amountMinor: 100,
+  quantity: 1,
+  containerSize: null,
   sizeAmountsMinor: null,
   ...over,
 });

@@ -93,3 +93,59 @@ export async function updateLead(
     ),
   );
 }
+
+export type SalesPeriod = {
+  newLeads: number;
+  converted: number;
+  convertedCompanies: string[];
+};
+
+/** Leads logged and clients converted (first accepted quote), this week and month. */
+export type SalesSummary = {
+  thisWeek: SalesPeriod;
+  thisMonth: SalesPeriod;
+  openLeads: number;
+  followUpsDue: number;
+};
+
+export type LeadActivity = {
+  id: string;
+  kind: "call" | "visit" | "email" | "meeting" | "note";
+  note: string;
+  occurredAt: string;
+  createdByEmail: string | null;
+};
+
+export const activityLabels: Record<LeadActivity["kind"], string> = {
+  call: "Call",
+  visit: "Visit",
+  email: "Email",
+  meeting: "Meeting",
+  note: "Note",
+};
+
+export async function getSalesSummary(): Promise<SalesSummary> {
+  return readResponse<SalesSummary>(
+    await authenticatedFetch(`${leadsUrl}/summary`),
+  );
+}
+
+export async function listLeadActivities(id: string): Promise<LeadActivity[]> {
+  return readResponse<LeadActivity[]>(
+    await authenticatedFetch(
+      `${leadsUrl}/${encodeURIComponent(id)}/activities`,
+    ),
+  );
+}
+
+export async function addLeadActivity(
+  id: string,
+  activity: { kind: LeadActivity["kind"]; note: string },
+): Promise<LeadActivity> {
+  return readResponse<LeadActivity>(
+    await authenticatedFetch(
+      `${leadsUrl}/${encodeURIComponent(id)}/activities`,
+      jsonInit("POST", activity),
+    ),
+  );
+}

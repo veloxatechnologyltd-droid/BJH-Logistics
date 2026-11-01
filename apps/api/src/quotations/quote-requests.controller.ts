@@ -12,11 +12,11 @@ import {
   UseGuards,
 } from "@nestjs/common";
 import {
+  ClientDeskGuard,
   DepartmentStaffGuard,
   JobScopeGuard,
   SupabaseIdentityGuard,
   StaffCompanyReadGuard,
-  SuperAdminGuard,
 } from "../auth/auth.guards";
 import type { AuthenticatedRequest } from "../auth/auth.guards";
 import { EmailAssistantService } from "../intake/email-assistant.service";
@@ -36,7 +36,7 @@ export class QuoteRequestsController {
   ) {}
 
   @Post()
-  @UseGuards(SuperAdminGuard)
+  @UseGuards(ClientDeskGuard)
   create(@Body() body: unknown) {
     return this.requests.create(body);
   }
@@ -76,7 +76,7 @@ export class QuoteRequestsController {
   }
 
   @Patch(":id/customer")
-  @UseGuards(SuperAdminGuard)
+  @UseGuards(ClientDeskGuard)
   associateCustomer(@Param("id") id: string, @Body() body: unknown) {
     return this.requests.associateCustomer(id, body);
   }

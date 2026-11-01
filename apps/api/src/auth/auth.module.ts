@@ -44,6 +44,7 @@ import {
     DepartmentStaffGuard,
   ],
   exports: [
+    STAFF_AUTH_DIRECTORY,
     SupabaseAuthVerifier,
     SupabaseIdentityGuard,
     SuperAdminGuard,

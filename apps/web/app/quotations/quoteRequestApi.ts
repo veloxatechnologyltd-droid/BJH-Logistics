@@ -309,3 +309,51 @@ export async function getQuoteSuggestion(
     ),
   );
 }
+
+const apiRoot = apiBaseUrl.replace(/\/$/, "");
+
+export type StaffNotice = {
+  id: string;
+  kind: "request_overdue" | "inquiry_overdue" | "reminder";
+  quoteRequestId: string | null;
+  title: string;
+  note: string | null;
+  dueAt: string;
+};
+
+/** The signed-in person's notices: due now, and reminders still to come. */
+export async function listStaffNotices(): Promise<{
+  due: StaffNotice[];
+  upcoming: StaffNotice[];
+}> {
+  return readResponse(
+    await authenticatedFetch(`${apiRoot}/v1/staff-notifications`),
+  );
+}
+
+async function postNotice(path: string, body: unknown = {}) {
+  return readResponse<StaffNotice>(
+    await authenticatedFetch(`${apiRoot}/v1${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  );
+}
+
+export const dismissStaffNotice = (id: string) =>
+  postNotice(`/staff-notifications/${encodeURIComponent(id)}/dismiss`);
+export const snoozeStaffNotice = (id: string, minutes: number) =>
+  postNotice(`/staff-notifications/${encodeURIComponent(id)}/snooze`, {
+    minutes,
+  });
+/** "I will attend to this on <date, time>": pops up for this person then. */
+export const remindAboutRequest = (
+  requestId: string,
+  remindAt: string,
+  note?: string,
+) =>
+  postNotice(`/quote-requests/${encodeURIComponent(requestId)}/reminders`, {
+    remindAt,
+    note,
+  });

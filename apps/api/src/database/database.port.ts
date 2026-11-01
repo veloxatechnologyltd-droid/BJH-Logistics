@@ -2,6 +2,7 @@ import type {
   BusinessSettings,
   ChargeKind,
   DocumentType,
+  HeldStaffRoleKey,
   QuoteDecision,
   QuoteBasis,
   QuoteVersionInput,
@@ -261,7 +262,11 @@ export interface QuoteLineRecord {
   details: string | null;
   basis: QuoteBasis;
   basisNote: string | null;
+  /** The unit price; the line total is this times `quantity`. */
   amountMinor: number | null;
+  quantity: number;
+  /** An optional label such as 40ft. */
+  containerSize: string | null;
   /** One amount per size column of the version, or null for a single amount. */
   sizeAmountsMinor: number[] | null;
 }
@@ -451,6 +456,73 @@ export interface InvoiceRecord extends InvoiceTotals {
   voidedBy: string | null;
   voidedAt: string | null;
   voidReason: string | null;
+}
+
+/** One message in a client company's conversation with customer service. */
+export interface ChatMessageRecord {
+  id: string;
+  companyId: string;
+  direction: "from_client" | "to_client";
+  channel: "portal" | "email";
+  body: string;
+  authorUserId: string | null;
+  authorName: string | null;
+  emailFrom: string | null;
+  jobId: string | null;
+  createdAt: string;
+  /** When the other side first opened it. */
+  readAt: string | null;
+}
+
+/** A client conversation as listed for customer service. */
+export interface ChatThreadRecord {
+  companyId: string;
+  companyName: string;
+  customerNumber: string | null;
+  lastMessageAt: string;
+  lastBody: string;
+  lastDirection: ChatMessageRecord["direction"];
+  /** Client messages customer service has not opened yet. */
+  unread: number;
+}
+
+/** A notice for one staff member: an overdue request or inquiry, or their own reminder. */
+export interface StaffNotificationRecord {
+  id: string;
+  userId: string;
+  kind: "request_overdue" | "inquiry_overdue" | "reminder";
+  quoteRequestId: string | null;
+  title: string;
+  note: string | null;
+  /** When it shows (and, for a reminder, pops up). */
+  dueAt: string;
+  createdAt: string;
+  createdBy: string | null;
+  dismissedAt: string | null;
+}
+
+/** The client's acceptance of an issued invoice, recorded once. */
+export interface InvoiceAcceptanceRecord {
+  invoiceId: string;
+  acceptedAt: string;
+  acceptedBy: string;
+  signatoryName: string;
+  /** `staff`: customer service recorded it; `portal`: the client accepted it. */
+  via: "staff" | "portal";
+}
+
+/** A person working a job: its lead rep or an assistant. Removed rows are kept. */
+export interface JobAssignmentRecord {
+  id: string;
+  jobId: string;
+  userId: string;
+  kind: "lead" | "assistant";
+  assignedBy: string;
+  assignedAt: string;
+  /** Set when the super admin assigned before the client accepted an invoice. */
+  overrideReason: string | null;
+  removedBy: string | null;
+  removedAt: string | null;
 }
 
 export interface InvoicePaymentRecord {
@@ -750,6 +822,41 @@ export interface LeadRecord {
   stageChangedAt: string;
 }
 
+export interface LeadActivityRecord {
+  id: string;
+  leadId: string;
+  kind: "call" | "visit" | "email" | "meeting" | "note";
+  note: string;
+  occurredAt: string;
+  createdBy: string;
+  createdByEmail: string | null;
+}
+
+/** Sales figures for a period: leads logged and clients converted (first accepted quote). */
+export interface SalesPeriodRecord {
+  newLeads: number;
+  converted: number;
+  convertedCompanies: string[];
+}
+
+/** Sales and customer-service figures for a report period (no money). */
+export interface SalesServiceReportRecord {
+  newLeads: number;
+  leadsBySource: Record<string, number>;
+  /** Every lead today, by stage: the pipeline. */
+  pipeline: Record<string, number>;
+  requestsBySource: Record<string, number>;
+  inquiries: number;
+  inquiriesAnswered: number;
+  quotesIssued: number;
+  quotesAccepted: number;
+  quotesRejected: number;
+  /** Median hours from a request arriving to its first issued quote; null with none. */
+  medianHoursToQuote: number | null;
+  /** Quote requests from the period that still have no issued quote. */
+  waitingForQuote: number;
+}
+
 export interface JobFinanceRecord {
   jobId: string;
   fileNumber: string;
@@ -822,6 +929,27 @@ export interface ActivityFilter {
 }
 
 /** Undefined fields mean unrestricted; an empty array matches nothing. */
+/** Filters on the jobs list and board, on top of what the caller may see. */
+export interface JobListFilter {
+  statuses?: JobStatus[];
+  serviceLines?: ServiceLine[];
+  customerCompanyId?: string;
+  /** Jobs this person leads or assists on. */
+  assignedTo?: string;
+  /** YYYY-MM-DD, inclusive. */
+  openedFrom?: string;
+  openedTo?: string;
+  etaFrom?: string;
+  etaTo?: string;
+  /** Closed and cancelled jobs that finished before this day are left out. */
+  closedSince?: string;
+}
+
+export interface JobListRecord extends JobRecord {
+  currentEtaAt: string | null;
+  leadUserId: string | null;
+}
+
 export interface JobScope {
   companyIds?: string[];
   serviceLines?: ServiceLine[];
@@ -874,12 +1002,8 @@ export interface ActiveCustomerMembershipRecord {
   grantedAt: string;
 }
 
-export type StaffRoleKey =
-  | "super_admin"
-  | "air_import_rep"
-  | "air_export_rep"
-  | "sea_import_rep"
-  | "sea_export_rep";
+/** A role as stored: a current role, or a legacy one not yet converted. */
+export type StaffRoleKey = HeldStaffRoleKey;
 
 export interface StaffRoleAssignmentRecord {
   id: string;
@@ -1065,7 +1189,11 @@ export abstract class DatabasePort {
     openedBy: string,
     year: number,
   ): Promise<JobRecord>;
-  abstract listJobs(search: string, scope: JobScope): Promise<JobRecord[]>;
+  abstract listJobs(
+    search: string,
+    scope: JobScope,
+    filter?: JobListFilter,
+  ): Promise<JobListRecord[]>;
   abstract findJob(id: string, scope: JobScope): Promise<JobRecord | null>;
   abstract addJobParty(party: {
     jobId: string;
@@ -1372,6 +1500,101 @@ export abstract class DatabasePort {
     voidedBy: string,
     reason: string,
   ): Promise<InvoiceRecord | "not_found" | "already_void" | "has_payments">;
+  abstract listInvoiceAcceptances(
+    jobId: string,
+  ): Promise<InvoiceAcceptanceRecord[]>;
+  abstract recordInvoiceAcceptance(
+    jobId: string,
+    invoiceId: string,
+    acceptance: {
+      acceptedBy: string;
+      signatoryName: string;
+      via: InvoiceAcceptanceRecord["via"];
+    },
+  ): Promise<
+    InvoiceAcceptanceRecord | "not_found" | "not_issued" | "already_accepted"
+  >;
+  abstract listJobAssignments(jobId: string): Promise<JobAssignmentRecord[]>;
+  abstract listLeadActivities(leadId: string): Promise<LeadActivityRecord[]>;
+  abstract addLeadActivity(activity: {
+    leadId: string;
+    kind: LeadActivityRecord["kind"];
+    note: string;
+    occurredAt: string;
+    createdBy: string;
+  }): Promise<LeadActivityRecord | "not_found">;
+  /**
+   * A client is converted when they accept their first quote. Marks their open
+   * leads won (by company, or by the request the quote answered). Returns how
+   * many leads changed.
+   */
+  abstract winLeadsForAcceptedQuote(
+    companyId: string,
+    quoteRequestId: string | null,
+  ): Promise<number>;
+  /** Leads logged and clients converted from `from` (inclusive) to `to` (exclusive), YYYY-MM-DD. */
+  abstract salesPeriod(from: string, to: string): Promise<SalesPeriodRecord>;
+  /** Report figures from `from` to `to`, both inclusive (YYYY-MM-DD). */
+  abstract reportSalesAndService(
+    from: string,
+    to: string,
+  ): Promise<SalesServiceReportRecord>;
+  abstract listChatThreads(): Promise<ChatThreadRecord[]>;
+  abstract listChatMessages(companyId: string): Promise<ChatMessageRecord[]>;
+  abstract addChatMessage(
+    message: Omit<ChatMessageRecord, "id" | "createdAt" | "readAt">,
+  ): Promise<ChatMessageRecord>;
+  /** Marks the other side's messages in a conversation as read. */
+  abstract markChatRead(
+    companyId: string,
+    direction: ChatMessageRecord["direction"],
+  ): Promise<void>;
+  /** The company behind a customer number such as CUS-0012, if any. */
+  abstract findCompanyByCustomerNumber(
+    customerNumber: string,
+  ): Promise<string | null>;
+  /** The person's notices not yet dismissed, due or upcoming, soonest first. */
+  abstract listStaffNotifications(
+    userId: string,
+  ): Promise<StaffNotificationRecord[]>;
+  abstract createStaffReminder(reminder: {
+    userId: string;
+    quoteRequestId: string | null;
+    title: string;
+    note: string | null;
+    dueAt: string;
+    createdBy: string;
+  }): Promise<StaffNotificationRecord>;
+  abstract updateStaffNotification(
+    userId: string,
+    notificationId: string,
+    change: { dismiss: true } | { dueAt: string },
+  ): Promise<StaffNotificationRecord | "not_found">;
+  /**
+   * Raises a notice for every customer service account on each quote request
+   * with no issued quote, and each inquiry with no reply, older than
+   * `afterHours` and newer than `withinDays`. Never twice for one person and
+   * request. Returns how many were raised.
+   */
+  abstract raiseOverdueRequestNotices(
+    afterHours: number,
+    withinDays: number,
+  ): Promise<number>;
+  /** A new lead replaces the current one, in the same transaction. */
+  abstract assignJob(
+    jobId: string,
+    assignment: {
+      userId: string;
+      kind: JobAssignmentRecord["kind"];
+      assignedBy: string;
+      overrideReason: string | null;
+    },
+  ): Promise<JobAssignmentRecord | "already_on_job">;
+  abstract removeJobAssignment(
+    jobId: string,
+    assignmentId: string,
+    removedBy: string,
+  ): Promise<JobAssignmentRecord | "not_found">;
   abstract recordInvoicePayment(
     jobId: string,
     invoiceId: string,

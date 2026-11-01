@@ -14,6 +14,8 @@ import { DatabasePort } from "../database/database.port";
 import type { RequestMailbox } from "../database/database.port";
 import { EmailAssistantService } from "./email-assistant.service";
 import { InboundEmailService } from "./inbound-email.service";
+import { isRequestCopy } from "./request-copy.service";
+import { ChatService } from "../chat/chat.service";
 import type { ReceivedFile } from "./inbound-email.service";
 
 export interface MailboxSetup {
@@ -140,6 +142,7 @@ export class MailboxReaderService implements OnModuleInit, OnModuleDestroy {
     private readonly inbound: InboundEmailService,
     @Inject(EmailAssistantService)
     private readonly assistant: EmailAssistantService,
+    @Inject(ChatService) private readonly chat: ChatService,
   ) {}
 
   onModuleInit(): void {
@@ -287,8 +290,13 @@ export class MailboxReaderService implements OnModuleInit, OnModuleDestroy {
       if (!header) return "skipped";
       const receivedAt = new Date(header.internalDate ?? Date.now());
       const sender = header.envelope?.from?.[0]?.address?.toLowerCase();
-      // BJH's own mailboxes writing to each other are never taken in (no reply loops).
-      if (receivedAt < setup.since || (sender && own.includes(sender))) {
+      // BJH's own mailboxes writing to each other are never taken in (no reply
+      // loops), nor are the copies of website and portal requests sent here.
+      if (
+        receivedAt < setup.since ||
+        (sender && own.includes(sender)) ||
+        isRequestCopy(header.envelope?.subject)
+      ) {
         return "skipped";
       }
       const messageId = header.envelope?.messageId;
@@ -304,11 +312,19 @@ export class MailboxReaderService implements OnModuleInit, OnModuleDestroy {
         { uid: true },
       );
       if (!message || !message.source) return "skipped";
-      const { fields, files } = inboundFromMail(
-        await simpleParser(message.source),
-        receivedAt,
-        setup.name,
-      );
+      const parsed = await simpleParser(message.source);
+      // A reply in a client conversation joins it instead of becoming a request.
+      if (
+        await this.chat.receiveEmail({
+          subject: parsed.subject ?? "",
+          fromEmail: parsed.from?.value[0]?.address ?? "",
+          fromName: parsed.from?.value[0]?.name ?? "",
+          text: parsed.text ?? "",
+        })
+      ) {
+        return "received";
+      }
+      const { fields, files } = inboundFromMail(parsed, receivedAt, setup.name);
       const received = await this.inbound.receive(fields, files);
       if (received.duplicate) return "skipped";
       if (received.reading === "done") {

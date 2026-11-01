@@ -864,7 +864,7 @@ test("payments still arrive after a job is closed, but invoices cannot change", 
   assert.equal(after.outstandingMinor, 60000);
 });
 
-test("each payment gets a numbered receipt that only staff can print", async () => {
+test("each payment gets a numbered receipt; staff and the client's own accounts can print it", async () => {
   const [current] = await invoicesOf(jobA);
   const payments = current.payments ?? [];
   assert.ok(payments.length >= 3);
@@ -897,13 +897,15 @@ test("each payment gets a numbered receipt that only staff can print", async () 
   assert.ok(reversed);
   assert.equal((await get(receiptPath(reversed.id))).status, 200);
 
+  // Clients get their own receipts (client meeting, 2026-11-01); another
+  // company's job is not found for them.
   assert.equal(
     (await get(receiptPath(first.id), TEST_CUSTOMER_A_TOKEN)).status,
-    403,
+    200,
   );
   assert.equal(
     (await get(receiptPath(first.id), TEST_CUSTOMER_B_TOKEN)).status,
-    403,
+    404,
   );
   assert.equal(
     (await get(receiptPath(first.id), TEST_UNASSIGNED_TOKEN)).status,

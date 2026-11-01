@@ -149,6 +149,18 @@ export function JobBoard({
                         {serviceLineLabels[job.serviceLine]} · opened{" "}
                         {new Date(job.openedAt).toLocaleDateString()}
                       </p>
+                      {(job.leadEmail || job.currentEtaAt) && (
+                        <p className={styles.cardMeta}>
+                          {[
+                            job.leadEmail,
+                            job.currentEtaAt
+                              ? `ETA ${new Date(job.currentEtaAt).toLocaleDateString()}`
+                              : null,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </p>
+                      )}
                       {canMove && targets.length > 0 && (
                         <select
                           aria-label={`Move ${job.fileNumber} to another stage`}

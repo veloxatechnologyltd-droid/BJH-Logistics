@@ -10,6 +10,7 @@ import {
   deliveryMilestoneKeys,
   isUuid,
   jobCreateInputSchema,
+  jobListQuerySchema,
   jobStatusChangeInputSchema,
   jobStatusReasonRequired,
   jobStatusTransitions,
@@ -19,10 +20,13 @@ import {
 } from "@bjh/contracts";
 import type { MilestoneDefinition } from "@bjh/contracts";
 import { serviceLinesForRoles } from "../auth/auth.guards";
+import { STAFF_AUTH_DIRECTORY } from "../auth/staff-admin.port";
+import type { StaffAuthDirectory } from "../auth/staff-admin.port";
 import { milestoneMessage } from "../notifications/notification-messages";
 import { NotificationsService } from "../notifications/notifications.service";
 import {
   DatabasePort,
+  JobListRecord,
   JobRecord,
   JobScope,
   MilestoneEventRecord,
@@ -35,6 +39,7 @@ export class JobsService {
     @Inject(DatabasePort) private readonly database: DatabasePort,
     @Inject(NotificationsService)
     private readonly notifications: NotificationsService,
+    @Inject(STAFF_AUTH_DIRECTORY) private readonly auth: StaffAuthDirectory,
   ) {}
 
   /** Any active staff role may open a job; reps only for their own service line. */
@@ -77,7 +82,16 @@ export class JobsService {
     );
   }
 
-  list(search: unknown, scope: JobScope): Promise<JobRecord[]> {
+  /**
+   * The jobs the caller may see, narrowed by the list and board filters. Staff
+   * also get each job's lead; customers never see who works their job.
+   */
+  async list(
+    query: Record<string, unknown>,
+    viewerId: string,
+    scope: JobScope,
+  ): Promise<Array<JobListRecord & { leadEmail?: string | null }>> {
+    const { search, ...filters } = query;
     if (search !== undefined && typeof search !== "string") {
       throw new BadRequestException("search must be a string");
     }
@@ -85,7 +99,31 @@ export class JobsService {
     if (term.length > 200) {
       throw new BadRequestException("search must be at most 200 characters");
     }
-    return this.database.listJobs(term, scope);
+    const parsed = parseContract(jobListQuerySchema, filters);
+    if (!parsed.success) throw new BadRequestException(parsed.message);
+    const { status, serviceLine, assignedTo, ...rest } = parsed.data;
+    const jobs = await this.database.listJobs(term, scope, {
+      ...rest,
+      statuses: status,
+      serviceLines: serviceLine,
+      assignedTo: assignedTo === "me" ? viewerId : assignedTo,
+    });
+    if (scope.companyIds !== undefined) {
+      return jobs.map((job) => ({ ...job, leadUserId: null }));
+    }
+    const leadIds = [
+      ...new Set(
+        jobs.flatMap((job) => (job.leadUserId ? [job.leadUserId] : [])),
+      ),
+    ];
+    const leads = await Promise.all(leadIds.map((id) => this.auth.getUser(id)));
+    const emails = new Map(
+      leadIds.map((id, index) => [id, leads[index]?.email ?? null]),
+    );
+    return jobs.map((job) => ({
+      ...job,
+      leadEmail: job.leadUserId ? (emails.get(job.leadUserId) ?? null) : null,
+    }));
   }
 
   async get(id: string, scope: JobScope): Promise<JobRecord> {

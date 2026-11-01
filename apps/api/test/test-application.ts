@@ -26,6 +26,7 @@ import type {
 } from "../src/intake/email-extractor";
 import { DOCUMENT_READER } from "../src/documents/document-reader";
 import { MESSAGE_DRAFTER } from "../src/notifications/message-drafter";
+import { ASSISTANT_CLAUDE } from "../src/assistant/assistant.service";
 import type {
   DraftedMessage,
   MessageDraftContext,
@@ -191,6 +192,30 @@ const testFlaggedIdentities = new Map([
   ],
 ]);
 
+/**
+ * A stand-in for Claude in the staff helper: each call takes the next scripted
+ * reply and records the request, so tests see exactly what was sent.
+ */
+export const testAssistantClaude = {
+  model: "claude-test",
+  replies: [] as Array<Record<string, unknown>>,
+  requests: [] as Array<Record<string, unknown>>,
+  client: {
+    beta: {
+      messages: {
+        create: async (request: Record<string, unknown>) => {
+          testAssistantClaude.requests.push(
+            JSON.parse(JSON.stringify(request)) as Record<string, unknown>,
+          );
+          const reply = testAssistantClaude.replies.shift();
+          if (!reply) throw new Error("No scripted helper reply left");
+          return reply;
+        },
+      },
+    },
+  },
+};
+
 /** Every password the fake directory was asked to set, newest last. */
 export const testPasswordWrites: Array<{
   userId: string;
@@ -274,6 +299,8 @@ export async function createTestApplication(
     .useValue(testReplyDrafter)
     .overrideProvider(MESSAGE_DRAFTER)
     .useValue(testMessageDrafter)
+    .overrideProvider(ASSISTANT_CLAUDE)
+    .useValue(testAssistantClaude)
     .compile();
 
   const application = module.createNestApplication({ logger: false });

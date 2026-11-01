@@ -107,6 +107,8 @@ const feedEvents = [
   "eta_reminder",
   "invoice_issued",
   "payment_received",
+  "receipt_sent",
+  "chat_message",
   "delivery_dispatched",
   "delivery_delivered",
   "email_reply",

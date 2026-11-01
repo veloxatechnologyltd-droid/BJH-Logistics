@@ -1,0 +1,57 @@
+.activities {
+  margin-top: 6px;
+  font-weight: 400;
+}
+.activities summary {
+  color: var(--brand-primary);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0;
+}
+.add select,
+.add input {
+  border: 1px solid var(--brand-border);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 0.85rem;
+}
+.add input {
+  flex: 1 1 200px;
+}
+.add button {
+  border: 1px solid var(--brand-primary);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--brand-primary);
+  padding: 4px 14px;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.85rem;
+}
+.list span {
+  display: block;
+  color: var(--brand-muted);
+  font-size: 0.75rem;
+}
+.empty,
+.error {
+  margin: 4px 0;
+  font-size: 0.85rem;
+  color: var(--brand-muted);
+}

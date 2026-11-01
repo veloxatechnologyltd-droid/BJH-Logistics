@@ -10,6 +10,7 @@ import {
   useState,
 } from "react";
 import type { ReactNode } from "react";
+import { canReadInvoices, canWorkFinance } from "../auth/roleAccess";
 import { useStaffAccess } from "../auth/useStaffAccess";
 import {
   getStatusHistory,
@@ -157,10 +158,14 @@ export function JobShell({
   const { job } = data.timeline;
   const closedJob = job.status === "closed" || job.status === "cancelled";
   const base = `/jobs/${jobId}`;
+  // Finance sees costs and invoices; customer service and customers see invoices.
   const visibleTabs = tabs
     .filter((tab) => isStaff || !tab.staffOnly)
+    .filter((tab) => tab.slug !== "money" || !isStaff || canReadInvoices(roles))
     .map((tab) =>
-      tab.slug === "money" && !isStaff ? { ...tab, label: "Invoices" } : tab,
+      tab.slug === "money" && !canWorkFinance(roles)
+        ? { ...tab, label: "Invoices" }
+        : tab,
     );
 
   return (

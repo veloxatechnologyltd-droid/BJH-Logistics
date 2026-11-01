@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
-import type { ServiceLine } from "@bjh/contracts";
+import { serviceLinesForRoles } from "@bjh/contracts";
+import type { HeldStaffRoleKey, ServiceLine } from "@bjh/contracts";
 import { listCustomers } from "../customers/customerApi";
 import type { CustomerCompany } from "../customers/customerApi";
 import { useStaffAccess } from "../auth/useStaffAccess";
@@ -23,10 +24,12 @@ export function JobCreateForm() {
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
-  // Reps can only open jobs for their own service line; the super admin any.
+  // Reps can only open jobs for their own service lines; the super admin any.
   const allowedLines = isSuperAdmin
     ? lines
-    : lines.filter((line) => roles.includes(`${line}_rep`));
+    : lines.filter((line) =>
+        serviceLinesForRoles(roles as HeldStaffRoleKey[]).includes(line),
+      );
 
   useEffect(() => {
     listCustomers("")

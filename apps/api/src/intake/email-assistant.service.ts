@@ -92,7 +92,14 @@ export function priceGuideFrom(
                 `${sizeLabels[index] ?? `size ${index + 1}`} ${amount(minor)}`,
             )
             .join(" / ")
-        : amount(line.amountMinor),
+        : [
+            line.containerSize,
+            line.quantity > 1 && line.amountMinor !== null
+              ? `${line.quantity} x ${amount(line.amountMinor)}`
+              : amount(line.amountMinor),
+          ]
+            .filter(Boolean)
+            .join(" "),
     })),
   };
 }

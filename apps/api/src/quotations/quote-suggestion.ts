@@ -182,6 +182,8 @@ export function suggestQuote(
         basis: line.basis,
         basisNote: line.basisNote,
         amountMinor: line.amountMinor,
+        quantity: line.quantity,
+        containerSize: line.containerSize,
         sizeAmountsMinor: line.sizeAmountsMinor,
       })),
     },

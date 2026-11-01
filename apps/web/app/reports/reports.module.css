@@ -100,3 +100,42 @@
     display: grid;
   }
 }
+
+.chart {
+  flex: 1 1 320px;
+  min-width: 0;
+}
+.chart h3 {
+  margin: 0 0 10px;
+  color: var(--brand-ink);
+  font-size: 1rem;
+}
+.bars {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.bars li {
+  display: grid;
+  grid-template-columns: minmax(110px, 160px) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.9rem;
+}
+.barLabel {
+  color: var(--brand-muted);
+}
+.barTrack {
+  height: 12px;
+  border-radius: 999px;
+  background: #eef2f7;
+  overflow: hidden;
+}
+.barFill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--brand-primary);
+}

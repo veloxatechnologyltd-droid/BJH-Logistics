@@ -4,9 +4,13 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ChargeOptions } from "../ChargeOptions";
-import type { CSSProperties, FormEvent, ReactNode } from "react";
-import { quoteBasisKeys, quoteBasisLabels } from "@bjh/contracts";
-import type { QuoteBasis, ServiceLine } from "@bjh/contracts";
+import type { FormEvent, ReactNode } from "react";
+import {
+  quoteBasisKeys,
+  quoteBasisLabels,
+  serviceLinesForRoles,
+} from "@bjh/contracts";
+import type { HeldStaffRoleKey, QuoteBasis, ServiceLine } from "@bjh/contracts";
 import { useStaffAccess } from "../auth/useStaffAccess";
 import { listCustomers } from "../customers/customerApi";
 import type { CustomerCompany } from "../customers/customerApi";
@@ -15,7 +19,7 @@ import styles from "../jobs/jobs.module.css";
 import layout from "./quoteEditor.module.css";
 import { getSettings } from "../settings/business/settingsApi";
 import { popularCurrencies } from "../settings/business/BusinessSettingsForm";
-import { createQuote, saveQuoteDraft, toMinor } from "./quoteApi";
+import { createQuote, formatMoney, saveQuoteDraft, toMinor } from "./quoteApi";
 import type { Quote, QuoteVersion, QuoteVersionBody } from "./quoteApi";
 import { ErrorPopup } from "../ErrorPopup";
 
@@ -27,19 +31,25 @@ type LineDraft = {
   details: string;
   basis: QuoteBasis;
   basisNote: string;
+  containerSize: string;
+  quantity: string;
+  /** Unit price, in major units as typed. */
   amount: string;
-  sizeAmounts: string[];
 };
 
-const blankLine = (section = "", sizeCount = 0): LineDraft => ({
+const blankLine = (section = ""): LineDraft => ({
   section,
   description: "",
   details: "",
   basis: "fixed",
   basisNote: "",
+  containerSize: "",
+  quantity: "1",
   amount: "",
-  sizeAmounts: Array.from({ length: sizeCount }, () => ""),
 });
+
+/** Sizes offered while typing; any other label may be entered. */
+const COMMON_SIZES = ["20ft", "40ft", "40ft HC", "45ft", "LCL"];
 
 const major = (minor: number | null) =>
   minor === null ? "" : (minor / 100).toFixed(2);
@@ -47,27 +57,46 @@ const major = (minor: number | null) =>
 const cleanList = (items: string[]) =>
   items.map((item) => item.trim()).filter(Boolean);
 
-const DEFAULT_SIZE_LABELS = ["20ft", "40ft"];
+/**
+ * The draft's lines as rows of unit price x quantity. An earlier version that
+ * priced each line per size column becomes one row per size.
+ */
+function linesFrom(version: QuoteVersion | undefined): LineDraft[] {
+  if (!version || version.lines.length === 0) return [blankLine()];
+  return version.lines.flatMap((line) => {
+    const common = {
+      section: line.section ?? "",
+      description: line.description,
+      details: line.details ?? "",
+      basis: line.basis,
+      basisNote: line.basisNote ?? "",
+    };
+    if (line.sizeAmountsMinor) {
+      return line.sizeAmountsMinor.map((minor, index) => ({
+        ...common,
+        containerSize: version.sizeLabels[index] ?? "",
+        quantity: "1",
+        amount: major(minor),
+      }));
+    }
+    return [
+      {
+        ...common,
+        containerSize: line.containerSize ?? "",
+        quantity: String(line.quantity ?? 1),
+        amount: major(line.amountMinor),
+      },
+    ];
+  });
+}
 
-function linesFrom(
-  version: QuoteVersion | undefined,
-  sizeLabels: string[],
-): LineDraft[] {
-  if (!version || version.lines.length === 0) {
-    return [blankLine("", sizeLabels.length)];
-  }
-  return version.lines.map((line) => ({
-    section: line.section ?? "",
-    description: line.description,
-    details: line.details ?? "",
-    basis: line.basis,
-    basisNote: line.basisNote ?? "",
-    amount: major(line.amountMinor ?? line.sizeAmountsMinor?.[0] ?? null),
-    // A single-price charge fills every size, so all rows have the same boxes.
-    sizeAmounts: sizeLabels.map((_, index) =>
-      major(line.sizeAmountsMinor?.[index] ?? line.amountMinor),
-    ),
-  }));
+/** The row total as typed, or "" while the price or quantity is incomplete. */
+function rowTotal(line: LineDraft, currency: string): string {
+  const unit = toMinor(line.amount);
+  const quantity = Number(line.quantity);
+  if (unit === undefined || Number.isNaN(unit) || !Number.isInteger(quantity))
+    return "";
+  return formatMoney(unit * quantity, currency || "USD");
 }
 
 /** Prepares a new quote, or edits the draft version of an existing one. */
@@ -102,9 +131,6 @@ export function QuoteEditor({
   const [shipmentScope, setShipmentScope] = useState(
     draft?.shipmentScope ?? "",
   );
-  const [sizeLabels, setSizeLabels] = useState(
-    draft?.sizeLabels.length ? draft.sizeLabels : DEFAULT_SIZE_LABELS,
-  );
   const [intro, setIntro] = useState(draft?.intro ?? "");
   const [atCostNote, setAtCostNote] = useState(draft?.atCostNote ?? "");
   const [steps, setSteps] = useState(draft?.procedureSteps ?? []);
@@ -114,15 +140,7 @@ export function QuoteEditor({
   );
   const [timeline, setTimeline] = useState(draft?.timeline ?? "");
   const [terms, setTerms] = useState(draft?.terms ?? []);
-  const [lines, setLines] = useState<LineDraft[]>(() =>
-    linesFrom(
-      draft,
-      draft?.sizeLabels.length ? draft.sizeLabels : DEFAULT_SIZE_LABELS,
-    ),
-  );
-  const [sized, setSized] = useState(
-    draft ? draft.sizeLabels.length > 0 : true,
-  );
+  const [lines, setLines] = useState<LineDraft[]>(() => linesFrom(draft));
   const [grouped, setGrouped] = useState(
     Boolean(draft?.lines.some((line) => line.section)),
   );
@@ -134,7 +152,9 @@ export function QuoteEditor({
 
   const allowedLines = isSuperAdmin
     ? serviceLines
-    : serviceLines.filter((line) => roles.includes(`${line}_rep`));
+    : serviceLines.filter((line) =>
+        serviceLinesForRoles(roles as HeldStaffRoleKey[]).includes(line),
+      );
 
   useEffect(() => {
     if (quote) return;
@@ -169,82 +189,19 @@ export function QuoteEditor({
     );
   }
 
-  function changeSizeLabel(index: number, value: string) {
-    setSizeLabels((current) =>
-      current.map((label, at) => (at === index ? value : label)),
-    );
-  }
-
-  function addSizeLabel() {
-    if (sizeLabels.length >= 4) return;
-    setSizeLabels((current) => [...current, ""]);
-    setLines((current) =>
-      current.map((line) => ({
-        ...line,
-        sizeAmounts: [...line.sizeAmounts, ""],
-      })),
-    );
-  }
-
-  function removeSizeLabel(index: number) {
-    setSizeLabels((current) => current.filter((_, at) => at !== index));
-    setLines((current) =>
-      current.map((line) => ({
-        ...line,
-        sizeAmounts: line.sizeAmounts.filter((_, at) => at !== index),
-      })),
-    );
-  }
-
   function buildBody(): QuoteVersionBody | string {
-    const activeSizeLabels = sized
-      ? sizeLabels.map((label) => label.trim())
-      : [];
-    if (sized && activeSizeLabels.length === 0) {
-      return "Add at least one container size, or turn off size pricing";
-    }
-    if (activeSizeLabels.some((label) => !label)) {
-      return "Enter a name for each container size";
-    }
-    if (
-      new Set(activeSizeLabels.map((label) => label.toLowerCase())).size !==
-      activeSizeLabels.length
-    ) {
-      return "Container size names must be unique";
-    }
-
     const built: QuoteVersionBody["lines"] = [];
     for (const line of lines) {
-      const lineIsSized = sized;
-      const amounts = lineIsSized
-        ? line.sizeAmounts.map(toMinor)
-        : [toMinor(line.amount)];
-      if (amounts.some((value) => Number.isNaN(value))) {
-        return "Amounts must be numbers such as 250 or 250.50";
+      const unit = toMinor(line.amount);
+      if (unit !== undefined && Number.isNaN(unit)) {
+        return "Prices must be numbers such as 250 or 250.50";
       }
-      const enteredAmounts = amounts.filter(
-        (value): value is number => value !== undefined,
-      );
-      if (
-        lineIsSized &&
-        enteredAmounts.length > 0 &&
-        enteredAmounts.length !== activeSizeLabels.length
-      ) {
-        return "Enter a price for each container size, or leave all sizes empty for an at-cost charge";
+      const quantity = Number(line.quantity);
+      if (!Number.isInteger(quantity) || quantity < 1) {
+        return "Quantity must be a whole number of 1 or more";
       }
-      if (
-        lineIsSized &&
-        enteredAmounts.length === 0 &&
-        line.basis !== "at_cost"
-      ) {
-        return "Enter a price for each container size";
-      }
-      if (
-        !lineIsSized &&
-        enteredAmounts.length === 0 &&
-        line.basis !== "at_cost"
-      ) {
-        return "Enter a price or select At cost";
+      if (unit === undefined && line.basis !== "at_cost") {
+        return "Enter a unit price or select At cost";
       }
       built.push({
         section: (grouped && line.section.trim()) || undefined,
@@ -252,11 +209,9 @@ export function QuoteEditor({
         details: line.details.trim() || undefined,
         basis: line.basis,
         basisNote: line.basisNote.trim() || undefined,
-        ...(lineIsSized
-          ? enteredAmounts.length > 0
-            ? { sizeAmountsMinor: enteredAmounts }
-            : {}
-          : { amountMinor: amounts[0] }),
+        containerSize: line.containerSize.trim() || undefined,
+        quantity,
+        amountMinor: unit,
       });
     }
     return {
@@ -271,7 +226,7 @@ export function QuoteEditor({
       documentsNote: documentsNote.trim() || undefined,
       timeline: timeline.trim() || undefined,
       terms: cleanList(terms),
-      sizeLabels: activeSizeLabels,
+      sizeLabels: [],
       lines: built,
     };
   }
@@ -411,55 +366,6 @@ export function QuoteEditor({
           <h2>Charges</h2>
           <label className={layout.check}>
             <input
-              checked={sized}
-              onChange={(event) => setSized(event.target.checked)}
-              type="checkbox"
-            />
-            Price by container size
-          </label>
-          {sized && (
-            <div className={layout.sizes}>
-              {sizeLabels.map((label, index) => (
-                <label className={layout.small} key={index}>
-                  Container size {index + 1}
-                  <span className={layout.sizeInput}>
-                    <input
-                      aria-label={`Container size ${index + 1} name`}
-                      maxLength={30}
-                      onChange={(event) =>
-                        changeSizeLabel(index, event.target.value)
-                      }
-                      placeholder="e.g. 50ft"
-                      value={label}
-                    />
-                    <button
-                      aria-label={`Remove ${label || `container size ${index + 1}`}`}
-                      className={layout.remove}
-                      disabled={sizeLabels.length === 1}
-                      onClick={() => removeSizeLabel(index)}
-                      type="button"
-                    >
-                      Remove
-                    </button>
-                  </span>
-                </label>
-              ))}
-              <button
-                className={styles.secondaryButton}
-                disabled={sizeLabels.length >= 4}
-                onClick={addSizeLabel}
-                type="button"
-              >
-                Add container size
-              </button>
-              <p className={styles.muted}>
-                Container sizes are quote-specific. Rename, remove or add sizes
-                to match this shipment.
-              </p>
-            </div>
-          )}
-          <label className={layout.check}>
-            <input
               checked={grouped}
               onChange={(event) => setGrouped(event.target.checked)}
               type="checkbox"
@@ -468,14 +374,14 @@ export function QuoteEditor({
           </label>
           <div>
             <ChargeOptions id="quote-charge-options" />
+            <datalist id="quote-size-options">
+              {COMMON_SIZES.map((size) => (
+                <option key={size} value={size} />
+              ))}
+            </datalist>
             {lines.map((line, index) => (
               <div
-                className={`${layout.charge} ${sized ? "" : layout.single}`}
-                style={
-                  {
-                    "--size-count": sized ? sizeLabels.length : 0,
-                  } as CSSProperties
-                }
+                className={`${layout.charge} ${layout.unitPriced}`}
                 key={index}
               >
                 <label className={`${layout.small} ${layout.chargeName}`}>
@@ -490,38 +396,46 @@ export function QuoteEditor({
                     value={line.description}
                   />
                 </label>
-                {sized ? (
-                  <>
-                    {sizeLabels.map((label, sizeIndex) => (
-                      <label className={layout.small} key={sizeIndex}>
-                        {label.trim() || `Size ${sizeIndex + 1}`}
-                        <input
-                          aria-label={`${label.trim() || `Size ${sizeIndex + 1}`} price for ${line.description || `charge ${index + 1}`}`}
-                          inputMode="decimal"
-                          onChange={(event) =>
-                            change(index, {
-                              sizeAmounts: line.sizeAmounts.map((amount, at) =>
-                                at === sizeIndex ? event.target.value : amount,
-                              ),
-                            })
-                          }
-                          value={line.sizeAmounts[sizeIndex] ?? ""}
-                        />
-                      </label>
-                    ))}
-                  </>
-                ) : (
-                  <label className={layout.small}>
-                    Price
-                    <input
-                      inputMode="decimal"
-                      onChange={(event) =>
-                        change(index, { amount: event.target.value })
-                      }
-                      value={line.amount}
-                    />
-                  </label>
-                )}
+                <label className={layout.small}>
+                  Container size
+                  <input
+                    list="quote-size-options"
+                    maxLength={30}
+                    onChange={(event) =>
+                      change(index, { containerSize: event.target.value })
+                    }
+                    placeholder="Optional"
+                    value={line.containerSize}
+                  />
+                </label>
+                <label className={layout.small}>
+                  Qty
+                  <input
+                    inputMode="numeric"
+                    min={1}
+                    onChange={(event) =>
+                      change(index, { quantity: event.target.value })
+                    }
+                    type="number"
+                    value={line.quantity}
+                  />
+                </label>
+                <label className={layout.small}>
+                  Unit price
+                  <input
+                    inputMode="decimal"
+                    onChange={(event) =>
+                      change(index, { amount: event.target.value })
+                    }
+                    value={line.amount}
+                  />
+                </label>
+                <div className={layout.small}>
+                  Total
+                  <output className={layout.total}>
+                    {rowTotal(line, currency) || "—"}
+                  </output>
+                </div>
                 <label className={layout.small}>
                   Basis
                   <select
@@ -581,10 +495,7 @@ export function QuoteEditor({
               onClick={() =>
                 setLines((current) => [
                   ...current,
-                  blankLine(
-                    current[current.length - 1]?.section ?? "",
-                    sized ? sizeLabels.length : 0,
-                  ),
+                  blankLine(current[current.length - 1]?.section ?? ""),
                 ])
               }
               type="button"
@@ -594,6 +505,21 @@ export function QuoteEditor({
           </div>
           <p className={styles.muted}>
             Leave the price empty only when the basis is At cost.
+          </p>
+          <p className={layout.grandTotal}>
+            Total{" "}
+            {formatMoney(
+              lines.reduce((sum, line) => {
+                const unit = toMinor(line.amount);
+                const quantity = Number(line.quantity);
+                return unit === undefined ||
+                  Number.isNaN(unit) ||
+                  !Number.isInteger(quantity)
+                  ? sum
+                  : sum + unit * quantity;
+              }, 0),
+              currency || "USD",
+            )}
           </p>
 
           <details className={layout.more}>

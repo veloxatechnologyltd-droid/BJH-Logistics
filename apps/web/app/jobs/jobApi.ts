@@ -5,6 +5,7 @@ import type {
   PartyRole,
   ReferenceKind,
   ServiceLine,
+  HeldStaffRoleKey,
   StaffRoleKey,
   TaskKind,
   ChargeKind,
@@ -14,6 +15,7 @@ import type {
   StockKind,
   TransportDocumentKind,
 } from "@bjh/contracts";
+import { staffRoleLabels } from "@bjh/contracts";
 import { authenticatedFetch } from "../auth/authenticatedFetch";
 
 export type Job = {
@@ -28,6 +30,23 @@ export type Job = {
   openedBy: string;
   openedAt: string;
   closedAt: string | null;
+  /** On the jobs list: the newest ETA and, for staff, the lead's email. */
+  currentEtaAt?: string | null;
+  leadUserId?: string | null;
+  leadEmail?: string | null;
+};
+
+/** Jobs list and board filters; each is optional and they combine. */
+export type JobFilters = {
+  status?: JobStatus[];
+  serviceLine?: ServiceLine[];
+  customerCompanyId?: string;
+  assignedTo?: string;
+  openedFrom?: string;
+  openedTo?: string;
+  etaFrom?: string;
+  etaTo?: string;
+  closedSince?: string;
 };
 
 export type MilestoneEvent = {
@@ -118,8 +137,14 @@ function send<T>(path: string, method: string, body?: unknown): Promise<T> {
   }).then((response) => readResponse<T>(response));
 }
 
-export const listJobs = (search: string) =>
-  send<Job[]>(`?${new URLSearchParams({ search })}`, "GET");
+export function listJobs(search: string, filters: JobFilters = {}) {
+  const query = new URLSearchParams({ search });
+  for (const [key, value] of Object.entries(filters)) {
+    const text = Array.isArray(value) ? value.join(",") : value;
+    if (text) query.set(key, text);
+  }
+  return send<Job[]>(`?${query}`, "GET");
+}
 export const createJob = (input: {
   customerCompanyId: string;
   serviceLine: ServiceLine;
@@ -251,7 +276,7 @@ export type JobTask = {
   kind: TaskKind;
   title: string;
   details: string | null;
-  assignedRole: StaffRoleKey;
+  assignedRole: HeldStaffRoleKey;
   dueDate: string | null;
   status: "open" | "done";
   completedAt: string | null;
@@ -266,13 +291,7 @@ export const taskKindLabels: Record<TaskKind, string> = {
   other: "Other",
 };
 
-export const roleLabels: Record<StaffRoleKey, string> = {
-  super_admin: "Super admin",
-  sea_import_rep: "Sea import",
-  sea_export_rep: "Sea export",
-  air_import_rep: "Air import",
-  air_export_rep: "Air export",
-};
+export const roleLabels = staffRoleLabels;
 
 export const listJobTasks = (id: string) =>
   send<JobTask[]>(`/${encodeURIComponent(id)}/tasks`, "GET");
@@ -426,7 +445,57 @@ export type Invoice = {
   paymentStatus: "draft" | "void" | "unpaid" | "partial" | "paid";
   /** Staff only; customers see the balance but not the ledger. */
   payments?: InvoicePayment[];
+  acceptance: InvoiceAcceptance | null;
 };
+
+export type InvoiceAcceptance = {
+  acceptedAt: string;
+  signatoryName: string;
+  via: "staff" | "portal";
+};
+
+export type JobTeamMember = {
+  id: string;
+  userId: string;
+  email: string | null;
+  kind: "lead" | "assistant";
+  assignedAt: string;
+  overrideReason: string | null;
+  removedAt: string | null;
+};
+
+export type JobTeam = {
+  team: JobTeamMember[];
+  history: JobTeamMember[];
+  invoiceAccepted: boolean;
+  candidates: Array<{ userId: string; email: string | null }>;
+};
+
+export const getJobTeam = (id: string) =>
+  send<JobTeam>(`/${encodeURIComponent(id)}/team`, "GET");
+export const assignJobMember = (
+  id: string,
+  input: {
+    userId: string;
+    kind: "lead" | "assistant";
+    overrideReason?: string;
+  },
+) => send<JobTeamMember>(`/${encodeURIComponent(id)}/team`, "POST", input);
+export const removeJobMember = (id: string, assignmentId: string) =>
+  send<JobTeamMember>(
+    `/${encodeURIComponent(id)}/team/${encodeURIComponent(assignmentId)}`,
+    "DELETE",
+  );
+export const acceptInvoice = (
+  id: string,
+  invoiceId: string,
+  signatoryName: string,
+) =>
+  send<InvoiceAcceptance>(
+    `/${encodeURIComponent(id)}/invoices/${encodeURIComponent(invoiceId)}/accept`,
+    "POST",
+    { signatoryName },
+  );
 
 export type InvoiceDraftInput = {
   currency: string;
@@ -670,6 +739,25 @@ export type ReportsData = {
   }>;
   asOf: string;
   stockBalances: StockBalance[];
+  /** Money figures (invoices, payments) are only filled in for finance. */
+  finance: boolean;
+  sales: {
+    newLeads: number;
+    leadsBySource: Record<string, number>;
+    pipeline: Record<string, number>;
+    converted: number;
+    convertedCompanies: string[];
+  };
+  service: {
+    requestsBySource: Record<string, number>;
+    inquiries: number;
+    inquiriesAnswered: number;
+    quotesIssued: number;
+    quotesAccepted: number;
+    quotesRejected: number;
+    medianHoursToQuote: number | null;
+    waitingForQuote: number;
+  };
 };
 
 export const getReports = (from: string, to: string) => {
@@ -976,4 +1064,30 @@ export const getOutstandingInvoices = (companyId: string) =>
   }>(
     `/invoices/outstanding${companyId ? `?companyId=${encodeURIComponent(companyId)}` : ""}`,
     "GET",
+  );
+
+export type Receipt = {
+  paymentId: string;
+  invoiceId: string;
+  jobId: string;
+  fileNumber: string;
+  customerCompanyName: string;
+  invoiceNumber: string;
+  receiptNumber: string;
+  currency: string;
+  amountMinor: number;
+  receivedOn: string;
+  method: PaymentMethod;
+  /** Staff only; null for customers. */
+  reference: string | null;
+  reversed: boolean;
+};
+
+export const listReceipts = () => sendApi<Receipt[]>("/receipts", "GET");
+
+/** Emails the receipt, PDF attached, to the client's contacts. */
+export const sendReceipt = (id: string, invoiceId: string, paymentId: string) =>
+  send<{ queued: boolean }>(
+    `/${encodeURIComponent(id)}/invoices/${encodeURIComponent(invoiceId)}/payments/${encodeURIComponent(paymentId)}/receipt/send`,
+    "POST",
   );

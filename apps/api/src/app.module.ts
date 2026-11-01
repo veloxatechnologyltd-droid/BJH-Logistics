@@ -45,6 +45,20 @@ import {
   createInquiryEmailProvider,
   createSmsProvider,
 } from "./notifications/providers";
+import { RequestCopyService } from "./intake/request-copy.service";
+import { ChatController } from "./chat/chat.controller";
+import { AssistantController } from "./assistant/assistant.controller";
+import {
+  ASSISTANT_CLAUDE,
+  AssistantService,
+  DEFAULT_ASSISTANT_MODEL,
+} from "./assistant/assistant.service";
+import { claudeFromEnvironment } from "./ai/claude";
+import { ChatService } from "./chat/chat.service";
+import { StaffNotificationsController } from "./notifications/staff-notifications.controller";
+import { StaffNotificationsService } from "./notifications/staff-notifications.service";
+import { JobAssignmentsController } from "./jobs/job-assignments.controller";
+import { JobAssignmentsService } from "./jobs/job-assignments.service";
 import { JobsController } from "./jobs/jobs.controller";
 import { JobsService } from "./jobs/jobs.service";
 import { CustomersController } from "./customers/customers.controller";
@@ -62,6 +76,7 @@ import {
   FinanceSummaryController,
   OutstandingInvoicesController,
   PaymentsController,
+  ReceiptsController,
 } from "./finance/invoices.controller";
 import { InvoicesService } from "./finance/invoices.service";
 import { InboundEmailController } from "./intake/inbound-email.controller";
@@ -117,6 +132,10 @@ import { ReportsService } from "./reports/reports.service";
     CustomersController,
     LeadsController,
     JobsController,
+    JobAssignmentsController,
+    StaffNotificationsController,
+    ChatController,
+    AssistantController,
     JobDetailsController,
     JobCorrespondenceController,
     AdminNotificationsController,
@@ -125,6 +144,7 @@ import { ReportsService } from "./reports/reports.service";
     JobChargesController,
     InvoicesController,
     OutstandingInvoicesController,
+    ReceiptsController,
     FinanceSummaryController,
     ReportsController,
     PaymentsController,
@@ -152,6 +172,25 @@ import { ReportsService } from "./reports/reports.service";
     CustomersService,
     LeadsService,
     JobsService,
+    JobAssignmentsService,
+    StaffNotificationsService,
+    ChatService,
+    AssistantService,
+    {
+      provide: ASSISTANT_CLAUDE,
+      useFactory: () => {
+        const setup = claudeFromEnvironment(process.env, {
+          timeoutMs: 120_000,
+        });
+        return setup
+          ? {
+              ...setup,
+              model:
+                process.env.ASSISTANT_MODEL?.trim() || DEFAULT_ASSISTANT_MODEL,
+            }
+          : null;
+      },
+    },
     JobDetailsService,
     JobCorrespondenceService,
     NotificationsService,
@@ -175,6 +214,7 @@ import { ReportsService } from "./reports/reports.service";
     { provide: EMAIL_EXTRACTOR, useFactory: () => createEmailExtractor() },
     EmailAssistantService,
     MailboxReaderService,
+    RequestCopyService,
     { provide: REPLY_DRAFTER, useFactory: () => createReplyDrafter() },
     TransportService,
     TransportDocumentsService,

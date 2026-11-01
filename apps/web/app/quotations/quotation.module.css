@@ -1295,3 +1295,33 @@ input:focus-visible {
   margin: 0 0 12px;
   font-size: 0.82rem;
 }
+
+/* "Remind me" on a request: a button that opens a small date and note form. */
+.remindMe {
+  display: grid;
+  gap: 8px;
+}
+.remindForm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 10px;
+}
+.remindForm label {
+  display: grid;
+  gap: 4px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--brand-muted);
+}
+.remindForm input {
+  border: 1px solid var(--brand-border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font: inherit;
+}
+.remindSaved {
+  margin: 0;
+  color: var(--brand-muted);
+  font-size: 0.85rem;
+}

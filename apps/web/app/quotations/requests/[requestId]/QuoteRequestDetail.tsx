@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { canWorkQuotes } from "../../../auth/roleAccess";
+import { RemindMe } from "./RemindMe";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { listCustomers } from "../../../customers/customerApi";
@@ -137,7 +139,7 @@ export function QuoteRequestDetail() {
               Open quote{request.quoteNumber ? ` ${request.quoteNumber}` : ""}
             </Link>
           ) : (
-            staffAccess.roles.length > 0 && (
+            canWorkQuotes(staffAccess.roles) && (
               <Link
                 className={styles.primaryButton}
                 href={`/quotes/new?requestId=${request.id}&customerId=${request.customerCompanyId}`}
@@ -147,6 +149,9 @@ export function QuoteRequestDetail() {
             )
           ))}
       </header>
+      {request && staffAccess.roles.length > 0 && (
+        <RemindMe requestId={request.id} />
+      )}
 
       {loadState === "loading" && (
         <div className={styles.statePanel} role="status" aria-live="polite">

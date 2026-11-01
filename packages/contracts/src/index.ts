@@ -1,14 +1,50 @@
 import { z } from "zod";
 
 export const departmentRoleKeys = [
+  "import_rep",
+  "export_rep",
+  "customer_service_rep",
+  "sales_rep",
+  "finance_rep",
+] as const;
+export const staffRoleKeys = ["super_admin", ...departmentRoleKeys] as const;
+
+export type StaffRoleKey = (typeof staffRoleKeys)[number];
+
+/**
+ * The roles used before 2026-11-01, one per mode and direction. Production
+ * accounts may still hold them until the conversion migration runs, so they are
+ * honoured when read but can no longer be assigned.
+ */
+export const legacyStaffRoleKeys = [
   "air_import_rep",
   "air_export_rep",
   "sea_import_rep",
   "sea_export_rep",
 ] as const;
-export const staffRoleKeys = ["super_admin", ...departmentRoleKeys] as const;
+export type LegacyStaffRoleKey = (typeof legacyStaffRoleKeys)[number];
+/** A role an account may hold today: a current one or a not-yet-converted legacy one. */
+export type HeldStaffRoleKey = StaffRoleKey | LegacyStaffRoleKey;
 
-export type StaffRoleKey = (typeof staffRoleKeys)[number];
+export const legacyRoleReplacement: Record<LegacyStaffRoleKey, StaffRoleKey> = {
+  air_import_rep: "import_rep",
+  sea_import_rep: "import_rep",
+  air_export_rep: "export_rep",
+  sea_export_rep: "export_rep",
+};
+
+export const staffRoleLabels: Record<HeldStaffRoleKey, string> = {
+  super_admin: "Super admin",
+  import_rep: "Import rep",
+  export_rep: "Export rep",
+  customer_service_rep: "Customer service",
+  sales_rep: "Sales",
+  finance_rep: "Finance",
+  air_import_rep: "Air import (old role)",
+  air_export_rep: "Air export (old role)",
+  sea_import_rep: "Sea import (old role)",
+  sea_export_rep: "Sea export (old role)",
+};
 
 export const serviceLineKeys = [
   "sea_import",
@@ -19,6 +55,38 @@ export const serviceLineKeys = [
   "road_transport",
 ] as const;
 export type ServiceLine = (typeof serviceLineKeys)[number];
+
+/** Warehousing and road transport have no department of their own: any rep works them. */
+const sharedServiceLines: ServiceLine[] = ["warehousing", "road_transport"];
+
+const roleServiceLines: Record<
+  Exclude<HeldStaffRoleKey, "super_admin">,
+  readonly ServiceLine[]
+> = {
+  import_rep: ["sea_import", "air_import"],
+  export_rep: ["sea_export", "air_export"],
+  // Customer service faces the client on every job; sales and finance see the rest.
+  customer_service_rep: serviceLineKeys,
+  sales_rep: serviceLineKeys,
+  finance_rep: serviceLineKeys,
+  air_import_rep: ["air_import"],
+  air_export_rep: ["air_export"],
+  sea_import_rep: ["sea_import"],
+  sea_export_rep: ["sea_export"],
+};
+
+/** Service lines the given roles work on; `super_admin` alone maps to none (it sees all). */
+export function serviceLinesForRoles(
+  roles: readonly HeldStaffRoleKey[],
+): ServiceLine[] {
+  const lines = new Set<ServiceLine>();
+  for (const role of roles) {
+    if (role === "super_admin") continue;
+    for (const line of roleServiceLines[role] ?? []) lines.add(line);
+    for (const line of sharedServiceLines) lines.add(line);
+  }
+  return serviceLineKeys.filter((line) => lines.has(line));
+}
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -299,6 +367,65 @@ export const jobStatusKeys = [
   "cancelled",
 ] as const;
 export type JobStatus = (typeof jobStatusKeys)[number];
+
+const queryDate = (field: string) =>
+  z
+    .string({ error: `${field} must be a date (YYYY-MM-DD)` })
+    .regex(/^\d{4}-\d{2}-\d{2}$/, {
+      error: `${field} must be a date (YYYY-MM-DD)`,
+    })
+    // A real calendar day: 2026-02-30 would otherwise roll over to March.
+    .refine(
+      (value) => {
+        const day = new Date(`${value}T00:00:00Z`);
+        return (
+          !Number.isNaN(day.getTime()) &&
+          day.toISOString().slice(0, 10) === value
+        );
+      },
+      { error: `${field} must be a date (YYYY-MM-DD)` },
+    )
+    .optional();
+
+/** A comma-separated query value, each part one of `keys`. */
+const queryList = <K extends string>(field: string, keys: readonly K[]) =>
+  z
+    .string({ error: `${field} must be text` })
+    .optional()
+    .transform((value) =>
+      value
+        ? value
+            .split(",")
+            .map((part) => part.trim())
+            .filter(Boolean)
+        : undefined,
+    )
+    .refine(
+      (parts) => !parts || parts.every((part) => keys.includes(part as K)),
+      { error: `${field} must be one or more of ${keys.join(", ")}` },
+    )
+    .transform((parts) => parts as K[] | undefined);
+
+/** Narrowing the jobs list or board; every filter is optional and they combine. */
+export const jobListQuerySchema = z.object({
+  status: queryList("status", jobStatusKeys),
+  serviceLine: queryList("serviceLine", serviceLineKeys),
+  customerCompanyId: uuidField("customerCompanyId").optional(),
+  /** `me` for the signed-in person, or a staff member's ID: jobs they lead or assist. */
+  assignedTo: z
+    .string({ error: "assignedTo must be me or a valid ID" })
+    .refine((value) => value === "me" || isUuid(value), {
+      error: "assignedTo must be me or a valid ID",
+    })
+    .optional(),
+  openedFrom: queryDate("openedFrom"),
+  openedTo: queryDate("openedTo"),
+  etaFrom: queryDate("etaFrom"),
+  etaTo: queryDate("etaTo"),
+  /** Leaves out closed and cancelled jobs that finished before this date. */
+  closedSince: queryDate("closedSince"),
+});
+export type JobListQuery = z.infer<typeof jobListQuerySchema>;
 
 /** A customer is active with an unfinished job or one opened within this many days. */
 export const customerActiveDays = 90;
@@ -800,7 +927,11 @@ const textList = (field: string, maximumItems: number, maximumLength: number) =>
     .nullish()
     .transform((value) => value ?? []);
 
-/** One charge row: a single amount, or one amount per size column of the quote. */
+/**
+ * One charge row. Normally a unit price (`amountMinor`) times a quantity, with
+ * an optional container size label such as 40ft. Earlier quotes priced a row
+ * per size column instead (`sizeAmountsMinor`); those keep a quantity of 1.
+ */
 export const quoteLineInputSchema = z
   .object(
     {
@@ -813,6 +944,14 @@ export const quoteLineInputSchema = z
       }),
       basisNote: optionalText("basisNote", 300),
       amountMinor: minorAmount("amountMinor"),
+      quantity: z
+        .number({ error: "quantity must be a whole number" })
+        .int({ error: "quantity must be a whole number" })
+        .min(1, { error: "quantity must be at least 1" })
+        .max(100_000, { error: "quantity is too large" })
+        .nullish()
+        .transform((value) => value ?? 1),
+      containerSize: optionalText("containerSize", 30),
       sizeAmountsMinor: z
         .array(
           z
@@ -836,6 +975,11 @@ export const quoteLineInputSchema = z
         code: "custom",
         message: "Use either one amount or an amount per size, not both",
       });
+    } else if (sized && line.quantity !== 1) {
+      context.addIssue({
+        code: "custom",
+        message: "A line priced per size column has a quantity of 1",
+      });
     } else if (
       line.basis !== "at_cost" &&
       line.amountMinor === null &&
@@ -848,6 +992,14 @@ export const quoteLineInputSchema = z
     }
   });
 export type QuoteLineInput = z.infer<typeof quoteLineInputSchema>;
+
+/** A line's total in minor units: quantity x unit price; null when it has no single price. */
+export function quoteLineTotalMinor(line: {
+  amountMinor: number | null;
+  quantity: number;
+}): number | null {
+  return line.amountMinor === null ? null : line.amountMinor * line.quantity;
+}
 
 export const quoteVersionInputSchema = z
   .object(
@@ -1313,6 +1465,67 @@ export type InvoiceFromChargesInput = z.infer<
 export const invoiceReasonInputSchema = z.object(
   { reason: requiredText("reason", 500) },
   objectError("A reason is required"),
+);
+
+/** The client accepting an issued invoice: the name of the person who agreed. */
+export const invoiceAcceptanceInputSchema = z.object(
+  { signatoryName: requiredText("signatoryName", 160) },
+  objectError("A signatoryName is required"),
+);
+
+/** "I will attend to this on <date, time>": a reminder that pops up for its author. */
+export const reminderInputSchema = z.object(
+  {
+    remindAt: z
+      .string({ error: "remindAt is required" })
+      .refine((value) => !Number.isNaN(Date.parse(value)), {
+        error: "remindAt must be a date and time",
+      })
+      .transform((value) => new Date(value).toISOString()),
+    note: optionalText("note", 500),
+  },
+  objectError("A reminder object is required"),
+);
+
+/** Putting a notice off: show it again after this many minutes (up to a week). */
+export const snoozeInputSchema = z.object(
+  {
+    minutes: z
+      .number({ error: "minutes must be a whole number" })
+      .int({ error: "minutes must be a whole number" })
+      .min(5, { error: "minutes must be at least 5" })
+      .max(10_080, { error: "minutes must be at most 10080 (a week)" }),
+  },
+  objectError("A snooze object is required"),
+);
+
+/** A message in a client conversation; a customer with several companies names one. */
+export const chatMessageInputSchema = z.object(
+  {
+    body: requiredText("body", 5000),
+    jobId: uuidField("jobId")
+      .nullish()
+      .transform((value) => value ?? null),
+    companyId: uuidField("companyId")
+      .nullish()
+      .transform((value) => value ?? null),
+  },
+  objectError("A message object is required"),
+);
+
+export const jobAssignmentKinds = ["lead", "assistant"] as const;
+export type JobAssignmentKind = (typeof jobAssignmentKinds)[number];
+
+/** Customer service putting a rep on a job, as its lead or to assist. */
+export const jobAssignmentInputSchema = z.object(
+  {
+    userId: uuidField("userId"),
+    kind: z
+      .enum(jobAssignmentKinds, { error: "kind must be lead or assistant" })
+      .default("lead"),
+    overrideReason: optionalText("overrideReason", 500),
+  },
+  objectError("An assignment object is required"),
 );
 
 export const paymentMethodKeys = [
@@ -1858,7 +2071,10 @@ export const leadUpdateInputSchema = z
       lostReason: optionalText("lostReason", 500),
       customerCompanyId: uuidField("customerCompanyId"),
       owner: z
-        .literal("me", { error: 'owner must be "me" or null' })
+        .string({ error: 'owner must be "me", a staff member\'s ID or null' })
+        .refine((value) => value === "me" || isUuid(value), {
+          error: 'owner must be "me", a staff member\'s ID or null',
+        })
         .nullable(),
     },
     objectError("A lead update object is required"),
@@ -1868,3 +2084,31 @@ export const leadUpdateInputSchema = z
     error: "At least one lead field must be provided",
   });
 export type LeadUpdateInput = z.infer<typeof leadUpdateInputSchema>;
+
+export const leadActivityKinds = [
+  "call",
+  "visit",
+  "email",
+  "meeting",
+  "note",
+] as const;
+export type LeadActivityKind = (typeof leadActivityKinds)[number];
+
+/** A follow-up with a lead: a call, visit, email or meeting, or a note. */
+export const leadActivityInputSchema = z.object(
+  {
+    kind: z.enum(leadActivityKinds, {
+      error: `kind must be one of ${leadActivityKinds.join(", ")}`,
+    }),
+    note: requiredText("note", 2000),
+    occurredAt: z
+      .string({ error: "occurredAt must be a date and time" })
+      .refine((value) => !Number.isNaN(Date.parse(value)), {
+        error: "occurredAt must be a date and time",
+      })
+      .transform((value) => new Date(value).toISOString())
+      .nullish()
+      .transform((value) => value ?? null),
+  },
+  objectError("An activity object is required"),
+);

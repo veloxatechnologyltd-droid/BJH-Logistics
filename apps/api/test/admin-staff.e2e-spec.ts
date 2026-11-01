@@ -135,7 +135,7 @@ test("super admin creates an account directly with a password and role", async (
     body: JSON.stringify({
       email: " new@example.test ",
       password: "secure-example-password",
-      roleKey: "sea_export_rep",
+      roleKey: "export_rep",
     }),
   });
   assert.equal(response.status, 201);
@@ -144,7 +144,7 @@ test("super admin creates an account directly with a password and role", async (
   const data = (await response.json()) as {
     assignment: { roleKey: string; assignedBy: string };
   };
-  assert.equal(data.assignment.roleKey, "sea_export_rep");
+  assert.equal(data.assignment.roleKey, "export_rep");
   assert.equal(data.assignment.assignedBy, adminId);
 });
 
@@ -155,12 +155,12 @@ test("super admin can assign and revoke roles while preserving history", async (
     {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ roleKey: "air_import_rep" }),
+      body: JSON.stringify({ roleKey: "import_rep" }),
     },
   );
   assert.equal(assigned.status, 201);
   const revoked = await call(
-    `/api/v1/admin/staff/${staffId}/roles/air_import_rep`,
+    `/api/v1/admin/staff/${staffId}/roles/import_rep`,
     adminToken,
     { method: "DELETE" },
   );
@@ -174,7 +174,7 @@ test("super admin can assign and revoke roles while preserving history", async (
   };
   const staff = data.users.find((user) => user.id === staffId);
   assert.equal(staff?.assignments.length, 1);
-  assert.equal(staff?.assignments[0].roleKey, "air_import_rep");
+  assert.equal(staff?.assignments[0].roleKey, "import_rep");
   assert.ok(staff?.assignments[0].revokedAt);
 });
 

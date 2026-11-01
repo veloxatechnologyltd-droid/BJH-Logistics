@@ -13,7 +13,9 @@ import {
   stageLabels,
   updateLead,
 } from "../leadApi";
-import type { Lead } from "../leadApi";
+import type { Lead, SalesSummary } from "../leadApi";
+import { getSalesSummary } from "../leadApi";
+import { LeadActivities } from "./LeadActivities";
 import { listQuoteRequests } from "../../quotations/quoteRequestApi";
 import type { QuoteRequest } from "../../quotations/quoteRequestApi";
 import chart from "../../finance/finance.module.css";
@@ -49,6 +51,7 @@ const emptyForm = {
 /** Prospects from first contact to customer. Stages are few; nothing moves on its own. */
 export function LeadsBoard() {
   const [leads, setLeads] = useState<Lead[] | null>(null);
+  const [summary, setSummary] = useState<SalesSummary | null>(null);
   const [requests, setRequests] = useState<QuoteRequest[]>([]);
   const [customers, setCustomers] = useState<CustomerCompany[]>([]);
   const [error, setError] = useState("");
@@ -68,6 +71,9 @@ export function LeadsBoard() {
     listLeads()
       .then(setLeads)
       .catch((cause) => setError(message(cause, "Leads could not be loaded")));
+    getSalesSummary()
+      .then(setSummary)
+      .catch(() => undefined);
     // Requests and customers only enrich the page; the board works without them.
     listQuoteRequests()
       .then(setRequests)
@@ -178,6 +184,36 @@ export function LeadsBoard() {
 
   return (
     <>
+      {summary && (
+        <section
+          className={styles.overview}
+          aria-label="Sales this week and month"
+        >
+          {(
+            [
+              ["This week", summary.thisWeek],
+              ["This month", summary.thisMonth],
+            ] as const
+          ).map(([label, period]) => (
+            <div className={styles.metric} key={label}>
+              <span>{label}</span>
+              <strong>
+                {period.newLeads} new · {period.converted} converted
+              </strong>
+              <small>
+                {period.convertedCompanies.length > 0
+                  ? `Converted: ${period.convertedCompanies.join(", ")}`
+                  : "New leads, and clients who accepted their first quote"}
+              </small>
+            </div>
+          ))}
+          <div className={styles.metric}>
+            <span>Follow-ups due</span>
+            <strong>{summary.followUpsDue}</strong>
+            <small>Open leads to contact today or earlier</small>
+          </div>
+        </section>
+      )}
       <section className={styles.overview} aria-label="Lead overview">
         <div className={styles.metric}>
           <span>Open leads</span>
@@ -452,6 +488,7 @@ export function LeadsBoard() {
                       {lead.notes && (
                         <span className={styles.tradingName}>{lead.notes}</span>
                       )}
+                      <LeadActivities leadId={lead.id} />
                     </th>
                     <td>
                       <select

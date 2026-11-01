@@ -9,7 +9,10 @@ export type QuoteLine = {
   details: string | null;
   basis: QuoteBasis;
   basisNote: string | null;
+  /** Unit price; the line total is this times `quantity`. */
   amountMinor: number | null;
+  quantity: number;
+  containerSize: string | null;
   sizeAmountsMinor: number[] | null;
 };
 
@@ -86,6 +89,8 @@ export type QuoteVersionBody = {
     details?: string;
     basis: QuoteBasis;
     basisNote?: string;
+    containerSize?: string;
+    quantity?: number;
     amountMinor?: number;
     sizeAmountsMinor?: number[];
   }>;

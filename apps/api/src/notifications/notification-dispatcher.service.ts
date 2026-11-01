@@ -15,7 +15,13 @@ import {
 } from "./providers";
 import { etaReminderMessage } from "./notification-messages";
 import { NotificationsService } from "./notifications.service";
+import { invoiceView } from "../finance/invoices.service";
+import { renderReceiptPdf } from "../finance/receipt-pdf";
 import { renderQuotePdf } from "../quotations/quote-pdf";
+import {
+  OVERDUE_AFTER_HOURS,
+  OVERDUE_WITHIN_DAYS,
+} from "./staff-notifications.service";
 
 /** A delivery is tried this many times before it is left as failed for a person to retry. */
 export const MAX_ATTEMPTS = 5;
@@ -70,6 +76,11 @@ export class NotificationDispatcher implements OnModuleInit, OnModuleDestroy {
       if (Date.now() - this.lastReminderRun >= 60_000) {
         this.lastReminderRun = Date.now();
         await this.raiseEtaReminders();
+        // Customer service is told about requests and inquiries left waiting.
+        await this.database.raiseOverdueRequestNotices(
+          OVERDUE_AFTER_HOURS,
+          OVERDUE_WITHIN_DAYS,
+        );
       }
       await this.dispatchDue();
     } catch (error) {
@@ -99,7 +110,9 @@ export class NotificationDispatcher implements OnModuleInit, OnModuleDestroy {
               to: delivery.recipient,
               subject: delivery.subject,
               text: delivery.body,
-              attachments: await this.quoteAttachment(delivery),
+              attachments:
+                (await this.quoteAttachment(delivery)) ??
+                (await this.receiptAttachment(delivery)),
             })
           : await this.sms.send({
               to: delivery.recipient,
@@ -154,6 +167,45 @@ export class NotificationDispatcher implements OnModuleInit, OnModuleDestroy {
       settings: settings?.settings ?? null,
     });
     const filename = `${(quote.quoteNumber ?? "quotation").replace(/[^A-Za-z0-9-]+/g, "-")}-v${version.versionNumber}.pdf`;
+    return [{ filename, content }];
+  }
+
+  private async receiptAttachment(delivery: DueDelivery) {
+    if (delivery.event !== "receipt_sent") return undefined;
+    const paymentId = /^receipt-sent:([0-9a-f-]{36}):/.exec(
+      delivery.dedupeKey,
+    )?.[1];
+    const jobId = delivery.linkUrl
+      ? /^\/jobs\/([0-9a-f-]{36})\/money$/.exec(
+          new URL(delivery.linkUrl).pathname,
+        )?.[1]
+      : undefined;
+    if (!paymentId || !jobId) throw new Error("Receipt reference is missing");
+    const job = await this.database.findJob(jobId, {});
+    if (!job || job.customerCompanyId !== delivery.companyId) {
+      throw new Error("Receipt was not found for this customer");
+    }
+    const [invoices, payments, settings] = await Promise.all([
+      this.database.listInvoices(job.id),
+      this.database.listInvoicePayments(job.id),
+      this.database.getBusinessSettings(),
+    ]);
+    const payment = payments.find((item) => item.id === paymentId);
+    const invoice = invoices.find((item) => item.id === payment?.invoiceId);
+    if (!payment?.receiptNumber || !invoice) {
+      throw new Error("Receipt was not found");
+    }
+    const content = await renderReceiptPdf({
+      payment,
+      invoice: invoiceView(
+        invoice,
+        payments.filter((item) => item.invoiceId === invoice.id),
+        false,
+      ),
+      job,
+      settings: settings?.settings ?? null,
+    });
+    const filename = `${payment.receiptNumber.replace(/[^A-Za-z0-9-]+/g, "-")}.pdf`;
     return [{ filename, content }];
   }
 

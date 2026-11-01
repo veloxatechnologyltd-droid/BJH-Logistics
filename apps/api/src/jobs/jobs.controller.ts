@@ -42,10 +42,10 @@ export class JobsController {
   @Get()
   @UseGuards(JobScopeGuard)
   list(
-    @Query("search") search: string | undefined,
+    @Query() query: Record<string, unknown>,
     @Req() request: AuthenticatedRequest,
   ) {
-    return this.jobs.list(search, scopeOf(request));
+    return this.jobs.list(query, request.authUser!.userId, scopeOf(request));
   }
 
   @Get(":id")

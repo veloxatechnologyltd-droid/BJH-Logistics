@@ -7,6 +7,7 @@ import {
 } from "@nestjs/common";
 import {
   isUuid,
+  leadActivityInputSchema,
   leadCreateInputSchema,
   leadUpdateInputSchema,
   parseContract,
@@ -95,8 +96,16 @@ export class LeadsService {
           ? current.ownerId
           : change.owner === "me"
             ? userId
-            : null,
+            : change.owner,
     };
+    // A lead may be handed to another staff member, such as a sales rep.
+    if (
+      change.owner &&
+      change.owner !== "me" &&
+      (await this.database.getActiveStaffRoles(change.owner)).length === 0
+    ) {
+      throw new BadRequestException("owner must be an active staff member");
+    }
 
     if (next.stage === "lost") {
       const reason = change.lostReason ?? current.lostReason;
@@ -122,5 +131,72 @@ export class LeadsService {
     }
     if (!saved) throw new NotFoundException("Lead was not found");
     return this.withOverdue(saved);
+  }
+
+  async activities(id: string) {
+    await this.find(id);
+    return this.database.listLeadActivities(id);
+  }
+
+  async addActivity(id: string, input: unknown, userId: string) {
+    const parsed = parseContract(leadActivityInputSchema, input);
+    if (!parsed.success) throw new BadRequestException(parsed.message);
+    if (
+      parsed.data.occurredAt &&
+      Date.parse(parsed.data.occurredAt) > Date.now() + 5 * 60_000
+    ) {
+      throw new BadRequestException("occurredAt cannot be in the future");
+    }
+    const added = isUuid(id)
+      ? await this.database.addLeadActivity({
+          leadId: id,
+          kind: parsed.data.kind,
+          note: parsed.data.note,
+          occurredAt: parsed.data.occurredAt ?? new Date().toISOString(),
+          createdBy: userId,
+        })
+      : "not_found";
+    if (added === "not_found")
+      throw new NotFoundException("Lead was not found");
+    return added;
+  }
+
+  /**
+   * The sales picture: leads logged and clients converted this week (from
+   * Monday) and this month, and open leads whose follow-up is due. Days are
+   * Ghana days (UTC).
+   */
+  async summary() {
+    const now = new Date();
+    const today = now.toISOString().slice(0, 10);
+    const tomorrow = new Date(now.getTime() + 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+    const monday = new Date(
+      now.getTime() - ((now.getUTCDay() + 6) % 7) * 86_400_000,
+    )
+      .toISOString()
+      .slice(0, 10);
+    const monthStart = `${today.slice(0, 7)}-01`;
+    const [thisWeek, thisMonth, leads] = await Promise.all([
+      this.database.salesPeriod(monday, tomorrow),
+      this.database.salesPeriod(monthStart, tomorrow),
+      this.database.listLeads(),
+    ]);
+    const open = leads.filter((lead) => openStages.includes(lead.stage));
+    return {
+      thisWeek,
+      thisMonth,
+      openLeads: open.length,
+      followUpsDue: open.filter(
+        (lead) => lead.nextFollowUp !== null && lead.nextFollowUp <= today,
+      ).length,
+    };
+  }
+
+  private async find(id: string) {
+    const lead = isUuid(id) ? await this.database.findLead(id) : null;
+    if (!lead) throw new NotFoundException("Lead was not found");
+    return lead;
   }
 }

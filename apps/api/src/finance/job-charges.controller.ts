@@ -12,7 +12,9 @@ import {
 import {
   DepartmentStaffGuard,
   JobScopeGuard,
+  StaffRolesGuard,
   SupabaseIdentityGuard,
+  financeRoles,
 } from "../auth/auth.guards";
 import type { AuthenticatedRequest } from "../auth/auth.guards";
 import { JobChargesService } from "./job-charges.service";
@@ -26,7 +28,12 @@ function scopeOf(request: AuthenticatedRequest) {
 
 /** Internal job costing: staff only, within the caller's service lines. */
 @Controller("api/v1/jobs/:id/charges")
-@UseGuards(SupabaseIdentityGuard, DepartmentStaffGuard, JobScopeGuard)
+@UseGuards(
+  SupabaseIdentityGuard,
+  DepartmentStaffGuard,
+  JobScopeGuard,
+  StaffRolesGuard(financeRoles),
+)
 export class JobChargesController {
   constructor(
     @Inject(JobChargesService) private readonly charges: JobChargesService,

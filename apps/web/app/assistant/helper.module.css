@@ -1,0 +1,44 @@
+.examples {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+}
+.example {
+  border: 1px solid var(--brand-border);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--brand-primary);
+  padding: 8px 14px;
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+.proposal {
+  display: grid;
+  gap: 8px;
+  max-width: min(90%, 620px);
+  border: 2px solid var(--brand-primary);
+  border-radius: 14px;
+  background: #fff;
+  padding: 12px 14px;
+}
+.proposalLabel {
+  margin: 0;
+  color: var(--brand-primary);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.done {
+  justify-self: center;
+  border-radius: 999px;
+  background: #eef4fc;
+  color: var(--brand-primary);
+  padding: 6px 14px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.done p {
+  margin: 0;
+}

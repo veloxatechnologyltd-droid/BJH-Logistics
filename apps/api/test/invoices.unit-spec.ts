@@ -130,6 +130,7 @@ const invoice = (over: Partial<InvoiceView> = {}): InvoiceView => ({
   paidMinor: 100000,
   outstandingMinor: 187736,
   paymentStatus: "partial",
+  acceptance: null,
   ...over,
 });
 
