@@ -256,9 +256,7 @@ test("conversations are kept, continued and private to their owner", async () =>
   // The earlier message is replayed exactly as it was first sent.
   assert.match(
     String(sent.messages[0].content),
-    new RegExp(
-      `^\\(Now: .+\\)\\n\\nAssign the import rep to ${fileNumber}$`,
-    ),
+    new RegExp(`^\\(Now: .+\\)\\n\\nAssign the import rep to ${fileNumber}$`),
   );
   assert.match(
     String(sent.messages.at(-1)?.content),
