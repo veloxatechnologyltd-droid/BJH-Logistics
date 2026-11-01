@@ -16,6 +16,7 @@ import {
 import type { Lead, SalesSummary } from "../leadApi";
 import { getSalesSummary } from "../leadApi";
 import { LeadActivities } from "./LeadActivities";
+import folded from "./leadActivities.module.css";
 import ui from "../../jobs/jobs.module.css";
 import styles from "../customerDirectory.module.css";
 import { ErrorPopup } from "../../ErrorPopup";
@@ -417,7 +418,7 @@ export function LeadsBoard() {
             <h2>No leads here</h2>
             <p>
               {leads.length === 0
-                ? "Add a prospect, or track a quote request."
+                ? "Add a prospect."
                 : "Nothing matches this view."}
             </p>
           </div>
@@ -455,7 +456,12 @@ export function LeadsBoard() {
                         </span>
                       )}
                       {lead.notes && (
-                        <span className={styles.tradingName}>{lead.notes}</span>
+                        <details className={folded.activities}>
+                          <summary>Notes</summary>
+                          <span className={styles.tradingName}>
+                            {lead.notes}
+                          </span>
+                        </details>
                       )}
                       <LeadActivities leadId={lead.id} />
                     </th>
