@@ -1,7 +1,7 @@
 BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT extensions.plan(8);
+SELECT extensions.plan(11);
 
 SELECT extensions.ok(
   NOT has_table_privilege('anon', 'app.lead', 'SELECT')
@@ -68,6 +68,26 @@ SELECT extensions.throws_ok(
             '00000000-0000-4000-8000-0000000004ca')$$,
   '23505', NULL,
   'a quote request becomes at most one lead'
+);
+
+SELECT extensions.lives_ok(
+  $$INSERT INTO app.lead (company_name, created_by, created_by_assistant)
+    VALUES ('Synthetic Assistant Lead Ltd', NULL, true)$$,
+  'the assistant can open a lead with no person as its creator'
+);
+
+SELECT extensions.throws_ok(
+  $$INSERT INTO app.lead (company_name, created_by, created_by_assistant)
+    VALUES ('Synthetic Nobody Ltd', NULL, false)$$,
+  '23514', NULL,
+  'a lead the assistant did not open needs a person as its creator'
+);
+
+SELECT extensions.throws_ok(
+  $$INSERT INTO app.lead (company_name, created_by, created_by_assistant)
+    VALUES ('Synthetic Both Ltd', '00000000-0000-4000-8000-0000000004aa', true)$$,
+  '23514', NULL,
+  'a lead has a person or the assistant as creator, not both'
 );
 
 SELECT * FROM extensions.finish();

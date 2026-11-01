@@ -1274,3 +1274,24 @@ input:focus-visible {
   line-height: 1.5;
   white-space: pre-wrap;
 }
+
+/* An inquiry the assistant could not answer: a person must reply. */
+.escalationNote {
+  margin: 0 0 12px;
+  border-left: 3px solid var(--brand-primary);
+  border-radius: 6px;
+  background: var(--brand-canvas);
+  padding: 10px 12px;
+  color: var(--brand-ink);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.moveRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 12px;
+  font-size: 0.82rem;
+}

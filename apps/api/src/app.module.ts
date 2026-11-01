@@ -39,8 +39,10 @@ import { NotificationDispatcher } from "./notifications/notification-dispatcher.
 import { NotificationsService } from "./notifications/notifications.service";
 import {
   EMAIL_PROVIDER,
+  INQUIRY_EMAIL_PROVIDER,
   SMS_PROVIDER,
   createEmailProvider,
+  createInquiryEmailProvider,
   createSmsProvider,
 } from "./notifications/providers";
 import { JobsController } from "./jobs/jobs.controller";
@@ -63,6 +65,7 @@ import {
 } from "./finance/invoices.controller";
 import { InvoicesService } from "./finance/invoices.service";
 import { InboundEmailController } from "./intake/inbound-email.controller";
+import { KnowledgeController } from "./intake/knowledge.controller";
 import { InboundEmailService } from "./intake/inbound-email.service";
 import { EmailAssistantService } from "./intake/email-assistant.service";
 import { MailboxReaderService } from "./intake/mailbox-reader.service";
@@ -127,6 +130,7 @@ import { ReportsService } from "./reports/reports.service";
     PaymentsController,
     StatementsController,
     InboundEmailController,
+    KnowledgeController,
     DriversController,
     VehiclesController,
     DeliveriesController,
@@ -157,6 +161,10 @@ import { ReportsService } from "./reports/reports.service";
     {
       provide: EMAIL_PROVIDER,
       useFactory: () => createEmailProvider(process.env),
+    },
+    {
+      provide: INQUIRY_EMAIL_PROVIDER,
+      useFactory: () => createInquiryEmailProvider(process.env),
     },
     { provide: SMS_PROVIDER, useFactory: () => createSmsProvider(process.env) },
     JobChargesService,

@@ -8,6 +8,7 @@ import {
 import { DatabasePort, DueDelivery } from "../database/database.port";
 import {
   EMAIL_PROVIDER,
+  INQUIRY_EMAIL_PROVIDER,
   SMS_PROVIDER,
   type EmailProvider,
   type SmsProvider,
@@ -40,6 +41,8 @@ export class NotificationDispatcher implements OnModuleInit, OnModuleDestroy {
   constructor(
     @Inject(DatabasePort) private readonly database: DatabasePort,
     @Inject(EMAIL_PROVIDER) private readonly email: EmailProvider,
+    @Inject(INQUIRY_EMAIL_PROVIDER)
+    private readonly inquiryEmail: EmailProvider,
     @Inject(SMS_PROVIDER) private readonly sms: SmsProvider,
     @Inject(NotificationsService)
     private readonly notifications: NotificationsService,
@@ -86,10 +89,13 @@ export class NotificationDispatcher implements OnModuleInit, OnModuleDestroy {
   }
 
   private async send(delivery: DueDelivery): Promise<void> {
+    // Replies to inquiries go out from the inquiries mailbox; everything else from the main one.
+    const email =
+      delivery.event === "inquiry_reply" ? this.inquiryEmail : this.email;
     try {
       const result =
         delivery.channel === "email"
-          ? await this.email.send({
+          ? await email.send({
               to: delivery.recipient,
               subject: delivery.subject,
               text: delivery.body,
@@ -101,7 +107,7 @@ export class NotificationDispatcher implements OnModuleInit, OnModuleDestroy {
             });
       await this.database.markDeliverySent(
         delivery.id,
-        delivery.channel === "email" ? this.email.name : this.sms.name,
+        delivery.channel === "email" ? email.name : this.sms.name,
         result.providerMessageId,
       );
     } catch (error) {

@@ -12,6 +12,7 @@ import {
   customerInputSchema,
   parseContract,
   quoteCreateInputSchema,
+  requestMoveInputSchema,
   requestReplyInputSchema,
 } from "@bjh/contracts";
 import type { ServiceLine } from "@bjh/contracts";
@@ -23,6 +24,7 @@ import type {
 import { formatQuoteAmount } from "../quotations/quote-pdf";
 import { QuoteRequestsService } from "../quotations/quote-requests.service";
 import type { QuoteSuggestion } from "../quotations/quote-suggestion";
+import { findPossibleMatches } from "./customer-match";
 import { inChargeOf } from "./inbound-email.service";
 import { REPLY_DRAFTER, ReplyDraftError } from "./reply-drafter";
 import type { ReplyContext, ReplyDrafter } from "./reply-drafter";
@@ -55,6 +57,10 @@ export function automatedSender(
   const lower = address.trim().toLowerCase();
   const own = [
     environment.INBOUND_IMAP_USER,
+    environment.INBOUND_INQUIRY_IMAP_USER,
+    environment.EMAIL_INQUIRY_SMTP_USER,
+    environment.EMAIL_INQUIRY_FROM?.match(/<([^>]+)>/)?.[1] ??
+      environment.EMAIL_INQUIRY_FROM,
     environment.EMAIL_SMTP_USER,
     environment.EMAIL_FROM?.match(/<([^>]+)>/)?.[1] ?? environment.EMAIL_FROM,
   ].map((value) => value?.trim().toLowerCase());
@@ -130,18 +136,38 @@ export class EmailAssistantService {
     let request = await this.database.findQuoteRequest(requestId);
     if (!request?.intake || request.intake.extractionStatus !== "done") return;
     const kind = request.intake.kind;
+    const mailbox = request.mailbox;
     // When AI could not tell what the email is, a person decides.
-    if (kind === null) return;
+    if (kind === null) {
+      if (mailbox === "inquiries") {
+        await this.escalate(
+          requestId,
+          "The assistant could not tell what the email asks.",
+        );
+      }
+      return;
+    }
     if (kind === "other") {
       await this.database.addAssistantNotes(requestId, [
         "No reply drafted: the email does not ask for anything.",
       ]);
       return;
     }
+    // The mailbox decides; an email that looks misfiled waits for a person to move it.
+    const expected = mailbox === "quotes" ? "quote" : "inquiry";
+    if (kind !== expected) {
+      await this.database.addAssistantNotes(requestId, [
+        kind === "inquiry"
+          ? "This looks like a question, not a quote request: nothing done. Move it to Inquiries, or move it back to carry on here."
+          : "This looks like a quote request, not a question: nothing done. Move it to Requests, or move it back to carry on here.",
+      ]);
+      return;
+    }
 
     const notes: string[] = [];
     if (!request.customerCompanyId) {
-      request = await this.linkCustomer(request, notes);
+      // A first-time sender asking for a quote is a prospect too: open a lead.
+      request = await this.linkCustomer(request, notes, kind === "quote");
     }
     let quoteDrafted = false;
     if (kind === "quote") {
@@ -149,15 +175,66 @@ export class EmailAssistantService {
     }
     await this.database.addAssistantNotes(requestId, notes);
     const automatic = autoReplyOn();
-    if (await this.draftReply(requestId, quoteDrafted, automatic)) {
-      if (automatic) await this.sendByItself(requestId);
+    const drafted = await this.draftReply(requestId, quoteDrafted, automatic);
+    // An inquiry the knowledge base does not answer waits for a person.
+    if (drafted === "drafted" && automatic) await this.sendByItself(requestId);
+  }
+
+  /** Marks the request as needing a person, so it is not missed. */
+  private async escalate(requestId: string, reason: string): Promise<void> {
+    await this.database.setRequestEscalation(requestId, reason);
+    await this.database.addAssistantNotes(requestId, [
+      `Needs a person: ${reason}`,
+    ]);
+  }
+
+  /**
+   * Moves a request to the other inbox (a quote request sent to the inquiries
+   * address, or the other way round). Any staff member may sort, until the
+   * reply is sent or a quote prepared. The assistant then carries on as for
+   * an email that reached that inbox.
+   */
+  async move(
+    requestId: string,
+    input: unknown,
+    roles: StaffRoleKey[],
+  ): Promise<QuoteRequestRecord> {
+    const parsed = parseContract(requestMoveInputSchema, input);
+    if (!parsed.success) throw new BadRequestException(parsed.message);
+    const request = await this.database.findQuoteRequest(requestId);
+    if (!request) throw new NotFoundException("Quote request was not found");
+    if (!request.intake) {
+      throw new ConflictException("This request did not come from an email");
     }
+    if (request.mailbox === parsed.data.mailbox) return request;
+    if (request.intake.reply?.sentAt) {
+      throw new ConflictException("The reply was already sent");
+    }
+    if (request.quoteId) {
+      throw new ConflictException(
+        "A quote was already prepared for this request",
+      );
+    }
+    await this.database.moveRequestMailbox(requestId, parsed.data.mailbox);
+    await this.database.setRequestEscalation(requestId, null);
+    await this.database.addAssistantNotes(requestId, [
+      `Moved to ${parsed.data.mailbox === "quotes" ? "Requests" : "Inquiries"} by a person.`,
+    ]);
+    if (request.intake.extractionStatus === "done") {
+      await this.afterReading(requestId);
+    }
+    const moved = await this.database.findQuoteRequest(requestId);
+    return {
+      ...moved!,
+      canCheck: inChargeOf(moved!, roles),
+    } as QuoteRequestRecord;
   }
 
   /** The customer whose contact wrote the email, or a new customer made from the email. */
   private async linkCustomer(
     request: QuoteRequestRecord,
     notes: string[],
+    openLead: boolean,
   ): Promise<QuoteRequestRecord> {
     const known = await this.database.findCustomerByContactEmail(request.email);
     if (known) {
@@ -170,6 +247,22 @@ export class EmailAssistantService {
           known.id,
         )) ?? request
       );
+    }
+    // A new address from someone who may already be a customer (another spelling
+    // of the name, another colleague). Never linked on a guess: linking decides
+    // whose jobs a reply may mention, so a person confirms. Until then there is
+    // no new customer, no lead, no draft quote and no automatic reply.
+    const possible = findPossibleMatches(
+      { companyName: request.companyName, email: request.email },
+      await this.database.listCustomers(""),
+    );
+    if (possible.length > 0) {
+      notes.push(
+        `Possible match, not linked: ${possible
+          .map((match) => `${match.companyName} (${match.reasons.join(", ")})`)
+          .join("; ")}. Check, then link the customer by hand.`,
+      );
+      return request;
     }
     const fromEmail = {
       companyName: request.companyName,
@@ -209,12 +302,52 @@ export class EmailAssistantService {
     notes.push(
       `Created the customer ${company.companyName} with ${input.data.contactName} as contact: the sender is new. Check the name before issuing anything.`,
     );
+    if (openLead) {
+      await this.openLead(request, company.companyName, input.data, notes);
+    }
     return (
       (await this.database.linkQuoteRequestToCustomer(
         request.id,
         company.id,
       )) ?? request
     );
+  }
+
+  /** A lead for staff to work, opened once from a first-time sender's quote request. A failure is noted and loses nothing. */
+  private async openLead(
+    request: QuoteRequestRecord,
+    companyName: string,
+    contact: { contactName: string; email: string; phone: string | null },
+    notes: string[],
+  ): Promise<void> {
+    try {
+      const lead = await this.database.createLead({
+        id: randomUUID(),
+        companyName,
+        contactName: contact.contactName,
+        email: contact.email,
+        phone: contact.phone,
+        source: "quote_request",
+        stage: "new",
+        ownerId: null,
+        nextFollowUp: null,
+        notes: request.message.slice(0, 2000),
+        lostReason: null,
+        quoteRequestId: request.id,
+        customerCompanyId: null,
+        createdBy: null,
+      });
+      if (typeof lead !== "string") {
+        notes.push(
+          "Opened a lead for this first-time sender: find it under Leads.",
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        `Opening a lead for request ${request.id} failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      notes.push("No lead opened; track the request from Leads by hand.");
+    }
   }
 
   /** A draft quote from the most similar past issued quote; a person checks and issues it. */
@@ -268,15 +401,20 @@ export class EmailAssistantService {
   }
 
   /** Drafts (or redrafts) the reply from the email, BJH's knowledge, the sender's jobs and past pricing. */
-  /** Returns whether a reply was drafted. `automatic`: it will go out unread, so no prices. */
+  /**
+   * Whether a reply was drafted, and whether an inquiry needs a person because
+   * the knowledge base did not answer it. `automatic`: it will go out unread,
+   * so no prices.
+   */
   private async draftReply(
     requestId: string,
     quoteDrafted: boolean,
     automatic = false,
-  ): Promise<boolean> {
+  ): Promise<"drafted" | "escalated" | false> {
     const request = await this.database.findQuoteRequest(requestId);
     const intake = request?.intake;
     if (!request || !intake || intake.reply?.sentAt) return false;
+    const inquiry = request.mailbox === "inquiries";
     let context: ReplyContext;
     try {
       context = await this.contextFor(request, quoteDrafted, automatic);
@@ -284,15 +422,28 @@ export class EmailAssistantService {
       await this.database.addAssistantNotes(requestId, [
         `No reply drafted: ${error instanceof Error ? error.message : "the context could not be gathered"}.`,
       ]);
+      if (inquiry) await this.escalate(requestId, "No reply could be drafted.");
       return false;
     }
     try {
       const reply = await this.drafter.draft(context);
       await this.database.saveRequestReply(requestId, {
-        ...reply,
+        subject: reply.subject,
+        body: reply.body,
+        sources: reply.sources,
         model: this.drafter.model ?? "assistant",
       });
-      return true;
+      if (!inquiry) return "drafted";
+      if (!reply.answered) {
+        await this.escalate(
+          requestId,
+          reply.missing ??
+            "The knowledge base does not fully answer this inquiry.",
+        );
+        return "escalated";
+      }
+      await this.database.setRequestEscalation(requestId, null);
+      return "drafted";
     } catch (error) {
       const reason =
         error instanceof ReplyDraftError
@@ -306,6 +457,7 @@ export class EmailAssistantService {
       await this.database.addAssistantNotes(requestId, [
         `No reply drafted: ${reason}. Write it by hand, or press Draft reply again.`,
       ]);
+      if (inquiry) await this.escalate(requestId, "No reply could be drafted.");
       return false;
     }
   }
@@ -341,7 +493,8 @@ export class EmailAssistantService {
     const intake = request.intake!;
     const email = await this.database.findInboundEmailBody(request.id);
     const settings = (await this.database.getBusinessSettings())?.settings;
-    const kind = intake.kind ?? "inquiry";
+    const kind =
+      request.mailbox === "inquiries" ? "inquiry" : (intake.kind ?? "inquiry");
 
     // Only the jobs of the company the request is linked to: never another customer's.
     const jobs: ReplyContext["jobs"] = [];
@@ -399,6 +552,9 @@ export class EmailAssistantService {
       kind,
       details: request.details,
       knowledge: settings?.assistant?.knowledge ?? null,
+      knowledgeEntries: (await this.database.listKnowledgeEntries()).map(
+        (entry) => ({ title: entry.title, answer: entry.answer }),
+      ),
       jobs,
       priceGuide,
       quoteDrafted,
@@ -489,7 +645,8 @@ export class EmailAssistantService {
     const queued = await this.database.queueNotification({
       companyId: request.customerCompanyId!,
       jobId: null,
-      event: "email_reply",
+      // An inquiry's reply goes out from the inquiries mailbox (the dispatcher picks the sender by event).
+      event: request.mailbox === "inquiries" ? "inquiry_reply" : "email_reply",
       dedupeKey: `email-reply:${request.id}`,
       subject: reply.subject,
       body: reply.body,
@@ -529,7 +686,7 @@ export class EmailAssistantService {
     if (!request.intake) {
       throw new ConflictException("This request did not come from an email");
     }
-    if (!inChargeOf(request.details, roles)) {
+    if (!inChargeOf(request, roles)) {
       throw new ForbiddenException(
         "Only the super admin or the representative in charge of this request's service can reply to it",
       );

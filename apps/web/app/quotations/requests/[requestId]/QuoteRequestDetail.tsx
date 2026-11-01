@@ -9,6 +9,7 @@ import { useStaffAccess } from "../../../auth/useStaffAccess";
 import {
   associateQuoteRequestCustomer,
   getQuoteRequest,
+  requestSourceLabels,
 } from "../../quoteRequestApi";
 import type { QuoteRequest } from "../../quoteRequestApi";
 import styles from "../../quotation.module.css";
@@ -112,13 +113,22 @@ export function QuoteRequestDetail() {
 
   return (
     <main className={styles.page}>
-      <Link className={styles.backLink} href="/quotations">
-        <span aria-hidden="true">←</span> Back to request inbox
-      </Link>
+      {request?.mailbox === "inquiries" ? (
+        <Link className={styles.backLink} href="/inquiries">
+          <span aria-hidden="true">←</span> Back to inquiries
+        </Link>
+      ) : (
+        <Link className={styles.backLink} href="/quotations">
+          <span aria-hidden="true">←</span> Back to request inbox
+        </Link>
+      )}
 
       <header className={styles.pageHeader}>
-        <h1>Quote request</h1>
+        <h1>
+          {request?.mailbox === "inquiries" ? "Inquiry" : "Quote request"}
+        </h1>
         {request?.customerCompanyId &&
+          request.mailbox === "quotes" &&
           (request.quoteId ? (
             <Link
               className={styles.primaryButton}
@@ -183,6 +193,14 @@ export function QuoteRequestDetail() {
                   }).format(new Date(request.createdAt))}
                 </dd>
               </div>
+              <div>
+                <dt>Source</dt>
+                <dd>
+                  {request.source
+                    ? requestSourceLabels[request.source]
+                    : "Not recorded"}
+                </dd>
+              </div>
             </dl>
             <section
               className={styles.messagePanel}
@@ -203,6 +221,7 @@ export function QuoteRequestDetail() {
             />
             <AssistantPanel
               canEdit={request.canCheck === true}
+              canMove={staffAccess.roles.length > 0}
               onChange={(next) =>
                 setRequest({
                   ...next,

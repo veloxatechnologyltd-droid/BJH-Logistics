@@ -68,6 +68,7 @@ type Request = {
     attachments: Array<{ id: string; filename: string; contentType: string }>;
     skippedAttachments: Array<{ filename: string; reason: string }>;
   };
+  source: "portal" | "staff" | "email" | "website" | null;
 };
 type Receipt = {
   requestId: string;
@@ -215,6 +216,65 @@ test("only the email service that knows the secret can post an email, and with n
   delete process.env.INBOUND_EMAIL_SECRET;
   assert.equal((await deliver(email())).status, 503);
   process.env.INBOUND_EMAIL_SECRET = SECRET;
+});
+
+test("every request says where it came in: portal, staff, email or website", async () => {
+  // The website's server route adds source=website; an email service does not.
+  nextReading(reading());
+  const fromWebsite = await json<Receipt>(
+    await deliver(
+      email({ message_id: `website:${randomUUID()}`, source: "website" }),
+    ),
+  );
+  nextReading(reading());
+  const fromEmail = await json<Receipt>(await deliver(email()));
+  // Nothing in an email can pass itself off as the website: a message ID that
+  // looks like the site's, or a source of its own, does not count.
+  nextReading(reading());
+  const imitation = await json<Receipt>(
+    await deliver(email({ message_id: `website:${randomUUID()}` })),
+  );
+  nextReading(reading());
+  const unknownSource = await json<Receipt>(
+    await deliver(email({ source: "portal" })),
+  );
+
+  const staffEntered = await json<Request>(
+    await send("POST", "/api/v1/quote-requests", TEST_SUPER_ADMIN_TOKEN, {
+      companyName: "Walk-in Ltd",
+      contactName: "Kojo",
+      email: "kojo@walkin.test",
+      message: "Rang the office about two pallets.",
+    }),
+  );
+  const portal = await json<Request>(
+    await send("POST", "/api/v1/quote-requests/mine", TEST_CUSTOMER_A_TOKEN, {
+      contactName: "Ama Mensah",
+      message: "Please quote a pallet to Kumasi.",
+    }),
+  );
+
+  assert.equal((await requestOf(fromWebsite.requestId)).source, "website");
+  assert.equal((await requestOf(fromEmail.requestId)).source, "email");
+  assert.equal((await requestOf(imitation.requestId)).source, "email");
+  assert.equal((await requestOf(unknownSource.requestId)).source, "email");
+  assert.equal((await requestOf(staffEntered.id)).source, "staff");
+  assert.equal((await requestOf(portal.id)).source, "portal");
+
+  // The inbox list carries it too, so staff can tell them apart at a glance.
+  const listed = await json<Request[]>(await get("/api/v1/quote-requests"));
+  const sourceOf = (id: string) =>
+    listed.find((request) => request.id === id)?.source;
+  assert.equal(sourceOf(fromWebsite.requestId), "website");
+  assert.equal(sourceOf(portal.id), "portal");
+
+  // A customer is not told how a request reached BJH, not even their own.
+  assert.equal(portal.source, null);
+  const own = await json<Request[]>(
+    await get("/api/v1/quote-requests", TEST_CUSTOMER_A_TOKEN),
+  );
+  assert.ok(own.length > 0);
+  assert.ok(own.every((request) => request.source === null));
 });
 
 test("reading the mailbox on demand needs the intake secret, and says so when no mailbox is set up", async () => {

@@ -35,6 +35,7 @@ test("website quote request reaches intake with its server-only secret", async (
     const fields = init?.body as FormData;
     assert.equal(fields.get("from_email"), details.email);
     assert.equal(fields.get("to"), "quotes@bjhlogistics.com");
+    assert.equal(fields.get("source"), "website");
     assert.match(String(fields.get("text")), /Cargo: Machine parts/);
     forwarded = true;
     return Response.json({ requestId: "synthetic-id" });

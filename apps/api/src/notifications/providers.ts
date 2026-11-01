@@ -3,6 +3,8 @@ import nodemailer from "nodemailer";
 import type { Transporter } from "nodemailer";
 
 export const EMAIL_PROVIDER = Symbol("EMAIL_PROVIDER");
+/** Sends replies to inquiries, from the inquiries mailbox. */
+export const INQUIRY_EMAIL_PROVIDER = Symbol("INQUIRY_EMAIL_PROVIDER");
 export const SMS_PROVIDER = Symbol("SMS_PROVIDER");
 
 export interface SendResult {
@@ -175,6 +177,39 @@ export function createEmailProvider(
     });
   }
   return new RecordingEmailProvider();
+}
+
+/** Mail is set up, but not the inquiries sender: refuses rather than send from the wrong address. */
+class InquirySenderMissing implements EmailProvider {
+  readonly name = "smtp";
+  async send(): Promise<SendResult> {
+    throw new Error(
+      "The inquiries mailbox is not set up for sending (EMAIL_INQUIRY_FROM)",
+    );
+  }
+}
+
+/**
+ * The sender for replies to inquiries: the inquiries mailbox, on the same mail
+ * server as the quote mailbox (`EMAIL_SMTP_HOST` / `_PORT`), with its own
+ * `EMAIL_INQUIRY_FROM`, `EMAIL_INQUIRY_SMTP_USER` and `_PASSWORD`. An inquiry
+ * reply never goes out from the quote mailbox: with mail set up but no
+ * inquiries sender, the delivery fails and says why.
+ */
+export function createInquiryEmailProvider(
+  environment: NodeJS.ProcessEnv,
+): EmailProvider {
+  const main = createEmailProvider(environment);
+  if (main.name !== "smtp") return new RecordingEmailProvider();
+  const from = environment.EMAIL_INQUIRY_FROM?.trim();
+  if (!from) return new InquirySenderMissing();
+  return new SmtpEmailProvider({
+    host: environment.EMAIL_SMTP_HOST!.trim(),
+    port: Number(environment.EMAIL_SMTP_PORT ?? 587),
+    user: environment.EMAIL_INQUIRY_SMTP_USER?.trim() || null,
+    password: environment.EMAIL_INQUIRY_SMTP_PASSWORD ?? null,
+    from,
+  });
 }
 
 export function createSmsProvider(environment: NodeJS.ProcessEnv): SmsProvider {
