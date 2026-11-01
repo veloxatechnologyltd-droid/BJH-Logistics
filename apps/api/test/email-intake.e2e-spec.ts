@@ -374,6 +374,18 @@ test("a strange email still arrives: HTML only, no message id, a long body, no s
   assert.equal(await message(noSender), "from_email is required");
 });
 
+test("an email's Windows line breaks are stored as plain ones", async () => {
+  nextReading(reading());
+  const receipt = await json<Receipt>(
+    await deliver(
+      email({ text: "Hello BJH,\r\n\r\nPlease quote 2 x 40ft.\r\nThanks" }),
+    ),
+  );
+  const plain = "Hello BJH,\n\nPlease quote 2 x 40ft.\nThanks";
+  assert.equal((await requestOf(receipt.requestId)).message, plain);
+  assert.equal(testEmailExtractor.calls[0].bodyText, plain);
+});
+
 test("attachments are kept when they are documents a customer would send; others are listed as not kept", async () => {
   nextReading(reading());
   const big = Buffer.alloc(10 * 1024 * 1024 + 1, 1);

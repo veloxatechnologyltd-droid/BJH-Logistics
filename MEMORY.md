@@ -6,6 +6,24 @@ Maintain a file called MEMORY.md. After any significant decision, about directio
 **Why:** Until the lookup returned, the user counted as "not a customer", so a customer who refreshed any page saw the full staff menu and Settings for a moment before it swapped to the portal menu.
 **What was rejected:** Remembering the last role in browser storage to draw the right menu instantly (a stale or shared-browser value could show the wrong menu, which is the bug again). Skeleton placeholders (not asked for). Changing the fallback when the lookup fails or returns no role (it still shows the staff menu with the existing "access could not be checked" notice); that is a separate decision.
 
+## 2026-10-31, Email text is stored with plain line breaks and cleaned where staff read it
+
+**What was decided:** New inbound emails have their Windows line breaks (CRLF) turned into plain ones before the email text is stored or sent to the AI reader. The staff request page cleans the message the same way when it shows it, through a shared `tidyMessage` helper that the customer portal now uses too. Existing stored requests are not rewritten.
+**Why:** Evans said to fix the stray bar symbols seen on the customer overview. A read-only look at the local database showed stored messages carry `\r\n\r\n` and no literal bar characters; the email service's multipart delivery produces them, and browsers draw each `\r` as a symbol.
+**What was rejected:** A migration or script that rewrites existing rows (database changes need explicit permission, and cleaning on display already fixes old rows). Stripping `▎`, `>` and `|` as the staff inbox preview does, which hides real characters rather than fixing the cause.
+
+## 2026-10-31, A customer is told about a request's quote only once it is issued
+
+**What was decided:** The quote-request API now returns `quoteId`, `quoteNumber` and `quoteStatus` as null to customer accounts unless the request's quote is `issued`. Staff responses are unchanged. The change is in `forCustomer` in `apps/api/src/quotations/quote-requests.service.ts`, which the create, list and get-by-id routes all pass through, and it has an e2e test in `portal.e2e-spec.ts`.
+**Why:** Evans said to fix the leak flagged after the portal redesign: customers were receiving the ID and number of a quote that staff had only drafted, which P10 and the "issuing makes it visible to the customer" rule say they should not.
+**What was rejected:** Hiding it only in the web page (the API is authoritative for permissions, and the data would still be in the response). Choosing the newest issued version when a newer draft exists: the request row then reads "Received" until the revision is issued, which is safe and avoids a more complex query; the customer's quotations list is unaffected.
+
+## 2026-10-31, Customer portal home shows requests as readable rows with a status
+
+**What was decided:** On the customer portal home (`/portal`), show each sent request as a row with a one-line preview, a readable date and a status badge ("Received", or "Quotation ready" once the linked quote is `issued`). Opening a row shows the full message and, when ready, a link to the quotation. The message text is cleaned of `\r` characters before display. "Your jobs" and "Your quotations" moved from their own card into the header, and the request form and the request list sit side by side on wide screens. The name field is prefilled from the customer's last request, and the send button shows "Sending…" and blocks double submits.
+**Why:** Evans found the page hard to use: emailed requests carry Windows line breaks that the browser drew as stray bar symbols in a cut-off line, and the list gave no sign of whether a quotation was ready.
+**What was rejected:** Showing the quote's status when it is still a draft (a draft is internal; the customer only sees "Received"). Changing the API so it stops returning draft quote fields to customers, and cleaning the line breaks where emails are stored: both are outside this UI change and are noted as follow-ups. Adding a web test runner for one page; the web app has none today.
+
 ## 2026-10-31, Footer no longer lists contact details
 
 **What was decided:** Remove the Contact column (address, three phone numbers and all email addresses) from the public footer. Contact details now appear only on the Contact page, which already listed all of them; the footer's Company list still links to it. The footer keeps the brand block with social links, Services and Company. Desktop is three columns; at tablet and phone widths the brand block spans the full row and Services and Company sit side by side.

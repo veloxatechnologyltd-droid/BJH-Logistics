@@ -1,0 +1,50 @@
+.lede {
+  margin: 6px 0 0;
+  color: var(--brand-muted);
+  font-size: 0.95rem;
+}
+.columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr));
+  gap: 16px;
+  align-items: start;
+}
+.columns .card {
+  margin-bottom: 0;
+}
+.hint {
+  margin: 0 0 12px;
+  color: var(--brand-muted);
+  font-size: 0.85rem;
+}
+.requests {
+  display: grid;
+  gap: 10px;
+}
+.requestMain {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  flex: 1 1 220px;
+  gap: 2px;
+  min-width: 0;
+}
+.requestPreview {
+  overflow: hidden;
+  color: #0f2747;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.requestDate {
+  color: var(--brand-muted);
+  font-size: 0.85rem;
+}
+.requestReady {
+  background: #0b3fae;
+  color: #fff;
+}
+.requestActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}

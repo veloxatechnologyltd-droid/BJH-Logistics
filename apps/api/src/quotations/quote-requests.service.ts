@@ -27,9 +27,21 @@ import type { PastQuote, QuoteSuggestion } from "./quote-suggestion";
 /** How many recent quotes of the service are compared with a request. */
 const SUGGESTION_CANDIDATES = 40;
 
-/** A customer sees their own request as they wrote it: what was read from an email, and the email itself, are for staff. */
+/**
+ * A customer sees their own request as they wrote it: what was read from an
+ * email, and the email itself, are for staff. The request's quote is also
+ * staff-only until it is issued, so a draft is not revealed.
+ */
 function forCustomer(request: QuoteRequestRecord): QuoteRequestRecord {
-  return { ...request, details: requestDetailsSchema.parse({}), intake: null };
+  const issued = request.quoteStatus === "issued";
+  return {
+    ...request,
+    details: requestDetailsSchema.parse({}),
+    intake: null,
+    quoteId: issued ? request.quoteId : null,
+    quoteNumber: issued ? request.quoteNumber : null,
+    quoteStatus: issued ? request.quoteStatus : null,
+  };
 }
 
 @Injectable()
