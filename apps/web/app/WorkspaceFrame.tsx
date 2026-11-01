@@ -49,7 +49,7 @@ const staffNav: NavGroup[] = [
     items: [
       { href: "/", label: "Overview", icon: "overview", exact: true },
       { href: "/reports", label: "Reports", icon: "reports" },
-      { href: "/assistant", label: "AI helper", icon: "helper" },
+      { href: "/assistant", label: "Bra Evans", icon: "helper" },
     ],
   },
   {

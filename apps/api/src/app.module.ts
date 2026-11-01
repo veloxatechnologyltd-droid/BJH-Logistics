@@ -51,7 +51,6 @@ import { AssistantController } from "./assistant/assistant.controller";
 import {
   ASSISTANT_CLAUDE,
   AssistantService,
-  DEFAULT_ASSISTANT_MODEL,
 } from "./assistant/assistant.service";
 import { claudeFromEnvironment } from "./ai/claude";
 import { ChatService } from "./chat/chat.service";
@@ -179,16 +178,8 @@ import { ReportsService } from "./reports/reports.service";
     {
       provide: ASSISTANT_CLAUDE,
       useFactory: () => {
-        const setup = claudeFromEnvironment(process.env, {
-          timeoutMs: 120_000,
-        });
-        return setup
-          ? {
-              ...setup,
-              model:
-                process.env.ASSISTANT_MODEL?.trim() || DEFAULT_ASSISTANT_MODEL,
-            }
-          : null;
+        // The same model as every other AI feature (`CLAUDE_MODEL`).
+        return claudeFromEnvironment(process.env, { timeoutMs: 120_000 });
       },
     },
     JobDetailsService,

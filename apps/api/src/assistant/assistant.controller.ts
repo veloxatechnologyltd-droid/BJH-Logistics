@@ -1,9 +1,11 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   Inject,
+  Param,
   Post,
   Req,
   UseGuards,
@@ -26,6 +28,26 @@ export class AssistantController {
   @Get()
   status() {
     return { enabled: this.assistant.enabled };
+  }
+
+  /** The signed-in person's own past conversations; nobody sees anyone else's. */
+  @Get("conversations")
+  conversations(@Req() request: AuthenticatedRequest) {
+    return this.assistant.listConversations(request.authUser!.userId);
+  }
+
+  @Get("conversations/:id")
+  conversation(@Param("id") id: string, @Req() request: AuthenticatedRequest) {
+    return this.assistant.getConversation(id, request.authUser!.userId);
+  }
+
+  @Delete("conversations/:id")
+  @HttpCode(204)
+  async deleteConversation(
+    @Param("id") id: string,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    await this.assistant.deleteConversation(id, request.authUser!.userId);
   }
 
   @Post("turn")

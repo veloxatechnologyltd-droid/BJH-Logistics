@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  DEFAULT_OPENAI_MODEL,
   DisabledEmailExtractor,
   ExtractionError,
   OpenAiEmailExtractor,
@@ -56,7 +55,7 @@ const jsonResponse = (body: unknown, status = 200) =>
     headers: { "content-type": "application/json" },
   });
 
-const extractorWith = (fetchImpl: typeof fetch, model?: string) =>
+const extractorWith = (fetchImpl: typeof fetch, model = "gpt-6-test") =>
   new OpenAiEmailExtractor({ apiKey: "test-key", model, fetchImpl });
 
 test("the request asks for a strict JSON answer, stores nothing and wraps the email as data", async () => {
@@ -70,7 +69,7 @@ test("the request asks for a strict JSON answer, stores nothing and wraps the em
   const headers = calls[0].init.headers as Record<string, string>;
   assert.equal(headers.authorization, "Bearer test-key");
   const body = JSON.parse(String(calls[0].init.body));
-  assert.equal(body.model, DEFAULT_OPENAI_MODEL);
+  assert.equal(body.model, "gpt-6-test");
   assert.equal(body.store, false);
   assert.deepEqual(body.reasoning, { effort: "low" });
   assert.equal(body.text.format.type, "json_schema");
@@ -281,8 +280,6 @@ test("without an OpenAI key the reader is off and the email is left for a person
   });
   assert.ok(on instanceof OpenAiEmailExtractor);
   assert.equal(on.model, "gpt-5-nano");
-  assert.equal(
-    createEmailExtractor({ OPENAI_API_KEY: "sk-test" }).model,
-    DEFAULT_OPENAI_MODEL,
-  );
+  // No model is built in: a key without OPENAI_MODEL leaves reading off.
+  assert.equal(createEmailExtractor({ OPENAI_API_KEY: "sk-test" }).name, "off");
 });

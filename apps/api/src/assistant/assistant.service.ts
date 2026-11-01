@@ -4,6 +4,7 @@ import {
   Inject,
   Injectable,
   Logger,
+  NotFoundException,
   ServiceUnavailableException,
 } from "@nestjs/common";
 import Anthropic from "@anthropic-ai/sdk";
@@ -11,6 +12,8 @@ import { isUuid, serviceLinesForRoles } from "@bjh/contracts";
 import { ChatService } from "../chat/chat.service";
 import { CustomersService } from "../customers/customers.service";
 import {
+  AssistantConversationRecord,
+  AssistantLine,
   DatabasePort,
   JobScope,
   StaffRoleKey,
@@ -25,18 +28,19 @@ import { STAFF_AUTH_DIRECTORY } from "../auth/staff-admin.port";
 import type { StaffAuthDirectory } from "../auth/staff-admin.port";
 import { financeReadRoles } from "../auth/auth.guards";
 import type { ClaudeSetup } from "../ai/claude";
+import { callOpenAi, openAiText } from "../ai/openai";
+import type { OpenAiSetup } from "../ai/openai";
 
 /** The Claude client the helper uses; null when no Anthropic key is set up. */
 export const ASSISTANT_CLAUDE = Symbol("ASSISTANT_CLAUDE");
-
-/** The helper reasons over several tools, so it uses the current Opus unless `ASSISTANT_MODEL` says otherwise. */
-export const DEFAULT_ASSISTANT_MODEL = "claude-opus-5-5";
 
 /** Rounds of tool use in one turn before the helper must answer. */
 const MAX_ROUNDS = 8;
 const MAX_HISTORY = 80;
 
 type Message = Anthropic.Beta.BetaMessageParam;
+/** What one model call returned, from Claude or the OpenAI fallback. */
+type Answer = Pick<Anthropic.Beta.BetaMessage, "content" | "stop_reason">;
 
 export interface ProposedAction {
   /** The tool call it came from. */
@@ -229,7 +233,7 @@ const tools: Anthropic.Beta.BetaTool[] = [
   },
 ];
 
-const SYSTEM = `You are the BJH Logistics staff helper inside BJH's operations system. You help staff get real work done: finding jobs, requests and customers, and preparing actions such as assigning a rep, setting a reminder, creating a task, recording an ETA, messaging a client, logging a sales follow-up or emailing a receipt.
+const SYSTEM = `You are Bra Evans, the BJH Logistics staff helper inside BJH's operations system. You help staff get real work done: finding jobs, requests and customers, and preparing actions such as assigning a rep, setting a reminder, creating a task, recording an ETA, messaging a client, logging a sales follow-up or emailing a receipt.
 
 How you work:
 - Look things up with the reading tools before proposing an action; use real IDs from their results, never invented ones.
@@ -269,63 +273,123 @@ export class AssistantService {
   }
 
   /**
-   * One turn: the conversation so far (as this endpoint last returned it, with
-   * the person's new message last) in; the helper's answer and any proposed
-   * actions out. Thinking blocks travel back unchanged.
+   * One turn: the person's new message in; the helper's answer and any proposed
+   * actions out. The conversation is kept on the server, private to the person,
+   * so earlier answers, tool results and thinking blocks are never sent by the
+   * browser. Without a conversation ID a new conversation is started.
    */
   async turn(
     input: unknown,
     actor: { userId: string; roles: StaffRoleKey[] },
   ): Promise<{
-    messages: Message[];
+    conversationId: string;
+    title: string;
     reply: string;
     proposals: ProposedAction[];
   }> {
     if (!this.claude) {
-      throw new ServiceUnavailableException("The AI helper is not set up");
+      throw new ServiceUnavailableException("Bra Evans is not set up");
     }
-    const messages = this.readConversation(input);
+    const { conversationId, message } = this.readTurn(input);
+    const saved = conversationId
+      ? await this.conversation(conversationId, actor.userId)
+      : null;
+    const messages = [...((saved?.messages ?? []) as Message[])];
+    if (messages.length >= MAX_HISTORY) {
+      throw new BadRequestException(
+        "This conversation is long; start a new one",
+      );
+    }
+    // Actions confirmed since the person last wrote, so the helper hears about them.
+    const lines = saved?.lines ?? [];
+    const lastAsked = lines.map((line) => line.kind).lastIndexOf("you");
+    const doneSince = lines
+      .slice(lastAsked + 1)
+      .filter((line) => line.kind === "done")
+      .map((line) => line.text);
+    messages.push({
+      role: "user",
+      content: doneSince.length
+        ? `(Confirmed since my last message: ${doneSince.join("; ")})\n\n${message}`
+        : message,
+    });
+    const answer = await this.answer(messages, actor);
+    const newLines: AssistantLine[] = [
+      ...lines,
+      { kind: "you", text: message },
+      { kind: "helper", text: answer.reply },
+    ];
+    if (saved) {
+      await this.database.updateAssistantConversation(saved.id, actor.userId, {
+        messages,
+        lines: newLines,
+      });
+    }
+    const conversation =
+      saved ??
+      (await this.database.createAssistantConversation({
+        userId: actor.userId,
+        title: this.titleFor(message),
+        messages,
+        lines: newLines,
+      }));
+    return {
+      conversationId: conversation.id,
+      title: conversation.title,
+      reply: answer.reply,
+      proposals: answer.proposals,
+    };
+  }
+
+  /** The person's past conversations, most recent first. */
+  listConversations(userId: string) {
+    return this.database.listAssistantConversations(userId);
+  }
+
+  /** One of the person's own conversations, as the screen shows it. */
+  async getConversation(id: string, userId: string) {
+    const conversation = await this.conversation(id, userId);
+    return {
+      id: conversation.id,
+      title: conversation.title,
+      lines: conversation.lines,
+      updatedAt: conversation.updatedAt,
+    };
+  }
+
+  async deleteConversation(id: string, userId: string): Promise<void> {
+    if (
+      !isUuid(id) ||
+      !(await this.database.deleteAssistantConversation(id, userId))
+    ) {
+      throw new NotFoundException("Conversation not found");
+    }
+  }
+
+  /** Runs the model and its reading tools until it answers. Adds to `messages`. */
+  private async answer(
+    messages: Message[],
+    actor: { userId: string; roles: StaffRoleKey[] },
+  ): Promise<{ reply: string; proposals: ProposedAction[] }> {
+    const claude = this.claude!;
     const proposals: ProposedAction[] = [];
     const today = new Date().toISOString();
 
+    const system = `${SYSTEM}\n\nNow: ${today} (Ghana keeps UTC).`;
+
     for (let round = 0; round < MAX_ROUNDS; round++) {
-      let response: Anthropic.Beta.BetaMessage;
-      try {
-        response = await this.claude.client.beta.messages.create({
-          model: this.claude.model,
-          max_tokens: 16000,
-          // A request the model declines is re-run on a fallback model the
-          // server picks by refusal category, within the same call.
-          betas: ["server-side-fallback-2026-07-01"],
-          fallbacks: "default",
-          output_config: { effort: "medium" },
-          system: `${SYSTEM}\n\nNow: ${today} (Ghana keeps UTC).`,
-          tools,
-          messages,
-        });
-      } catch (error) {
-        this.logger.warn(
-          `Helper request failed: ${error instanceof Error ? error.message : String(error)}`,
-        );
-        throw new ServiceUnavailableException(
-          "The AI helper could not be reached; try again",
-        );
-      }
+      const response = await this.round(claude, system, messages);
       messages.push({ role: "assistant", content: response.content });
 
       if (response.stop_reason === "refusal") {
-        return {
-          messages,
-          reply: "The helper cannot help with that request.",
-          proposals,
-        };
+        return { reply: "Bra Evans cannot help with that request.", proposals };
       }
       const calls = response.content.filter(
         (block): block is Anthropic.Beta.BetaToolUseBlock =>
           block.type === "tool_use",
       );
       if (response.stop_reason !== "tool_use" || calls.length === 0) {
-        return { messages, reply: this.replyText(response), proposals };
+        return { reply: this.replyText(response) || "Done.", proposals };
       }
       const results: Anthropic.Beta.BetaToolResultBlockParam[] = [];
       for (const call of calls) {
@@ -359,7 +423,6 @@ export class AssistantService {
       messages.push({ role: "user", content: results });
     }
     return {
-      messages,
       reply: "That took too many steps; please ask in a simpler way.",
       proposals,
     };
@@ -384,6 +447,10 @@ export class AssistantService {
         "An action with a tool and input is required",
       );
     }
+    const saved =
+      body.conversationId === undefined
+        ? null
+        : await this.conversation(body.conversationId, actor.userId);
     const summary = await this.describe(tool, args);
     const scope = this.scope(actor.roles);
     const id = (key: string) => String(args[key] ?? "");
@@ -461,6 +528,12 @@ export class AssistantService {
           scope,
         );
         break;
+    }
+    if (saved) {
+      await this.database.updateAssistantConversation(saved.id, actor.userId, {
+        messages: saved.messages,
+        lines: [...saved.lines, { kind: "done", text: summary }],
+      });
     }
     return { done: true, summary };
   }
@@ -602,37 +675,162 @@ export class AssistantService {
     }
   }
 
-  private readConversation(input: unknown): Message[] {
-    const messages =
+  private readTurn(input: unknown): {
+    conversationId: unknown;
+    message: string;
+  } {
+    const body =
       input && typeof input === "object" && !Array.isArray(input)
-        ? (input as { messages?: unknown }).messages
-        : undefined;
-    if (!Array.isArray(messages) || messages.length === 0) {
-      throw new BadRequestException("messages are required");
-    }
-    if (messages.length > MAX_HISTORY) {
+        ? (input as Record<string, unknown>)
+        : {};
+    const message = typeof body.message === "string" ? body.message.trim() : "";
+    if (!message || message.length > 4000) {
       throw new BadRequestException(
-        "This conversation is long; start a new one",
+        "A message of up to 4000 characters is required",
       );
     }
-    const last = messages[messages.length - 1] as {
-      role?: unknown;
-      content?: unknown;
-    };
-    if (
-      last?.role !== "user" ||
-      typeof last.content !== "string" ||
-      !last.content.trim() ||
-      last.content.length > 4000
-    ) {
-      throw new BadRequestException(
-        "The last message must be the person's question, up to 4000 characters",
-      );
-    }
-    return messages as Message[];
+    return { conversationId: body.conversationId, message };
   }
 
-  private replyText(response: Anthropic.Beta.BetaMessage): string {
+  /** The person's own conversation; anyone else's is reported as not found. */
+  private async conversation(
+    id: unknown,
+    userId: string,
+  ): Promise<AssistantConversationRecord> {
+    const conversation =
+      typeof id === "string" && isUuid(id)
+        ? await this.database.getAssistantConversation(id, userId)
+        : null;
+    if (!conversation) {
+      throw new NotFoundException("Conversation not found");
+    }
+    return conversation;
+  }
+
+  /** The sidebar title: the first question, shortened. */
+  private titleFor(message: string): string {
+    const line = message.replace(/\s+/g, " ").trim();
+    return line.length > 80 ? `${line.slice(0, 77)}...` : line;
+  }
+
+  /**
+   * One model call. When Claude fails or declines and OpenAI is set up, OpenAI
+   * answers the same round with the same tools; its answer is kept in Claude's
+   * format, so the conversation can carry on with either.
+   */
+  private async round(
+    claude: ClaudeSetup,
+    system: string,
+    messages: Message[],
+  ): Promise<Answer> {
+    let failure: string;
+    try {
+      const response = await claude.client.beta.messages.create({
+        model: claude.model,
+        max_tokens: 16000,
+        output_config: { effort: "medium" },
+        system,
+        tools,
+        messages,
+      });
+      if (response.stop_reason !== "refusal" || !claude.fallback) {
+        return response;
+      }
+      failure = "Claude declined";
+    } catch (error) {
+      failure = error instanceof Error ? error.message : String(error);
+    }
+    this.logger.warn(`Helper request failed: ${failure}`);
+    if (claude.fallback) {
+      try {
+        return await this.openAiRound(claude.fallback, system, messages);
+      } catch (error) {
+        this.logger.warn(
+          `Helper OpenAI fallback failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+    throw new ServiceUnavailableException(
+      "Bra Evans could not be reached; try again",
+    );
+  }
+
+  private async openAiRound(
+    setup: OpenAiSetup,
+    system: string,
+    messages: Message[],
+  ): Promise<Answer> {
+    const input: Array<Record<string, unknown>> = [
+      { role: "system", content: system },
+    ];
+    for (const message of messages) {
+      if (typeof message.content === "string") {
+        input.push({ role: message.role, content: message.content });
+        continue;
+      }
+      for (const block of message.content) {
+        if (block.type === "text") {
+          input.push({ role: message.role, content: block.text });
+        } else if (block.type === "tool_use") {
+          input.push({
+            type: "function_call",
+            call_id: block.id,
+            name: block.name,
+            arguments: JSON.stringify(block.input ?? {}),
+          });
+        } else if (block.type === "tool_result") {
+          input.push({
+            type: "function_call_output",
+            call_id: block.tool_use_id,
+            output:
+              typeof block.content === "string"
+                ? block.content
+                : JSON.stringify(block.content ?? ""),
+          });
+        }
+        // Thinking blocks are Claude's own and are not passed on.
+      }
+    }
+    const output = await callOpenAi(setup, {
+      max_output_tokens: 16000,
+      input,
+      tools: tools.map((tool) => ({
+        type: "function",
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.input_schema,
+        strict: false,
+      })),
+    });
+    const content: Anthropic.Beta.BetaContentBlock[] = [];
+    const text = openAiText(output);
+    if (text) content.push({ type: "text", text, citations: null });
+    for (const item of output) {
+      if (item.type !== "function_call" || !item.call_id || !item.name) {
+        continue;
+      }
+      let parsed: unknown = {};
+      try {
+        parsed = JSON.parse(item.arguments || "{}");
+      } catch {
+        parsed = {};
+      }
+      content.push({
+        type: "tool_use",
+        id: item.call_id,
+        name: item.name,
+        input: parsed,
+      } as Anthropic.Beta.BetaToolUseBlock);
+    }
+    return {
+      content,
+      stop_reason: content.some((block) => block.type === "tool_use")
+        ? "tool_use"
+        : "end_turn",
+    };
+  }
+
+  private replyText(response: Answer): string {
     return response.content
       .filter(
         (block): block is Anthropic.Beta.BetaTextBlock => block.type === "text",
