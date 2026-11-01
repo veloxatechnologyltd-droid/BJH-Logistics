@@ -11,8 +11,6 @@ import type {
   InvoicePayment,
   Job,
   JobTask,
-  StockBalance,
-  StockMovement,
 } from "../jobs/jobApi";
 import {
   serviceLineLabels,
@@ -26,6 +24,12 @@ import reportStyles from "./reports.module.css";
 
 type Preset = "day" | "week" | "month" | "year" | "custom";
 type Range = { from: string; to: string };
+type ReportTab = "operations" | "finance";
+
+const reportTabs: Array<{ key: ReportTab; label: string }> = [
+  { key: "operations", label: "Operations" },
+  { key: "finance", label: "Finance" },
+];
 
 const dateString = (date: Date) => {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -79,20 +83,18 @@ type PaymentRow = {
   invoiceNumber: string;
   payment: InvoicePayment;
 };
-type MovementRow = { job: JobRef; movement: StockMovement };
 
 export function ReportsHome() {
   const { roles } = useStaffAccess();
   const isStaff = roles.length > 0;
   const [preset, setPreset] = useState<Preset>("month");
+  const [tab, setTab] = useState<ReportTab>("operations");
   const [range, setRange] = useState<Range>({ from: "", to: "" });
   const [jobs, setJobs] = useState<Job[]>([]);
   const [tasks, setTasks] = useState<JobTask[]>([]);
   const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
   const [payments, setPayments] = useState<PaymentRow[]>([]);
-  const [movements, setMovements] = useState<MovementRow[]>([]);
   const [finance, setFinance] = useState<FinanceSummary | null>(null);
-  const [stock, setStock] = useState<StockBalance[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -137,15 +139,6 @@ export function ReportsHome() {
             }),
           ),
         );
-        setMovements(
-          report.movements.map(
-            ({ jobId, fileNumber, customerCompanyName, movement }) => ({
-              job: { id: jobId, fileNumber, customerCompanyName },
-              movement,
-            }),
-          ),
-        );
-        setStock(report.stockBalances);
       })
       .catch((cause) => {
         if (active)
@@ -217,11 +210,6 @@ export function ReportsHome() {
       (receivedAmounts.get(currency) ?? 0) + payment.amountMinor,
     );
   }
-  const periodMovements = useMemo(
-    () =>
-      movements.filter(({ movement }) => inRange(movement.occurredAt, range)),
-    [movements, range],
-  );
   const overdueTasks = tasks.filter(
     (task) => task.dueDate !== null && task.dueDate < dateString(new Date()),
   );
@@ -249,17 +237,6 @@ export function ReportsHome() {
       payment.method,
     ],
   );
-  const stockRows = periodMovements.map(({ job, movement }) => [
-    movement.occurredAt.slice(0, 10),
-    movement.kind,
-    job.fileNumber,
-    job.customerCompanyName,
-    movement.locationName,
-    movement.item,
-    movement.quantity,
-    movement.unit,
-    movement.reference ?? "",
-  ]);
 
   if (!isStaff)
     return (
@@ -273,9 +250,7 @@ export function ReportsHome() {
       <header className={styles.header}>
         <div>
           <h1 className={styles.title}>Reports</h1>
-          <p className={styles.muted}>
-            Operations, finance and warehouse activity
-          </p>
+          <p className={styles.muted}>Operations and finance activity</p>
         </div>
       </header>
       <ErrorPopup message={error} />
@@ -336,11 +311,26 @@ export function ReportsHome() {
           </p>
         )}
       </section>
+      <div className={reportStyles.tabs} role="tablist" aria-label="Reports">
+        {reportTabs.map((entry) => (
+          <button
+            aria-selected={tab === entry.key}
+            className={`${reportStyles.tab}${tab === entry.key ? ` ${reportStyles.tabActive}` : ""}`}
+            key={entry.key}
+            onClick={() => setTab(entry.key)}
+            role="tab"
+            type="button"
+          >
+            {entry.label}
+          </button>
+        ))}
+      </div>
       {loading && <p className={styles.muted}>Loading reports…</p>}
 
       <section
         className={reportStyles.section}
         aria-labelledby="activity-title"
+        hidden={tab !== "operations"}
       >
         <div className={reportStyles.heading}>
           <div>
@@ -434,6 +424,7 @@ export function ReportsHome() {
       <section
         className={reportStyles.section}
         aria-labelledby="blockers-title"
+        hidden={tab !== "operations"}
       >
         <div className={reportStyles.heading}>
           <div>
@@ -494,7 +485,11 @@ export function ReportsHome() {
         )}
       </section>
 
-      <section className={reportStyles.section} aria-labelledby="finance-title">
+      <section
+        className={reportStyles.section}
+        aria-labelledby="finance-title"
+        hidden={tab !== "finance"}
+      >
         <div className={reportStyles.heading}>
           <div>
             <h2 id="finance-title">Invoices and payments</h2>
@@ -660,109 +655,11 @@ export function ReportsHome() {
           <Link href="/finance">View job costs and margins</Link>
         </p>
       </section>
-
       <section
         className={reportStyles.section}
-        aria-labelledby="warehouse-title"
+        aria-labelledby="margin-title"
+        hidden={tab !== "finance"}
       >
-        <div className={reportStyles.heading}>
-          <div>
-            <h2 id="warehouse-title">Warehouse</h2>
-            <p>
-              Stock on hand is as of the end date. Movement rows use movement
-              date.
-            </p>
-          </div>
-          <button
-            type="button"
-            disabled={!stockRows.length}
-            onClick={() =>
-              csvDownload(`warehouse-movements-${range.from}-${range.to}.csv`, [
-                [
-                  "Date",
-                  "Movement",
-                  "Job",
-                  "Customer",
-                  "Location",
-                  "Item",
-                  "Quantity",
-                  "Unit",
-                  "Reference",
-                ],
-                ...stockRows,
-              ])
-            }
-          >
-            Download movements CSV
-          </button>
-        </div>
-        <p className={styles.muted}>
-          Stock as of {range.to || "—"}: {stock.length} item/location balances.
-        </p>
-        <div className={cards.kpis}>
-          <div className={cards.kpi}>
-            <span>Receipts</span>
-            <strong>
-              {
-                periodMovements.filter(
-                  ({ movement }) => movement.kind === "receipt",
-                ).length
-              }
-            </strong>
-          </div>
-          <div className={cards.kpi}>
-            <span>Releases</span>
-            <strong>
-              {
-                periodMovements.filter(
-                  ({ movement }) => movement.kind === "release",
-                ).length
-              }
-            </strong>
-          </div>
-          <div className={cards.kpi}>
-            <span>Held item balances</span>
-            <strong>{stock.length}</strong>
-          </div>
-        </div>
-        {periodMovements.length > 0 && (
-          <div className={cards.tableWrap}>
-            <table className={cards.cardTable}>
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Type</th>
-                  <th>Job / customer</th>
-                  <th>Location</th>
-                  <th>Item</th>
-                  <th>Quantity</th>
-                </tr>
-              </thead>
-              <tbody>
-                {periodMovements.map(({ job, movement }) => (
-                  <tr key={movement.id}>
-                    <td>{movement.occurredAt.slice(0, 10)}</td>
-                    <td>
-                      {movement.kind === "receipt" ? "Received" : "Released"}
-                    </td>
-                    <td>
-                      <Link href={`/jobs/${job.id}`}>{job.fileNumber}</Link>
-                      <br />
-                      {job.customerCompanyName}
-                    </td>
-                    <td>{movement.locationName}</td>
-                    <td>{movement.item}</td>
-                    <td>
-                      {movement.quantity} {movement.unit}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
-      <section className={reportStyles.section} aria-labelledby="margin-title">
         <div className={reportStyles.heading}>
           <div>
             <h2 id="margin-title">Job costs and margin</h2>
