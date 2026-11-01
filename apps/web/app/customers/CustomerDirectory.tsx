@@ -25,10 +25,6 @@ const shortDate = (value: string | null) =>
       })
     : "—";
 
-/** Whether anyone at the company is switched on to receive messages. */
-const canBeMessaged = (company: CustomerCompany) =>
-  company.contacts.some((contact) => contact.notify);
-
 export function CustomerDirectory() {
   const { isSuperAdmin } = useStaffAccess();
   const [customers, setCustomers] = useState<CustomerCompany[]>([]);
@@ -36,8 +32,6 @@ export function CustomerDirectory() {
   const [loadError, setLoadError] = useState("");
   const [retry, setRetry] = useState(0);
   const [query, setQuery] = useState("");
-  // Business figures cover every customer, whatever the search box says.
-  const [allCustomers, setAllCustomers] = useState<CustomerCompany[]>([]);
   const [insights, setInsights] = useState<Map<string, CustomerInsight> | null>(
     null,
   );
@@ -85,27 +79,6 @@ export function CustomerDirectory() {
       ?.get(companyId)
       ?.money.find((entry) => entry.currency === currency);
   const money = (minor: number) => formatMoney(minor, currency);
-
-  const totalCompanies = allCustomers.length;
-  const activeCompanies = allCustomers.filter(
-    (company) => insights?.get(company.id)?.active,
-  ).length;
-  const owingTotal = allCustomers.reduce((total, company) => {
-    const entry = moneyOf(company.id);
-    return total + (entry ? entry.invoicedMinor - entry.receivedMinor : 0);
-  }, 0);
-  const owingCustomers = allCustomers.filter((company) => {
-    const entry = moneyOf(company.id);
-    return entry ? entry.invoicedMinor - entry.receivedMinor > 0 : false;
-  }).length;
-  const quotesAwaiting = allCustomers.reduce(
-    (total, company) =>
-      total + (insights?.get(company.id)?.quotesAwaiting ?? 0),
-    0,
-  );
-  const unreachable = allCustomers.filter(
-    (company) => !canBeMessaged(company),
-  ).length;
 
   const rows = useMemo(() => {
     const figure = (company: CustomerCompany) => {
@@ -161,7 +134,6 @@ export function CustomerDirectory() {
       .then((results) => {
         if (active) {
           setCustomers(results);
-          if (!query.trim()) setAllCustomers(results);
           setLoadState("ready");
         }
       })
@@ -183,40 +155,6 @@ export function CustomerDirectory() {
 
   return (
     <>
-      <section className={styles.overview} aria-label="Customer overview">
-        <div className={styles.metric}>
-          <span>Active customers</span>
-          <strong>
-            {insights && totalCompanies ? activeCompanies : "—"}
-            {insights && totalCompanies > 0 && (
-              <em className={styles.metricOf}> of {totalCompanies}</em>
-            )}
-          </strong>
-          <small>
-            A job still open or opened in the last {customerActiveDays} days
-          </small>
-        </div>
-        <div className={styles.metric}>
-          <span>Owing{currency ? ` (${currency})` : ""}</span>
-          <strong>{insights && currency ? money(owingTotal) : "—"}</strong>
-          <small>
-            {insights && currency
-              ? `${owingCustomers} ${owingCustomers === 1 ? "customer owes" : "customers owe"} money`
-              : "No invoices issued yet"}
-          </small>
-        </div>
-        <div className={styles.metric}>
-          <span>Quotes awaiting an answer</span>
-          <strong>{insights ? quotesAwaiting : "—"}</strong>
-          <small>Issued, and the customer has not replied</small>
-        </div>
-        <div className={styles.metric}>
-          <span>No one to message</span>
-          <strong>{totalCompanies ? unreachable : "—"}</strong>
-          <small>Companies with no contact switched on for messages</small>
-        </div>
-      </section>
-
       <section className={styles.directory} aria-label="Customer companies">
         <div className={styles.searchHeader}>
           <div>

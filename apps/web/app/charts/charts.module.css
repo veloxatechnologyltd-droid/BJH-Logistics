@@ -1,0 +1,245 @@
+/* Shared dashboard charts (Finance and Customers). */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.card {
+  border: 1px solid var(--brand-border);
+  border-radius: 12px;
+  background: var(--brand-surface);
+  padding: 18px;
+}
+.card h2 {
+  margin: 0 0 4px;
+  font-size: 1.05rem;
+}
+.headline {
+  margin: 0 0 14px;
+  color: var(--brand-muted);
+  font-size: 0.9rem;
+}
+
+.donutWrap {
+  container-type: inline-size;
+  display: grid;
+  grid-template-columns: minmax(130px, 170px) minmax(0, 1fr);
+  align-items: center;
+  gap: 16px 20px;
+}
+.donut {
+  width: 100%;
+  height: auto;
+}
+.donutTrack {
+  stroke: var(--brand-border);
+}
+.donutArc {
+  transition: opacity 0.15s;
+}
+.donutWrap:has(.donutArc:hover) .donutArc:not(:hover) {
+  opacity: 0.45;
+}
+.donutValue {
+  fill: var(--brand-ink);
+  font-size: 15px;
+  font-weight: 700;
+}
+.donutLabel {
+  fill: var(--brand-muted);
+  font-size: 8px;
+}
+.donutLegend {
+  display: grid;
+  gap: 10px;
+  max-width: 560px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.85rem;
+}
+.donutLegend li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: baseline;
+  gap: 8px;
+}
+.swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  align-self: center;
+}
+.legendName {
+  min-width: 0;
+  color: var(--brand-muted);
+  overflow-wrap: break-word;
+}
+.donutLegend strong {
+  color: var(--brand-ink);
+  font-variant-numeric: tabular-nums;
+}
+.legendShare {
+  min-width: 3ch;
+  color: var(--brand-muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.bars {
+  display: grid;
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.barHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 5px;
+  font-size: 0.85rem;
+}
+.barLabel {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.barHead strong {
+  flex-shrink: 0;
+  color: var(--brand-ink);
+  font-variant-numeric: tabular-nums;
+}
+.barTrack {
+  height: 10px;
+  border-radius: 5px;
+  background: var(--brand-border);
+  overflow: hidden;
+}
+.barFill {
+  height: 100%;
+  border-radius: 0 5px 5px 0;
+}
+
+/* Narrow cards: the name gets its own line, the figure and share sit under it. */
+@container (max-width: 560px) {
+  .donutLegend li {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    row-gap: 2px;
+  }
+  .legendName {
+    grid-column: 2 / -1;
+  }
+  .donutLegend strong {
+    grid-column: 2;
+  }
+  .legendShare {
+    grid-column: 3;
+  }
+}
+
+@media (max-width: 420px) {
+  .donutWrap {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: center;
+  }
+  .donutLegend {
+    width: 100%;
+  }
+}
+
+.wide {
+  grid-column: 1 / -1;
+}
+
+/* Columns per month. The plot is 180px tall; the month labels sit below it. */
+.columns {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+}
+.yAxis {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: 180px;
+  color: var(--brand-muted);
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  text-align: right;
+}
+.yAxis span {
+  transform: translateY(-0.4em);
+}
+.yAxis span:last-child {
+  transform: translateY(0.1em);
+}
+.plot {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(var(--periods), minmax(0, 1fr));
+  gap: 8px;
+}
+.lines {
+  position: absolute;
+  inset: 0 0 26px;
+  background-image: linear-gradient(
+    to bottom,
+    var(--brand-border) 1px,
+    transparent 1px
+  );
+  background-size: 100% 90px;
+  pointer-events: none;
+}
+.group {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+.pair {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 2px;
+  height: 180px;
+  border-bottom: 1px solid var(--brand-border);
+}
+.column {
+  width: min(28px, 42%);
+  border-radius: 4px 4px 0 0;
+  transition: opacity 0.15s;
+}
+.column:hover {
+  opacity: 0.8;
+}
+.groupLabel {
+  height: 26px;
+  padding-top: 8px;
+  color: var(--brand-muted);
+  font-size: 0.8rem;
+  text-align: center;
+}
+.columnLegend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--brand-muted);
+  font-size: 0.85rem;
+}
+.columnLegend .swatch {
+  margin-right: 6px;
+}
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}

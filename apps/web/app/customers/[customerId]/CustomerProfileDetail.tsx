@@ -219,7 +219,7 @@ export function CustomerProfileDetail() {
 
   return (
     <main className={styles.page}>
-      <Link className={styles.backLink} href="/customers">
+      <Link className={styles.backLink} href="/customers/directory">
         <span aria-hidden="true">←</span> Back to customers
       </Link>
 

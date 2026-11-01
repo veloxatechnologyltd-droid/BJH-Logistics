@@ -616,7 +616,70 @@ export class InvoicesService {
       entry.costMinor += row.costMinor;
       totals.set(row.currency, entry);
     }
-    return { jobs: rows, totals: [...totals.values()] };
+    return {
+      jobs: rows,
+      totals: [...totals.values()],
+      trend: await this.monthlyTrend(scope),
+    };
+  }
+
+  /**
+   * Invoiced (by the day issued) and received (by the day received; reversed
+   * payments left out) for each of the last six calendar months, per currency
+   * and customer. Ghana days are UTC. Only months with money appear in `rows`.
+   */
+  private async monthlyTrend(scope: JobScope) {
+    const now = new Date();
+    const months = [5, 4, 3, 2, 1, 0].map((back) =>
+      new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - back, 1))
+        .toISOString()
+        .slice(0, 7),
+    );
+    const from = `${months[0]}-01`;
+    const to = now.toISOString().slice(0, 10);
+    const [invoices, payments] = await Promise.all([
+      this.database.listReportInvoices(from, to, scope),
+      this.database.listReportPayments(from, to, scope),
+    ]);
+    const rows = new Map<
+      string,
+      {
+        month: string;
+        currency: string;
+        customerCompanyName: string;
+        invoicedMinor: number;
+        receivedMinor: number;
+      }
+    >();
+    const entry = (month: string, currency: string, name: string) => {
+      const key = `${month}|${currency}|${name}`;
+      const found = rows.get(key) ?? {
+        month,
+        currency,
+        customerCompanyName: name,
+        invoicedMinor: 0,
+        receivedMinor: 0,
+      };
+      rows.set(key, found);
+      return found;
+    };
+    for (const { customerCompanyName, invoice } of invoices) {
+      if (!invoice.issuedAt) continue;
+      entry(
+        invoice.issuedAt.slice(0, 7),
+        invoice.currency,
+        customerCompanyName,
+      ).invoicedMinor += invoice.totalMinor;
+    }
+    for (const row of payments) {
+      if (row.payment.reversal) continue;
+      entry(
+        row.payment.receivedOn.slice(0, 7),
+        row.currency,
+        row.customerCompanyName,
+      ).receivedMinor += row.payment.amountMinor;
+    }
+    return { months, rows: [...rows.values()] };
   }
 
   async outstanding(companyId: unknown, scope: JobScope) {

@@ -40,7 +40,7 @@ export function CustomerCreateForm() {
             ? "Staff access could not be checked. Try again when the API is available."
             : "Only the super admin can create customer profiles."}
         </p>
-        <Link className={styles.formCancel} href="/customers">
+        <Link className={styles.formCancel} href="/customers/directory">
           Back to customers
         </Link>
       </section>
@@ -250,7 +250,7 @@ export function CustomerCreateForm() {
       <ErrorPopup message={error} />
 
       <div className={styles.formActions}>
-        <Link className={styles.formCancel} href="/customers">
+        <Link className={styles.formCancel} href="/customers/directory">
           Cancel
         </Link>
         <button className={styles.formSubmit} disabled={saving} type="submit">
