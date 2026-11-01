@@ -23,6 +23,7 @@ let jobId: string;
 let fileNumber: string;
 
 let conversationId: string;
+let firstSystem: string;
 
 type Turn = {
   conversationId: string;
@@ -152,6 +153,7 @@ test("the helper looks things up at once but only proposes changes", async () =>
     await call(`/api/v1/jobs/${jobId}/team`, TEST_UNASSIGNED_TOKEN)
   ).json()) as { team: unknown[] };
   assert.deepEqual(team.team, []);
+  firstSystem = (testAssistantClaude.requests[0] as { system: string }).system;
   // A new conversation was saved, titled with the first question.
   conversationId = turn.conversationId;
   assert.equal(turn.title, `Assign the import rep to ${fileNumber}`);
@@ -247,15 +249,26 @@ test("conversations are kept, continued and private to their owner", async () =>
   assert.equal(((await next.json()) as Turn).conversationId, conversationId);
   // The model got the whole earlier conversation from the server.
   const sent = testAssistantClaude.requests[0] as {
+    system: string;
+    thinking: { block_binding?: { prefix_mismatch_behavior: string } };
     messages: Array<{ role: string; content: unknown }>;
   };
-  assert.equal(
-    sent.messages[0].content,
-    `Assign the import rep to ${fileNumber}`,
+  // The earlier message is replayed exactly as it was first sent.
+  assert.match(
+    String(sent.messages[0].content),
+    new RegExp(`^\\(Now: .+\\)\\n\\nAssign the import rep to ${fileNumber}$`),
   );
   assert.match(
     String(sent.messages.at(-1)?.content),
-    /^\(Confirmed since my last message: Create the task "Call the client".*\)\n\nThanks$/s,
+    /^\(Now: .*\. Confirmed since my last message: Create the task "Call the client".*\)\n\nThanks$/s,
+  );
+  // Earlier thinking blocks are only valid while the system prompt stays the
+  // same, so it carries no time and is identical on every turn.
+  assert.equal(sent.system, firstSystem);
+  assert.doesNotMatch(sent.system, /\d{4}-\d{2}-\d{2}T/);
+  assert.equal(
+    sent.thinking.block_binding?.prefix_mismatch_behavior,
+    "drop_block",
   );
 
   const list = (await (

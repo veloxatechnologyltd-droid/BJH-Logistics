@@ -13,6 +13,8 @@ import { StaffNotices } from "./StaffNotices";
 import { listChatThreads } from "./chat/chatApi";
 import { listQuoteRequests } from "./quotations/quoteRequestApi";
 import type { RequestMailbox } from "./quotations/quoteRequestApi";
+import { getFeed } from "./messages/messageApi";
+import { listQuotes } from "./quotes/quoteApi";
 
 type NavItem = {
   href: string;
@@ -194,6 +196,60 @@ function useChatUnread(enabled: boolean, pathname: string): number {
   return enabled ? count : 0;
 }
 
+const weekMs = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Quotes still in draft (not yet issued to the customer), and messages from
+ * the past week that failed to reach someone by email or SMS.
+ */
+function useWorkCounts(
+  enabled: boolean,
+  pathname: string,
+): { draftQuotes: number; failedMessages: number } {
+  const [draftQuotes, setDraftQuotes] = useState(0);
+  const [failedMessages, setFailedMessages] = useState(0);
+  useEffect(() => {
+    if (!enabled) return;
+    let current = true;
+    const load = () => {
+      listQuotes()
+        .then((quotes) => {
+          if (current)
+            setDraftQuotes(
+              quotes.filter((quote) => quote.latestStatus === "draft").length,
+            );
+        })
+        // The badge is a hint; the Quotes page shows any failure.
+        .catch(() => undefined);
+      getFeed({})
+        .then((feed) => {
+          if (!current) return;
+          const since = Date.now() - weekMs;
+          setFailedMessages(
+            feed.messages.filter(
+              (message) =>
+                Date.parse(message.createdAt) >= since &&
+                message.deliveries.some(
+                  (delivery) => delivery.status === "failed",
+                ),
+            ).length,
+          );
+        })
+        // The badge is a hint; the Messages page shows any failure.
+        .catch(() => undefined);
+    };
+    load();
+    const timer = window.setInterval(load, newRequestsEveryMs);
+    return () => {
+      current = false;
+      window.clearInterval(timer);
+    };
+  }, [enabled, pathname]);
+  return enabled
+    ? { draftQuotes, failedMessages }
+    : { draftQuotes: 0, failedMessages: 0 };
+}
+
 /** Pages reached from Settings or a link, not from the main menu. */
 const settingsPages: Array<{ href: string; label: string }> = [
   { href: "/settings/business", label: "Business settings" },
@@ -252,6 +308,10 @@ export function WorkspaceFrame({ children }: { children: ReactNode }) {
   const unreadChat = useChatUnread(
     status === "ready" &&
       (roles.includes("customer_service_rep") || roles.includes("super_admin")),
+    pathname,
+  );
+  const { draftQuotes, failedMessages } = useWorkCounts(
+    status === "ready" && !isCustomer,
     pathname,
   );
 
@@ -359,9 +419,19 @@ export function WorkspaceFrame({ children }: { children: ReactNode }) {
                       ? inquiriesForAPerson
                       : item.href === "/chat"
                         ? unreadChat
-                        : 0;
+                        : item.href === "/quotes"
+                          ? draftQuotes
+                          : item.href === "/messages"
+                            ? failedMessages
+                            : 0;
                 const label = badge
-                  ? `${item.label}, ${badge} new`
+                  ? `${item.label}, ${badge} ${
+                      item.href === "/quotes"
+                        ? "in draft"
+                        : item.href === "/messages"
+                          ? "failed to send"
+                          : "new"
+                    }`
                   : item.label;
                 return (
                   <Link

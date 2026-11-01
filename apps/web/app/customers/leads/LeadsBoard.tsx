@@ -525,7 +525,6 @@ export function LeadsBoard() {
           </div>
         )}
       </section>
-
     </>
   );
 }
