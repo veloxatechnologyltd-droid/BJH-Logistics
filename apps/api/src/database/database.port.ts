@@ -490,6 +490,22 @@ export interface ChatThreadRecord {
   unread: number;
 }
 
+/** One line on the helper's screen. */
+export interface AssistantLine {
+  kind: "you" | "helper" | "done";
+  text: string;
+}
+
+/** A staff member's conversation with the helper, private to them. */
+export interface AssistantConversationRecord {
+  id: string;
+  title: string;
+  /** The conversation as the model sees it, tool calls and results included. */
+  messages: unknown[];
+  lines: AssistantLine[];
+  updatedAt: string;
+}
+
 /** A notice for one staff member: an overdue request or inquiry, or their own reminder. */
 export interface StaffNotificationRecord {
   id: string;
@@ -1569,6 +1585,34 @@ export abstract class DatabasePort {
   abstract findCompanyByCustomerNumber(
     customerNumber: string,
   ): Promise<string | null>;
+  /** The person's helper conversations, most recent first, without their contents. */
+  abstract listAssistantConversations(
+    userId: string,
+  ): Promise<
+    Array<Pick<AssistantConversationRecord, "id" | "title" | "updatedAt">>
+  >;
+  /** One of the person's own conversations; null for anyone else's. */
+  abstract getAssistantConversation(
+    id: string,
+    userId: string,
+  ): Promise<AssistantConversationRecord | null>;
+  abstract createAssistantConversation(conversation: {
+    userId: string;
+    title: string;
+    messages: unknown[];
+    lines: AssistantLine[];
+  }): Promise<AssistantConversationRecord>;
+  /** Replaces the contents of the person's own conversation; false if not theirs. */
+  abstract updateAssistantConversation(
+    id: string,
+    userId: string,
+    contents: { messages: unknown[]; lines: AssistantLine[] },
+  ): Promise<boolean>;
+  /** Deletes the person's own conversation; false if not theirs. */
+  abstract deleteAssistantConversation(
+    id: string,
+    userId: string,
+  ): Promise<boolean>;
   /** The person's notices not yet dismissed, due or upcoming, soonest first. */
   abstract listStaffNotifications(
     userId: string,

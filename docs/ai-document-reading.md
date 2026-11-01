@@ -6,10 +6,10 @@ waybill, booking number, containers with their seals and, with AI, the parties
 (shipper, consignee, notify party, agent, with address lines) and the expected
 arrival (ETA).
 
-| Set up                     | What reads the document                                                                       | Files                       |
-| -------------------------- | --------------------------------------------------------------------------------------------- | --------------------------- |
-| `ANTHROPIC_API_KEY` is set | Claude (`claude-haiku-5-5`, or `CLAUDE_MODEL`) reads the whole file, so scans and photos work | PDF, PNG, JPEG, up to 20 MB |
-| No key                     | The PDF's text layer is read inside the API (nothing leaves it); scans give an empty draft    | PDF with text only          |
+| Set up                                         | What reads the document                                                                                                                   | Files                       |
+| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- |
+| `ANTHROPIC_API_KEY` and `CLAUDE_MODEL` are set | Claude reads the whole file, so scans and photos work; if it fails and `OPENAI_API_KEY` + `OPENAI_MODEL` are set, OpenAI reads it instead | PDF, PNG, JPEG, up to 20 MB |
+| No key                                         | The PDF's text layer is read inside the API (nothing leaves it); scans give an empty draft                                                | PDF with text only          |
 
 Either way the result is a **draft**: nothing reaches the job until a person
 checks each value against the document, corrects it if needed and applies the

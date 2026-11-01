@@ -5,8 +5,14 @@ const apiBaseUrl = (
 ).replace(/\/$/, "");
 const assistantUrl = `${apiBaseUrl}/v1/assistant`;
 
-/** The conversation exactly as the API returned it; sent back unchanged. */
-export type HelperMessage = { role: "user" | "assistant"; content: unknown };
+/** One line on the screen: a question, an answer or a confirmed action. */
+export type HelperLine = { kind: "you" | "helper" | "done"; text: string };
+
+export type ConversationSummary = {
+  id: string;
+  title: string;
+  updatedAt: string;
+};
 
 export type ProposedAction = {
   id: string;
@@ -20,7 +26,7 @@ async function read<T>(response: Response): Promise<T> {
     const body = (await response.json().catch(() => null)) as {
       message?: string;
     } | null;
-    throw new Error(body?.message ?? "The helper could not answer");
+    throw new Error(body?.message ?? "Bra Evans could not answer");
   }
   return (await response.json()) as T;
 }
@@ -36,14 +42,35 @@ const post = async <T>(path: string, body: unknown) =>
 
 export const helperStatus = async () =>
   read<{ enabled: boolean }>(await authenticatedFetch(assistantUrl));
-export const askHelper = (messages: HelperMessage[]) =>
+export const listConversations = async () =>
+  read<ConversationSummary[]>(
+    await authenticatedFetch(`${assistantUrl}/conversations`),
+  );
+export const openConversation = async (id: string) =>
+  read<ConversationSummary & { lines: HelperLine[] }>(
+    await authenticatedFetch(`${assistantUrl}/conversations/${id}`),
+  );
+export async function deleteConversation(id: string): Promise<void> {
+  const response = await authenticatedFetch(
+    `${assistantUrl}/conversations/${id}`,
+    { method: "DELETE" },
+  );
+  if (!response.ok) throw new Error("The chat could not be deleted");
+}
+/** Without a conversation ID the API starts a new conversation. */
+export const askHelper = (conversationId: string | null, message: string) =>
   post<{
-    messages: HelperMessage[];
+    conversationId: string;
+    title: string;
     reply: string;
     proposals: ProposedAction[];
-  }>("/turn", { messages });
-export const confirmAction = (action: ProposedAction) =>
+  }>("/turn", { conversationId: conversationId ?? undefined, message });
+export const confirmAction = (
+  conversationId: string | null,
+  action: ProposedAction,
+) =>
   post<{ done: true; summary: string }>("/confirm", {
     tool: action.tool,
     input: action.input,
+    conversationId: conversationId ?? undefined,
   });

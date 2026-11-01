@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { partyRoleKeys, referenceKindKeys } from "@bjh/contracts";
-import { DEFAULT_CLAUDE_MODEL, claudeFromEnvironment } from "../src/ai/claude";
+import { claudeFromEnvironment } from "../src/ai/claude";
+
+/** Models come only from the environment; these are whatever a test sets. */
+const CLAUDE_MODEL = "claude-test-model";
+const OPENAI_MODEL = "gpt-test-model";
 import {
   ClaudeEmailExtractor,
   OpenAiEmailExtractor,
@@ -33,7 +37,7 @@ const message = (json: unknown, stopReason = "end_turn") => ({
   id: "msg_test",
   type: "message",
   role: "assistant",
-  model: DEFAULT_CLAUDE_MODEL,
+  model: CLAUDE_MODEL,
   content: [
     { type: "thinking", thinking: "", signature: "sig" },
     { type: "text", text: JSON.stringify(json) },
@@ -85,7 +89,10 @@ function fakeApi(status: number, body: unknown) {
 }
 
 const setupWith = (impl: typeof fetch) =>
-  claudeFromEnvironment({ ANTHROPIC_API_KEY: "test-key" }, { fetch: impl })!;
+  claudeFromEnvironment(
+    { ANTHROPIC_API_KEY: "test-key", CLAUDE_MODEL },
+    { fetch: impl },
+  )!;
 
 test("Claude reads an email with a structured answer and the email wrapped as data", async () => {
   const api = fakeApi(
@@ -117,7 +124,7 @@ test("Claude reads an email with a structured answer and the email wrapped as da
   const [request] = api.requests;
   assert.equal(request.url, "https://api.anthropic.com/v1/messages");
   assert.equal(request.headers.get("x-api-key"), "test-key");
-  assert.equal(request.body.model, DEFAULT_CLAUDE_MODEL);
+  assert.equal(request.body.model, CLAUDE_MODEL);
   assert.equal(request.body.output_config.effort, "low");
   assert.equal(request.body.output_config.format.type, "json_schema");
   const schema = request.body.output_config.format.schema;
@@ -132,33 +139,130 @@ test("Claude reads an email with a structured answer and the email wrapped as da
   assert.ok(text.endsWith("</email>"));
 });
 
-test("Claude is preferred when both keys are set; the model can be changed", () => {
+test("Claude is preferred when both are set up; each needs its own key and model", () => {
   assert.ok(
     createEmailExtractor({
       ANTHROPIC_API_KEY: "a",
+      CLAUDE_MODEL,
       OPENAI_API_KEY: "o",
+      OPENAI_MODEL,
     }) instanceof ClaudeEmailExtractor,
   );
   assert.ok(
-    createEmailExtractor({ OPENAI_API_KEY: "o" }) instanceof
+    createEmailExtractor({ OPENAI_API_KEY: "o", OPENAI_MODEL }) instanceof
       OpenAiEmailExtractor,
   );
   assert.equal(
-    createEmailExtractor({ ANTHROPIC_API_KEY: " a " }).model,
-    DEFAULT_CLAUDE_MODEL,
+    createEmailExtractor({ ANTHROPIC_API_KEY: " a ", CLAUDE_MODEL: " m " })
+      .model,
+    "m",
+  );
+  // No model is built in: a key without its model leaves that service off.
+  assert.equal(claudeFromEnvironment({ ANTHROPIC_API_KEY: "a" }), null);
+  assert.equal(
+    createEmailExtractor({ ANTHROPIC_API_KEY: "a", OPENAI_API_KEY: "o" }).name,
+    "off",
   );
   assert.equal(
-    createEmailExtractor({
+    claudeFromEnvironment({
       ANTHROPIC_API_KEY: "a",
-      CLAUDE_MODEL: "claude-sonnet-5-5",
-    }).model,
-    "claude-sonnet-5-5",
+      CLAUDE_MODEL,
+      OPENAI_API_KEY: "o",
+    })!.fallback,
+    null,
   );
   assert.ok(createDocumentReader({}) instanceof TextLayerOnlyReader);
   assert.equal(createDocumentReader({}).model, null);
+  assert.equal(createDocumentReader({ ANTHROPIC_API_KEY: "a" }).model, null);
   assert.equal(
-    createDocumentReader({ ANTHROPIC_API_KEY: "a" }).model,
-    DEFAULT_CLAUDE_MODEL,
+    createDocumentReader({ ANTHROPIC_API_KEY: "a", CLAUDE_MODEL }).model,
+    CLAUDE_MODEL,
+  );
+});
+
+test("when Claude fails, OpenAI answers the same request", async () => {
+  const urls: string[] = [];
+  const sent: Array<Record<string, unknown>> = [];
+  const impl = (async (url: string, init: RequestInit) => {
+    urls.push(String(url));
+    sent.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+    if (String(url).includes("anthropic")) {
+      return new Response(
+        JSON.stringify({
+          type: "error",
+          error: { type: "overloaded_error", message: "x" },
+        }),
+        {
+          status: 529,
+          headers: {
+            "content-type": "application/json",
+            "x-should-retry": "false",
+          },
+        },
+      );
+    }
+    return new Response(
+      JSON.stringify({
+        status: "completed",
+        output: [
+          {
+            type: "message",
+            content: [
+              {
+                type: "output_text",
+                text: JSON.stringify({
+                  companyName: "Fallback Synthetic Ltd",
+                  service: "sea_import",
+                }),
+              },
+            ],
+          },
+        ],
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  }) as unknown as typeof fetch;
+  const setup = claudeFromEnvironment(
+    { ANTHROPIC_API_KEY: "a", CLAUDE_MODEL, OPENAI_API_KEY: "o", OPENAI_MODEL },
+    { fetch: impl },
+  )!;
+  const result = await new ClaudeEmailExtractor(setup).extract({
+    ...email,
+    attachments: [
+      {
+        filename: "list.pdf",
+        contentType: "application/pdf",
+        bytes: Buffer.from("%PDF-1.4 test"),
+      },
+    ],
+  });
+  assert.equal(result.companyName, "Fallback Synthetic Ltd");
+  assert.deepEqual(urls, [
+    "https://api.anthropic.com/v1/messages",
+    "https://api.openai.com/v1/responses",
+  ]);
+  const fallback = sent[1] as {
+    model: string;
+    store: boolean;
+    input: Array<{ content: Array<{ type: string; file_data?: string }> }>;
+    text: { format: { type: string } };
+  };
+  assert.equal(fallback.model, OPENAI_MODEL);
+  assert.equal(fallback.store, false);
+  assert.equal(fallback.text.format.type, "json_schema");
+  const parts = fallback.input[1].content;
+  assert.equal(parts[0].type, "input_file");
+  assert.match(parts[0].file_data!, /^data:application\/pdf;base64,/);
+  assert.equal(parts[1].type, "input_text");
+
+  // Without OpenAI set up, the Claude failure is reported as before.
+  const claudeOnly = claudeFromEnvironment(
+    { ANTHROPIC_API_KEY: "a", CLAUDE_MODEL },
+    { fetch: impl },
+  )!;
+  await assert.rejects(
+    () => new ClaudeEmailExtractor(claudeOnly).extract(email),
+    /The AI service had a problem$/,
   );
 });
 

@@ -77,6 +77,8 @@ import {
   LeadActivityRecord,
   SalesPeriodRecord,
   SalesServiceReportRecord,
+  AssistantConversationRecord,
+  AssistantLine,
   ChatThreadRecord,
   PaymentBatchLine,
   PaymentBatchResult,
@@ -3671,6 +3673,103 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       jobId: optional(row.job_id),
       createdAt: this.toIsoString(row.created_at),
       readAt: row.read_at ? this.toIsoString(row.read_at) : null,
+    };
+  }
+
+  async listAssistantConversations(
+    userId: string,
+  ): Promise<
+    Array<Pick<AssistantConversationRecord, "id" | "title" | "updatedAt">>
+  > {
+    const result = await this.pool.query(
+      `SELECT conversation_id, title, updated_at
+       FROM app.assistant_conversation
+       WHERE user_id = $1::uuid
+       ORDER BY updated_at DESC, conversation_id
+       LIMIT 200`,
+      [userId],
+    );
+    return result.rows.map((row) => ({
+      id: String(row.conversation_id),
+      title: String(row.title),
+      updatedAt: this.toIsoString(row.updated_at),
+    }));
+  }
+
+  async getAssistantConversation(
+    id: string,
+    userId: string,
+  ): Promise<AssistantConversationRecord | null> {
+    const result = await this.pool.query(
+      `SELECT * FROM app.assistant_conversation
+       WHERE conversation_id = $1::uuid AND user_id = $2::uuid`,
+      [id, userId],
+    );
+    return result.rows[0]
+      ? this.mapAssistantConversation(result.rows[0])
+      : null;
+  }
+
+  async createAssistantConversation(conversation: {
+    userId: string;
+    title: string;
+    messages: unknown[];
+    lines: AssistantLine[];
+  }): Promise<AssistantConversationRecord> {
+    const result = await this.pool.query(
+      `INSERT INTO app.assistant_conversation (user_id, title, messages, lines)
+       VALUES ($1::uuid, $2, $3::jsonb, $4::jsonb)
+       RETURNING *`,
+      [
+        conversation.userId,
+        conversation.title,
+        JSON.stringify(conversation.messages),
+        JSON.stringify(conversation.lines),
+      ],
+    );
+    return this.mapAssistantConversation(result.rows[0]);
+  }
+
+  async updateAssistantConversation(
+    id: string,
+    userId: string,
+    contents: { messages: unknown[]; lines: AssistantLine[] },
+  ): Promise<boolean> {
+    const result = await this.pool.query(
+      `UPDATE app.assistant_conversation
+       SET messages = $3::jsonb, lines = $4::jsonb, updated_at = clock_timestamp()
+       WHERE conversation_id = $1::uuid AND user_id = $2::uuid`,
+      [
+        id,
+        userId,
+        JSON.stringify(contents.messages),
+        JSON.stringify(contents.lines),
+      ],
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async deleteAssistantConversation(
+    id: string,
+    userId: string,
+  ): Promise<boolean> {
+    const result = await this.pool.query(
+      `DELETE FROM app.assistant_conversation
+       WHERE conversation_id = $1::uuid AND user_id = $2::uuid`,
+      [id, userId],
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  private mapAssistantConversation(
+    row: Record<string, unknown>,
+  ): AssistantConversationRecord {
+    return {
+      id: String(row.conversation_id),
+      title: String(row.title),
+      messages: row.messages as unknown[],
+      lines: row.lines as AssistantLine[],
+      updatedAt: this.toIsoString(row.updated_at),
     };
   }
 

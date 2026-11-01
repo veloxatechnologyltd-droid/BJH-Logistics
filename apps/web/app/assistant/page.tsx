@@ -1,6 +1,6 @@
 import { Helper } from "./Helper";
 
-export const metadata = { title: "AI helper | BJH Logistics" };
+export const metadata = { title: "Bra Evans | BJH Logistics" };
 
 export default function HelperPage() {
   return <Helper />;

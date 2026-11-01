@@ -1,11 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
-
-/**
- * Anthropic's model for high-volume extraction: $0.10 / $0.50 per million
- * input / output tokens for prompts up to 100K tokens (October 2026). Reads
- * PDFs and images directly.
- */
-export const DEFAULT_CLAUDE_MODEL = "claude-haiku-5-5";
+import { Logger } from "@nestjs/common";
+import { OpenAiError, openAiFromEnvironment, readWithOpenAi } from "./openai";
+import type { OpenAiSetup } from "./openai";
 
 /** File types Claude reads directly: PDFs (text or scanned) and photos or scans as images. */
 export const CLAUDE_FILE_TYPES = ["application/pdf", "image/png", "image/jpeg"];
@@ -37,15 +33,27 @@ export class ClaudeReadingError extends Error {}
 export interface ClaudeSetup {
   client: Anthropic;
   model: string;
+  /** OpenAI, tried when a Claude call fails; null when not set up. */
+  fallback?: OpenAiSetup | null;
 }
 
-/** Null when no Anthropic key is set up. */
+/**
+ * Null unless both `ANTHROPIC_API_KEY` and `CLAUDE_MODEL` are set: no model is
+ * built in. OpenAI is attached as the fallback when it is set up too.
+ */
 export function claudeFromEnvironment(
   environment: NodeJS.ProcessEnv,
   options: { fetch?: typeof fetch; timeoutMs?: number } = {},
 ): ClaudeSetup | null {
   const apiKey = environment.ANTHROPIC_API_KEY?.trim();
   if (!apiKey) return null;
+  const model = environment.CLAUDE_MODEL?.trim();
+  if (!model) {
+    new Logger("AI").warn(
+      "ANTHROPIC_API_KEY is set but CLAUDE_MODEL is not; Claude stays off",
+    );
+    return null;
+  }
   return {
     client: new Anthropic({
       apiKey,
@@ -53,7 +61,8 @@ export function claudeFromEnvironment(
       maxRetries: 1,
       ...(options.fetch ? { fetch: options.fetch } : {}),
     }),
-    model: environment.CLAUDE_MODEL?.trim() || DEFAULT_CLAUDE_MODEL,
+    model,
+    fallback: openAiFromEnvironment(environment, options),
   };
 }
 
@@ -81,18 +90,42 @@ function problem(error: unknown): string {
   return "The AI service could not be reached";
 }
 
+type ReadRequest = {
+  system: string;
+  content: Anthropic.ContentBlockParam[];
+  schema: Record<string, unknown>;
+  maxTokens: number;
+};
+
 /**
  * One request whose answer is forced into `schema` (structured outputs) and
- * returned parsed. Low effort: the work is reading, not reasoning.
+ * returned parsed. When Claude fails and OpenAI is set up, OpenAI answers the
+ * same request instead.
  */
 export async function readWithClaude(
   setup: ClaudeSetup,
-  request: {
-    system: string;
-    content: Anthropic.ContentBlockParam[];
-    schema: Record<string, unknown>;
-    maxTokens: number;
-  },
+  request: ReadRequest,
+): Promise<unknown> {
+  try {
+    return await readWithClaudeOnly(setup, request);
+  } catch (error) {
+    if (!(error instanceof ClaudeReadingError) || !setup.fallback) throw error;
+    new Logger("AI").warn(`Claude failed (${error.message}); trying OpenAI`);
+    try {
+      return await readWithOpenAi(setup.fallback, request);
+    } catch (fallbackError) {
+      if (!(fallbackError instanceof OpenAiError)) throw fallbackError;
+      throw new ClaudeReadingError(
+        `${error.message}; the OpenAI fallback also failed: ${fallbackError.message}`,
+      );
+    }
+  }
+}
+
+/** Low effort: the work is reading, not reasoning. */
+async function readWithClaudeOnly(
+  setup: ClaudeSetup,
+  request: ReadRequest,
 ): Promise<unknown> {
   let response: Anthropic.Message;
   try {

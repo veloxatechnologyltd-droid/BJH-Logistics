@@ -64,7 +64,8 @@ services:
       - key: OPENAI_MODEL
         sync: false
       # Optional: Claude reads emails (preferred over OpenAI) and job documents,
-      # including scans and photos. Setting it sends what staff read to Anthropic:
+      # including scans and photos. Each AI key needs its model set too (no model
+      # is built in); OpenAI, when set up, is Claude's fallback. Setting it sends what staff read to Anthropic:
       # only with BJH's agreement once real documents are in use.
       - key: ANTHROPIC_API_KEY
         sync: false

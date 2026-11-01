@@ -11,11 +11,9 @@ import {
   readWithClaude,
 } from "../ai/claude";
 import type { ClaudeSetup } from "../ai/claude";
+import { openAiFromEnvironment, openAiReasons } from "../ai/openai";
 
 export const EMAIL_EXTRACTOR = Symbol("EMAIL_EXTRACTOR");
-
-/** Cheapest OpenAI model made for focused, high-volume work (checked against OpenAI's pricing page, October 2026). */
-export const DEFAULT_OPENAI_MODEL = "gpt-6-luna";
 
 /** What an email says about the request. Everything the email does not state is null. */
 export interface ExtractedRequest {
@@ -154,9 +152,6 @@ function emailAsText(email: EmailForExtraction): string {
   return `<email>\nFrom: ${from}\nSubject: ${email.subject}\n\n${body}\n</email>`;
 }
 
-/** The newer OpenAI models reason before answering; the older ones reject the setting. */
-const reasons = (model: string) => /^(gpt-5|gpt-6|o\d)/.test(model);
-
 interface OpenAiResponse {
   status?: string;
   error?: unknown;
@@ -181,13 +176,13 @@ export class OpenAiEmailExtractor implements EmailExtractor {
 
   constructor(options: {
     apiKey: string;
-    model?: string;
+    model: string;
     baseUrl?: string;
     timeoutMs?: number;
     fetchImpl?: typeof fetch;
   }) {
     this.apiKey = options.apiKey;
-    this.model = options.model || DEFAULT_OPENAI_MODEL;
+    this.model = options.model;
     this.baseUrl = (options.baseUrl ?? "https://api.openai.com/v1").replace(
       /\/$/,
       "",
@@ -210,7 +205,9 @@ export class OpenAiEmailExtractor implements EmailExtractor {
           model: this.model,
           store: false,
           max_output_tokens: 4000,
-          ...(reasons(this.model) ? { reasoning: { effort: "low" } } : {}),
+          ...(openAiReasons(this.model)
+            ? { reasoning: { effort: "low" } }
+            : {}),
           input: [
             { role: "system", content: SYSTEM_PROMPT },
             { role: "user", content: emailAsText(email) },
@@ -334,16 +331,19 @@ export class DisabledEmailExtractor implements EmailExtractor {
   }
 }
 
-/** Claude when an Anthropic key is set, otherwise OpenAI when its key is set, otherwise off. */
+/**
+ * Claude (with OpenAI as its fallback) when Claude is set up, otherwise OpenAI
+ * alone when it is set up, otherwise off. Each needs its key and its model.
+ */
 export function createEmailExtractor(
   environment: NodeJS.ProcessEnv = process.env,
 ): EmailExtractor {
   const claude = claudeFromEnvironment(environment);
   if (claude) return new ClaudeEmailExtractor(claude);
-  const apiKey = environment.OPENAI_API_KEY?.trim();
-  if (!apiKey) return new DisabledEmailExtractor();
+  const openAi = openAiFromEnvironment(environment);
+  if (!openAi) return new DisabledEmailExtractor();
   return new OpenAiEmailExtractor({
-    apiKey,
-    model: environment.OPENAI_MODEL?.trim() || undefined,
+    apiKey: openAi.apiKey,
+    model: openAi.model,
   });
 }
