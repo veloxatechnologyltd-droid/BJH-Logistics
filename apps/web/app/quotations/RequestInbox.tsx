@@ -2,8 +2,12 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { listQuoteRequests } from "./quoteRequestApi";
-import type { QuoteRequest } from "./quoteRequestApi";
+import {
+  listQuoteRequests,
+  misfiledLabel,
+  requestSourceLabels,
+} from "./quoteRequestApi";
+import type { QuoteRequest, RequestMailbox } from "./quoteRequestApi";
 import { eventLabels, getFeed } from "../messages/messageApi";
 import type { ClientMessage } from "../messages/messageApi";
 import { useStaffAccess } from "../auth/useStaffAccess";
@@ -11,9 +15,15 @@ import styles from "./quotation.module.css";
 import { ErrorPopup, plainMessage } from "../ErrorPopup";
 
 type LoadState = "loading" | "ready" | "error";
-type Tab = "received" | "sent" | "other";
+type Tab = "person" | "received" | "sent" | "other";
 
 const tabs: Array<{ key: Tab; label: string; empty: string }> = [
+  {
+    key: "person",
+    label: "Needs a person",
+    empty:
+      "Inquiries the assistant could not answer from the knowledge base will appear here.",
+  },
   {
     key: "received",
     label: "Received",
@@ -33,8 +43,21 @@ const tabs: Array<{ key: Tab; label: string; empty: string }> = [
 
 const kindLabels = { quote: "Quote request", inquiry: "Question" } as const;
 
-/** What the Sent tab lists: replies to emails, and quotes sent to customers. */
-const sentEvents = ["email_reply", "quote_issued", "quote_sent"] as const;
+/** What the Sent tab lists: replies to emails, and quotes sent to customers; for inquiries, the replies to them. */
+const sentEvents: Record<RequestMailbox, string[]> = {
+  quotes: ["email_reply", "quote_issued", "quote_sent"],
+  inquiries: ["inquiry_reply"],
+};
+
+/** Each inbox's tabs: only inquiries are escalated to a person. */
+const tabsOf: Record<RequestMailbox, Tab[]> = {
+  quotes: ["received", "sent", "other"],
+  inquiries: ["person", "received", "sent", "other"],
+};
+
+/** An inquiry the assistant could not answer, still waiting for a person to reply. */
+const needsPerson = (request: QuoteRequest) =>
+  Boolean(request.intake?.escalation && !request.intake.reply?.sentAt);
 
 const deliveryLabels = {
   sent: "Delivered",
@@ -86,26 +109,38 @@ function initials(name: string): string {
 }
 
 const tabOf = (request: QuoteRequest): Tab =>
-  request.intake?.kind === "other" ? "other" : "received";
+  request.intake?.kind === "other"
+    ? "other"
+    : needsPerson(request)
+      ? "person"
+      : "received";
 
 const senderName = (request: QuoteRequest) =>
   request.intake?.fromName || request.contactName || request.email;
 
-/** What the email is; the quote and reply waiting on it are shown under the row. */
+/** Where it came from and what it is; the quote and reply waiting on it are shown under the row. */
 function receivedPills(request: QuoteRequest): string[] {
+  const source = request.source
+    ? requestSourceLabels[request.source]
+    : "Earlier request";
   const intake = request.intake;
-  if (!intake) return ["Web request"];
-  if (!intake.kind) return ["Not sorted"];
-  return intake.kind === "other" ? [] : [kindLabels[intake.kind]];
+  if (!intake) return [source];
+  if (!intake.kind) return [source, "Not sorted"];
+  return intake.kind === "other" ? [source] : [source, kindLabels[intake.kind]];
 }
 
-export function RequestInbox() {
+export function RequestInbox({
+  mailbox = "quotes",
+}: {
+  mailbox?: RequestMailbox;
+}) {
   const { isSuperAdmin } = useStaffAccess();
   const [requests, setRequests] = useState<QuoteRequest[]>([]);
   const [sent, setSent] = useState<ClientMessage[]>([]);
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [loadError, setLoadError] = useState("");
-  const [tab, setTab] = useState<Tab>("received");
+  const shownTabs = tabs.filter((entry) => tabsOf[mailbox].includes(entry.key));
+  const [tab, setTab] = useState<Tab>(shownTabs[0].key);
   const [query, setQuery] = useState("");
   const normalizedQuery = query.trim().toLocaleLowerCase();
 
@@ -114,8 +149,8 @@ export function RequestInbox() {
     setLoadError("");
     try {
       const [loaded, ...feeds] = await Promise.all([
-        listQuoteRequests(),
-        ...sentEvents.map((event) => getFeed({ event, limit: 200 })),
+        listQuoteRequests(undefined, mailbox),
+        ...sentEvents[mailbox].map((event) => getFeed({ event, limit: 200 })),
       ]);
       setRequests(loaded);
       setSent(
@@ -132,7 +167,7 @@ export function RequestInbox() {
       );
       setLoadState("error");
     }
-  }, []);
+  }, [mailbox]);
 
   useEffect(() => {
     void load();
@@ -142,13 +177,14 @@ export function RequestInbox() {
     const received = (request: QuoteRequest) =>
       request.intake?.receivedAt ?? request.createdAt;
     const newestFirst = (a: string, b: string) => b.localeCompare(a);
+    const of = (key: Tab) =>
+      requests
+        .filter((request) => tabOf(request) === key)
+        .sort((a, b) => newestFirst(received(a), received(b)));
     return {
-      received: requests
-        .filter((request) => tabOf(request) === "received")
-        .sort((a, b) => newestFirst(received(a), received(b))),
-      other: requests
-        .filter((request) => tabOf(request) === "other")
-        .sort((a, b) => newestFirst(received(a), received(b))),
+      person: of("person"),
+      received: of("received"),
+      other: of("other"),
     };
   }, [requests]);
 
@@ -190,20 +226,26 @@ export function RequestInbox() {
   const newCount = byTab.received.filter(
     (request) => request.intake && !request.intake.reviewedAt,
   ).length;
-  const current = tabs.find((entry) => entry.key === tab)!;
+  const current = shownTabs.find((entry) => entry.key === tab)!;
 
   return (
     <section className={styles.inbox} aria-labelledby="inbox-title">
       <div className={styles.inboxHeader}>
         <div>
-          <h2 id="inbox-title">Request inbox</h2>
+          <h2 id="inbox-title">
+            {mailbox === "inquiries" ? "Inquiry inbox" : "Request inbox"}
+          </h2>
           <p>
-            Every email to BJH and what was sent back.
-            {newCount > 0 && ` ${newCount} new to check.`}
+            {mailbox === "inquiries"
+              ? "Every question to BJH's inquiries address and what was sent back."
+              : "Every email to BJH and what was sent back."}
+            {mailbox === "inquiries" && byTab.person.length > 0
+              ? ` ${byTab.person.length} need a person.`
+              : newCount > 0 && ` ${newCount} new to check.`}
           </p>
         </div>
         <div className={styles.inboxActions}>
-          {isSuperAdmin && (
+          {isSuperAdmin && mailbox === "quotes" && (
             <Link
               className={styles.composerLink}
               href="/quotations/new-request"
@@ -244,7 +286,7 @@ export function RequestInbox() {
       {loadState === "ready" && (
         <>
           <div className={styles.inboxTabs} role="tablist">
-            {tabs.map((entry) => (
+            {shownTabs.map((entry) => (
               <button
                 aria-selected={tab === entry.key}
                 className={`${styles.inboxTab}${tab === entry.key ? ` ${styles.inboxTabActive}` : ""}`}
@@ -344,6 +386,12 @@ function ReceivedRow({ request }: { request: QuoteRequest }) {
           </span>
           <span className={styles.rowPills}>
             {isNew && <span className={styles.pillNew}>New</span>}
+            {needsPerson(request) && (
+              <span className={styles.pillNew}>Needs a person</span>
+            )}
+            {misfiledLabel(request) && (
+              <span className={styles.pillNew}>{misfiledLabel(request)}</span>
+            )}
             {receivedPills(request).map((pill) => (
               <span className={styles.pill} key={pill}>
                 {pill}
@@ -404,7 +452,9 @@ function SentRow({ message }: { message: ClientMessage }) {
   const [open, setOpen] = useState(false);
   const first = message.deliveries[0];
   const to = first?.contactName || first?.recipient || message.companyName;
-  const byAssistant = message.event === "email_reply" && !message.createdBy;
+  const byAssistant =
+    (message.event === "email_reply" || message.event === "inquiry_reply") &&
+    !message.createdBy;
   const notDelivered = message.deliveries.filter(
     (delivery) => delivery.status !== "sent",
   );

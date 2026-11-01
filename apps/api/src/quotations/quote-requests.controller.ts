@@ -55,9 +55,14 @@ export class QuoteRequestsController {
   @UseGuards(StaffCompanyReadGuard)
   list(
     @Query("customerCompanyId") customerCompanyId: string | undefined,
+    @Query("mailbox") mailbox: string | undefined,
     @Req() request: AuthenticatedRequest,
   ) {
-    return this.requests.list(customerCompanyId, request.allowedCompanyIds);
+    return this.requests.list(
+      customerCompanyId,
+      request.allowedCompanyIds,
+      mailbox,
+    );
   }
 
   @Get(":id")
@@ -74,6 +79,17 @@ export class QuoteRequestsController {
   @UseGuards(SuperAdminGuard)
   associateCustomer(@Param("id") id: string, @Body() body: unknown) {
     return this.requests.associateCustomer(id, body);
+  }
+
+  /** Moves an email request to the other inbox (Requests or Inquiries); any staff member may sort. */
+  @Patch(":id/mailbox")
+  @UseGuards(DepartmentStaffGuard)
+  move(
+    @Param("id") id: string,
+    @Body() body: unknown,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.assistant.move(id, body, request.staffRoles ?? []);
   }
 
   /** Details of an email request, corrected by the super admin or the rep in charge of its service; saving them records that they were checked. */

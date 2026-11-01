@@ -36,6 +36,8 @@ function forCustomer(request: QuoteRequestRecord): QuoteRequestRecord {
   const issued = request.quoteStatus === "issued";
   return {
     ...request,
+    // How a request reached BJH is for staff, like the rest of what intake read.
+    source: null,
     details: requestDetailsSchema.parse({}),
     intake: null,
     quoteId: issued ? request.quoteId : null,
@@ -55,6 +57,7 @@ export class QuoteRequestsService {
       id: randomUUID(),
       ...details,
       createdAt: new Date().toISOString(),
+      source: "staff",
       customerCompanyId: null,
       customerCompanyName: null,
       quoteId: null,
@@ -103,6 +106,7 @@ export class QuoteRequestsService {
       email: user.email,
       message: parsed.data.message,
       createdAt: new Date().toISOString(),
+      source: "portal",
       customerCompanyId: null,
       customerCompanyName: null,
       quoteId: null,
@@ -116,9 +120,11 @@ export class QuoteRequestsService {
     return forCustomer(linked ?? created);
   }
 
+  /** One inbox: quote requests unless staff ask for inquiries. Customers only ever see their quote requests. */
   list(
     customerCompanyId?: unknown,
     allowedCompanyIds?: string[],
+    mailbox?: unknown,
   ): Promise<QuoteRequestRecord[]> {
     if (
       customerCompanyId !== undefined &&
@@ -126,9 +132,20 @@ export class QuoteRequestsService {
     ) {
       throw new BadRequestException("customerCompanyId must be a string");
     }
+    if (
+      mailbox !== undefined &&
+      mailbox !== "quotes" &&
+      mailbox !== "inquiries"
+    ) {
+      throw new BadRequestException("mailbox must be quotes or inquiries");
+    }
 
     return this.database
-      .listQuoteRequests(customerCompanyId, allowedCompanyIds)
+      .listQuoteRequests(
+        customerCompanyId,
+        allowedCompanyIds,
+        allowedCompanyIds ? "quotes" : (mailbox ?? "quotes"),
+      )
       .then((requests) =>
         allowedCompanyIds ? requests.map(forCustomer) : requests,
       );
@@ -201,12 +218,13 @@ export class QuoteRequestsService {
     }
   > {
     const request = await this.database.findQuoteRequest(id, allowedCompanyIds);
-    if (!request) {
+    // Inquiries are staff work; a customer never sees one, even their own.
+    if (!request || (allowedCompanyIds && request.mailbox === "inquiries")) {
       throw new NotFoundException("Quote request was not found");
     }
     if (allowedCompanyIds) return forCustomer(request);
     if (!request.intake) return request;
-    const canCheck = inChargeOf(request.details, roles);
+    const canCheck = inChargeOf(request, roles);
     if (request.customerCompanyId) return { ...request, canCheck };
     return {
       ...request,

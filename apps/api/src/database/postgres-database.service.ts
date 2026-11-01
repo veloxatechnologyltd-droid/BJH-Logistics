@@ -82,6 +82,9 @@ import {
   QuoteVersionRecord,
   ServiceLine,
   QuoteRequestRecord,
+  QuoteRequestSource,
+  KnowledgeEntryRecord,
+  RequestMailbox,
   EmailToRead,
   RequestAttachmentRecord,
   StaffRoleKey,
@@ -142,6 +145,7 @@ const quoteRequestSelect = `
     request.email,
     request.message,
     request.created_at,
+    request.source,
     request.customer_company_id,
     company.company_name AS customer_company_name,
     latest_quote.quote_id,
@@ -167,6 +171,10 @@ const quoteRequestSelect = `
     request.reply_sent_at,
     request.reply_sent_by,
     request.reply_sent_by_assistant,
+    request.reply_sources,
+    request.mailbox,
+    request.escalated_at,
+    request.escalation_reason,
     COALESCE((
       SELECT json_agg(json_build_object(
                'id', attachment.attachment_id,
@@ -256,12 +264,12 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
   }
 
   async createQuoteRequest(
-    request: Omit<QuoteRequestRecord, "details" | "intake">,
+    request: Parameters<DatabasePort["createQuoteRequest"]>[0],
   ): Promise<QuoteRequestRecord> {
     await this.pool.query(
       `INSERT INTO app.quote_request
-        (request_id, company_name, contact_name, email, message, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
+        (request_id, company_name, contact_name, email, message, created_at, source)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
       [
         request.id,
         request.companyName,
@@ -269,6 +277,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
         request.email,
         request.message,
         request.createdAt,
+        request.source,
       ],
     );
     const created = await this.findQuoteRequest(request.id);
@@ -315,8 +324,8 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       const emailId = String(email.rows[0].email_id);
       await client.query(
         `INSERT INTO app.quote_request
-          (request_id, company_name, contact_name, email, message, inbound_email_id)
-         VALUES ($1::uuid, $2, $3, $4, $5, $6::uuid)`,
+          (request_id, company_name, contact_name, email, message, inbound_email_id, source, mailbox)
+         VALUES ($1::uuid, $2, $3, $4, $5, $6::uuid, $7, $8)`,
         [
           input.request.id,
           input.request.companyName,
@@ -324,6 +333,8 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
           input.email.fromEmail,
           input.request.message,
           emailId,
+          input.request.source,
+          input.request.mailbox,
         ],
       );
       for (const attachment of input.attachments) {
@@ -472,17 +483,107 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     );
   }
 
+  async setRequestEscalation(
+    requestId: string,
+    reason: string | null,
+  ): Promise<void> {
+    await this.pool.query(
+      `UPDATE app.quote_request
+       SET escalated_at = CASE WHEN $2::text IS NULL THEN NULL ELSE clock_timestamp() END,
+           escalation_reason = $2
+       WHERE request_id::text = $1`,
+      [requestId, reason === null ? null : reason.slice(0, 1000)],
+    );
+  }
+
+  async moveRequestMailbox(
+    requestId: string,
+    mailbox: RequestMailbox,
+  ): Promise<QuoteRequestRecord | null> {
+    const moved = await this.pool.query(
+      `UPDATE app.quote_request
+       SET mailbox = $2,
+           kind = CASE WHEN $2 = 'quotes' THEN 'quote' ELSE 'inquiry' END
+       WHERE request_id::text = $1
+       RETURNING request_id`,
+      [requestId, mailbox],
+    );
+    return moved.rows.length ? this.findQuoteRequest(requestId) : null;
+  }
+
+  async listKnowledgeEntries(): Promise<KnowledgeEntryRecord[]> {
+    const result = await this.pool.query(
+      `SELECT entry_id, title, answer, updated_at, updated_by
+       FROM app.knowledge_entry
+       ORDER BY lower(title), entry_id`,
+    );
+    return result.rows.map((row) => this.toKnowledgeEntry(row));
+  }
+
+  async createKnowledgeEntry(entry: {
+    title: string;
+    answer: string;
+    updatedBy: string;
+  }): Promise<KnowledgeEntryRecord> {
+    const result = await this.pool.query(
+      `INSERT INTO app.knowledge_entry (title, answer, updated_by)
+       VALUES ($1, $2, $3::uuid)
+       RETURNING entry_id, title, answer, updated_at, updated_by`,
+      [entry.title, entry.answer, entry.updatedBy],
+    );
+    return this.toKnowledgeEntry(result.rows[0]);
+  }
+
+  async updateKnowledgeEntry(
+    id: string,
+    entry: { title: string; answer: string; updatedBy: string },
+  ): Promise<KnowledgeEntryRecord | null> {
+    const result = await this.pool.query(
+      `UPDATE app.knowledge_entry
+       SET title = $2, answer = $3, updated_by = $4::uuid, updated_at = clock_timestamp()
+       WHERE entry_id::text = $1
+       RETURNING entry_id, title, answer, updated_at, updated_by`,
+      [id, entry.title, entry.answer, entry.updatedBy],
+    );
+    return result.rows[0] ? this.toKnowledgeEntry(result.rows[0]) : null;
+  }
+
+  async deleteKnowledgeEntry(id: string): Promise<boolean> {
+    const result = await this.pool.query(
+      `DELETE FROM app.knowledge_entry WHERE entry_id::text = $1`,
+      [id],
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  private toKnowledgeEntry(row: Record<string, unknown>): KnowledgeEntryRecord {
+    return {
+      id: String(row.entry_id),
+      title: String(row.title),
+      answer: String(row.answer),
+      updatedAt: this.toIsoString(row.updated_at),
+      updatedBy: String(row.updated_by),
+    };
+  }
+
   async saveRequestReply(
     requestId: string,
-    reply: { subject: string; body: string; model: string | null },
+    reply: Parameters<DatabasePort["saveRequestReply"]>[1],
   ): Promise<QuoteRequestRecord | "not_found" | "sent"> {
     const updated = await this.pool.query(
       `UPDATE app.quote_request
        SET reply_subject = $2, reply_body = $3, reply_model = $4,
-           reply_drafted_at = CASE WHEN $4::text IS NULL THEN reply_drafted_at ELSE clock_timestamp() END
+           reply_drafted_at = CASE WHEN $4::text IS NULL THEN reply_drafted_at ELSE clock_timestamp() END,
+           reply_sources = COALESCE($5::jsonb, reply_sources)
        WHERE request_id::text = $1 AND reply_sent_at IS NULL
        RETURNING request_id`,
-      [requestId, reply.subject, reply.body, reply.model],
+      [
+        requestId,
+        reply.subject,
+        reply.body,
+        reply.model,
+        reply.sources ? JSON.stringify(reply.sources) : null,
+      ],
     );
     if (updated.rows.length === 0) {
       const exists = await this.pool.query(
@@ -576,14 +677,16 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
   async listQuoteRequests(
     customerCompanyId?: string,
     allowedCompanyIds?: string[],
+    mailbox: RequestMailbox = "quotes",
   ): Promise<QuoteRequestRecord[]> {
     if (allowedCompanyIds?.length === 0) return [];
     const result = await this.pool.query(
       `${quoteRequestSelect}
        WHERE ($1::text IS NULL OR request.customer_company_id::text = $1)
          AND ($2::uuid[] IS NULL OR request.customer_company_id = ANY($2::uuid[]))
+         AND request.mailbox = $3
        ORDER BY request.created_at DESC, request.request_id DESC`,
-      [customerCompanyId ?? null, allowedCompanyIds ?? null],
+      [customerCompanyId ?? null, allowedCompanyIds ?? null, mailbox],
     );
     return result.rows.map((row) => this.toQuoteRequest(row));
   }
@@ -4437,9 +4540,9 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
         `INSERT INTO app.lead
            (lead_id, company_name, contact_name, email, phone, source, stage,
             owner_id, next_follow_up, notes, lost_reason, quote_request_id,
-            customer_company_id, created_by)
+            customer_company_id, created_by, created_by_assistant)
          VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8::uuid, $9::date, $10, $11,
-                 $12::uuid, $13::uuid, $14::uuid)`,
+                 $12::uuid, $13::uuid, $14::uuid, $15)`,
         [
           input.id,
           input.companyName,
@@ -4455,6 +4558,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
           input.quoteRequestId,
           input.customerCompanyId,
           input.createdBy,
+          input.createdBy === null,
         ],
       );
     } catch (error) {
@@ -5049,6 +5153,11 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       email: String(row.email),
       message: String(row.message),
       createdAt: this.toIsoString(row.created_at),
+      source:
+        row.source === null || row.source === undefined
+          ? null
+          : (row.source as QuoteRequestSource),
+      mailbox: row.mailbox === "inquiries" ? "inquiries" : "quotes",
       customerCompanyId:
         row.customer_company_id === null
           ? null
@@ -5114,6 +5223,14 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
                         ? String(row.reply_sent_by)
                         : null,
                       sentByAssistant: row.reply_sent_by_assistant === true,
+                      sources: (row.reply_sources as string[] | null) ?? [],
+                    },
+              escalation:
+                row.escalated_at === null || row.escalated_at === undefined
+                  ? null
+                  : {
+                      at: this.toIsoString(row.escalated_at),
+                      reason: String(row.escalation_reason),
                     },
             },
     };

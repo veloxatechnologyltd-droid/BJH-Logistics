@@ -14,6 +14,7 @@ import { serviceLinesForRoles } from "../auth/auth.guards";
 import { DatabasePort } from "../database/database.port";
 import type {
   QuoteRequestRecord,
+  RequestMailbox,
   StaffRoleKey,
 } from "../database/database.port";
 import {
@@ -93,17 +94,20 @@ function htmlToText(html: string): string {
 }
 
 /**
- * Who may check an email request's details, correct them and have the email
- * read again: the super admin, and the representative in charge of the
+ * Who may check an email request's details, correct them, have the email read
+ * again and reply: the super admin, and the representative in charge of the
  * request's service (the sea import rep for sea import, and so on; road and
  * warehousing work is shared by every rep). While the service is unknown only
- * the super admin can, so someone must first say what it is.
+ * the super admin can, so someone must first say what it is. An inquiry is
+ * not tied to a service, so any staff member may handle it.
  */
 export function inChargeOf(
-  details: RequestDetails,
+  request: { details: RequestDetails; mailbox: RequestMailbox },
   roles: StaffRoleKey[],
 ): boolean {
   if (roles.includes("super_admin")) return true;
+  if (request.mailbox === "inquiries") return roles.length > 0;
+  const details = request.details;
   return (
     details.service !== null &&
     serviceLinesForRoles(roles).includes(details.service)
@@ -162,6 +166,8 @@ export class InboundEmailService {
         companyName: email.fromName ?? email.fromEmail,
         contactName: email.fromName ?? email.fromEmail.split("@")[0],
         message: email.message,
+        source: email.source,
+        mailbox: email.mailbox,
       },
       attachments: kept.stored,
       skipped: kept.skipped,
@@ -210,7 +216,7 @@ export class InboundEmailService {
     });
     const request = await this.database.findQuoteRequest(requestId);
     if (!request) throw new NotFoundException("Quote request was not found");
-    return { ...request, canCheck: inChargeOf(request.details, roles) };
+    return { ...request, canCheck: inChargeOf(request, roles) };
   }
 
   /**
@@ -237,7 +243,7 @@ export class InboundEmailService {
     if (saved === "not_email") {
       throw new ConflictException("This request did not come from an email");
     }
-    return { ...saved, canCheck: inChargeOf(saved.details, roles) };
+    return { ...saved, canCheck: inChargeOf(saved, roles) };
   }
 
   private async requireInCharge(
@@ -249,7 +255,7 @@ export class InboundEmailService {
     if (!request.intake) {
       throw new ConflictException("This request did not come from an email");
     }
-    if (!inChargeOf(request.details, roles)) {
+    if (!inChargeOf(request, roles)) {
       throw new ForbiddenException(
         "Only the super admin or the representative in charge of this request's service can check it",
       );
@@ -413,7 +419,16 @@ export class InboundEmailService {
         .update([fromEmail, subject, bodyText, received].join("\n"))
         .digest("hex")}`;
     const text = bodyText || subject || "(The email had no text)";
+    // Only the website's server route, which holds the intake secret, says so;
+    // a mailbox email carries no such field, so it is always an email.
+    const source: "website" | "email" =
+      clip(fields.source, 20) === "website" ? "website" : "email";
+    // The mailbox reader says which mailbox the email reached; the webhook may too.
+    const mailbox: RequestMailbox =
+      clip(fields.mailbox, 20) === "inquiries" ? "inquiries" : "quotes";
     return {
+      source,
+      mailbox,
       messageId,
       fromEmail,
       fromName,

@@ -224,6 +224,29 @@ export const requestReplyInputSchema = z.object(
 );
 export type RequestReplyInput = z.infer<typeof requestReplyInputSchema>;
 
+/** The two inboxes: quote requests, and questions (inquiries). */
+export const requestMailboxes = ["quotes", "inquiries"] as const;
+export type RequestMailboxKey = (typeof requestMailboxes)[number];
+
+export const requestMoveInputSchema = z.object(
+  {
+    mailbox: z.enum(requestMailboxes, {
+      error: "mailbox must be quotes or inquiries",
+    }),
+  },
+  objectError("A mailbox is required"),
+);
+
+/** One topic of the knowledge base the assistant answers inquiries from. */
+export const knowledgeEntryInputSchema = z.object(
+  {
+    title: requiredText("title", 200),
+    answer: requiredText("answer", 5000),
+  },
+  objectError("A title and an answer are required"),
+);
+export type KnowledgeEntryInput = z.infer<typeof knowledgeEntryInputSchema>;
+
 const staffRoleField = z.enum(staffRoleKeys, {
   error: "roleKey is not a supported staff role",
 });

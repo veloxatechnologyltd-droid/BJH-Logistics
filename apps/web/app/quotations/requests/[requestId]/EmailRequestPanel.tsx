@@ -247,9 +247,12 @@ export function EmailRequestPanel({
         aria-labelledby="request-email-title"
         className={styles.emailPanel}
       >
-        <h3 id="request-email-title">The email</h3>
+        <h3 id="request-email-title">
+          {request.source === "website" ? "The website request" : "The email"}
+        </h3>
         <p className={styles.emailStatus}>
-          From {intake.fromName ? `${intake.fromName} · ` : ""}
+          {request.source === "website" && "Website quote form · "}From{" "}
+          {intake.fromName ? `${intake.fromName} · ` : ""}
           {intake.fromEmail} · {formatDate(intake.receivedAt)}
           {intake.subject ? ` · “${intake.subject}”` : ""}
         </p>

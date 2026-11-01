@@ -84,7 +84,13 @@ export const testReplyDrafter: ReplyDrafter & {
 } = {
   model: "test-drafter",
   calls: [],
-  result: { subject: "Re: your request", body: "Thank you for your email." },
+  result: {
+    subject: "Re: your request",
+    body: "Thank you for your email.",
+    answered: true,
+    missing: null,
+    sources: [],
+  },
   async draft(context) {
     this.calls.push(context);
     if (this.result instanceof Error) throw this.result;

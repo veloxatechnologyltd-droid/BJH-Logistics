@@ -60,6 +60,80 @@ INBOUND_IMAP_SINCE=2026-10-28T17:00:00Z   # emails before this are left alone
   the API, so a scheduler calling it every few minutes keeps email flowing.
 - Replies go out through `EMAIL_SMTP_*` from the same mailbox.
 
+## The inquiries mailbox and the knowledge base
+
+Questions have their own address, `inquiries@bjhlogistics.com`, and their own
+**Inquiries** inbox, kept apart from quote requests (Evans's decision, 1 November
+2026). Both are `app.quote_request` rows; the `mailbox` column (`quotes` /
+`inquiries`) says which inbox one belongs to.
+
+```
+INBOUND_INQUIRY_IMAP_USER=inquiries@bjhlogistics.com
+INBOUND_INQUIRY_IMAP_PASSWORD=...
+EMAIL_INQUIRY_FROM="BJH Logistics <inquiries@bjhlogistics.com>"
+EMAIL_INQUIRY_SMTP_USER=inquiries@bjhlogistics.com
+EMAIL_INQUIRY_SMTP_PASSWORD=...
+```
+
+- **Reading.** The mailbox reader reads both mailboxes in turn, on the quote
+  mailbox's server, port, folder and start time (`INBOUND_IMAP_HOST`, `_PORT`,
+  `_MAILBOX`, `_SINCE`); the inquiries one is read only when the quote one is set
+  up. Emails between BJH's own mailboxes are skipped (no reply loops). The webhook
+  takes an optional `mailbox=inquiries` field.
+- **The mailbox decides.** Email to the inquiries address is an inquiry; email to
+  the quote address is a quote request. When AI reads an email as the other kind,
+  the assistant notes "This looks like a quote request / a question", does nothing
+  else, and the inbox shows a **Move** pill. Any staff member can press **Move to
+  Requests / Inquiries** (`PATCH /api/v1/quote-requests/:id/mailbox`) until the
+  reply is sent or a quote prepared; the assistant then carries on as for an email
+  that reached that inbox. Nothing moves by itself.
+- **Knowledge base** (Settings, Knowledge base; `GET/POST/PUT/DELETE
+  /api/v1/knowledge`). One topic and its answer per entry, written by BJH. Staff
+  can read it; only the super admin changes it. Inquiry replies are drafted from
+  the entries, the Email assistant text in Business settings and the sender's own
+  jobs, as before. The reply records which entries it used ("Answered from the
+  knowledge base: ...").
+- **Escalation.** With each draft, Claude says whether every question was
+  answered from those facts. If not, or if it could not tell what the email asks,
+  or no reply could be drafted, the inquiry is marked **Needs a person** with the
+  reason, listed first in the Inquiries inbox and counted on its sidebar badge,
+  and is **never sent by itself**. When the knowledge base does answer it, the
+  reply goes out by itself if `ASSISTANT_AUTO_REPLY=on`, under the existing rules
+  (no prices; machines and BJH's own addresses held). A person can add the missing
+  entry and press **Draft again**; an answered draft clears the escalation.
+- **Who.** Inquiries are not tied to a service, so the super admin and every rep
+  may answer, redraft, send and move them.
+- **Sending.** Inquiry replies are queued as `inquiry_reply` messages and go out
+  from the inquiries mailbox (`EMAIL_INQUIRY_*`), never from the quote mailbox:
+  with SMTP set up but no `EMAIL_INQUIRY_FROM`, the delivery fails and says why.
+  Quote replies still go out from `EMAIL_FROM`.
+- **Customers never see inquiries**, even their own: the request list only
+  returns quote requests to them, and opening an inquiry answers 404.
+- **Live check (1 November 2026, local, synthetic emails, Claude Haiku):** a
+  question answered by the Business-settings text was drafted without escalation;
+  a reefer question was escalated ("a colleague must confirm whether the warehouse
+  has plug-in points"), then answered from a new entry after **Draft again**,
+  which cleared the escalation; a transit-time question still escalated; a quote
+  request sent to the inquiries address was flagged, then moved by a person, after
+  which the customer, draft quote and reply were made.
+
+## The website quote form
+
+The public site's quote form (`apps/site`) posts to the same webhook from its
+server route, so a website request is read, linked to a customer, answered and
+quoted exactly like an email (including the automatic reply and the draft quote
+that staff check and issue; no quote is ever sent without a person issuing it).
+
+Every request records how it reached BJH in `quote_request.source`: `portal` (a
+customer's own request), `staff` (entered by staff), `email`, or `website`. Staff
+see it as a pill in the Requests inbox and a **Source** line on the request page;
+customers are never told. The website's server route adds a `source=website` form
+field to its webhook call. Only a caller holding the intake secret can send it, and
+the IMAP mailbox reader never does, so an email can't pass itself off as the
+website (a lookalike `message_id` or `source` in an email counts for nothing).
+Requests from before this was recorded show "Earlier request"; emailed ones were
+backfilled from the stored email by migration `20261101000000_quote_request_source.sql`.
+
 ## The webhook
 
 `POST /api/v1/inbound-email`, `multipart/form-data` (a small JSON body without
@@ -162,9 +236,21 @@ then does what a person would do first, and lists each step under **What the
 assistant did** on the request:
 
 1. **Customer.** If the sender's address belongs to a contact, the request is
-   linked to that customer. Otherwise a customer and contact are created from the
-   email (company, name, address, phone) and linked; the note asks staff to check
-   the name.
+   linked to that customer. If not, plain rules (`customer-match.ts`, no AI) check
+   whether the sender is probably an existing customer under another name or
+   address: a similar company name ("Veloxa Tech" for "Veloxa Technology Ltd", with
+   endings, case, accents and one-letter typos ignored; trading names count) or the
+   same business email domain (free mailboxes such as Gmail are ignored). On a
+   possible match nothing is guessed: the request stays **unlinked**, the note names
+   the candidates and why, and there is no new customer, no lead, no draft quote and
+   no automatic reply until a person links it (it shows under "Quote requests not
+   yet tracked" on Leads). Linking decides whose jobs a reply may mention, which is
+   why a name match is never enough. With no possible match a customer and contact
+   are created from the email (company, name, address, phone) and linked; the note
+   asks staff to check the name. For a **quote request** the assistant also opens a
+   **lead** (stage New, source quote request, no owner, created by the assistant),
+   once, so a first-time sender appears under Leads; questions get a customer but no
+   lead.
 2. **Draft quote** (quote requests with a known service). The quote is created as a
    draft from the most similar past issued quote, by the same rule as **Prefill**
    below, and marked as drafted by the assistant (no person as creator). The note

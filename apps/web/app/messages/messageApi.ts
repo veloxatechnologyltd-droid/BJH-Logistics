@@ -56,6 +56,7 @@ export const eventLabels: Record<string, string> = {
   delivery_dispatched: "Out for delivery",
   delivery_delivered: "Delivered",
   email_reply: "Reply to email",
+  inquiry_reply: "Reply to inquiry",
 };
 
 export const channelLabels: Record<ChannelMode, string> = {

@@ -11,11 +11,14 @@ import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 import type { ParsedMail } from "mailparser";
 import { DatabasePort } from "../database/database.port";
+import type { RequestMailbox } from "../database/database.port";
 import { EmailAssistantService } from "./email-assistant.service";
 import { InboundEmailService } from "./inbound-email.service";
 import type { ReceivedFile } from "./inbound-email.service";
 
 export interface MailboxSetup {
+  /** The inbox its emails go to. */
+  name: RequestMailbox;
   host: string;
   port: number;
   user: string;
@@ -37,6 +40,7 @@ export function mailboxFromEnvironment(
     return null;
   }
   return {
+    name: "quotes",
     host,
     port: Number(environment.INBOUND_IMAP_PORT ?? 993),
     user,
@@ -46,10 +50,36 @@ export function mailboxFromEnvironment(
   };
 }
 
+/**
+ * The inquiries mailbox, from `INBOUND_INQUIRY_IMAP_USER` and `_PASSWORD`. It is
+ * on the same server as the quote mailbox, so host, port, folder and start time
+ * are shared; null unless the quote mailbox is set up too.
+ */
+export function inquiryMailboxFromEnvironment(
+  environment: NodeJS.ProcessEnv,
+): MailboxSetup | null {
+  const quotes = mailboxFromEnvironment(environment);
+  const user = environment.INBOUND_INQUIRY_IMAP_USER?.trim();
+  const password = environment.INBOUND_INQUIRY_IMAP_PASSWORD;
+  if (!quotes || !user || !password) return null;
+  return { ...quotes, name: "inquiries", user, password };
+}
+
+/** Every mailbox that is set up. */
+export function mailboxesFromEnvironment(
+  environment: NodeJS.ProcessEnv,
+): MailboxSetup[] {
+  return [
+    mailboxFromEnvironment(environment),
+    inquiryMailboxFromEnvironment(environment),
+  ].filter((setup): setup is MailboxSetup => setup !== null);
+}
+
 /** One email from the mailbox in the shape the inbound-email webhook takes, so both paths share every rule. */
 export function inboundFromMail(
   mail: ParsedMail,
   receivedAt: Date,
+  mailbox: RequestMailbox = "quotes",
 ): { fields: Record<string, unknown>; files: ReceivedFile[] } {
   const from = mail.from?.value[0];
   return {
@@ -64,6 +94,7 @@ export function inboundFromMail(
       html: typeof mail.html === "string" ? mail.html : "",
       message_id: mail.messageId ?? "",
       received_at: receivedAt.toISOString(),
+      mailbox,
     },
     // Pictures embedded in the body (signature logos) are not attachments.
     files: mail.attachments
@@ -97,8 +128,11 @@ export class MailboxReaderService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(MailboxReaderService.name);
   private timer: NodeJS.Timeout | undefined;
   private running: Promise<PollResult> | null = null;
-  /** The last UID handled in this process, so a poll only asks for newer mail. */
-  private last: { uidValidity: bigint; uid: number } | null = null;
+  /** The last UID handled in this process for each mailbox (by user), so a poll only asks for newer mail. */
+  private readonly lastSeen = new Map<
+    string,
+    { uidValidity: bigint; uid: number }
+  >();
 
   constructor(
     @Inject(DatabasePort) private readonly database: DatabasePort,
@@ -142,15 +176,42 @@ export class MailboxReaderService implements OnModuleInit, OnModuleDestroy {
     return this.running;
   }
 
+  /** Reads every mailbox in turn; one that cannot be read does not stop the others. */
   private async read(): Promise<PollResult> {
-    const setup = mailboxFromEnvironment(process.env);
+    const setups = mailboxesFromEnvironment(process.env);
+    const own = setups.map((setup) => setup.user.toLowerCase());
     const result: PollResult = {
       checked: 0,
       received: 0,
       skipped: 0,
       failed: 0,
     };
-    if (!setup) return result;
+    let failure: unknown = null;
+    for (const setup of setups) {
+      try {
+        const read = await this.readOne(setup, own);
+        result.checked += read.checked;
+        result.received += read.received;
+        result.skipped += read.skipped;
+        result.failed += read.failed;
+      } catch (error) {
+        failure ??= error;
+      }
+    }
+    if (failure) throw failure;
+    return result;
+  }
+
+  private async readOne(
+    setup: MailboxSetup,
+    own: string[],
+  ): Promise<PollResult> {
+    const result: PollResult = {
+      checked: 0,
+      received: 0,
+      skipped: 0,
+      failed: 0,
+    };
     const client = new ImapFlow({
       host: setup.host,
       port: setup.port,
@@ -166,28 +227,29 @@ export class MailboxReaderService implements OnModuleInit, OnModuleDestroy {
       try {
         const opened = client.mailbox;
         if (!opened) return result;
-        if (this.last && this.last.uidValidity !== opened.uidValidity) {
-          this.last = null;
+        let last = this.lastSeen.get(setup.user);
+        if (last && last.uidValidity !== opened.uidValidity) {
+          last = undefined;
         }
-        const uids = this.last
-          ? await client.search(
-              { uid: `${this.last.uid + 1}:*` },
-              { uid: true },
-            )
+        const uids = last
+          ? await client.search({ uid: `${last.uid + 1}:*` }, { uid: true })
           : await client.search({ since: setup.since }, { uid: true });
         const newer = (uids || [])
-          .filter((uid) => !this.last || uid > this.last.uid)
+          .filter((uid) => !last || uid > last.uid)
           .sort((a, b) => a - b);
         for (const uid of newer) {
           result.checked += 1;
-          const outcome = await this.handle(client, uid, setup);
+          const outcome = await this.handle(client, uid, setup, own);
           if (outcome === "failed") {
             // Stop here so the next poll tries this email again.
             result.failed += 1;
             break;
           }
           result[outcome] += 1;
-          this.last = { uidValidity: opened.uidValidity, uid };
+          this.lastSeen.set(setup.user, {
+            uidValidity: opened.uidValidity,
+            uid,
+          });
         }
       } finally {
         lock.release();
@@ -199,12 +261,12 @@ export class MailboxReaderService implements OnModuleInit, OnModuleDestroy {
       const reason =
         (error as { responseText?: string }).responseText ??
         (error instanceof Error ? error.message : String(error));
-      this.logger.error(`Reading the mailbox failed: ${reason}`);
-      throw new BadGatewayException(`Reading the mailbox failed: ${reason}`);
+      this.logger.error(`Reading ${setup.user} failed: ${reason}`);
+      throw new BadGatewayException(`Reading ${setup.user} failed: ${reason}`);
     }
     if (result.checked) {
       this.logger.log(
-        `Mailbox: ${result.received} new, ${result.skipped} skipped, ${result.failed} failed`,
+        `${setup.user}: ${result.received} new, ${result.skipped} skipped, ${result.failed} failed`,
       );
     }
     return result;
@@ -214,6 +276,7 @@ export class MailboxReaderService implements OnModuleInit, OnModuleDestroy {
     client: ImapFlow,
     uid: number,
     setup: MailboxSetup,
+    own: string[],
   ): Promise<"received" | "skipped" | "failed"> {
     try {
       const header = await client.fetchOne(
@@ -224,7 +287,8 @@ export class MailboxReaderService implements OnModuleInit, OnModuleDestroy {
       if (!header) return "skipped";
       const receivedAt = new Date(header.internalDate ?? Date.now());
       const sender = header.envelope?.from?.[0]?.address?.toLowerCase();
-      if (receivedAt < setup.since || sender === setup.user.toLowerCase()) {
+      // BJH's own mailboxes writing to each other are never taken in (no reply loops).
+      if (receivedAt < setup.since || (sender && own.includes(sender))) {
         return "skipped";
       }
       const messageId = header.envelope?.messageId;
@@ -243,6 +307,7 @@ export class MailboxReaderService implements OnModuleInit, OnModuleDestroy {
       const { fields, files } = inboundFromMail(
         await simpleParser(message.source),
         receivedAt,
+        setup.name,
       );
       const received = await this.inbound.receive(fields, files);
       if (received.duplicate) return "skipped";
