@@ -996,6 +996,17 @@ export type FinanceSummary = {
     owingMinor: number;
     costMinor: number;
   }>;
+  /** Last six calendar months, oldest first; absent from an API older than the trend. */
+  trend?: {
+    months: string[];
+    rows: Array<{
+      month: string;
+      currency: string;
+      customerCompanyName: string;
+      invoicedMinor: number;
+      receivedMinor: number;
+    }>;
+  };
 };
 
 export const getFinanceSummary = () =>

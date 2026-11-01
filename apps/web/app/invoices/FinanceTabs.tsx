@@ -3,6 +3,7 @@ import styles from "../jobs/jobs.module.css";
 
 const tabs = [
   { href: "/finance", label: "Overview" },
+  { href: "/finance/jobs", label: "Jobs" },
   { href: "/invoices", label: "Invoices" },
   { href: "/finance/receipts", label: "Receipts" },
   { href: "/finance/statements", label: "Statements" },

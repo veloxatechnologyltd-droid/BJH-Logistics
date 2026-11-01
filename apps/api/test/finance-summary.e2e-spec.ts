@@ -51,6 +51,16 @@ type Summary = {
     owingMinor: number;
     costMinor: number;
   }>;
+  trend: {
+    months: string[];
+    rows: Array<{
+      month: string;
+      currency: string;
+      customerCompanyName: string;
+      invoicedMinor: number;
+      receivedMinor: number;
+    }>;
+  };
 };
 const summary = (token: string) => call("/api/v1/finance/summary", token);
 const reports = (token: string, from = "2000-01-01", to = "2100-12-31") =>
@@ -134,6 +144,22 @@ before(async () => {
       method: "cash",
     },
   );
+  const reversed = await json<{ id: string }>(
+    await post(
+      `/api/v1/jobs/${seaJob}/invoices/${ghs}/payments`,
+      TEST_SUPER_ADMIN_TOKEN,
+      {
+        amountMinor: 15000,
+        receivedOn: new Date().toISOString().slice(0, 10),
+        method: "cash",
+      },
+    ),
+  );
+  await post(
+    `/api/v1/jobs/${seaJob}/invoices/${ghs}/payments/${reversed.id}/reverse`,
+    TEST_SUPER_ADMIN_TOKEN,
+    { reason: "Entered twice" },
+  );
   await issued(seaJob, "USD", 5000);
   const voided = await issued(seaJob, "GHS", 9000);
   await post(
@@ -212,6 +238,43 @@ test("totals stay per currency and the voided invoice is left out", async () => 
     costMinor: 37000,
   });
   assert.equal(byCurrency.get("USD")?.invoicedMinor, 5000);
+});
+
+test("the trend gives the last six months, counts this month's money per currency and customer, and leaves out reversed payments and voided invoices", async () => {
+  const body = await json<Summary>(await summary(TEST_SUPER_ADMIN_TOKEN));
+  const thisMonth = new Date().toISOString().slice(0, 7);
+  assert.equal(body.trend.months.length, 6);
+  assert.equal(body.trend.months.at(-1), thisMonth);
+  assert.deepEqual([...body.trend.months].sort(), body.trend.months);
+  const ghs = body.trend.rows.filter((row) => row.currency === "GHS");
+  assert.deepEqual(ghs, [
+    {
+      month: thisMonth,
+      currency: "GHS",
+      customerCompanyName: "Northstar Synthetic Ltd",
+      // The voided 90.00 invoice and the reversed 150.00 payment do not count.
+      invoicedMinor: 100000,
+      receivedMinor: 40000,
+    },
+  ]);
+  assert.deepEqual(
+    body.trend.rows.filter((row) => row.currency === "USD"),
+    [
+      {
+        month: thisMonth,
+        currency: "USD",
+        customerCompanyName: "Northstar Synthetic Ltd",
+        invoicedMinor: 5000,
+        receivedMinor: 0,
+      },
+    ],
+  );
+});
+
+test("a rep's trend only holds their service lines", async () => {
+  const unassigned = await json<Summary>(await summary(TEST_UNASSIGNED_TOKEN));
+  assert.deepEqual(unassigned.trend.rows, []);
+  assert.equal(unassigned.trend.months.length, 6);
 });
 
 test("a rep sees only their service lines; customers and the signed-out are refused", async () => {

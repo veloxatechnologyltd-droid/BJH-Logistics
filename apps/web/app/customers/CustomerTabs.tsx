@@ -2,7 +2,8 @@ import Link from "next/link";
 import styles from "../jobs/jobs.module.css";
 
 const tabs = [
-  { href: "/customers", label: "Customers" },
+  { href: "/customers", label: "Overview" },
+  { href: "/customers/directory", label: "Directory" },
   { href: "/customers/leads", label: "Leads" },
 ];
 
