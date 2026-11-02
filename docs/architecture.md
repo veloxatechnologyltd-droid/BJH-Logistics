@@ -2,6 +2,8 @@
 
 ## Decision: a modular monolith
 
+> **As built (2 November 2026).** The API, staff app and public website are deployed: the API on Render's Starter plan, both web apps on Vercel, PostgreSQL, Auth and Storage on hosted Supabase. There is no separate worker and no Redis: the email and SMS queue, reminders, overdue notices and mailbox reading run as timers inside the API process, which is why the API needs an always-on plan. The API connects to PostgreSQL as `postgres`; a least-privilege role is still to do. The text below is the original plan and target.
+
 Use a `pnpm` TypeScript workspace. **Next.js** renders staff and client UIs; **NestJS on Node.js** is the sole business API; **Supabase-managed PostgreSQL** stores production business data; **Supabase Auth** manages identities; **Supabase Storage** holds private originals and generated PDFs; **Redis + BullMQ** runs scheduled/integration tasks with a separately deployable worker process. Email, SMS and an OCR provider are adapters around domain modules; WhatsApp may be added after launch. Avoid microservices and duplicate persistence frameworks until justified.
 
 ### Temporary local database for foundation work

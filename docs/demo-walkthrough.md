@@ -43,9 +43,8 @@ charge. **Everything shown is synthetic**: invented companies on reserved
      scripts/demo-emails.ts --api https://<api-host>/api --yes --fresh
    ```
    Four requests arrive (one to `quote@`, three to `inquiries@`); each takes a
-   few seconds, and the first after the free Render service has slept can take a
-   minute. Two more are sent live during the walkthrough with `--only` (steps 2
-   and 5), using the same command.
+   few seconds. Two more are sent live during the walkthrough with `--only`
+   (steps 2 and 5), using the same command.
 6. Sign in as the super admin and open **Requests**: they show **Email · Needs
    checking · Reply ready**.
 
