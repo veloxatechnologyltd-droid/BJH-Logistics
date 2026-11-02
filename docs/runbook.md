@@ -39,6 +39,14 @@ All on the API service in Render; the service restarts after a change.
 - **Reading the mailbox:** remove `INBOUND_IMAP_HOST` (or the user or password).
 - **Email and website-form intake:** remove `INBOUND_EMAIL_SECRET` (intake is off without it; the website quote form then reports an error to visitors).
 
+## After a change to `render.yaml`
+
+The API service is Blueprint-managed. Render applies `render.yaml` to the service when it reaches `main` (plan, environment values, health path, build and start commands), as an extra deploy of the same commit. On 2 November 2026 that deploy was followed by 15 minutes of 502 on the public address while the dashboard showed the service Live and the logs were healthy. A plain redeploy cleared it.
+
+- After merging such a change, watch `https://<api-host>/api/health` from outside until it answers `ok`; do not rely on the dashboard.
+- If the address returns 502 (the header `x-render-routing: dynamic-paid-error`) but Render's logs show health checks returning 200, use **Manual Deploy, Deploy latest commit** before anything else. No rollback is needed.
+- Check what the service's dashboard settings are before editing a Blueprint-managed field: the file wins on the next sync.
+
 ## The staff app's Content Security Policy
 
 `apps/web/proxy.ts` gives every page request its own nonce and a policy that lets scripts run only with that nonce, and lets the page connect only to itself, the API and Supabase (`apps/web/app/security/contentSecurityPolicy.ts`). Because the nonce is per request, every page is rendered on demand (`app/layout.tsx`). The API and Supabase addresses come from `NEXT_PUBLIC_API_BASE_URL` and `NEXT_PUBLIC_SUPABASE_URL` **at build time**.
