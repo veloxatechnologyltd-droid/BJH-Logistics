@@ -1,4 +1,6 @@
 import type {
+  TeamKey,
+  TeamTagKind,
   BusinessSettings,
   ChargeKind,
   DocumentType,
@@ -488,6 +490,56 @@ export interface ChatThreadRecord {
   lastDirection: ChatMessageRecord["direction"];
   /** Client messages customer service has not opened yet. */
   unread: number;
+}
+
+/** Internal team chat (Evans, 2026-11-02). */
+export interface TeamTag {
+  kind: TeamTagKind;
+  id: string;
+}
+
+export interface TeamConversationRecord {
+  id: string;
+  kind: "direct" | "group" | "team";
+  title: string | null;
+  teamKey: TeamKey | null;
+  createdBy: string | null;
+  createdAt: string;
+  /** Current members of a direct conversation or group; empty for a team channel. */
+  memberIds: string[];
+}
+
+export interface TeamConversationSummary extends TeamConversationRecord {
+  lastMessage: {
+    body: string;
+    authorUserId: string | null;
+    createdAt: string;
+  } | null;
+  /** Messages from others since the person last opened it. */
+  unread: number;
+}
+
+export interface TeamMessageRecord {
+  id: string;
+  conversationId: string;
+  /** Null for a message the system posted. */
+  authorUserId: string | null;
+  body: string;
+  tags: TeamTag[];
+  createdAt: string;
+}
+
+/** Jobs, invoices and documents a caller may see, for showing or choosing tags. */
+export interface TeamTagTargets {
+  jobs: Array<{ id: string; fileNumber: string }>;
+  /** Issued or voided invoices only; never amounts. */
+  invoices: Array<{
+    id: string;
+    jobId: string;
+    invoiceNumber: string;
+    status: "issued" | "void";
+  }>;
+  documents: Array<{ id: string; jobId: string | null; label: string }>;
 }
 
 /** One line on the helper's screen. */
@@ -1583,6 +1635,61 @@ export abstract class DatabasePort {
     companyId: string,
     direction: ChatMessageRecord["direction"],
   ): Promise<void>;
+  /** Team channels in `teamKeys`, plus the direct conversations and groups the person is in. */
+  abstract listTeamConversations(
+    userId: string,
+    teamKeys: TeamKey[],
+  ): Promise<TeamConversationSummary[]>;
+  abstract findTeamConversation(
+    id: string,
+  ): Promise<TeamConversationRecord | null>;
+  abstract findTeamChannel(teamKey: TeamKey): Promise<TeamConversationRecord>;
+  /** Creates any of the four team channels that are missing. */
+  abstract ensureTeamChannels(): Promise<void>;
+  /** The one direct conversation between two people, created on first use. */
+  abstract findOrCreateDirectConversation(
+    userA: string,
+    userB: string,
+    createdBy: string,
+  ): Promise<TeamConversationRecord>;
+  abstract createTeamGroup(
+    title: string,
+    memberIds: string[],
+    createdBy: string,
+  ): Promise<TeamConversationRecord>;
+  /** Adds someone, or brings back someone who had left. */
+  abstract addTeamConversationMember(
+    conversationId: string,
+    userId: string,
+    addedBy: string,
+  ): Promise<void>;
+  abstract leaveTeamConversation(
+    conversationId: string,
+    userId: string,
+  ): Promise<void>;
+  /** The newest `limit` messages before `before` (all when null), oldest first. */
+  abstract listTeamMessages(
+    conversationId: string,
+    before: string | null,
+    limit: number,
+  ): Promise<TeamMessageRecord[]>;
+  abstract addTeamMessage(
+    message: Omit<TeamMessageRecord, "id" | "createdAt">,
+  ): Promise<TeamMessageRecord>;
+  abstract markTeamConversationRead(
+    conversationId: string,
+    userId: string,
+  ): Promise<void>;
+  /** Of the given IDs, the ones `scope` may see (documents also skip hidden types). */
+  abstract findTeamTagTargets(
+    ids: { jobIds: string[]; invoiceIds: string[]; documentIds: string[] },
+    scope: JobScope,
+  ): Promise<TeamTagTargets>;
+  /** Jobs, invoices and documents matching `term` that `scope` may see, a few of each. */
+  abstract searchTeamTagTargets(
+    term: string,
+    scope: JobScope,
+  ): Promise<TeamTagTargets>;
   /** The company behind a customer number such as CUS-0012, if any. */
   abstract findCompanyByCustomerNumber(
     customerNumber: string,

@@ -88,6 +88,12 @@ const paths = {
       <path d="M8 9.5h8M8 12.5h5" />
     </>
   ),
+  team: (
+    <>
+      <path d="M3 4h12v8H7l-4 3z" />
+      <path d="M17 8h4v8l-3-2.5h-6V12" />
+    </>
+  ),
   leads: (
     <>
       <path d="M3 4.5h18l-7 8V19l-4 1.5v-8z" />
