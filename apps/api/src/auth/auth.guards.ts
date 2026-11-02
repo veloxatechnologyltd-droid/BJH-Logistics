@@ -8,7 +8,7 @@ import {
   mixin,
 } from "@nestjs/common";
 import type { Type } from "@nestjs/common";
-import { legacyStaffRoleKeys, serviceLinesForRoles } from "@bjh/contracts";
+import { serviceLinesForRoles } from "@bjh/contracts";
 import { DatabasePort } from "../database/database.port";
 import type { ServiceLine, StaffRoleKey } from "../database/database.port";
 import { SupabaseAuthVerifier } from "./supabase-auth-verifier";
@@ -228,24 +228,13 @@ export class JobScopeGuard implements CanActivate {
   }
 }
 
-/**
- * Accounts not yet moved off the old per-mode roles keep what those roles could
- * do, so production keeps working until the conversion migration runs.
- */
-const legacyRoles: StaffRoleKey[] = [...legacyStaffRoleKeys];
-
 /** Invoices, payments, receipts, costs and statements: finance and the boss. */
-export const financeRoles: StaffRoleKey[] = [
-  "super_admin",
-  "finance_rep",
-  ...legacyRoles,
-];
+export const financeRoles: StaffRoleKey[] = ["super_admin", "finance_rep"];
 /** Customer service prepares and issues quotes; sales may too. */
 export const quoteDeskRoles: StaffRoleKey[] = [
   "super_admin",
   "customer_service_rep",
   "sales_rep",
-  ...legacyRoles,
 ];
 
 /**

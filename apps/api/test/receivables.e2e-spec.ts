@@ -116,12 +116,12 @@ before(async () => {
   const database = application.get(DatabasePort);
   await database.assignStaffRole(
     TEST_MATCHING_USER_ID,
-    "sea_import_rep",
+    "finance_rep",
     TEST_SUPER_ADMIN_ID,
   );
   await database.assignStaffRole(
     TEST_UNASSIGNED_USER_ID,
-    "air_export_rep",
+    "export_rep",
     TEST_SUPER_ADMIN_ID,
   );
   [companyA, companyB] = [randomUUID(), randomUUID()];
@@ -217,15 +217,17 @@ test("totals are per currency and split out what is overdue", async () => {
   ]);
 });
 
-test("staff see their service lines, customers only their own company", async () => {
-  // The sea-import rep does not see the air job's invoice.
-  assert.deepEqual(label((await report(TEST_MATCHING_TOKEN)).invoices), [
-    numbers.late,
-    numbers.soon,
-    numbers.nodue,
-  ]);
-  // The air-export rep sees neither the sea invoices nor the air-import one.
-  assert.deepEqual((await report(TEST_UNASSIGNED_TOKEN)).invoices, []);
+test("finance sees every service line, other staff are refused, customers only their own company", async () => {
+  // Finance is not held to a service line: it sees what the super admin sees.
+  assert.deepEqual(
+    label((await report(TEST_MATCHING_TOKEN)).invoices),
+    label((await report(TEST_SUPER_ADMIN_TOKEN)).invoices),
+  );
+  // Other staff have no business with unpaid money.
+  assert.equal(
+    (await get("/api/v1/invoices/outstanding", TEST_UNASSIGNED_TOKEN)).status,
+    403,
+  );
 
   assert.deepEqual(label((await report(TEST_CUSTOMER_A_TOKEN)).invoices), [
     numbers.late,

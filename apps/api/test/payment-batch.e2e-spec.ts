@@ -118,7 +118,7 @@ before(async () => {
   const database = application.get(DatabasePort);
   await database.assignStaffRole(
     TEST_MATCHING_USER_ID,
-    "sea_import_rep",
+    "finance_rep",
     TEST_SUPER_ADMIN_ID,
   );
   [companyA, companyB] = [randomUUID(), randomUUID()];
@@ -348,25 +348,24 @@ test("a batch cannot mix currencies or customers, repeat an invoice, or use unis
   assert.equal(noMethod.status, 400);
 });
 
-test("a rep can only pay invoices on their own service lines, and nothing is saved if one is outside", async () => {
+test("finance pays invoices on every service line; other staff are refused and nothing is saved", async () => {
+  await invoice("airExtra", await openJob(companyA, "air_import"), 10_000);
   const before = await owing(companyA);
-  // "three" is an air-import job; the sea-import rep cannot reach it, even with a sea invoice beside it.
-  const response = await pay(
-    [allocation("extra", 100), allocation("three", 100)],
+  // "airExtra" is an air-import job and "extra" a sea-import one: finance is not held to a service line.
+  const both = await pay(
+    [allocation("extra", 100), allocation("airExtra", 100)],
     {},
     TEST_MATCHING_TOKEN,
   );
-  assert.equal(response.status, 404);
-  assert.deepEqual(await owing(companyA), before);
-
-  // Their own line's invoice is fine.
-  const own = await pay([allocation("extra", 100)], {}, TEST_MATCHING_TOKEN);
-  assert.equal(own.status, 201);
-  assert.equal((await owing(companyA))[numbers.extra], 39_900);
+  assert.equal(both.status, 201, await both.clone().text());
+  const after = await owing(companyA);
+  assert.equal(after[numbers.extra], before[numbers.extra] - 100);
+  assert.equal(after[numbers.airExtra], before[numbers.airExtra] - 100);
 
   // A user with no staff role is refused.
   const none = await pay([allocation("extra", 100)], {}, TEST_UNASSIGNED_TOKEN);
   assert.equal(none.status, 403);
+  assert.deepEqual(await owing(companyA), after);
 });
 
 test("customers and anonymous callers cannot record payments", async () => {

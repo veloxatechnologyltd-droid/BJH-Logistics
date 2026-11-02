@@ -76,12 +76,12 @@ before(async () => {
   const database = application.get(DatabasePort);
   await database.assignStaffRole(
     TEST_MATCHING_USER_ID,
-    "sea_import_rep",
+    "finance_rep",
     TEST_SUPER_ADMIN_ID,
   );
   await database.assignStaffRole(
     TEST_UNASSIGNED_USER_ID,
-    "air_export_rep",
+    "export_rep",
     TEST_SUPER_ADMIN_ID,
   );
   companyA = randomUUID();
@@ -437,7 +437,7 @@ test("invalid charges are rejected; a charge without an actual can be removed", 
 
 test("charges import from the accepted quote and repeating the import adds nothing", async () => {
   const quote = (await (
-    await post("/api/v1/quotes", TEST_MATCHING_TOKEN, {
+    await post("/api/v1/quotes", TEST_SUPER_ADMIN_TOKEN, {
       customerCompanyId: companyA,
       serviceLine: "sea_import",
       version: {
@@ -463,9 +463,9 @@ test("charges import from the accepted quote and repeating the import adds nothi
       },
     })
   ).json()) as { id: string };
-  await post(`/api/v1/quotes/${quote.id}/issue`, TEST_MATCHING_TOKEN, {});
+  await post(`/api/v1/quotes/${quote.id}/issue`, TEST_SUPER_ADMIN_TOKEN, {});
   const accepted = (await (
-    await post(`/api/v1/quotes/${quote.id}/decision`, TEST_MATCHING_TOKEN, {
+    await post(`/api/v1/quotes/${quote.id}/decision`, TEST_SUPER_ADMIN_TOKEN, {
       versionNumber: 1,
       decision: "accepted",
       clientSignatory: "A. Client",
@@ -551,19 +551,20 @@ test("charges import from the accepted quote and repeating the import adds nothi
 });
 
 test("access boundaries: other departments, customers and anonymous callers", async () => {
-  assert.equal((await charges(jobA, TEST_UNASSIGNED_TOKEN)).status, 404);
+  // Costing is finance work: staff outside finance are refused by role.
+  assert.equal((await charges(jobA, TEST_UNASSIGNED_TOKEN)).status, 403);
   const wrongDepartmentWrite = await post(
     `/api/v1/jobs/${jobA}/charges`,
     TEST_UNASSIGNED_TOKEN,
     { kind: "service", description: "x", currency: "GHS" },
   );
-  assert.equal(wrongDepartmentWrite.status, 404);
+  assert.equal(wrongDepartmentWrite.status, 403);
   const wrongDepartmentActual = await post(
     `/api/v1/jobs/${jobA}/charges/${serviceId}/actuals`,
     TEST_UNASSIGNED_TOKEN,
     { amountMinor: 1, currency: "GHS" },
   );
-  assert.equal(wrongDepartmentActual.status, 404);
+  assert.equal(wrongDepartmentActual.status, 403);
 
   // Costing is internal: even the owning customer cannot read or change it.
   assert.equal((await charges(jobA, TEST_CUSTOMER_A_TOKEN)).status, 403);

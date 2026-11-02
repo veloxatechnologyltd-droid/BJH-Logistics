@@ -147,12 +147,12 @@ before(async () => {
   const database = application.get(DatabasePort);
   await database.assignStaffRole(
     TEST_MATCHING_USER_ID,
-    "sea_import_rep",
+    "finance_rep",
     TEST_SUPER_ADMIN_ID,
   );
   await database.assignStaffRole(
     TEST_UNASSIGNED_USER_ID,
-    "air_export_rep",
+    "export_rep",
     TEST_SUPER_ADMIN_ID,
   );
   companyA = randomUUID();
@@ -569,12 +569,16 @@ test("access boundaries: customers read issued invoices of their own company onl
   );
   assert.equal((await get(pdfPath(hidden.id))).status, 200);
 
-  for (const token of [TEST_CUSTOMER_B_TOKEN, TEST_UNASSIGNED_TOKEN]) {
+  // Another company's customer finds nothing; staff outside finance are refused.
+  for (const [token, status] of [
+    [TEST_CUSTOMER_B_TOKEN, 404],
+    [TEST_UNASSIGNED_TOKEN, 403],
+  ] as const) {
     assert.equal(
       (await get(`/api/v1/jobs/${jobA}/invoices`, token)).status,
-      404,
+      status,
     );
-    assert.equal((await get(pdfPath(invoice.id), token)).status, 404);
+    assert.equal((await get(pdfPath(invoice.id), token)).status, status);
   }
   assert.equal(
     (
@@ -615,7 +619,7 @@ test("access boundaries: customers read issued invoices of their own company onl
         {},
       )
     ).status,
-    404,
+    403,
   );
   assert.equal(
     (
@@ -909,7 +913,7 @@ test("each payment gets a numbered receipt; staff and the client's own accounts 
   );
   assert.equal(
     (await get(receiptPath(first.id), TEST_UNASSIGNED_TOKEN)).status,
-    404,
+    403,
   );
   assert.equal((await get(receiptPath(randomUUID()))).status, 404);
   assert.equal((await get(receiptPath("not-a-uuid"))).status, 404);

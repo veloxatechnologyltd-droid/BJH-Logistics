@@ -96,12 +96,12 @@ before(async () => {
   const database = application.get(DatabasePort);
   await database.assignStaffRole(
     TEST_MATCHING_USER_ID,
-    "sea_import_rep",
+    "finance_rep",
     TEST_SUPER_ADMIN_ID,
   );
   await database.assignStaffRole(
     TEST_UNASSIGNED_USER_ID,
-    "air_export_rep",
+    "export_rep",
     TEST_SUPER_ADMIN_ID,
   );
   const company = randomUUID();
@@ -271,20 +271,18 @@ test("the trend gives the last six months, counts this month's money per currenc
   );
 });
 
-test("a rep's trend only holds their service lines", async () => {
-  const unassigned = await json<Summary>(await summary(TEST_UNASSIGNED_TOKEN));
-  assert.deepEqual(unassigned.trend.rows, []);
-  assert.equal(unassigned.trend.months.length, 6);
+test("the trend is for finance; staff outside finance are refused", async () => {
+  const finance = await json<Summary>(await summary(TEST_MATCHING_TOKEN));
+  assert.equal(finance.trend.months.length, 6);
+  assert.equal((await summary(TEST_UNASSIGNED_TOKEN)).status, 403);
 });
 
-test("a rep sees only their service lines; customers and the signed-out are refused", async () => {
-  const rep = await json<Summary>(await summary(TEST_MATCHING_TOKEN));
-  assert.ok(rep.jobs.length > 0);
-  assert.ok(rep.jobs.every((row) => row.costMinor !== 7000));
-  assert.deepEqual(
-    (await json<Summary>(await summary(TEST_UNASSIGNED_TOKEN))).jobs,
-    [],
-  );
+test("finance sees every service line; others, customers and the signed-out are refused", async () => {
+  const finance = await json<Summary>(await summary(TEST_MATCHING_TOKEN));
+  assert.ok(finance.jobs.length > 0);
+  // The air job (cost 7000) is on another service line, and finance still sees it.
+  assert.ok(finance.jobs.some((row) => row.costMinor === 7000));
+  assert.equal((await summary(TEST_UNASSIGNED_TOKEN)).status, 403);
   assert.equal((await summary(TEST_CUSTOMER_A_TOKEN)).status, 403);
   assert.equal(
     (await call("/api/v1/finance/summary", "bad-token")).status,
@@ -292,7 +290,7 @@ test("a rep sees only their service lines; customers and the signed-out are refu
   );
 });
 
-test("reports are date-validated, staff-only and restricted to the rep's service lines", async () => {
+test("reports are date-validated; money is for finance, across every service line", async () => {
   const adminResponse = await reports(TEST_SUPER_ADMIN_TOKEN);
   assert.equal(adminResponse.status, 200);
   const admin = await json<{
@@ -305,14 +303,23 @@ test("reports are date-validated, staff-only and restricted to the rep's service
   assert.ok(admin.invoices.some((row) => row.jobId === seaJob));
   assert.ok(admin.payments.some((row) => row.jobId === seaJob));
 
-  const rep = await json<{
+  const finance = await json<{
     invoices: Array<{ jobId: string }>;
     jobs: Array<{ id: string }>;
     payments: Array<{ jobId: string }>;
   }>(await reports(TEST_MATCHING_TOKEN));
-  assert.ok(rep.jobs.every((job) => job.id !== airJob));
-  assert.ok(rep.invoices.every((row) => row.jobId === seaJob));
-  assert.ok(rep.payments.every((row) => row.jobId === seaJob));
+  assert.ok(finance.jobs.some((job) => job.id === seaJob));
+  assert.ok(finance.jobs.some((job) => job.id === airJob));
+  assert.ok(finance.invoices.some((row) => row.jobId === seaJob));
+  // Other staff get the report without any money.
+  const other = await json<{
+    finance: boolean;
+    invoices: unknown[];
+    payments: unknown[];
+  }>(await reports(TEST_UNASSIGNED_TOKEN));
+  assert.equal(other.finance, false);
+  assert.deepEqual(other.invoices, []);
+  assert.deepEqual(other.payments, []);
   assert.equal((await reports(TEST_CUSTOMER_A_TOKEN)).status, 403);
   assert.equal(
     (await reports(TEST_SUPER_ADMIN_TOKEN, "2026-02-30", "2026-03-01")).status,

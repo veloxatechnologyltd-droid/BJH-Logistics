@@ -97,12 +97,12 @@ before(async () => {
   const database = application.get(DatabasePort);
   await database.assignStaffRole(
     TEST_MATCHING_USER_ID,
-    "sea_import_rep",
+    "import_rep",
     TEST_SUPER_ADMIN_ID,
   );
   await database.assignStaffRole(
     TEST_UNASSIGNED_USER_ID,
-    "air_export_rep",
+    "export_rep",
     TEST_SUPER_ADMIN_ID,
   );
   const now = new Date().toISOString();
@@ -361,7 +361,7 @@ test("sending needs a body and a real audience", async () => {
 
 test("an issued quote can be sent again; a draft cannot; the client gets the link", async () => {
   const created = await json<{ id: string }>(
-    await post("/api/v1/quotes", TEST_MATCHING_TOKEN, {
+    await post("/api/v1/quotes", TEST_SUPER_ADMIN_TOKEN, {
       customerCompanyId: companyA,
       serviceLine: "sea_import",
       version: content(),
@@ -370,26 +370,31 @@ test("an issued quote can be sent again; a draft cannot; the client gets the lin
 
   const draftSend = await post(
     `/api/v1/quotes/${created.id}/send`,
-    TEST_MATCHING_TOKEN,
+    TEST_SUPER_ADMIN_TOKEN,
     {},
   );
   assert.equal(draftSend.status, 409);
   assert.match(await message(draftSend), /issued/);
 
   assert.equal(
-    (await post(`/api/v1/quotes/${created.id}/issue`, TEST_MATCHING_TOKEN, {}))
-      .status,
+    (
+      await post(
+        `/api/v1/quotes/${created.id}/issue`,
+        TEST_SUPER_ADMIN_TOKEN,
+        {},
+      )
+    ).status,
     201,
   );
   const first = await post(
     `/api/v1/quotes/${created.id}/send`,
-    TEST_MATCHING_TOKEN,
+    TEST_SUPER_ADMIN_TOKEN,
     {},
   );
   assert.equal(first.status, 201);
   const second = await post(
     `/api/v1/quotes/${created.id}/send`,
-    TEST_MATCHING_TOKEN,
+    TEST_SUPER_ADMIN_TOKEN,
     {},
   );
   assert.equal(second.status, 201, "each send is a deliberate new message");

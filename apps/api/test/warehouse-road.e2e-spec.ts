@@ -80,12 +80,22 @@ before(async () => {
   const database = application.get(DatabasePort);
   await database.assignStaffRole(
     TEST_MATCHING_USER_ID,
-    "sea_import_rep",
+    "import_rep",
+    TEST_SUPER_ADMIN_ID,
+  );
+  await database.assignStaffRole(
+    TEST_MATCHING_USER_ID,
+    "customer_service_rep",
+    TEST_SUPER_ADMIN_ID,
+  );
+  await database.assignStaffRole(
+    TEST_MATCHING_USER_ID,
+    "finance_rep",
     TEST_SUPER_ADMIN_ID,
   );
   await database.assignStaffRole(
     TEST_UNASSIGNED_USER_ID,
-    "air_export_rep",
+    "export_rep",
     TEST_SUPER_ADMIN_ID,
   );
   [companyA, companyB] = [randomUUID(), randomUUID()];

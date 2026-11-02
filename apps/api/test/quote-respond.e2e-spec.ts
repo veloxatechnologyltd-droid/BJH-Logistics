@@ -74,7 +74,7 @@ before(async () => {
   const database = application.get(DatabasePort);
   await database.assignStaffRole(
     TEST_MATCHING_USER_ID,
-    "sea_import_rep",
+    "customer_service_rep",
     TEST_SUPER_ADMIN_ID,
   );
   companyA = randomUUID();
