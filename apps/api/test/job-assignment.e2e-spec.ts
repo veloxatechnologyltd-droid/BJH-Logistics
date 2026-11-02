@@ -36,6 +36,12 @@ type Team = {
   }>;
   history: Array<{ userId: string; removedAt: string | null }>;
   invoiceAccepted: boolean;
+  invoices: Array<{
+    id: string;
+    invoiceNumber: string | null;
+    issuedAt: string | null;
+    acceptance: { signatoryName: string } | null;
+  }>;
   candidates: Array<{ userId: string }>;
 };
 
@@ -309,28 +315,28 @@ test("once accepted, customer service assigns the lead and adds an assistant", a
   assert.equal(view.history.length, 4);
 });
 
-test("finance, not customer service, records the client's acceptance; a draft cannot be accepted", async () => {
+test("customer service records the client's acceptance from the team card, without seeing amounts; finance does not", async () => {
   const secondInvoice = await issueInvoice();
-  // Customer service sees no invoices (Evans, 2026-11-02), so it cannot record one.
-  const byDesk = await post(
-    `/api/v1/jobs/${jobId}/invoices/${secondInvoice}/accept`,
-    TEST_UNASSIGNED_TOKEN,
-    { signatoryName: "Kojo Synthetic" },
+  // The team view lists the issued invoice by number only (Evans, 2026-11-02).
+  const listed = (await team()).invoices.find(
+    (invoice) => invoice.id === secondInvoice,
   );
-  assert.equal(byDesk.status, 403);
+  assert.ok(listed);
+  assert.ok(listed.invoiceNumber);
+  assert.equal(listed.acceptance, null);
+  assert.deepEqual(Object.keys(listed).sort(), [
+    "acceptance",
+    "id",
+    "invoiceNumber",
+    "issuedAt",
+  ]);
+  // Customer service still cannot read the invoices themselves.
   assert.equal(
     (await call(`/api/v1/jobs/${jobId}/invoices`, TEST_UNASSIGNED_TOKEN))
       .status,
     403,
   );
 
-  await application
-    .get(DatabasePort)
-    .assignStaffRole(
-      TEST_UNASSIGNED_USER_ID,
-      "finance_rep",
-      TEST_SUPER_ADMIN_ID,
-    );
   const recorded = await post(
     `/api/v1/jobs/${jobId}/invoices/${secondInvoice}/accept`,
     TEST_UNASSIGNED_TOKEN,
@@ -338,6 +344,31 @@ test("finance, not customer service, records the client's acceptance; a draft ca
   );
   assert.equal(recorded.status, 201);
   assert.equal(((await recorded.json()) as { via: string }).via, "staff");
+  assert.equal(
+    (await team()).invoices.find((invoice) => invoice.id === secondInvoice)
+      ?.acceptance?.signatoryName,
+    "Kojo Synthetic",
+  );
+
+  // Finance works the invoices but does not record the client's acceptance.
+  const database = application.get(DatabasePort);
+  await database.revokeStaffRole(
+    TEST_MATCHING_USER_ID,
+    "import_rep",
+    TEST_SUPER_ADMIN_ID,
+  );
+  await database.assignStaffRole(
+    TEST_MATCHING_USER_ID,
+    "finance_rep",
+    TEST_SUPER_ADMIN_ID,
+  );
+  const thirdInvoice = await issueInvoice();
+  const byFinance = await post(
+    `/api/v1/jobs/${jobId}/invoices/${thirdInvoice}/accept`,
+    TEST_MATCHING_TOKEN,
+    { signatoryName: "Kojo Synthetic" },
+  );
+  assert.equal(byFinance.status, 403);
 
   const draft = await post(
     `/api/v1/jobs/${jobId}/invoices`,
@@ -347,6 +378,10 @@ test("finance, not customer service, records the client's acceptance; a draft ca
     },
   );
   const draftId = ((await draft.json()) as { id: string }).id;
+  assert.equal(
+    (await team()).invoices.some((invoice) => invoice.id === draftId),
+    false,
+  );
   const refused = await post(
     `/api/v1/jobs/${jobId}/invoices/${draftId}/accept`,
     TEST_UNASSIGNED_TOKEN,

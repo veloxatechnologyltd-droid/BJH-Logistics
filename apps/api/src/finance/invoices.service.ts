@@ -26,7 +26,6 @@ import {
   JobScope,
   StaffRoleKey,
 } from "../database/database.port";
-import { financeRoles } from "../auth/auth.guards";
 import { JobsService } from "../jobs/jobs.service";
 import { JobChargesService, JobChargeView } from "./job-charges.service";
 import { computeInvoiceTotals } from "./invoice-totals";
@@ -119,8 +118,9 @@ export class InvoicesService {
 
   /**
    * Records that the client accepted an issued invoice, once. A customer accepts
-   * their own company's in the portal; on the staff side finance (or the super
-   * admin) records it on the client's word. Customer service sees no invoices.
+   * their own company's in the portal; on the staff side customer service (or
+   * the super admin) records it on the client's word, from the job's Team card,
+   * which lists issued invoices without amounts. Finance does not record it.
    */
   async accept(
     id: string,
@@ -131,9 +131,13 @@ export class InvoicesService {
     scope: JobScope,
   ): Promise<InvoiceAcceptanceRecord> {
     const isCustomer = scope.companyIds !== undefined;
-    if (!isCustomer && !roles.some((role) => financeRoles.includes(role))) {
+    if (
+      !isCustomer &&
+      !roles.includes("super_admin") &&
+      !roles.includes("customer_service_rep")
+    ) {
       throw new ForbiddenException(
-        "Only finance records a client's acceptance",
+        "Only customer service records a client's acceptance",
       );
     }
     const parsed = parseContract(invoiceAcceptanceInputSchema, input);

@@ -480,6 +480,17 @@ export type JobTeam = {
   team: JobTeamMember[];
   history: JobTeamMember[];
   invoiceAccepted: boolean;
+  /** Issued invoices by number and date only (no amounts), for recording acceptance. */
+  invoices: Array<{
+    id: string;
+    invoiceNumber: string | null;
+    issuedAt: string | null;
+    acceptance: {
+      signatoryName: string;
+      acceptedAt: string;
+      via: "staff" | "portal";
+    } | null;
+  }>;
   candidates: Array<{ userId: string; email: string | null }>;
 };
 

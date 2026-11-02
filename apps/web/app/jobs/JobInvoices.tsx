@@ -97,11 +97,12 @@ export function JobInvoices({
   const [adding, setAdding] = useState(false);
   const [accepting, setAccepting] = useState<string | null>(null);
   const [signatory, setSignatory] = useState("");
-  const { roles } = useStaffAccess();
+  const { roles, isSuperAdmin } = useStaffAccess();
   // Only finance (and the super admin) reach this tab on the staff side. The
-  // client accepts in the portal; on the staff side finance records it.
+  // client accepts in the portal; on the staff side customer service records
+  // it from the job's Team card, so here only the super admin may.
   const finance = isStaff && canWorkFinance(roles);
-  const canRecordAcceptance = !isStaff || finance;
+  const canRecordAcceptance = !isStaff || isSuperAdmin;
 
   const load = useCallback(async () => {
     try {
