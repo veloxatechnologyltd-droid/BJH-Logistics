@@ -6,6 +6,8 @@ import { ActivityController } from "./activity/activity.controller";
 import { ActivityLogMiddleware } from "./activity/activity.middleware";
 import { RequestErrorFilter } from "./request-error.filter";
 import { AuthModule } from "./auth/auth.module";
+import { PasswordResetController } from "./auth/password-reset.controller";
+import { PasswordResetService } from "./auth/password-reset.service";
 import { DatabaseModule } from "./database/database.module";
 import { HealthController } from "./health.controller";
 import {
@@ -127,6 +129,7 @@ import { ReportsService } from "./reports/reports.service";
   ],
   controllers: [
     HealthController,
+    PasswordResetController,
     QuoteRequestsController,
     QuotesController,
     SettingsController,
@@ -188,6 +191,7 @@ import { ReportsService } from "./reports/reports.service";
     },
     JobDetailsService,
     JobCorrespondenceService,
+    PasswordResetService,
     NotificationsService,
     NotificationDispatcher,
     MessageDraftsService,
