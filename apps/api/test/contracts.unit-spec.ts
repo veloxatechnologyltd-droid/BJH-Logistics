@@ -3,6 +3,8 @@ import { test } from "node:test";
 import {
   customerInputSchema,
   chargeImportInputSchema,
+  etaInputSchema,
+  jobTaskInputSchema,
   milestoneTemplates,
   serviceLineKeys,
   serviceLinesForRoles,
@@ -250,4 +252,22 @@ test("import and export reps cover sea and air; client-facing and finance roles 
     "road_transport",
   ]);
   assert.deepEqual(serviceLinesForRoles(["super_admin"]), []);
+});
+
+test("dates that do not exist are refused, not rolled into the next month", () => {
+  const eta = (etaAt: string) =>
+    message(etaInputSchema, { etaAt, source: "Shipping line" });
+  assert.equal(eta("2026-02-28T10:00:00Z"), "ok");
+  assert.equal(eta("2028-02-29T10:00:00Z"), "ok");
+  assert.equal(eta("2026-02-30T10:00:00Z"), "etaAt must be a date and time");
+  assert.equal(eta("2026-04-31"), "etaAt must be a date and time");
+
+  const task = (dueDate: string) =>
+    message(jobTaskInputSchema, {
+      title: "Call the client",
+      assignedRole: "customer_service_rep",
+      dueDate,
+    });
+  assert.equal(task("2026-11-30"), "ok");
+  assert.equal(task("2026-02-30"), "dueDate must be a date (YYYY-MM-DD)");
 });

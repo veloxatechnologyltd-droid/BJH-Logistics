@@ -75,12 +75,9 @@ export const askHelper = (conversationId: string | null, message: string) =>
     proposals: ProposedAction[];
     links: PageLink[];
   }>("/turn", { conversationId: conversationId ?? undefined, message });
-export const confirmAction = (
-  conversationId: string | null,
-  action: ProposedAction,
-) =>
+/** The API runs what it proposed under this ID; nothing else is sent. */
+export const confirmAction = (conversationId: string, action: ProposedAction) =>
   post<{ done: true; summary: string }>("/confirm", {
-    tool: action.tool,
-    input: action.input,
-    conversationId: conversationId ?? undefined,
+    conversationId,
+    proposalId: action.id,
   });

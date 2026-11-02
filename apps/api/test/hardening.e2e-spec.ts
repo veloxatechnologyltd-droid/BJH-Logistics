@@ -10,6 +10,7 @@ import {
 import { beginTestDatabase, endTestDatabase } from "./postgres-test-database";
 import {
   createTestApplication,
+  TEST_CUSTOMER_A_TOKEN,
   TEST_SUPER_ADMIN_TOKEN,
 } from "./test-application";
 
@@ -142,4 +143,25 @@ test("malformed JSON bodies are client errors, not server errors", async () => {
       "Malformed request body",
     );
   }
+});
+
+test("expensive routes limit each signed-in person, not the shared address", async () => {
+  const search = (token: string) =>
+    fetch(`${baseUrl}/api/v1/documents`, {
+      headers: { authorization: `Bearer ${token}` },
+    }).then((response) => response.status);
+  const statuses: number[] = [];
+  for (let attempt = 0; attempt < 125; attempt += 1) {
+    statuses.push(await search(TEST_SUPER_ADMIN_TOKEN));
+  }
+  assert.equal(
+    statuses.slice(0, 120).every((status) => status === 200),
+    true,
+  );
+  assert.equal(
+    statuses.slice(120).every((status) => status === 429),
+    true,
+  );
+  // Someone else on the same address is not held back by that person's use.
+  assert.notEqual(await search(TEST_CUSTOMER_A_TOKEN), 429);
 });

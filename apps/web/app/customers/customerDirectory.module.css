@@ -316,7 +316,7 @@
 }
 
 .searchInput::placeholder {
-  color: #8495a3;
+  color: var(--brand-muted);
 }
 
 .clearButton,

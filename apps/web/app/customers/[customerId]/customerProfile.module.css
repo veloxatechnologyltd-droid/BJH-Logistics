@@ -125,7 +125,7 @@
 
 .companyGrid dt {
   margin-bottom: 5px;
-  color: #738595;
+  color: var(--brand-muted);
   font-size: 0.75rem;
   font-weight: 700;
 }
@@ -289,7 +289,7 @@
 
 .contactGrid dt {
   margin-bottom: 6px;
-  color: #738595;
+  color: var(--brand-muted);
   font-size: 0.75rem;
   font-weight: 700;
 }

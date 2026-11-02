@@ -10,12 +10,14 @@ import {
   Req,
   UseGuards,
 } from "@nestjs/common";
+import { Throttle } from "@nestjs/throttler";
 import {
   DepartmentStaffGuard,
   JobScopeGuard,
   SupabaseIdentityGuard,
 } from "../auth/auth.guards";
 import type { AuthenticatedRequest } from "../auth/auth.guards";
+import { UserThrottlerGuard } from "../auth/user-throttler.guard";
 import { JobsService } from "./jobs.service";
 
 function scopeOf(request: AuthenticatedRequest) {
@@ -41,7 +43,8 @@ export class JobsController {
   }
 
   @Get()
-  @UseGuards(JobScopeGuard)
+  @UseGuards(JobScopeGuard, UserThrottlerGuard)
+  @Throttle({ default: { limit: 120, ttl: 60_000 } })
   list(
     @Query() query: Record<string, unknown>,
     @Req() request: AuthenticatedRequest,

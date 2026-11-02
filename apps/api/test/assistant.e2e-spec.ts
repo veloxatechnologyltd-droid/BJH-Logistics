@@ -119,6 +119,26 @@ test("the helper looks things up at once but only proposes changes", async () =>
           name: "assign_job_member",
           input: { jobId, userId: TEST_MATCHING_USER_ID, kind: "lead" },
         },
+        {
+          type: "tool_use",
+          id: "toolu_task",
+          name: "create_task",
+          input: {
+            jobId,
+            title: "Call the client",
+            assignedRole: "import_rep",
+          },
+        },
+        {
+          type: "tool_use",
+          id: "toolu_receipt",
+          name: "email_receipt",
+          input: {
+            jobId,
+            invoiceId: randomUUID(),
+            paymentId: randomUUID(),
+          },
+        },
       ],
       "tool_use",
     ),
@@ -135,11 +155,12 @@ test("the helper looks things up at once but only proposes changes", async () =>
   assert.equal(response.status, 200, await response.clone().text());
   const turn = (await response.json()) as Turn;
   assert.match(turn.reply, /press Confirm/);
-  assert.equal(turn.proposals.length, 1);
+  assert.equal(turn.proposals.length, 3);
   assert.equal(
     turn.proposals[0].summary,
     `Assign air-import@example.test as lead on ${fileNumber}`,
   );
+  assert.match(turn.proposals[1].summary, /^Create the task "Call the client"/);
 
   // The search ran with this person's access and its result went back to the model.
   const second = testAssistantClaude.requests[1] as {
@@ -233,60 +254,145 @@ test("drafted messages come back as buttons to the page that finishes them", asy
   );
 });
 
-test("confirming runs the action under the person's own rules", async () => {
-  const action = {
-    tool: "assign_job_member",
-    input: { jobId, userId: TEST_MATCHING_USER_ID, kind: "lead" },
-  };
-  // No invoice has been accepted, so customer service is refused, as on screen.
-  const refused = await post(
-    "/api/v1/assistant/confirm",
-    TEST_UNASSIGNED_TOKEN,
-    action,
+/** Has the helper propose one action in a new conversation; returns what Confirm needs. */
+async function propose(
+  token: string,
+  tool: string,
+  input: Record<string, unknown>,
+) {
+  const proposalId = `toolu_${randomUUID()}`;
+  testAssistantClaude.replies.length = 0;
+  testAssistantClaude.replies.push(
+    reply(
+      [{ type: "tool_use", id: proposalId, name: tool, input }],
+      "tool_use",
+    ),
+    reply([{ type: "text", text: "Proposed." }]),
   );
+  const response = await post("/api/v1/assistant/turn", token, {
+    message: "Please do it",
+  });
+  assert.equal(response.status, 200, await response.clone().text());
+  const turn = (await response.json()) as Turn;
+  return { conversationId: turn.conversationId, proposalId };
+}
+const confirm = (token: string, body: Record<string, unknown>) =>
+  post("/api/v1/assistant/confirm", token, body);
+
+test("confirming runs the action under the person's own rules", async () => {
+  // No invoice has been accepted, so customer service is refused, as on screen.
+  const refused = await confirm(TEST_UNASSIGNED_TOKEN, {
+    conversationId,
+    proposalId: "toolu_assign",
+  });
   assert.equal(refused.status, 409);
 
-  const reminder = await post(
-    "/api/v1/assistant/confirm",
-    TEST_MATCHING_TOKEN,
-    {
-      tool: "create_task",
-      input: {
-        jobId,
-        title: "Chase the shipping line",
-        assignedRole: "import_rep",
-      },
-    },
-  );
+  const task = await propose(TEST_MATCHING_TOKEN, "create_task", {
+    jobId,
+    title: "Chase the shipping line",
+    assignedRole: "import_rep",
+  });
+  const reminder = await confirm(TEST_MATCHING_TOKEN, task);
   assert.equal(reminder.status, 201, await reminder.clone().text());
   const tasks = (await (
     await call(`/api/v1/jobs/${jobId}/tasks`, TEST_MATCHING_TOKEN)
   ).json()) as Array<{ title: string }>;
   assert.deepEqual(
-    tasks.map((task) => task.title),
+    tasks.map((item) => item.title),
     ["Chase the shipping line"],
   );
 
-  const notDesk = await post("/api/v1/assistant/confirm", TEST_MATCHING_TOKEN, {
-    tool: "send_client_message",
-    input: { companyId: randomUUID(), body: "Hello" },
+  const message = await propose(TEST_MATCHING_TOKEN, "send_client_message", {
+    companyId,
+    body: "Hello",
   });
-  assert.equal(notDesk.status, 403);
+  assert.equal((await confirm(TEST_MATCHING_TOKEN, message)).status, 403);
   // Receipts are finance work; customer service cannot send one through the helper.
-  const receipt = await post(
-    "/api/v1/assistant/confirm",
-    TEST_UNASSIGNED_TOKEN,
-    {
-      tool: "email_receipt",
-      input: { jobId, invoiceId: randomUUID(), paymentId: randomUUID() },
-    },
-  );
-  assert.equal(receipt.status, 403);
-  const unknown = await post("/api/v1/assistant/confirm", TEST_MATCHING_TOKEN, {
-    tool: "delete_everything",
-    input: {},
+  const receipt = await confirm(TEST_UNASSIGNED_TOKEN, {
+    conversationId,
+    proposalId: "toolu_receipt",
   });
-  assert.equal(unknown.status, 400);
+  assert.equal(receipt.status, 403);
+});
+
+test("only what the helper proposed runs, exactly as proposed, and once", async () => {
+  const proposed = await propose(TEST_MATCHING_TOKEN, "create_task", {
+    jobId,
+    title: "Proposed task",
+    assignedRole: "import_rep",
+  });
+  // Nothing was proposed under these IDs, or in this person's conversation.
+  assert.equal(
+    (
+      await confirm(TEST_MATCHING_TOKEN, {
+        conversationId: proposed.conversationId,
+        proposalId: "toolu_never_proposed",
+      })
+    ).status,
+    400,
+  );
+  assert.equal(
+    (
+      await confirm(TEST_MATCHING_TOKEN, {
+        conversationId: proposed.conversationId,
+      })
+    ).status,
+    400,
+  );
+  assert.equal(
+    (
+      await confirm(TEST_MATCHING_TOKEN, {
+        tool: "create_task",
+        input: { jobId, title: "Made up", assignedRole: "import_rep" },
+      })
+    ).status,
+    404,
+  );
+  // A tool and input sent with the confirm are ignored: the proposal runs.
+  const first = await confirm(TEST_MATCHING_TOKEN, {
+    ...proposed,
+    tool: "create_task",
+    input: { jobId, title: "Swapped in", assignedRole: "import_rep" },
+  });
+  assert.equal(first.status, 201, await first.clone().text());
+  // Pressing Confirm again does not run it again.
+  const again = await confirm(TEST_MATCHING_TOKEN, proposed);
+  assert.equal(again.status, 409);
+  const titles = (
+    (await (
+      await call(`/api/v1/jobs/${jobId}/tasks`, TEST_MATCHING_TOKEN)
+    ).json()) as Array<{ title: string }>
+  ).map((item) => item.title);
+  assert.equal(titles.filter((title) => title === "Proposed task").length, 1);
+  assert.equal(titles.includes("Swapped in"), false);
+  assert.equal(titles.includes("Made up"), false);
+});
+
+test("a double-click confirms once", async () => {
+  const proposed = await propose(TEST_MATCHING_TOKEN, "create_task", {
+    jobId,
+    title: "Double-click task",
+    assignedRole: "import_rep",
+  });
+  const statuses = (
+    await Promise.all([
+      confirm(TEST_MATCHING_TOKEN, proposed),
+      confirm(TEST_MATCHING_TOKEN, proposed),
+      confirm(TEST_MATCHING_TOKEN, proposed),
+    ])
+  )
+    .map((response) => response.status)
+    .sort();
+  assert.deepEqual(statuses, [201, 409, 409]);
+  const titles = (
+    (await (
+      await call(`/api/v1/jobs/${jobId}/tasks`, TEST_MATCHING_TOKEN)
+    ).json()) as Array<{ title: string }>
+  ).map((item) => item.title);
+  assert.equal(
+    titles.filter((title) => title === "Double-click task").length,
+    1,
+  );
 });
 
 test("customers cannot use the helper, and bad conversations are refused", async () => {
@@ -313,11 +419,7 @@ test("conversations are kept, continued and private to their owner", async () =>
   const confirmed = await post(
     "/api/v1/assistant/confirm",
     TEST_UNASSIGNED_TOKEN,
-    {
-      tool: "create_task",
-      input: { jobId, title: "Call the client", assignedRole: "import_rep" },
-      conversationId,
-    },
+    { conversationId, proposalId: "toolu_task" },
   );
   assert.equal(confirmed.status, 201, await confirmed.clone().text());
 
@@ -377,7 +479,12 @@ test("conversations are kept, continued and private to their owner", async () =>
   const others = (await (
     await call("/api/v1/assistant/conversations", TEST_MATCHING_TOKEN)
   ).json()) as unknown[];
-  assert.deepEqual(others, []);
+  assert.equal(
+    (others as Array<{ id: string }>).some(
+      (item) => item.id === conversationId,
+    ),
+    false,
+  );
   const path = `/api/v1/assistant/conversations/${conversationId}`;
   assert.equal((await call(path, TEST_MATCHING_TOKEN)).status, 404);
   assert.equal(
@@ -392,9 +499,8 @@ test("conversations are kept, continued and private to their owner", async () =>
   assert.equal(
     (
       await post("/api/v1/assistant/confirm", TEST_MATCHING_TOKEN, {
-        tool: "create_task",
-        input: { jobId, title: "Sneaky", assignedRole: "import_rep" },
         conversationId,
+        proposalId: "toolu_task",
       })
     ).status,
     404,
@@ -497,4 +603,58 @@ test("when Claude fails, OpenAI answers the turn with the same tools", async () 
   } finally {
     delete helper.fallback;
   }
+});
+
+test("a proposal names only jobs and people the person may see", async () => {
+  const otherLine = await post("/api/v1/jobs", TEST_SUPER_ADMIN_TOKEN, {
+    customerCompanyId: companyId,
+    serviceLine: "sea_export",
+  });
+  const hidden = (await otherLine.json()) as {
+    id: string;
+    fileNumber: string;
+  };
+  testAssistantClaude.replies.length = 0;
+  testAssistantClaude.replies.push(
+    reply(
+      [
+        {
+          type: "tool_use",
+          id: "toolu_hidden_task",
+          name: "create_task",
+          input: {
+            jobId: hidden.id,
+            title: "Look into it",
+            assignedRole: "import_rep",
+          },
+        },
+        {
+          type: "tool_use",
+          id: "toolu_hidden_assign",
+          name: "assign_job_member",
+          input: {
+            jobId: hidden.id,
+            userId: TEST_UNASSIGNED_USER_ID,
+            kind: "lead",
+          },
+        },
+      ],
+      "tool_use",
+    ),
+    reply([{ type: "text", text: "Proposed." }]),
+  );
+  // An import rep has no access to a sea export job.
+  const response = await post("/api/v1/assistant/turn", TEST_MATCHING_TOKEN, {
+    message: "Do something on that job",
+  });
+  assert.equal(response.status, 200, await response.clone().text());
+  const turn = (await response.json()) as Turn;
+  const summaries = turn.proposals.map((proposal) => proposal.summary);
+  assert.equal(summaries.length, 2);
+  for (const summary of summaries) {
+    assert.doesNotMatch(summary, new RegExp(hidden.fileNumber));
+    assert.doesNotMatch(summary, /staff@example\.test/);
+  }
+  assert.match(summaries[0], /an unknown job/);
+  assert.match(summaries[1], /an unknown person/);
 });
