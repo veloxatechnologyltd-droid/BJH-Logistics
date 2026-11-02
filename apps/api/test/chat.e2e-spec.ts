@@ -251,6 +251,62 @@ test("an emailed reply read again after a restart is added to the conversation o
   );
 });
 
+test("an emailed reply the mail server could not vouch for is kept out of the conversation", async () => {
+  const chat = application.get(ChatService);
+  const email = {
+    subject: `Re: Message from Synthetic Forwarding Ltd [Chat ${customerNumber}]`,
+    fromEmail: "ama@chat-north.test",
+    fromName: "Ama Synthetic",
+  };
+  // A forged From: line fails the server's DMARC and SPF checks.
+  assert.equal(
+    await chat.receiveEmail({
+      ...email,
+      text: "Forged reply",
+      authentication: "fail",
+    }),
+    false,
+  );
+  assert.equal(
+    await chat.receiveEmail({
+      ...email,
+      text: "Verified reply",
+      authentication: "pass",
+    }),
+    true,
+  );
+  // An email the server said nothing about is believed unless CHAT_EMAIL_AUTH=require.
+  assert.equal(
+    await chat.receiveEmail({
+      ...email,
+      text: "Unchecked reply",
+      authentication: "unknown",
+    }),
+    true,
+  );
+  process.env.CHAT_EMAIL_AUTH = "require";
+  try {
+    assert.equal(
+      await chat.receiveEmail({
+        ...email,
+        text: "Strict mode reply",
+        authentication: "unknown",
+      }),
+      false,
+    );
+  } finally {
+    delete process.env.CHAT_EMAIL_AUTH;
+  }
+  const thread = (await (
+    await call(`/api/v1/chat/threads/${companyA}`, TEST_SUPER_ADMIN_TOKEN)
+  ).json()) as Thread;
+  const bodies = thread.messages.map((item) => item.body);
+  assert.ok(bodies.includes("Verified reply"));
+  assert.ok(bodies.includes("Unchecked reply"));
+  assert.equal(bodies.includes("Forged reply"), false);
+  assert.equal(bodies.includes("Strict mode reply"), false);
+});
+
 test("quoted history is cut from emailed replies", () => {
   assert.equal(
     replyText("Yes please.\r\n\r\n-----Original Message-----\r\nFrom: BJH"),
