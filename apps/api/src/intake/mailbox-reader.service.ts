@@ -320,6 +320,7 @@ export class MailboxReaderService implements OnModuleInit, OnModuleDestroy {
           fromEmail: parsed.from?.value[0]?.address ?? "",
           fromName: parsed.from?.value[0]?.name ?? "",
           text: parsed.text ?? "",
+          messageId: parsed.messageId ?? messageId ?? null,
         })
       ) {
         return "received";

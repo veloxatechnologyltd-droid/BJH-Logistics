@@ -546,6 +546,8 @@ export interface TeamTagTargets {
 export interface AssistantLine {
   kind: "you" | "helper" | "done";
   text: string;
+  /** A confirmed action: the tool call it came from, so it cannot run twice. */
+  proposalId?: string;
 }
 
 /** A staff member's conversation with the helper, private to them. */
@@ -1627,9 +1629,13 @@ export abstract class DatabasePort {
   ): Promise<SalesServiceReportRecord>;
   abstract listChatThreads(): Promise<ChatThreadRecord[]>;
   abstract listChatMessages(companyId: string): Promise<ChatMessageRecord[]>;
+  /** `emailMessageId` is an emailed reply's Message-ID, kept so it is never added twice. */
   abstract addChatMessage(
     message: Omit<ChatMessageRecord, "id" | "createdAt" | "readAt">,
+    emailMessageId?: string | null,
   ): Promise<ChatMessageRecord>;
+  /** Whether an emailed reply with this Message-ID is already in a conversation. */
+  abstract hasChatEmail(emailMessageId: string): Promise<boolean>;
   /** Marks the other side's messages in a conversation as read. */
   abstract markChatRead(
     companyId: string,
