@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { listCustomers } from "../customers/customerApi";
 import type { CustomerCompany } from "../customers/customerApi";
+import { takeChatDraft } from "../assistant/chatHandoff";
 import { draftClientMessage } from "../messages/messageApi";
 import { ErrorPopup } from "../ErrorPopup";
 import jobStyles from "../jobs/jobs.module.css";
@@ -43,6 +44,15 @@ export function ClientChat() {
         cause instanceof Error ? cause.message : "The conversation failed",
       );
     }
+  }, []);
+
+  // Opened from a Bra Evans button: show that client, with its draft if any.
+  useEffect(() => {
+    const company = new URLSearchParams(window.location.search).get("company");
+    if (!company) return;
+    setSelected(company);
+    const handed = takeChatDraft(company);
+    if (handed) setDraft(handed);
   }, []);
 
   useEffect(() => {

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { ErrorPopup } from "../ErrorPopup";
@@ -16,8 +17,10 @@ import {
 import type {
   ConversationSummary,
   HelperLine,
+  PageLink,
   ProposedAction,
 } from "./assistantApi";
+import { handOffChatDraft } from "./chatHandoff";
 import styles from "./helper.module.css";
 
 const examples = [
@@ -38,6 +41,7 @@ export function Helper() {
   const [currentId, setCurrentId] = useState<string | null>(null);
   const [lines, setLines] = useState<HelperLine[]>([]);
   const [proposals, setProposals] = useState<ProposedAction[]>([]);
+  const [links, setLinks] = useState<PageLink[]>([]);
   const [question, setQuestion] = useState("");
   const [thinking, setThinking] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
@@ -55,12 +59,13 @@ export function Helper() {
 
   useEffect(() => {
     end.current?.scrollIntoView({ block: "end" });
-  }, [lines.length, proposals.length, thinking]);
+  }, [lines.length, proposals.length, links.length, thinking]);
 
   function startNew() {
     setCurrentId(null);
     setLines([]);
     setProposals([]);
+    setLinks([]);
     setQuestion("");
     setError("");
   }
@@ -73,6 +78,7 @@ export function Helper() {
       setCurrentId(conversation.id);
       setLines(conversation.lines);
       setProposals([]);
+      setLinks([]);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not open");
     }
@@ -98,12 +104,14 @@ export function Helper() {
     setError("");
     setQuestion("");
     setProposals([]);
+    setLinks([]);
     setLines((current) => [...current, { kind: "you", text: asked }]);
     try {
       const turn = await askHelper(currentId, asked);
       setCurrentId(turn.conversationId);
       setLines((current) => [...current, { kind: "helper", text: turn.reply }]);
       setProposals(turn.proposals);
+      setLinks(turn.links ?? []);
       setConversations((current) => [
         {
           id: turn.conversationId,
@@ -286,6 +294,35 @@ export function Helper() {
                 >
                   Confirm
                 </button>
+              </div>
+            </article>
+          ))}
+          {links.map((link) => (
+            <article className={styles.proposal} key={link.id}>
+              {link.draft && (
+                <>
+                  <p className={styles.proposalLabel}>
+                    Drafted for you: nothing is sent until you press Send
+                  </p>
+                  <p className={chat.body}>{link.draft}</p>
+                </>
+              )}
+              <div className={chat.replyActions}>
+                <Link
+                  className={`${chat.send} ${styles.pageLink}`}
+                  href={link.href}
+                  onClick={() => {
+                    const company = new URL(
+                      link.href,
+                      window.location.origin,
+                    ).searchParams.get("company");
+                    if (link.draft && company) {
+                      handOffChatDraft(company, link.draft);
+                    }
+                  }}
+                >
+                  {link.label} →
+                </Link>
               </div>
             </article>
           ))}
