@@ -34,6 +34,12 @@ export interface StaffAuthDirectory {
     suspended: boolean,
     roleKeys?: StaffRoleKey[],
   ): Promise<void>;
+  /**
+   * A one-time code that lets the owner of `email` choose a new password, made
+   * without sending anything. Null when there is no such account or it is
+   * suspended. The code is a credential: only ever put it in an email.
+   */
+  createRecoveryCode(email: string): Promise<string | null>;
 }
 
 @Injectable()
@@ -131,6 +137,19 @@ export class SupabaseStaffAuthDirectory implements StaffAuthDirectory {
       ban_duration: suspended ? "876000h" : "none",
     });
     if (error) throw this.providerUnavailable();
+  }
+
+  async createRecoveryCode(email: string): Promise<string | null> {
+    const { data, error } = await this.requireClient().auth.admin.generateLink({
+      type: "recovery",
+      email,
+    });
+    if (error) {
+      if (error.status === 404 || error.code === "user_not_found") return null;
+      throw this.providerUnavailable();
+    }
+    if (!data.user || this.toUser(data.user).suspended) return null;
+    return data.properties.email_otp;
   }
 
   private requireClient(): SupabaseClient {

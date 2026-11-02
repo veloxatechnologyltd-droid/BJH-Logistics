@@ -264,6 +264,11 @@ const testStaffDirectory: StaffAuthDirectory = {
     if (user)
       testUsers.set(userId, { ...user, suspended, suspendedRoles: roles });
   },
+  async createRecoveryCode(email) {
+    const user = [...testUsers.values()].find((item) => item.email === email);
+    if (!user || user.suspended) return null;
+    return "123456";
+  },
 };
 
 export async function createTestApplication(

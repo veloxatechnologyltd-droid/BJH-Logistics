@@ -14,7 +14,8 @@ const apiBaseUrl =
 
 /**
  * Reached two ways: after signing in on a password the admin set, and from
- * the link in a password-reset email (Supabase signs the user in from it).
+ * the code from a password-reset email (Supabase signs the user in when the
+ * code is confirmed on the sign-in page).
  */
 export function SetPassword() {
   const router = useRouter();
@@ -31,7 +32,7 @@ export function SetPassword() {
       return;
     }
     let active = true;
-    // The reset link's session can arrive a moment after the page opens.
+    // The session can arrive a moment after the page opens.
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {

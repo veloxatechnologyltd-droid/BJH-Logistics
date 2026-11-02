@@ -328,6 +328,18 @@ export const staffRoleInputSchema = z.object(
 );
 export type StaffRoleInput = z.infer<typeof staffRoleInputSchema>;
 
+export const passwordResetRequestSchema = z.object(
+  {
+    email: z
+      .string({ error: "Enter a valid email address" })
+      .trim()
+      .toLowerCase()
+      .max(254, "Enter a valid email address")
+      .pipe(z.email({ error: "Enter a valid email address" })),
+  },
+  objectError("Enter a valid email address"),
+);
+
 export const staffCreateInputSchema = z.object(
   {
     email: z.string().catch(""),

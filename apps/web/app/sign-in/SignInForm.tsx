@@ -44,6 +44,8 @@ export function SignInForm() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [codeStep, setCodeStep] = useState(false);
+  const [code, setCode] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -82,6 +84,8 @@ export function SignInForm() {
   function switchMode(next: AuthMode) {
     setError("");
     setNotice("");
+    setCodeStep(false);
+    setCode("");
     setMode(next);
   }
 
@@ -100,17 +104,35 @@ export function SignInForm() {
         throw new Error("Sign-in is not configured for this site");
       }
 
-      if (mode === "forgot") {
-        const { error: resetError } = await supabase.auth.resetPasswordForEmail(
+      if (mode === "forgot" && codeStep) {
+        // The code signs the person in for the one purpose of choosing a new password.
+        const { error: codeError } = await supabase.auth.verifyOtp({
           email,
-          {
-            redirectTo: `${window.location.origin}/set-password`,
-          },
-        );
-        if (resetError) throw resetError;
+          token: code.replace(/\s/g, ""),
+          type: "recovery",
+        });
+        if (codeError) {
+          throw new Error(
+            "That code is wrong or has expired. Check it, or ask for a new one.",
+          );
+        }
+        router.replace("/set-password");
+        return;
+      }
+
+      if (mode === "forgot") {
+        // The API makes the code and emails it from BJH's own mail server.
+        const response = await fetch(`${apiBaseUrl}/v1/auth/password-reset`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ email }),
+        });
+        const failure = await responseError(response);
+        if (failure) throw failure;
         // Same reply whether or not the address has an account.
+        setCodeStep(true);
         setNotice(
-          "If an account uses this email, a link to set a new password is on its way.",
+          "If an account uses this email, a code to set a new password is on its way. Copy it from the email and paste it below.",
         );
         return;
       }
@@ -194,6 +216,12 @@ export function SignInForm() {
           details.
         </p>
       )}
+      {mode === "forgot" && (
+        <p className={styles.accountHelp}>
+          Enter the email you sign in with. We will send you a code to set a new
+          password.
+        </p>
+      )}
 
       <form className={styles.form} onSubmit={submit}>
         <label htmlFor="auth-email">
@@ -202,11 +230,28 @@ export function SignInForm() {
             autoComplete="email"
             id="auth-email"
             onChange={(event) => setEmail(event.target.value)}
+            readOnly={codeStep}
             required
             type="email"
             value={email}
           />
         </label>
+        {mode === "forgot" && codeStep && (
+          <label htmlFor="auth-code">
+            Code from your email
+            <input
+              autoComplete="one-time-code"
+              id="auth-code"
+              inputMode="numeric"
+              maxLength={16}
+              onChange={(event) => setCode(event.target.value)}
+              pattern="[0-9 ]{6,16}"
+              required
+              type="text"
+              value={code}
+            />
+          </label>
+        )}
         {mode !== "forgot" && (
           <label htmlFor="auth-password">
             {mode === "signin"
@@ -225,6 +270,17 @@ export function SignInForm() {
             />
           </label>
         )}
+        {mode === "signin" && (
+          <div className={styles.forgotRow}>
+            <button
+              className={styles.modeButton}
+              onClick={() => switchMode("forgot")}
+              type="button"
+            >
+              Forgot password?
+            </button>
+          </div>
+        )}
         <ErrorPopup message={error} />
         {notice && (
           <p className={styles.notice} role="status">
@@ -235,20 +291,29 @@ export function SignInForm() {
           {loading
             ? "Working…"
             : mode === "forgot"
-              ? "Send reset link"
+              ? codeStep
+                ? "Confirm code"
+                : "Send reset code"
               : titles[mode]}
         </button>
-      </form>
-
-      {mode === "signin" ? (
-        <>
+        {mode === "forgot" && codeStep && (
           <button
             className={styles.modeButton}
-            onClick={() => switchMode("forgot")}
+            onClick={() => {
+              setError("");
+              setNotice("");
+              setCode("");
+              setCodeStep(false);
+            }}
             type="button"
           >
-            Forgot password?
+            Send a new code or change the email
           </button>
+        )}
+      </form>
+
+      <div className={styles.cardFooter}>
+        {mode === "signin" ? (
           <button
             className={styles.modeButton}
             onClick={() => switchMode("signup")}
@@ -256,32 +321,32 @@ export function SignInForm() {
           >
             New here? Create an account
           </button>
-        </>
-      ) : (
-        mode !== "bootstrap" && (
+        ) : (
+          mode !== "bootstrap" && (
+            <button
+              className={styles.modeButton}
+              onClick={() => switchMode("signin")}
+              type="button"
+            >
+              Back to sign in
+            </button>
+          )
+        )}
+
+        {bootstrapAvailable && (
           <button
             className={styles.modeButton}
-            onClick={() => switchMode("signin")}
+            onClick={() =>
+              switchMode(mode === "bootstrap" ? "signin" : "bootstrap")
+            }
             type="button"
           >
-            Back to sign in
+            {mode === "bootstrap"
+              ? "Already signed up? Sign in"
+              : "First setup? Create the super admin"}
           </button>
-        )
-      )}
-
-      {bootstrapAvailable && (
-        <button
-          className={styles.modeButton}
-          onClick={() =>
-            switchMode(mode === "bootstrap" ? "signin" : "bootstrap")
-          }
-          type="button"
-        >
-          {mode === "bootstrap"
-            ? "Already signed up? Sign in"
-            : "First setup? Create the super admin"}
-        </button>
-      )}
+        )}
+      </div>
     </section>
   );
 }
