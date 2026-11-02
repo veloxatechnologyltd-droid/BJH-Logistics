@@ -20,7 +20,7 @@ const nextConfig: NextConfig = {
           {
             key: "Content-Security-Policy",
             value:
-              "frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self'",
+              "frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
           },
           {
             key: "Strict-Transport-Security",
