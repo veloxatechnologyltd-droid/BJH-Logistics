@@ -5,7 +5,6 @@ import {
   Logger,
 } from "@nestjs/common";
 import { parseContract, passwordResetRequestSchema } from "@bjh/contracts";
-import { publicWebUrl } from "../notifications/notifications.service";
 import { EMAIL_PROVIDER } from "../notifications/providers";
 import type { EmailProvider } from "../notifications/providers";
 import { STAFF_AUTH_DIRECTORY } from "./staff-admin.port";
@@ -27,8 +26,10 @@ export class PasswordResetService {
 
   /**
    * The reply is the same whether or not the address has an account, and the
-   * link is made and sent after the reply, so neither the answer nor its timing
-   * shows who has an account. A failure is logged, never shown to the caller.
+   * code is made and sent after the reply, so neither the answer nor its timing
+   * shows who has an account. A failure is logged, never shown to the caller;
+   * so is each outcome (without the address), which is how a missing email is
+   * traced.
    */
   request(body: unknown): { ok: true } {
     const input = parseContract(passwordResetRequestSchema, body);
@@ -56,26 +57,34 @@ export class PasswordResetService {
   }
 
   private async send(email: string) {
-    const link = await this.directory.createRecoveryLink(
-      email,
-      `${publicWebUrl()}/set-password`,
-    );
-    if (!link) return;
+    const code = await this.directory.createRecoveryCode(email);
+    if (!code) {
+      this.logger.log(
+        "Password reset asked for an address with no active account: nothing sent",
+      );
+      return;
+    }
     await this.email.send({
       to: email,
-      subject: "Reset your BJH Logistics password",
+      subject: "Your BJH Logistics password reset code",
       text: [
         "Hello,",
         "",
         `We received a request to reset the password for your BJH Logistics account (${email}).`,
         "",
-        "Open this link to choose a new password:",
-        link,
+        "Your reset code is:",
         "",
-        "The link works once and stops working after a short time. If you did not ask for this, ignore this email and your password will stay as it is.",
+        code,
+        "",
+        "Go back to the Reset your password page, paste this code, and choose a new password.",
+        "",
+        "The code works once and stops working after a short time. If you did not ask for this, ignore this email and your password will stay as it is.",
         "",
         "BJH Logistics",
       ].join("\n"),
     });
+    this.logger.log(
+      `Password reset code handed to the ${this.email.name} mail provider`,
+    );
   }
 }

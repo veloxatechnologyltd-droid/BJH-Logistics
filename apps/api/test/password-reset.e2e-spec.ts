@@ -43,7 +43,7 @@ after(async () => {
   await endTestDatabase();
 });
 
-test("an account gets its own reset link by email, with no sign-in needed", async () => {
+test("an account gets its own reset code by email, with no sign-in needed", async () => {
   email.sent.length = 0;
   const response = await ask({ email: "Customer-A@example.test " });
   assert.equal(response.status, 200);
@@ -51,11 +51,9 @@ test("an account gets its own reset link by email, with no sign-in needed", asyn
   await settle();
   assert.equal(email.sent.length, 1);
   assert.equal(email.sent[0].to, "customer-a@example.test");
-  assert.equal(email.sent[0].subject, "Reset your BJH Logistics password");
-  assert.match(
-    email.sent[0].text,
-    /https:\/\/auth\.test\/verify\?token=50000000-0000-4000-8000-000000000003&redirect_to=http[^\s]*set-password/,
-  );
+  assert.equal(email.sent[0].subject, "Your BJH Logistics password reset code");
+  assert.match(email.sent[0].text, /^123456$/m);
+  assert.doesNotMatch(email.sent[0].text, /https?:\/\//);
 });
 
 test("an unknown address gets the same reply and no email", async () => {

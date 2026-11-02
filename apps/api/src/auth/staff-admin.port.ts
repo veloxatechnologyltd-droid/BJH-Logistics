@@ -35,11 +35,11 @@ export interface StaffAuthDirectory {
     roleKeys?: StaffRoleKey[],
   ): Promise<void>;
   /**
-   * A one-time link that lets the owner of `email` choose a new password, made
+   * A one-time code that lets the owner of `email` choose a new password, made
    * without sending anything. Null when there is no such account or it is
-   * suspended. The link is a credential: only ever put it in an email.
+   * suspended. The code is a credential: only ever put it in an email.
    */
-  createRecoveryLink(email: string, redirectTo: string): Promise<string | null>;
+  createRecoveryCode(email: string): Promise<string | null>;
 }
 
 @Injectable()
@@ -139,21 +139,17 @@ export class SupabaseStaffAuthDirectory implements StaffAuthDirectory {
     if (error) throw this.providerUnavailable();
   }
 
-  async createRecoveryLink(
-    email: string,
-    redirectTo: string,
-  ): Promise<string | null> {
+  async createRecoveryCode(email: string): Promise<string | null> {
     const { data, error } = await this.requireClient().auth.admin.generateLink({
       type: "recovery",
       email,
-      options: { redirectTo },
     });
     if (error) {
       if (error.status === 404 || error.code === "user_not_found") return null;
       throw this.providerUnavailable();
     }
     if (!data.user || this.toUser(data.user).suspended) return null;
-    return data.properties.action_link;
+    return data.properties.email_otp;
   }
 
   private requireClient(): SupabaseClient {

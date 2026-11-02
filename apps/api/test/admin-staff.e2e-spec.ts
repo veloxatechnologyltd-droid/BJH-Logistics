@@ -79,7 +79,7 @@ const directory: StaffAuthDirectory = {
     const user = users.get(userId);
     if (user) users.set(userId, { ...user, suspended, suspendedRoles: roles });
   },
-  async createRecoveryLink() {
+  async createRecoveryCode() {
     return null;
   },
 };

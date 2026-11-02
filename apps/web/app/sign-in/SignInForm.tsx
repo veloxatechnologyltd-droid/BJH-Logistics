@@ -45,6 +45,8 @@ export function SignInForm() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [codeStep, setCodeStep] = useState(false);
+  const [code, setCode] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -83,6 +85,8 @@ export function SignInForm() {
   function switchMode(next: AuthMode) {
     setError("");
     setNotice("");
+    setCodeStep(false);
+    setCode("");
     setMode(next);
   }
 
@@ -101,8 +105,24 @@ export function SignInForm() {
         throw new Error("Sign-in is not configured for this site");
       }
 
+      if (mode === "forgot" && codeStep) {
+        // The code signs the person in for the one purpose of choosing a new password.
+        const { error: codeError } = await supabase.auth.verifyOtp({
+          email,
+          token: code.replace(/\s/g, ""),
+          type: "recovery",
+        });
+        if (codeError) {
+          throw new Error(
+            "That code is wrong or has expired. Check it, or ask for a new one.",
+          );
+        }
+        router.replace("/set-password");
+        return;
+      }
+
       if (mode === "forgot") {
-        // The API makes the link and emails it from BJH's own mail server.
+        // The API makes the code and emails it from BJH's own mail server.
         const response = await fetch(`${apiBaseUrl}/v1/auth/password-reset`, {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -111,8 +131,9 @@ export function SignInForm() {
         const failure = await responseError(response);
         if (failure) throw failure;
         // Same reply whether or not the address has an account.
+        setCodeStep(true);
         setNotice(
-          "If an account uses this email, a link to set a new password is on its way.",
+          "If an account uses this email, a code to set a new password is on its way. Copy it from the email and paste it below.",
         );
         return;
       }
@@ -198,7 +219,7 @@ export function SignInForm() {
       )}
       {mode === "forgot" && (
         <p className={styles.accountHelp}>
-          Enter the email you sign in with. We will send you a link to set a new
+          Enter the email you sign in with. We will send you a code to set a new
           password.
         </p>
       )}
@@ -210,11 +231,28 @@ export function SignInForm() {
             autoComplete="email"
             id="auth-email"
             onChange={(event) => setEmail(event.target.value)}
+            readOnly={codeStep}
             required
             type="email"
             value={email}
           />
         </label>
+        {mode === "forgot" && codeStep && (
+          <label htmlFor="auth-code">
+            Code from your email
+            <input
+              autoComplete="one-time-code"
+              id="auth-code"
+              inputMode="numeric"
+              maxLength={16}
+              onChange={(event) => setCode(event.target.value)}
+              pattern="[0-9 ]{6,16}"
+              required
+              type="text"
+              value={code}
+            />
+          </label>
+        )}
         {mode !== "forgot" && (
           <label htmlFor="auth-password">
             {mode === "signin"
@@ -254,9 +292,25 @@ export function SignInForm() {
           {loading
             ? "Working…"
             : mode === "forgot"
-              ? "Send reset link"
+              ? codeStep
+                ? "Confirm code"
+                : "Send reset code"
               : titles[mode]}
         </button>
+        {mode === "forgot" && codeStep && (
+          <button
+            className={styles.modeButton}
+            onClick={() => {
+              setError("");
+              setNotice("");
+              setCode("");
+              setCodeStep(false);
+            }}
+            type="button"
+          >
+            Send a new code or change the email
+          </button>
+        )}
       </form>
 
       <div className={styles.cardFooter}>
