@@ -9,7 +9,7 @@ export const metadata = {
 
 export default function SignInPage() {
   return (
-    <main className={styles.page}>
+    <main className={`${styles.page} ${styles.signInPage}`}>
       <Link className={styles.backLink} href="/">
         <span aria-hidden="true">←</span> Back to overview
       </Link>
