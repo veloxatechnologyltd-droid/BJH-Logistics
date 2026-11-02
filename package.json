@@ -11,7 +11,7 @@
     "format": "prettier --write \"apps/**/*.{ts,tsx,css,json}\" \"packages/*/src/**/*.ts\" \"packages/*/*.json\" \"docs/architecture.md\" \"docs/delivery-plan.md\" \"docs/decisions.md\" \"docs/document-templates.md\" \"README.md\" \"AGENTS.md\" \"CHECKLIST.md\" \"*.json\" \"pnpm-workspace.yaml\" \"eslint.config.mjs\"",
     "format:check": "prettier --check \"apps/**/*.{ts,tsx,css,json}\" \"packages/*/src/**/*.ts\" \"packages/*/*.json\" \"docs/architecture.md\" \"docs/delivery-plan.md\" \"docs/decisions.md\" \"docs/document-templates.md\" \"README.md\" \"AGENTS.md\" \"CHECKLIST.md\" \"*.json\" \"pnpm-workspace.yaml\" \"eslint.config.mjs\"",
     "typecheck": "corepack pnpm contracts:build && corepack pnpm --recursive --if-present typecheck",
-    "test": "corepack pnpm contracts:build && corepack pnpm --filter @bjh/api test && corepack pnpm --filter @bjh/site test && corepack pnpm --filter @bjh/web test",
+    "test": "corepack pnpm contracts:build && corepack pnpm --filter @bjh/api test && corepack pnpm --filter @bjh/site test && corepack pnpm --filter @bjh/web test && node --test scripts/*.test.mjs",
     "test:e2e": "corepack pnpm contracts:build && corepack pnpm --filter @bjh/api test:e2e",
     "build": "corepack pnpm --recursive --if-present build",
     "supabase:start": "corepack pnpm exec supabase start",

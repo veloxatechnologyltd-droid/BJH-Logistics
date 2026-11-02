@@ -5,7 +5,7 @@ One page for the person releasing. It describes what exists today; where somethi
 ## Who does what
 
 - **Code** reaches production by merging a pull request into `main`. Render deploys the API and Vercel deploys both web apps from every commit to `main`, so **merge only when the `verify` check is green** (see "Known gaps").
-- **Database migrations** are applied to production by a person, never by an agent or a host build: `corepack pnpm db:migrate:production`. It shows the pending migrations as a dry run and applies them only after typing `apply production`. It applies **every** pending migration; read the dry-run list first.
+- **Database migrations** are applied to production by a person, never by an agent or a host build: `corepack pnpm db:migrate:production`. It shows the pending migrations as a dry run and applies them only after typing `apply production`. It applies **every** pending migration unless told where to stop: `--to <version>` (14 digits, for example `corepack pnpm db:migrate:production --to 20261102000100`) lists and applies only the migrations up to and including that one. Read the dry-run list first either way.
 
 ## Releasing a change
 
