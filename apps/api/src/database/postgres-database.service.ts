@@ -271,6 +271,21 @@ const PAYMENT_COLUMNS = `p.payment_id, p.invoice_id, p.receipt_number, p.amount_
   p.reference, p.evidence_document_id, p.note, p.recorded_by, p.recorded_at,
   r.reason AS reversal_reason, r.reversed_by, r.reversed_at`;
 
+/** The longest a jobs search may run (audit D2). */
+const JOBS_LIST_TIMEOUT_MS = 20_000;
+
+const UUID_PATTERN =
+  "'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'";
+
+/**
+ * SQL to compare a uuid column with text parameter `$position` that may not be
+ * a UUID. The column is compared as a uuid, so its index is used (`id::text =
+ * $1` scanned the table), and a value that is not a UUID matches nothing
+ * instead of failing the query.
+ */
+const uuidParam = (position: number) =>
+  `CASE WHEN $${position}::text ~ ${UUID_PATTERN} THEN $${position}::uuid END`;
+
 @Injectable()
 export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
   constructor(@Inject(POSTGRES_POOL) private readonly pool: PostgresPool) {}
@@ -407,7 +422,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
         `UPDATE app.inbound_email AS email
          SET extraction_status = $2, extraction_error = $3, extraction_model = $4
          FROM app.quote_request AS request
-         WHERE request.request_id::text = $1
+         WHERE request.request_id = ${uuidParam(1)}
            AND request.inbound_email_id = email.email_id
          RETURNING request.reviewed_at`,
         [
@@ -428,7 +443,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
            SET details = $2::jsonb,
                company_name = COALESCE($3, company_name),
                contact_name = COALESCE($4, contact_name)
-           WHERE request_id::text = $1`,
+           WHERE request_id = ${uuidParam(1)}`,
           [
             requestId,
             JSON.stringify(outcome.details),
@@ -439,7 +454,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       }
       if (outcome.status === "done") {
         await client.query(
-          `UPDATE app.quote_request SET kind = $2 WHERE request_id::text = $1`,
+          `UPDATE app.quote_request SET kind = $2 WHERE request_id = ${uuidParam(1)}`,
           [requestId, outcome.kind],
         );
       }
@@ -461,7 +476,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
               email.from_name, email.from_email, email.subject, email.body_text
        FROM app.quote_request AS request
        LEFT JOIN app.inbound_email AS email ON email.email_id = request.inbound_email_id
-       WHERE request.request_id::text = $1`,
+       WHERE request.request_id = ${uuidParam(1)}`,
       [requestId],
     );
     const row = found.rows[0];
@@ -488,7 +503,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       `SELECT email.body_text
        FROM app.quote_request AS request
        JOIN app.inbound_email AS email ON email.email_id = request.inbound_email_id
-       WHERE request.request_id::text = $1`,
+       WHERE request.request_id = ${uuidParam(1)}`,
       [requestId],
     );
     return result.rows[0] ? String(result.rows[0].body_text) : null;
@@ -499,7 +514,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     await this.pool.query(
       `UPDATE app.quote_request
        SET assistant_notes = assistant_notes || $2::jsonb
-       WHERE request_id::text = $1`,
+       WHERE request_id = ${uuidParam(1)}`,
       [requestId, JSON.stringify(notes)],
     );
   }
@@ -512,7 +527,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       `UPDATE app.quote_request
        SET escalated_at = CASE WHEN $2::text IS NULL THEN NULL ELSE clock_timestamp() END,
            escalation_reason = $2
-       WHERE request_id::text = $1`,
+       WHERE request_id = ${uuidParam(1)}`,
       [requestId, reason === null ? null : reason.slice(0, 1000)],
     );
   }
@@ -525,7 +540,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       `UPDATE app.quote_request
        SET mailbox = $2,
            kind = CASE WHEN $2 = 'quotes' THEN 'quote' ELSE 'inquiry' END
-       WHERE request_id::text = $1
+       WHERE request_id = ${uuidParam(1)}
        RETURNING request_id`,
       [requestId, mailbox],
     );
@@ -563,7 +578,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       `UPDATE app.knowledge_entry
        SET title = $2, answer = $3, updated_by = $4::uuid, updated_at = clock_timestamp(),
            needs_review = false
-       WHERE entry_id::text = $1
+       WHERE entry_id = ${uuidParam(1)}
        RETURNING entry_id, title, answer, updated_at, updated_by, needs_review`,
       [id, entry.title, entry.answer, entry.updatedBy],
     );
@@ -572,7 +587,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
 
   async deleteKnowledgeEntry(id: string): Promise<boolean> {
     const result = await this.pool.query(
-      `DELETE FROM app.knowledge_entry WHERE entry_id::text = $1`,
+      `DELETE FROM app.knowledge_entry WHERE entry_id = ${uuidParam(1)}`,
       [id],
     );
     return (result.rowCount ?? 0) > 0;
@@ -596,7 +611,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     const result = await this.pool.query(
       `UPDATE app.knowledge_entry
        SET needs_review = false, updated_by = $2::uuid, updated_at = clock_timestamp()
-       WHERE entry_id::text = $1
+       WHERE entry_id = ${uuidParam(1)}
        RETURNING entry_id, title, answer, updated_at, updated_by, needs_review`,
       [id, reviewedBy],
     );
@@ -612,7 +627,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
        SET reply_subject = $2, reply_body = $3, reply_model = $4,
            reply_drafted_at = CASE WHEN $4::text IS NULL THEN reply_drafted_at ELSE clock_timestamp() END,
            reply_sources = COALESCE($5::jsonb, reply_sources)
-       WHERE request_id::text = $1 AND reply_sent_at IS NULL
+       WHERE request_id = ${uuidParam(1)} AND reply_sent_at IS NULL
        RETURNING request_id`,
       [
         requestId,
@@ -624,7 +639,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     );
     if (updated.rows.length === 0) {
       const exists = await this.pool.query(
-        `SELECT 1 FROM app.quote_request WHERE request_id::text = $1`,
+        `SELECT 1 FROM app.quote_request WHERE request_id = ${uuidParam(1)}`,
         [requestId],
       );
       return exists.rows.length > 0 ? "sent" : "not_found";
@@ -646,7 +661,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
        SET reply_subject = $2, reply_body = $3, reply_sent_at = clock_timestamp(),
            reply_sent_by = $4::uuid, reply_notification_id = $5::uuid,
            reply_sent_by_assistant = $4::uuid IS NULL
-       WHERE request_id::text = $1 AND reply_sent_at IS NULL
+       WHERE request_id = ${uuidParam(1)} AND reply_sent_at IS NULL
        RETURNING request_id`,
       [requestId, sent.subject, sent.body, sent.sentBy, sent.notificationId],
     );
@@ -662,13 +677,13 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     const updated = await this.pool.query(
       `UPDATE app.quote_request
        SET details = $2::jsonb, reviewed_at = clock_timestamp(), reviewed_by = $3::uuid
-       WHERE request_id::text = $1 AND inbound_email_id IS NOT NULL
+       WHERE request_id = ${uuidParam(1)} AND inbound_email_id IS NOT NULL
        RETURNING request_id`,
       [requestId, JSON.stringify(details), reviewedBy],
     );
     if (updated.rows.length === 0) {
       const exists = await this.pool.query(
-        `SELECT 1 FROM app.quote_request WHERE request_id::text = $1`,
+        `SELECT 1 FROM app.quote_request WHERE request_id = ${uuidParam(1)}`,
         [requestId],
       );
       return exists.rows.length > 0 ? "not_email" : "not_found";
@@ -684,7 +699,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       `SELECT attachment.filename, attachment.object_key
        FROM app.inbound_email_attachment AS attachment
        JOIN app.quote_request AS request ON request.inbound_email_id = attachment.email_id
-       WHERE request.request_id::text = $1 AND attachment.attachment_id::text = $2`,
+       WHERE request.request_id = ${uuidParam(1)} AND attachment.attachment_id = ${uuidParam(2)}`,
       [requestId, attachmentId],
     );
     const row = result.rows[0];
@@ -719,7 +734,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     if (allowedCompanyIds?.length === 0) return [];
     const result = await this.pool.query(
       `${quoteRequestSelect}
-       WHERE ($1::text IS NULL OR request.customer_company_id::text = $1)
+       WHERE ($1::text IS NULL OR request.customer_company_id = ${uuidParam(1)})
          AND ($2::uuid[] IS NULL OR request.customer_company_id = ANY($2::uuid[]))
          AND request.mailbox = $3
        ORDER BY request.created_at DESC, request.request_id DESC`,
@@ -735,7 +750,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     if (allowedCompanyIds?.length === 0) return null;
     const result = await this.pool.query(
       `${quoteRequestSelect}
-       WHERE request.request_id::text = $1
+       WHERE request.request_id = ${uuidParam(1)}
          AND ($2::uuid[] IS NULL OR request.customer_company_id = ANY($2::uuid[]))`,
       [id, allowedCompanyIds ?? null],
     );
@@ -749,7 +764,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     const result = await this.pool.query(
       `UPDATE app.quote_request
        SET customer_company_id = $2::uuid
-       WHERE request_id::text = $1`,
+       WHERE request_id = ${uuidParam(1)}`,
       [requestId, customerCompanyId],
     );
     if (result.rowCount === 0) {
@@ -1005,7 +1020,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     if (companyIds?.length === 0) return null;
     const result = await this.pool.query(
       `${customerSelect}
-       WHERE company.company_id::text = $1
+       WHERE company.company_id = ${uuidParam(1)}
          AND ($2::uuid[] IS NULL OR company.company_id = ANY($2::uuid[]))
        ORDER BY contact.contact_name`,
       [id, companyIds ?? null],
@@ -1056,6 +1071,33 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     }
   }
 
+  /**
+   * Runs one query that must finish within `milliseconds`, so a runaway search
+   * cannot hold one of the few pooled connections. The limit is set inside a
+   * transaction (`SET LOCAL`), which also works behind a transaction-mode pooler.
+   */
+  async queryWithTimeout(
+    sql: string,
+    params: unknown[],
+    milliseconds: number,
+  ): Promise<PostgresQueryResult> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        `SET LOCAL statement_timeout = ${Math.trunc(milliseconds)}`,
+      );
+      const result = await client.query(sql, params);
+      await client.query("COMMIT");
+      return result;
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async listJobs(
     search: string,
     scope: JobScope,
@@ -1065,7 +1107,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       return [];
     }
     // Dates are Ghana days; Ghana keeps UTC all year.
-    const result = await this.pool.query(
+    const result = await this.queryWithTimeout(
       `SELECT listed.*, eta.eta_at AS current_eta_at, lead.user_id AS lead_user_id
        FROM (
        ${jobSelect}
@@ -1144,6 +1186,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
         filter.vessel ?? null,
         filter.port ?? null,
       ],
+      JOBS_LIST_TIMEOUT_MS,
     );
     return result.rows.map((row) => ({
       ...this.mapJob(row),

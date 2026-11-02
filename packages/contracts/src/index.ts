@@ -1,5 +1,11 @@
 import { z } from "zod";
 
+// The staff app runs in browsers under a Content Security Policy that forbids
+// `eval`. Zod would probe `new Function` to compile faster parsers, and a strict
+// policy reports that probe as a violation on every page. In a browser (never in
+// the API) skip it. This must come before any schema is built (audit S10).
+if (typeof window !== "undefined") z.config({ jitless: true });
+
 export const departmentRoleKeys = [
   "import_rep",
   "export_rep",

@@ -82,7 +82,11 @@ type Notice = {
 };
 
 const notices = async (jobId = jobA) =>
-  json<Notice[]>(await get(`/api/v1/jobs/${jobId}/notifications`));
+  // Read as the super admin: invoice and payment messages carry amounts, so the
+  // log hides them from staff outside finance.
+  json<Notice[]>(
+    await get(`/api/v1/jobs/${jobId}/notifications`, TEST_SUPER_ADMIN_TOKEN),
+  );
 const byEvent = async (event: string) =>
   (await notices()).filter((item) => item.event === event);
 const summary = (notice: Notice) =>
@@ -118,12 +122,12 @@ before(async () => {
   const database = application.get(DatabasePort);
   await database.assignStaffRole(
     TEST_MATCHING_USER_ID,
-    "sea_import_rep",
+    "import_rep",
     TEST_SUPER_ADMIN_ID,
   );
   await database.assignStaffRole(
     TEST_UNASSIGNED_USER_ID,
-    "air_export_rep",
+    "export_rep",
     TEST_SUPER_ADMIN_ID,
   );
   companyA = randomUUID();
@@ -564,7 +568,7 @@ test("an expected arrival within a day raises one reminder, and a new time raise
 });
 
 test("quotes, invoices, payments and deliveries each message the client", async () => {
-  const quote = await post("/api/v1/quotes", TEST_MATCHING_TOKEN, {
+  const quote = await post("/api/v1/quotes", TEST_SUPER_ADMIN_TOKEN, {
     customerCompanyId: companyA,
     serviceLine: "sea_import",
     version: {
@@ -579,7 +583,7 @@ test("quotes, invoices, payments and deliveries each message the client", async 
   const quoteId = (await json<{ id: string }>(quote)).id;
   const issued = await post(
     `/api/v1/quotes/${quoteId}/issue`,
-    TEST_MATCHING_TOKEN,
+    TEST_SUPER_ADMIN_TOKEN,
     {},
   );
   const quoteNumber = (await json<{ quoteNumber: string }>(issued)).quoteNumber;
@@ -619,17 +623,22 @@ test("quotes, invoices, payments and deliveries each message the client", async 
     );
   }
   assert.equal(
-    (await post(`/api/v1/quotes/${quoteId}/send`, TEST_MATCHING_TOKEN, {}))
+    (await post(`/api/v1/quotes/${quoteId}/send`, TEST_SUPER_ADMIN_TOKEN, {}))
       .status,
     201,
   );
   assert.equal(
-    (await post(`/api/v1/quotes/${quoteId}/versions`, TEST_MATCHING_TOKEN, {}))
-      .status,
+    (
+      await post(
+        `/api/v1/quotes/${quoteId}/versions`,
+        TEST_SUPER_ADMIN_TOKEN,
+        {},
+      )
+    ).status,
     201,
   );
   assert.equal(
-    (await post(`/api/v1/quotes/${quoteId}/issue`, TEST_MATCHING_TOKEN, {}))
+    (await post(`/api/v1/quotes/${quoteId}/issue`, TEST_SUPER_ADMIN_TOKEN, {}))
       .status,
     201,
   );
@@ -650,14 +659,14 @@ test("quotes, invoices, payments and deliveries each message the client", async 
   );
 
   const invoice = await json<{ id: string }>(
-    await post(`/api/v1/jobs/${jobA}/invoices`, TEST_MATCHING_TOKEN, {
+    await post(`/api/v1/jobs/${jobA}/invoices`, TEST_SUPER_ADMIN_TOKEN, {
       currency: "GHS",
       lines: [{ description: "Handling", amountMinor: 100000 }],
     }),
   );
   await post(
     `/api/v1/jobs/${jobA}/invoices/${invoice.id}/issue`,
-    TEST_MATCHING_TOKEN,
+    TEST_SUPER_ADMIN_TOKEN,
     {},
   );
   const [invoiceMessage] = await byEvent("invoice_issued");
@@ -668,7 +677,7 @@ test("quotes, invoices, payments and deliveries each message the client", async 
 
   await post(
     `/api/v1/jobs/${jobA}/invoices/${invoice.id}/payments`,
-    TEST_MATCHING_TOKEN,
+    TEST_SUPER_ADMIN_TOKEN,
     {
       amountMinor: 40000,
       receivedOn: new Date().toISOString().slice(0, 10),
@@ -680,18 +689,18 @@ test("quotes, invoices, payments and deliveries each message the client", async 
   assert.match(paymentMessage.smsText, /Balance GHS 600\.00/);
 
   const driver = await json<{ id: string }>(
-    await post("/api/v1/drivers", TEST_MATCHING_TOKEN, {
+    await post("/api/v1/drivers", TEST_SUPER_ADMIN_TOKEN, {
       name: "Kofi",
       phone: "0244000111",
     }),
   );
   const vehicle = await json<{ id: string }>(
-    await post("/api/v1/vehicles", TEST_MATCHING_TOKEN, {
+    await post("/api/v1/vehicles", TEST_SUPER_ADMIN_TOKEN, {
       registration: "GX 9-26",
     }),
   );
   const delivery = await json<{ id: string; waybillNumber: string }>(
-    await post(`/api/v1/jobs/${jobA}/deliveries`, TEST_MATCHING_TOKEN, {
+    await post(`/api/v1/jobs/${jobA}/deliveries`, TEST_SUPER_ADMIN_TOKEN, {
       driverId: driver.id,
       vehicleId: vehicle.id,
       cargoDescription: "Goods",
@@ -703,7 +712,7 @@ test("quotes, invoices, payments and deliveries each message the client", async 
   assert.ok(dispatched.smsText.includes("Kofi 0244000111"));
   await post(
     `/api/v1/jobs/${jobA}/deliveries/${delivery.id}/proof`,
-    TEST_MATCHING_TOKEN,
+    TEST_SUPER_ADMIN_TOKEN,
     { receiverName: "Nana Synthetic" },
   );
   const [proof] = await byEvent("delivery_delivered");

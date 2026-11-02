@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from "@nestjs/common";
 import { chatMessageInputSchema, isUuid, parseContract } from "@bjh/contracts";
@@ -14,6 +15,11 @@ import {
 } from "../database/database.port";
 import { chatMessage } from "../notifications/notification-messages";
 import { NotificationsService } from "../notifications/notifications.service";
+import {
+  emailAuthenticationPolicy,
+  mayJoinChat,
+} from "../intake/email-authentication";
+import type { EmailAuthentication } from "../intake/email-authentication";
 
 /** `[Chat CUS-0012]` in a subject: which client conversation an email belongs to. */
 const TAG_PATTERN = /\[Chat (CUS-\d+)\]/i;
@@ -50,6 +56,8 @@ export function replyText(text: string): string {
  */
 @Injectable()
 export class ChatService {
+  private readonly logger = new Logger(ChatService.name);
+
   constructor(
     @Inject(DatabasePort) private readonly database: DatabasePort,
     @Inject(NotificationsService)
@@ -139,6 +147,8 @@ export class ChatService {
     text: string;
     /** The email's Message-ID; one already in a conversation is not added again. */
     messageId?: string | null;
+    /** What the receiving mail server says about the sender (see `CHAT_EMAIL_AUTH`). */
+    authentication?: EmailAuthentication;
   }): Promise<boolean> {
     const customerNumber = TAG_PATTERN.exec(email.subject)?.[1];
     if (!customerNumber) return false;
@@ -160,6 +170,19 @@ export class ChatService {
       company.companyEmail ?? "",
     ].some((address) => address.trim().toLowerCase() === sender);
     if (!known) return false;
+    // A forged `From:` line is enough to claim a client's address; the mail
+    // server's own checks decide whether the reply is believed.
+    if (
+      !mayJoinChat(
+        email.authentication ?? "unknown",
+        emailAuthenticationPolicy(),
+      )
+    ) {
+      this.logger.warn(
+        `An email for ${customerNumber} was kept out of the conversation: the sender could not be verified`,
+      );
+      return false;
+    }
     const body = (replyText(email.text) || "(The email had no text)").slice(
       0,
       5000,

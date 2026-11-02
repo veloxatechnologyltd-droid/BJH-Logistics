@@ -5,6 +5,7 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  ServiceUnavailableException,
 } from "@nestjs/common";
 import {
   deliveryMilestoneKeys,
@@ -104,14 +105,24 @@ export class JobsService {
     if (!parsed.success) throw new BadRequestException(parsed.message);
     const { status, serviceLine, assignedTo, vessel, port, ...rest } =
       parsed.data;
-    const jobs = await this.database.listJobs(term, scope, {
-      ...rest,
-      vessel: vessel?.trim() || undefined,
-      port: port?.trim() || undefined,
-      statuses: status,
-      serviceLines: serviceLine,
-      assignedTo: assignedTo === "me" ? viewerId : assignedTo,
-    });
+    const jobs = await this.database
+      .listJobs(term, scope, {
+        ...rest,
+        vessel: vessel?.trim() || undefined,
+        port: port?.trim() || undefined,
+        statuses: status,
+        serviceLines: serviceLine,
+        assignedTo: assignedTo === "me" ? viewerId : assignedTo,
+      })
+      .catch((error: unknown) => {
+        // 57014: the database stopped a search that ran too long.
+        if ((error as { code?: string }).code === "57014") {
+          throw new ServiceUnavailableException(
+            "That search took too long; narrow it with a filter or a shorter date range",
+          );
+        }
+        throw error;
+      });
     if (scope.companyIds !== undefined) {
       return jobs.map((job) => ({ ...job, leadUserId: null }));
     }

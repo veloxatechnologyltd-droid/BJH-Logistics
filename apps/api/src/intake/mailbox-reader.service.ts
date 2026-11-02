@@ -15,6 +15,7 @@ import type { RequestMailbox } from "../database/database.port";
 import { EmailAssistantService } from "./email-assistant.service";
 import { InboundEmailService } from "./inbound-email.service";
 import { isRequestCopy } from "./request-copy.service";
+import { emailAuthentication } from "./email-authentication";
 import { ChatService } from "../chat/chat.service";
 import type { ReceivedFile } from "./inbound-email.service";
 
@@ -321,6 +322,11 @@ export class MailboxReaderService implements OnModuleInit, OnModuleDestroy {
           fromName: parsed.from?.value[0]?.name ?? "",
           text: parsed.text ?? "",
           messageId: parsed.messageId ?? messageId ?? null,
+          authentication: emailAuthentication(
+            parsed.headers.get("authentication-results") as
+              string | string[] | undefined,
+            parsed.from?.value[0]?.address ?? "",
+          ),
         })
       ) {
         return "received";

@@ -43,12 +43,12 @@ before(async () => {
   const database = application.get(DatabasePort);
   await database.assignStaffRole(
     TEST_MATCHING_USER_ID,
-    "sea_import_rep",
+    "customer_service_rep",
     TEST_SUPER_ADMIN_ID,
   );
   await database.assignStaffRole(
     TEST_UNASSIGNED_USER_ID,
-    "air_export_rep",
+    "export_rep",
     TEST_SUPER_ADMIN_ID,
   );
   companyA = randomUUID();
@@ -447,7 +447,12 @@ test("access boundaries: other departments, customers and anonymous callers", as
       method,
       body: method === "GET" ? undefined : JSON.stringify(version()),
     });
-    assert.equal(response.status, 404, `${method} ${path}`);
+    // Reading is by service line (not found); writing needs the quote desk (refused).
+    assert.equal(
+      response.status,
+      method === "GET" ? 404 : 403,
+      `${method} ${path}`,
+    );
   }
   for (const [method, path] of [
     ["POST", "/api/v1/quotes"],
