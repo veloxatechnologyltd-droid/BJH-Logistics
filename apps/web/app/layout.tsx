@@ -10,6 +10,10 @@ const inter = Inter({
   variable: "--font-sans",
 });
 
+// The Content Security Policy carries a nonce made for each request (see
+// `proxy.ts`), so pages are rendered per request rather than at build time.
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
   title: "Operations | BJH Logistics",
   description:
