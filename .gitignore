@@ -33,6 +33,10 @@ service-account*.json
 /second_meeting_message.md
 /adress.md
 /EVIDENCES/
+# Commercial proposals for the client (Word/PDF) and office lock files
+/docs/*.docx
+/docs/*.pdf
+.~lock.*#
 
 # Operating system/editor files
 .DS_Store

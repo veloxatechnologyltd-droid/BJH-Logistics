@@ -59,7 +59,7 @@ before(async () => {
   );
   await database.assignStaffRole(
     TEST_UNASSIGNED_USER_ID,
-    "customer_service_rep",
+    "finance_rep",
     TEST_SUPER_ADMIN_ID,
   );
   const companyA = randomUUID();
@@ -174,18 +174,40 @@ test("customers see their own receipts in the portal, without staff references",
   assert.equal(notTheirs.status, 404);
 });
 
-test("customer service sees receipts; the import rep does not", async () => {
+test("finance sees receipts; the import rep and customer service do not", async () => {
   const desk = (await (
     await call("/api/v1/receipts", TEST_UNASSIGNED_TOKEN)
   ).json()) as Receipt[];
   assert.equal(desk[0].reference, "TRF-INTERNAL-1");
-  assert.equal(
-    (await call("/api/v1/receipts", TEST_MATCHING_TOKEN)).status,
-    403,
+  const pdfPath = `/api/v1/jobs/${jobId}/invoices/${invoiceId}/payments/${paymentId}/receipt`;
+  const sendPath = `${pdfPath}/send`;
+  const refused = async (who: string) => {
+    for (const status of [
+      (await call("/api/v1/receipts", TEST_MATCHING_TOKEN)).status,
+      (await call(pdfPath, TEST_MATCHING_TOKEN)).status,
+      (await post(sendPath, TEST_MATCHING_TOKEN)).status,
+    ]) {
+      assert.equal(status, 403, who);
+    }
+  };
+  await refused("import rep");
+
+  // Customer service sees no money at all, receipts included (Evans, 2026-11-02).
+  const database = application.get(DatabasePort);
+  await database.revokeStaffRole(
+    TEST_MATCHING_USER_ID,
+    "import_rep",
+    TEST_SUPER_ADMIN_ID,
   );
+  await database.assignStaffRole(
+    TEST_MATCHING_USER_ID,
+    "customer_service_rep",
+    TEST_SUPER_ADMIN_ID,
+  );
+  await refused("customer service");
 });
 
-test("customer service emails a receipt and the PDF goes with it", async () => {
+test("finance emails a receipt and the PDF goes with it", async () => {
   const path = `/api/v1/jobs/${jobId}/invoices/${invoiceId}/payments/${paymentId}/receipt/send`;
   assert.equal((await post(path, TEST_MATCHING_TOKEN)).status, 403);
   assert.equal((await post(path, TEST_CUSTOMER_A_TOKEN)).status, 403);
@@ -202,4 +224,20 @@ test("customer service emails a receipt and the PDF goes with it", async () => {
   assert.equal(receipt.to, "ama@receipt-north.test");
   assert.equal(receipt.attachments?.length, 1);
   assert.match(receipt.attachments![0].filename, /^SYN-RCT-.*\.pdf$/);
+});
+
+test("the job's message log leaves out invoice, payment and receipt messages for non-finance staff", async () => {
+  const events = async (token: string) =>
+    (
+      (await (
+        await call(`/api/v1/jobs/${jobId}/notifications`, token)
+      ).json()) as Array<{ event: string }>
+    ).map((message) => message.event);
+  const money = ["invoice_issued", "payment_received", "receipt_sent"];
+
+  const finance = await events(TEST_UNASSIGNED_TOKEN);
+  for (const event of money) assert.ok(finance.includes(event), event);
+  // TEST_MATCHING is customer service since the receipts test above.
+  const desk = await events(TEST_MATCHING_TOKEN);
+  for (const event of money) assert.equal(desk.includes(event), false, event);
 });

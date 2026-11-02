@@ -103,7 +103,7 @@ export function JobTeam({
         <p className={styles.muted}>
           {view.invoiceAccepted
             ? "Nobody assigned yet."
-            : "Waiting for the client to accept the invoice."}
+            : "Waiting for the client to accept the invoice, in the portal or through finance."}
         </p>
       ) : (
         <ul className={styles.nextTasks}>

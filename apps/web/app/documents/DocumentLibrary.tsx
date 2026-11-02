@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { documentTypeLabels } from "@bjh/contracts";
 import type { DocumentType } from "@bjh/contracts";
+import { documentTypesFor } from "../auth/roleAccess";
 import { useStaffAccess } from "../auth/useStaffAccess";
 import { listCustomers } from "../customers/customerApi";
 import type { CustomerCompany } from "../customers/customerApi";
@@ -22,11 +23,10 @@ import { ErrorPopup } from "../ErrorPopup";
 
 type Owner = "none" | "job" | "company";
 
-const typeKeys = Object.keys(documentTypeLabels) as DocumentType[];
-
 export function DocumentLibrary() {
   const { roles } = useStaffAccess();
   const isStaff = roles.length > 0;
+  const typeKeys = documentTypesFor(roles);
   const [documents, setDocuments] = useState<LibraryDocument[]>([]);
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<DocumentType | "">("");

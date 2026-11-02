@@ -226,7 +226,7 @@ test("the client accepts the invoice in the portal, once; other companies and re
   assert.equal(record.signatoryName, "Kojo Synthetic");
   assert.equal(record.acceptedBy, TEST_CUSTOMER_A_ID);
 
-  const again = await post(path, TEST_UNASSIGNED_TOKEN, {
+  const again = await post(path, TEST_SUPER_ADMIN_TOKEN, {
     signatoryName: "Kojo",
   });
   assert.equal(again.status, 409);
@@ -309,8 +309,28 @@ test("once accepted, customer service assigns the lead and adds an assistant", a
   assert.equal(view.history.length, 4);
 });
 
-test("customer service can record the client's acceptance; a draft cannot be accepted", async () => {
+test("finance, not customer service, records the client's acceptance; a draft cannot be accepted", async () => {
   const secondInvoice = await issueInvoice();
+  // Customer service sees no invoices (Evans, 2026-11-02), so it cannot record one.
+  const byDesk = await post(
+    `/api/v1/jobs/${jobId}/invoices/${secondInvoice}/accept`,
+    TEST_UNASSIGNED_TOKEN,
+    { signatoryName: "Kojo Synthetic" },
+  );
+  assert.equal(byDesk.status, 403);
+  assert.equal(
+    (await call(`/api/v1/jobs/${jobId}/invoices`, TEST_UNASSIGNED_TOKEN))
+      .status,
+    403,
+  );
+
+  await application
+    .get(DatabasePort)
+    .assignStaffRole(
+      TEST_UNASSIGNED_USER_ID,
+      "finance_rep",
+      TEST_SUPER_ADMIN_ID,
+    );
   const recorded = await post(
     `/api/v1/jobs/${jobId}/invoices/${secondInvoice}/accept`,
     TEST_UNASSIGNED_TOKEN,

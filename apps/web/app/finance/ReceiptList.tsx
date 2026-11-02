@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { canReadInvoices } from "../auth/roleAccess";
+import { canWorkFinance } from "../auth/roleAccess";
 import { useStaffAccess } from "../auth/useStaffAccess";
 import { fetchReceiptPdf, listReceipts, sendReceipt } from "../jobs/jobApi";
 import type { Receipt } from "../jobs/jobApi";
@@ -12,13 +12,13 @@ import styles from "../jobs/jobs.module.css";
 import { ErrorPopup } from "../ErrorPopup";
 
 /**
- * Numbered receipts for recorded payments. Finance and customer service see
- * every customer's and can email one; a customer sees their own to download.
+ * Numbered receipts for recorded payments. Finance sees every customer's and
+ * can email one; a customer sees their own to download.
  */
 export function ReceiptList() {
   const { roles } = useStaffAccess();
   const isStaff = roles.length > 0;
-  const canSend = canReadInvoices(roles);
+  const canSend = canWorkFinance(roles);
   const [receipts, setReceipts] = useState<Receipt[] | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");

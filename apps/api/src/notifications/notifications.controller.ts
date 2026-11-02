@@ -17,6 +17,7 @@ import {
   JobScopeGuard,
   SupabaseIdentityGuard,
   SuperAdminGuard,
+  financeRoles,
 } from "../auth/auth.guards";
 import type { AuthenticatedRequest } from "../auth/auth.guards";
 import { DatabasePort } from "../database/database.port";
@@ -33,6 +34,7 @@ import {
 } from "./providers";
 
 const statuses = ["pending", "sent", "failed", "skipped"] as const;
+const financeEvents = ["invoice_issued", "payment_received", "receipt_sent"];
 
 /** For the super admin: how messages are configured and what happened to them. */
 @Controller("api/v1/admin/notifications")
@@ -135,10 +137,17 @@ export class JobMessagesController {
     private readonly drafts: MessageDraftsService,
   ) {}
 
+  /** Messages about invoices, payments and receipts carry amounts: finance only. */
   @Get("notifications")
   async list(@Param("id") id: string, @Req() request: AuthenticatedRequest) {
     const job = await this.jobs.get(id, scopeOf(request));
-    return this.database.listJobNotifications(job.id);
+    const messages = await this.database.listJobNotifications(job.id);
+    const finance = (request.staffRoles ?? []).some((role) =>
+      financeRoles.includes(role),
+    );
+    return finance
+      ? messages
+      : messages.filter((message) => !financeEvents.includes(message.event));
   }
 
   @Post("messages")

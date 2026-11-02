@@ -1485,6 +1485,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
            WHERE strpos(searchable.text, term) = 0)
          AND ($2::text IS NULL OR document.document_type = $2)
          AND ($3::uuid IS NULL OR document.document_id = $3::uuid)
+         AND NOT (document.document_type = ANY($6::text[]))
          AND (($4::uuid[] IS NULL AND $5::text[] IS NULL)
            OR ($4::uuid[] IS NOT NULL
                AND COALESCE(job.customer_company_id, document.company_id) = ANY($4::uuid[]))
@@ -1498,6 +1499,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
         query.documentId,
         scope.companyIds ?? null,
         scope.serviceLines ?? null,
+        scope.hiddenDocumentTypes ?? [],
       ],
     );
     return result.rows.map((row) => ({

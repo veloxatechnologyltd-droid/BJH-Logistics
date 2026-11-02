@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { customerActiveDays } from "@bjh/contracts";
+import { canWorkFinance } from "../auth/roleAccess";
+import { useStaffAccess } from "../auth/useStaffAccess";
 import { listCustomerInsights, listCustomers } from "./customerApi";
 import type { CustomerCompany, CustomerInsight } from "./customerApi";
 import { formatMoney } from "../quotes/quoteApi";
@@ -16,6 +18,8 @@ const canBeMessaged = (company: CustomerCompany) =>
 
 /** The customer base at a glance: figures and charts. The records themselves are in the Directory tab. */
 export function CustomerOverview() {
+  // Money figures are for finance; the API sends other staff none.
+  const finance = canWorkFinance(useStaffAccess().roles);
   const [customers, setCustomers] = useState<CustomerCompany[]>([]);
   const [insights, setInsights] = useState<Map<string, CustomerInsight> | null>(
     null,
@@ -134,15 +138,17 @@ export function CustomerOverview() {
             A job still open or opened in the last {customerActiveDays} days
           </small>
         </div>
-        <div className={styles.metric}>
-          <span>Owing{currency ? ` (${currency})` : ""}</span>
-          <strong>{ready && currency ? money(owingTotal) : "—"}</strong>
-          <small>
-            {ready && currency
-              ? `${owingCustomers} ${owingCustomers === 1 ? "customer owes" : "customers owe"} money`
-              : "No invoices issued yet"}
-          </small>
-        </div>
+        {finance && (
+          <div className={styles.metric}>
+            <span>Owing{currency ? ` (${currency})` : ""}</span>
+            <strong>{ready && currency ? money(owingTotal) : "—"}</strong>
+            <small>
+              {ready && currency
+                ? `${owingCustomers} ${owingCustomers === 1 ? "customer owes" : "customers owe"} money`
+                : "No invoices issued yet"}
+            </small>
+          </div>
+        )}
         <div className={styles.metric}>
           <span>Quotes awaiting an answer</span>
           <strong>{ready ? quotes.awaiting : "—"}</strong>
@@ -217,64 +223,66 @@ export function CustomerOverview() {
             )}
           </section>
 
-          <section
-            className={`${charts.card} ${charts.wide}`}
-            aria-labelledby="revenue-title"
-          >
-            <div className={styles.rankingHeader}>
-              <div>
-                <h2 id="revenue-title">Revenue by customer</h2>
-                <p className={charts.headline}>
-                  {revenue.length
-                    ? `${money(revenueTotal)} invoiced across ${revenue.length} ${revenue.length === 1 ? "customer" : "customers"}`
-                    : "Nothing invoiced yet"}
-                </p>
-              </div>
-              {currencies.length > 1 && (
-                <div
-                  className={ui.segmented}
-                  role="group"
-                  aria-label="Report currency"
-                >
-                  {currencies.map((code) => (
-                    <button
-                      aria-pressed={currency === code}
-                      className={currency === code ? ui.segmentActive : ""}
-                      key={code}
-                      onClick={() => setCurrency(code)}
-                      type="button"
-                    >
-                      {code}
-                    </button>
-                  ))}
+          {finance && (
+            <section
+              className={`${charts.card} ${charts.wide}`}
+              aria-labelledby="revenue-title"
+            >
+              <div className={styles.rankingHeader}>
+                <div>
+                  <h2 id="revenue-title">Revenue by customer</h2>
+                  <p className={charts.headline}>
+                    {revenue.length
+                      ? `${money(revenueTotal)} invoiced across ${revenue.length} ${revenue.length === 1 ? "customer" : "customers"}`
+                      : "Nothing invoiced yet"}
+                  </p>
                 </div>
+                {currencies.length > 1 && (
+                  <div
+                    className={ui.segmented}
+                    role="group"
+                    aria-label="Report currency"
+                  >
+                    {currencies.map((code) => (
+                      <button
+                        aria-pressed={currency === code}
+                        className={currency === code ? ui.segmentActive : ""}
+                        key={code}
+                        onClick={() => setCurrency(code)}
+                        type="button"
+                      >
+                        {code}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              {revenue.length > 0 && (
+                <DonutChart
+                  centerLabel={revenue.length === 1 ? "customer" : "customers"}
+                  centerValue={String(revenue.length)}
+                  segments={[
+                    ...topRevenue.map((row, index) => ({
+                      label: row.name,
+                      value: row.amount,
+                      display: money(row.amount),
+                      color: revenueShades[index],
+                    })),
+                    ...(otherRevenue > 0
+                      ? [
+                          {
+                            label: "All others",
+                            value: otherRevenue,
+                            display: money(otherRevenue),
+                            color: chartColors.other,
+                          },
+                        ]
+                      : []),
+                  ]}
+                />
               )}
-            </div>
-            {revenue.length > 0 && (
-              <DonutChart
-                centerLabel={revenue.length === 1 ? "customer" : "customers"}
-                centerValue={String(revenue.length)}
-                segments={[
-                  ...topRevenue.map((row, index) => ({
-                    label: row.name,
-                    value: row.amount,
-                    display: money(row.amount),
-                    color: revenueShades[index],
-                  })),
-                  ...(otherRevenue > 0
-                    ? [
-                        {
-                          label: "All others",
-                          value: otherRevenue,
-                          display: money(otherRevenue),
-                          color: chartColors.other,
-                        },
-                      ]
-                    : []),
-                ]}
-              />
-            )}
-          </section>
+            </section>
+          )}
         </div>
       )}
     </>

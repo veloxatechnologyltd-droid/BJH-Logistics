@@ -272,6 +272,16 @@ test("confirming runs the action under the person's own rules", async () => {
     input: { companyId: randomUUID(), body: "Hello" },
   });
   assert.equal(notDesk.status, 403);
+  // Receipts are finance work; customer service cannot send one through the helper.
+  const receipt = await post(
+    "/api/v1/assistant/confirm",
+    TEST_UNASSIGNED_TOKEN,
+    {
+      tool: "email_receipt",
+      input: { jobId, invoiceId: randomUUID(), paymentId: randomUUID() },
+    },
+  );
+  assert.equal(receipt.status, 403);
   const unknown = await post("/api/v1/assistant/confirm", TEST_MATCHING_TOKEN, {
     tool: "delete_everything",
     input: {},
