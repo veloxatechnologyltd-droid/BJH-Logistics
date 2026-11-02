@@ -229,6 +229,28 @@ test("an emailed reply joins the conversation only from one of the client's cont
   assert.equal(last.body, "Friday works for us.");
 });
 
+test("an emailed reply read again after a restart is added to the conversation once", async () => {
+  const chat = application.get(ChatService);
+  const email = {
+    subject: `Re: Message from Synthetic Forwarding Ltd [Chat ${customerNumber}]`,
+    fromEmail: "ama@chat-north.test",
+    fromName: "Ama Synthetic",
+    text: "One email, read twice",
+    messageId: "<again-1@chat-north.test>",
+  };
+  assert.equal(await chat.receiveEmail(email), true);
+  // The mailbox position is in memory, so a restart reads the same email again.
+  assert.equal(await chat.receiveEmail(email), true);
+  const thread = (await (
+    await call(`/api/v1/chat/threads/${companyA}`, TEST_SUPER_ADMIN_TOKEN)
+  ).json()) as Thread;
+  assert.equal(
+    thread.messages.filter((item) => item.body === "One email, read twice")
+      .length,
+    1,
+  );
+});
+
 test("quoted history is cut from emailed replies", () => {
   assert.equal(
     replyText("Yes please.\r\n\r\n-----Original Message-----\r\nFrom: BJH"),

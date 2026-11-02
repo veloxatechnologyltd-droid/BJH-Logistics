@@ -576,7 +576,7 @@ h1 {
   margin-top: 35px;
   border-top: 1px solid #dfe7ee;
   padding-top: 14px;
-  color: #8495a3;
+  color: var(--brand-muted);
   font-size: 0.75rem;
 }
 

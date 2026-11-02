@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Inject,
   Injectable,
@@ -287,6 +288,8 @@ How you work:
 @Injectable()
 export class AssistantService {
   private readonly logger = new Logger(AssistantService.name);
+  /** The confirm in progress for each conversation; see `oneAtATime`. */
+  private readonly confirming = new Map<string, Promise<void>>();
 
   constructor(
     @Inject(ASSISTANT_CLAUDE) private readonly claude: ClaudeSetup | null,
@@ -449,7 +452,7 @@ export class AssistantService {
         const input = (call.input ?? {}) as Record<string, unknown>;
         try {
           if (isWriteTool(call.name)) {
-            const summary = await this.describe(call.name, input);
+            const summary = await this.describe(call.name, input, actor.roles);
             proposals.push({ id: call.id, tool: call.name, input, summary });
             results.push({
               type: "tool_result",
@@ -499,21 +502,85 @@ export class AssistantService {
       input && typeof input === "object" && !Array.isArray(input)
         ? (input as Record<string, unknown>)
         : {};
-    const tool = body.tool;
-    const args =
-      body.input && typeof body.input === "object" && !Array.isArray(body.input)
-        ? (body.input as Record<string, unknown>)
-        : null;
-    if (typeof tool !== "string" || !isWriteTool(tool) || !args) {
-      throw new BadRequestException(
-        "An action with a tool and input is required",
+    // Only what this person's own conversation proposed can be confirmed, and
+    // it runs exactly as proposed: nothing the browser sends is acted on.
+    const saved = await this.conversation(body.conversationId, actor.userId);
+    const proposal = this.proposalIn(saved, body.proposalId);
+    return this.oneAtATime(saved.id, async () => {
+      // Read again: another confirm in this conversation may have just finished.
+      const latest = await this.conversation(saved.id, actor.userId);
+      if (
+        latest.lines.some(
+          (line) => line.kind === "done" && line.proposalId === proposal.id,
+        )
+      ) {
+        throw new ConflictException("That action has already been done");
+      }
+      const summary = await this.describe(
+        proposal.tool,
+        proposal.input,
+        actor.roles,
       );
+      await this.perform(proposal.tool, proposal.input, actor);
+      await this.database.updateAssistantConversation(latest.id, actor.userId, {
+        messages: latest.messages,
+        lines: [
+          ...latest.lines,
+          { kind: "done", text: summary, proposalId: proposal.id },
+        ],
+      });
+      return { done: true as const, summary };
+    });
+  }
+
+  /** The action the helper proposed under this tool-call ID, as the model made it. */
+  private proposalIn(
+    conversation: AssistantConversationRecord,
+    proposalId: unknown,
+  ): { id: string; tool: WriteTool; input: Record<string, unknown> } {
+    for (const message of conversation.messages as Message[]) {
+      if (message.role !== "assistant" || !Array.isArray(message.content)) {
+        continue;
+      }
+      for (const block of message.content) {
+        if (
+          block.type === "tool_use" &&
+          block.id === proposalId &&
+          isWriteTool(block.name)
+        ) {
+          return {
+            id: block.id,
+            tool: block.name,
+            input: (block.input ?? {}) as Record<string, unknown>,
+          };
+        }
+      }
     }
-    const saved =
-      body.conversationId === undefined
-        ? null
-        : await this.conversation(body.conversationId, actor.userId);
-    const summary = await this.describe(tool, args);
+    throw new BadRequestException(
+      "That action was not proposed in this conversation",
+    );
+  }
+
+  /** Confirms in one conversation run one after another, so a double-click acts once. */
+  private oneAtATime<T>(key: string, task: () => Promise<T>): Promise<T> {
+    const previous = this.confirming.get(key) ?? Promise.resolve();
+    const next = previous.then(task, task);
+    const tail = next.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.confirming.set(key, tail);
+    void tail.then(() => {
+      if (this.confirming.get(key) === tail) this.confirming.delete(key);
+    });
+    return next;
+  }
+
+  private async perform(
+    tool: WriteTool,
+    args: Record<string, unknown>,
+    actor: { userId: string; email: string | null; roles: StaffRoleKey[] },
+  ): Promise<void> {
     const scope = this.scope(actor.roles);
     const id = (key: string) => String(args[key] ?? "");
     switch (tool) {
@@ -589,13 +656,6 @@ export class AssistantService {
         );
         break;
     }
-    if (saved) {
-      await this.database.updateAssistantConversation(saved.id, actor.userId, {
-        messages: saved.messages,
-        lines: [...saved.lines, { kind: "done", text: summary }],
-      });
-    }
-    return { done: true, summary };
   }
 
   private async read(
@@ -753,20 +813,22 @@ export class AssistantService {
   private async describe(
     tool: WriteTool,
     input: Record<string, unknown>,
+    roles: StaffRoleKey[],
   ): Promise<string> {
     const str = (key: string) =>
       typeof input[key] === "string" ? (input[key] as string) : "";
-    const job = async () => {
-      const found = isUuid(str("jobId"))
-        ? await this.database.findJob(str("jobId"), {})
+    // Only jobs the person may see are named, so an ID cannot be used to look one up.
+    const found = async () =>
+      isUuid(str("jobId"))
+        ? await this.database.findJob(str("jobId"), this.scope(roles))
         : null;
-      return found?.fileNumber ?? "an unknown job";
-    };
+    const job = async () => (await found())?.fileNumber ?? "an unknown job";
     switch (tool) {
       case "assign_job_member": {
-        const person = isUuid(str("userId"))
-          ? await this.auth.getUser(str("userId"))
-          : null;
+        const person =
+          isUuid(str("userId")) && (await found())
+            ? await this.auth.getUser(str("userId"))
+            : null;
         return `${str("kind") === "assistant" ? "Add" : "Assign"} ${person?.email ?? "an unknown person"} ${str("kind") === "assistant" ? "as an assistant on" : "as lead on"} ${await job()}`;
       }
       case "set_reminder":

@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { getSupabaseBrowserClient } from "../auth/supabaseBrowserClient";
 import styles from "./signIn.module.css";
+import { isSameSitePath } from "./sameSitePath";
 import { ErrorPopup } from "../ErrorPopup";
 
 type AuthMode = "bootstrap" | "signin" | "signup" | "forgot";
@@ -174,7 +175,7 @@ export function SignInForm() {
 
       // A link from an email or SMS says where to go next; only paths of this site are followed.
       const next = new URLSearchParams(window.location.search).get("next");
-      router.replace(next && /^\/(?!\/)/.test(next) ? next : "/");
+      router.replace(next && isSameSitePath(next) ? next : "/");
       router.refresh();
     } catch (cause) {
       setError(

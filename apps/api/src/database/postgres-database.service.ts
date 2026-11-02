@@ -3624,12 +3624,13 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
 
   async addChatMessage(
     message: Omit<ChatMessageRecord, "id" | "createdAt" | "readAt">,
+    emailMessageId: string | null = null,
   ): Promise<ChatMessageRecord> {
     const result = await this.pool.query(
       `INSERT INTO app.chat_message
          (company_id, direction, channel, body, author_user_id, author_name,
-          email_from, job_id)
-       VALUES ($1::uuid, $2, $3, $4, $5::uuid, $6, $7, $8::uuid)
+          email_from, job_id, email_message_id)
+       VALUES ($1::uuid, $2, $3, $4, $5::uuid, $6, $7, $8::uuid, $9)
        RETURNING *`,
       [
         message.companyId,
@@ -3640,9 +3641,18 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
         message.authorName,
         message.emailFrom,
         message.jobId,
+        emailMessageId,
       ],
     );
     return this.mapChatMessage(result.rows[0]);
+  }
+
+  async hasChatEmail(emailMessageId: string): Promise<boolean> {
+    const result = await this.pool.query(
+      `SELECT 1 FROM app.chat_message WHERE email_message_id = $1 LIMIT 1`,
+      [emailMessageId],
+    );
+    return result.rows.length > 0;
   }
 
   async markChatRead(

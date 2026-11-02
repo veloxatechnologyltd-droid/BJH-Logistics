@@ -137,9 +137,17 @@ export class ChatService {
     fromEmail: string;
     fromName: string;
     text: string;
+    /** The email's Message-ID; one already in a conversation is not added again. */
+    messageId?: string | null;
   }): Promise<boolean> {
     const customerNumber = TAG_PATTERN.exec(email.subject)?.[1];
     if (!customerNumber) return false;
+    if (
+      email.messageId &&
+      (await this.database.hasChatEmail(email.messageId))
+    ) {
+      return true;
+    }
     const companyId =
       await this.database.findCompanyByCustomerNumber(customerNumber);
     const company = companyId
@@ -156,16 +164,19 @@ export class ChatService {
       0,
       5000,
     );
-    await this.database.addChatMessage({
-      companyId: company.id,
-      direction: "from_client",
-      channel: "email",
-      body,
-      authorUserId: null,
-      authorName: email.fromName || null,
-      emailFrom: sender,
-      jobId: null,
-    });
+    await this.database.addChatMessage(
+      {
+        companyId: company.id,
+        direction: "from_client",
+        channel: "email",
+        body,
+        authorUserId: null,
+        authorName: email.fromName || null,
+        emailFrom: sender,
+        jobId: null,
+      },
+      email.messageId ?? null,
+    );
     return true;
   }
 

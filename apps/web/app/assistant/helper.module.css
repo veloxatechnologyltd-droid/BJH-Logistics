@@ -198,6 +198,30 @@
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
+.proposalDetails {
+  color: var(--brand-muted);
+  font-size: 0.8rem;
+}
+.proposalDetails summary {
+  cursor: pointer;
+}
+.proposalDetails dl {
+  display: grid;
+  gap: 4px;
+  margin: 6px 0 0;
+}
+.proposalDetails dl div {
+  display: grid;
+  grid-template-columns: minmax(80px, 30%) 1fr;
+  gap: 8px;
+}
+.proposalDetails dt {
+  font-weight: 600;
+}
+.proposalDetails dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
 .done {
   justify-self: center;
   margin: 0;

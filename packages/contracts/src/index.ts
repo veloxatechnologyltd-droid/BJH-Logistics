@@ -368,6 +368,21 @@ export const jobStatusKeys = [
 ] as const;
 export type JobStatus = (typeof jobStatusKeys)[number];
 
+/**
+ * A date or date-and-time that exists. `Date.parse` rolls 2026-02-30 into March
+ * instead of refusing it, so a value that starts with a calendar day must name
+ * a real one; other shapes are left to `Date.parse`.
+ */
+function isRealDateTime(value: string): boolean {
+  if (Number.isNaN(Date.parse(value))) return false;
+  const day = /^\d{4}-\d{2}-\d{2}/.exec(value)?.[0];
+  if (!day) return true;
+  const parsed = new Date(`${day}T00:00:00Z`);
+  return (
+    !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === day
+  );
+}
+
 const queryDate = (field: string) =>
   z
     .string({ error: `${field} must be a date (YYYY-MM-DD)` })
@@ -806,7 +821,7 @@ export const milestoneEventInputSchema = z.object(
     milestoneKey: requiredText("milestoneKey", 80),
     occurredAt: z
       .string({ error: "occurredAt must be a date and time" })
-      .refine((value) => !Number.isNaN(Date.parse(value)), {
+      .refine(isRealDateTime, {
         error: "occurredAt must be a date and time",
       })
       .nullish()
@@ -844,7 +859,7 @@ export const etaInputSchema = z.object(
   {
     etaAt: z
       .string({ error: "etaAt is required" })
-      .refine((value) => !Number.isNaN(Date.parse(value)), {
+      .refine(isRealDateTime, {
         error: "etaAt must be a date and time",
       })
       .transform((value) => new Date(value).toISOString()),
@@ -889,7 +904,7 @@ export const jobTaskInputSchema = z.object(
       .regex(/^\d{4}-\d{2}-\d{2}$/, {
         error: "dueDate must be a date (YYYY-MM-DD)",
       })
-      .refine((value) => !Number.isNaN(Date.parse(`${value}T00:00:00Z`)), {
+      .refine((value) => isRealDateTime(`${value}T00:00:00Z`), {
         error: "dueDate must be a date (YYYY-MM-DD)",
       })
       .nullish()
@@ -1101,7 +1116,7 @@ export const quoteDecisionInputSchema = z.object(
     clientSignatory: requiredText("clientSignatory", 160),
     decidedAt: z
       .string({ error: "decidedAt must be a date and time" })
-      .refine((value) => !Number.isNaN(Date.parse(value)), {
+      .refine(isRealDateTime, {
         error: "decidedAt must be a date and time",
       })
       .nullish()
@@ -1413,7 +1428,7 @@ export const proofOfDeliveryInputSchema = z.object(
     receiverPhone: optionalText("receiverPhone", 40),
     deliveredAt: z
       .string({ error: "deliveredAt must be a date and time" })
-      .refine((value) => !Number.isNaN(Date.parse(value)), {
+      .refine(isRealDateTime, {
         error: "deliveredAt must be a date and time",
       })
       .nullish()
@@ -1497,7 +1512,7 @@ export const reminderInputSchema = z.object(
   {
     remindAt: z
       .string({ error: "remindAt is required" })
-      .refine((value) => !Number.isNaN(Date.parse(value)), {
+      .refine(isRealDateTime, {
         error: "remindAt must be a date and time",
       })
       .transform((value) => new Date(value).toISOString()),
@@ -1739,7 +1754,7 @@ export const correspondenceInputSchema = z.object(
     }),
     occurredAt: z
       .string({ error: "occurredAt must be a date and time" })
-      .refine((value) => !Number.isNaN(Date.parse(value)), {
+      .refine(isRealDateTime, {
         error: "occurredAt must be a date and time",
       })
       .nullish()
@@ -1782,7 +1797,7 @@ export const stockMovementInputSchema = z.object(
     reference: optionalText("reference", 200),
     occurredAt: z
       .string({ error: "occurredAt must be a date and time" })
-      .refine((value) => !Number.isNaN(Date.parse(value)), {
+      .refine(isRealDateTime, {
         error: "occurredAt must be a date and time",
       })
       .nullish()
@@ -2090,8 +2105,7 @@ const leadDateField = (field: string) =>
   z
     .string({ error: `${field} must be a date such as 2026-10-31` })
     .refine(
-      (value) =>
-        /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(value)),
+      (value) => /^\d{4}-\d{2}-\d{2}$/.test(value) && isRealDateTime(value),
       { error: `${field} must be a date such as 2026-10-31` },
     )
     .nullish()
@@ -2171,7 +2185,7 @@ export const leadActivityInputSchema = z.object(
     note: requiredText("note", 2000),
     occurredAt: z
       .string({ error: "occurredAt must be a date and time" })
-      .refine((value) => !Number.isNaN(Date.parse(value)), {
+      .refine(isRealDateTime, {
         error: "occurredAt must be a date and time",
       })
       .transform((value) => new Date(value).toISOString())

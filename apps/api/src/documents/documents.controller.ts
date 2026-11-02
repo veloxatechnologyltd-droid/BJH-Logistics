@@ -12,12 +12,14 @@ import {
   UseInterceptors,
 } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
+import { Throttle } from "@nestjs/throttler";
 import {
   DepartmentStaffGuard,
   JobScopeGuard,
   SupabaseIdentityGuard,
 } from "../auth/auth.guards";
 import type { AuthenticatedRequest } from "../auth/auth.guards";
+import { UserThrottlerGuard } from "../auth/user-throttler.guard";
 import {
   DocumentsService,
   MAX_DOCUMENT_BYTES,
@@ -47,7 +49,8 @@ export class DocumentsController {
   }
 
   @Post()
-  @UseGuards(DepartmentStaffGuard, JobScopeGuard)
+  @UseGuards(DepartmentStaffGuard, JobScopeGuard, UserThrottlerGuard)
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
   @UseInterceptors(
     FileInterceptor("file", {
       limits: { fileSize: MAX_DOCUMENT_BYTES + 1, files: 1 },
@@ -94,7 +97,8 @@ export class DocumentLibraryController {
   ) {}
 
   @Get()
-  @UseGuards(JobScopeGuard)
+  @UseGuards(JobScopeGuard, UserThrottlerGuard)
+  @Throttle({ default: { limit: 120, ttl: 60_000 } })
   search(
     @Query("search") search: string | undefined,
     @Query("type") type: string | undefined,
@@ -104,7 +108,8 @@ export class DocumentLibraryController {
   }
 
   @Post()
-  @UseGuards(DepartmentStaffGuard, JobScopeGuard)
+  @UseGuards(DepartmentStaffGuard, JobScopeGuard, UserThrottlerGuard)
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
   @UseInterceptors(
     FileInterceptor("file", {
       limits: { fileSize: MAX_DOCUMENT_BYTES + 1, files: 1 },

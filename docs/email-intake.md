@@ -54,10 +54,10 @@ INBOUND_IMAP_SINCE=2026-10-28T17:00:00Z   # emails before this are left alone
   poll tries it again; an email with no sender address is skipped.
 - `INBOUND_IMAP_SINCE` is required, so switching on never imports an old inbox.
   Move it earlier to bring in older emails.
-- Render's free plan sleeps after 15 minutes without visitors, and a sleeping API
-  reads nothing; it catches up when it wakes. `POST /api/v1/inbound-email/poll`
-  (with the intake secret, as for the webhook) reads the mailbox at once and wakes
-  the API, so a scheduler calling it every few minutes keeps email flowing.
+- The API runs on Render's Starter plan, which stays awake, so the mailbox is read
+  on its own timer. (A free plan would sleep after 15 minutes and read nothing
+  until it woke.) `POST /api/v1/inbound-email/poll` (with the intake secret, as
+  for the webhook) reads the mailbox at once.
 - Replies go out through `EMAIL_SMTP_*` from the same mailbox.
 
 ## The inquiries mailbox and the knowledge base

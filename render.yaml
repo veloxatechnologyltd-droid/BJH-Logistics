@@ -6,7 +6,7 @@ services:
   - type: web
     name: bjh-logistics-api
     runtime: node
-    plan: free
+    plan: starter
     autoDeployTrigger: commit
     buildCommand: corepack enable && corepack pnpm install --frozen-lockfile && corepack pnpm contracts:build && corepack pnpm --filter @bjh/api build
     startCommand: corepack pnpm --filter @bjh/api start:prod

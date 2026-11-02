@@ -10,11 +10,13 @@ import {
   Req,
   UseGuards,
 } from "@nestjs/common";
+import { Throttle } from "@nestjs/throttler";
 import {
   DepartmentStaffGuard,
   SupabaseIdentityGuard,
 } from "../auth/auth.guards";
 import type { AuthenticatedRequest } from "../auth/auth.guards";
+import { UserThrottlerGuard } from "../auth/user-throttler.guard";
 import { AssistantService } from "./assistant.service";
 
 /** The staff helper; customers never reach it. */
@@ -50,8 +52,11 @@ export class AssistantController {
     await this.assistant.deleteConversation(id, request.authUser!.userId);
   }
 
+  /** Each turn can run several model calls, so one person gets 20 a minute. */
   @Post("turn")
   @HttpCode(200)
+  @UseGuards(UserThrottlerGuard)
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
   turn(@Body() body: unknown, @Req() request: AuthenticatedRequest) {
     return this.assistant.turn(body, {
       userId: request.authUser!.userId,
@@ -60,6 +65,8 @@ export class AssistantController {
   }
 
   @Post("confirm")
+  @UseGuards(UserThrottlerGuard)
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
   confirm(@Body() body: unknown, @Req() request: AuthenticatedRequest) {
     return this.assistant.confirm(body, {
       userId: request.authUser!.userId,

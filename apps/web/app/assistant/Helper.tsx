@@ -45,6 +45,7 @@ export function Helper() {
   const [question, setQuestion] = useState("");
   const [thinking, setThinking] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState<string | null>(null);
   const [error, setError] = useState("");
   const end = useRef<HTMLDivElement>(null);
 
@@ -131,7 +132,9 @@ export function Helper() {
   }
 
   async function confirm(action: ProposedAction) {
+    if (!currentId || confirming) return;
     setError("");
+    setConfirming(action.id);
     try {
       const result = await confirmAction(currentId, action);
       setProposals((current) =>
@@ -143,6 +146,8 @@ export function Helper() {
       ]);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "That did not work");
+    } finally {
+      setConfirming(null);
     }
   }
 
@@ -275,6 +280,21 @@ export function Helper() {
             <article className={styles.proposal} key={action.id}>
               <p className={styles.proposalLabel}>Waiting for your go-ahead</p>
               <p className={chat.body}>{action.summary}</p>
+              <details className={styles.proposalDetails}>
+                <summary>Everything that will be sent</summary>
+                <dl>
+                  {Object.entries(action.input).map(([key, value]) => (
+                    <div key={key}>
+                      <dt>{key}</dt>
+                      <dd>
+                        {typeof value === "string"
+                          ? value
+                          : JSON.stringify(value)}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              </details>
               <div className={chat.replyActions}>
                 <button
                   className={chat.secondary}
@@ -289,10 +309,11 @@ export function Helper() {
                 </button>
                 <button
                   className={chat.send}
+                  disabled={confirming !== null}
                   onClick={() => void confirm(action)}
                   type="button"
                 >
-                  Confirm
+                  {confirming === action.id ? "Working…" : "Confirm"}
                 </button>
               </div>
             </article>

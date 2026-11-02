@@ -188,7 +188,7 @@
 }
 
 .searchRow input::placeholder {
-  color: #8495a3;
+  color: var(--brand-muted);
 }
 
 .searchRow button,
@@ -623,7 +623,7 @@
 
 .contactGrid dt {
   margin-bottom: 6px;
-  color: #738595;
+  color: var(--brand-muted);
   font-size: 0.75rem;
   font-weight: 700;
 }
@@ -830,7 +830,7 @@
 
 .formField input::placeholder,
 .formField textarea::placeholder {
-  color: #8495a3;
+  color: var(--brand-muted);
 }
 
 .formField input:focus,
@@ -957,7 +957,7 @@
 
 .previewDetails dt {
   margin-bottom: 6px;
-  color: #738595;
+  color: var(--brand-muted);
   font-size: 0.75rem;
   font-weight: 700;
 }
@@ -1127,7 +1127,7 @@ input:focus-visible {
 
 .detailsList dt {
   margin-bottom: 4px;
-  color: #738595;
+  color: var(--brand-muted);
   font-size: 0.75rem;
   font-weight: 700;
 }
@@ -1152,7 +1152,7 @@ input:focus-visible {
 .detailsForm label {
   display: grid;
   gap: 4px;
-  color: #738595;
+  color: var(--brand-muted);
   font-size: 0.75rem;
   font-weight: 700;
 }
@@ -1197,7 +1197,7 @@ input:focus-visible {
 
 .attachmentNote {
   margin: 6px 0 0;
-  color: #738595;
+  color: var(--brand-muted);
   font-size: 0.75rem;
 }
 
@@ -1237,7 +1237,7 @@ input:focus-visible {
 .replyForm label {
   display: grid;
   gap: 4px;
-  color: #738595;
+  color: var(--brand-muted);
   font-size: 0.75rem;
   font-weight: 700;
 }
