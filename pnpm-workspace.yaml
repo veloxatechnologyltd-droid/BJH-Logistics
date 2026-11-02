@@ -7,9 +7,10 @@ allowBuilds:
 overrides:
   sharp: ">=0.35.5"
   source-map-js: ">=1.2.2"
+  # Patched versions within the ranges express and @anthropic-ai/sdk accept
+  # (2026-11-02 audit: body-parser and zod denial of service, qs crash).
+  body-parser: ">=2.4.0 <3"
+  qs: ">=6.16.1 <7"
+  zod: ">=4.6.6 <5"
 minimumReleaseAgeExclude:
   - "@nestjs/cli@12.0.8"
-  - "@nestjs/common@12.1.1"
-  - "@nestjs/core@12.1.1"
-  - "@nestjs/platform-express@12.1.1"
-  - "@nestjs/testing@12.1.1"
