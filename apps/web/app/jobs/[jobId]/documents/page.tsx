@@ -4,6 +4,8 @@ import { useState } from "react";
 import type { FormEvent } from "react";
 import { documentTypeLabels } from "@bjh/contracts";
 import type { DocumentType } from "@bjh/contracts";
+import { documentTypesFor } from "../../../auth/roleAccess";
+import { useStaffAccess } from "../../../auth/useStaffAccess";
 import { getDownloadLink, uploadDocument } from "../../jobApi";
 import { formatDate, formatSize } from "../../jobFormat";
 import { JobTransportDocuments } from "../../JobTransportDocuments";
@@ -12,6 +14,7 @@ import styles from "../../jobs.module.css";
 
 export default function JobDocumentsPage() {
   const { job, documents, isStaff, closedJob, run } = useJob();
+  const typeKeys = documentTypesFor(useStaffAccess().roles);
   const [docType, setDocType] = useState<DocumentType>("other");
   const [docTarget, setDocTarget] = useState("");
   const [docFile, setDocFile] = useState<File | null>(null);
@@ -146,13 +149,11 @@ export default function JobDocumentsPage() {
                   required
                   value={docType}
                 >
-                  {(Object.keys(documentTypeLabels) as DocumentType[]).map(
-                    (key) => (
-                      <option key={key} value={key}>
-                        {documentTypeLabels[key]}
-                      </option>
-                    ),
-                  )}
+                  {typeKeys.map((key) => (
+                    <option key={key} value={key}>
+                      {documentTypeLabels[key]}
+                    </option>
+                  ))}
                 </select>
               </label>
             )}

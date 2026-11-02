@@ -119,7 +119,8 @@ export class InvoicesService {
   /**
    * Records that the client accepted an issued invoice, once. A customer accepts
    * their own company's in the portal; on the staff side customer service (or
-   * the super admin) records it on the client's word.
+   * the super admin) records it on the client's word, from the job's Team card,
+   * which lists issued invoices without amounts. Finance does not record it.
    */
   async accept(
     id: string,

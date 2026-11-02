@@ -217,3 +217,12 @@ Customer Service stays the client's single point of contact the whole way throug
 9. AI assistant with tools (C1), last because it acts through all of the above.
 
 Note: role changes and new tables need migrations, and production has live accounts on the old roles. Moving existing users to the new roles needs your explicit go when we get there.
+
+## Update 2026-11-02: Customer Service sees no finances
+
+Evans: "customer service shouldn't see the finances." This changes the answers to **Q24** and **Q27** above:
+
+- **Q24:** clients still get their receipts in the portal, but only **Finance** (or the super admin) emails a receipt. Customer Service no longer sees receipts.
+- **Q27 (unchanged, confirmed by Evans):** the client accepts the invoice in the portal, or **Customer Service** records it, then alerts Finance. Customer Service does this from the job's Team card, which lists issued invoices by number and date only, with no amounts. Finance does not record it.
+
+Customer Service then assigns the rep on the same card. A job's message log hides invoice, payment and receipt messages from all non-finance staff. See MEMORY.md, 2026-11-02.

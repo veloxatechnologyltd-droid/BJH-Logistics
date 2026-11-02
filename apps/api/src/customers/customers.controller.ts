@@ -64,17 +64,23 @@ export class CustomersController {
     return this.customers.list(search, request.allowedCompanyIds);
   }
 
-  /** Account figures, including money: staff only, never customers. */
+  /** Account figures: staff only, never customers; money only for finance roles. */
   @Get("insights")
   @UseGuards(DepartmentStaffGuard)
-  insights() {
-    return this.customers.insights();
+  insights(@Req() request: AuthenticatedRequest) {
+    return this.customers.insights(request.staffRoles ?? []);
   }
 
   @Get(":id/insights")
   @UseGuards(DepartmentStaffGuard)
-  async insightsFor(@Param("id") id: string) {
-    const [record] = await this.customers.insights(id);
+  async insightsFor(
+    @Param("id") id: string,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    const [record] = await this.customers.insights(
+      request.staffRoles ?? [],
+      id,
+    );
     if (!record) throw new NotFoundException("Customer was not found");
     return record;
   }

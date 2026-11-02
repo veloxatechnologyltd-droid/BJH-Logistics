@@ -15,7 +15,9 @@ import {
   type CustomerInput,
 } from "@bjh/contracts";
 import { randomUUID } from "node:crypto";
+import { financeRoles } from "../auth/auth.guards";
 import { CustomerCompanyRecord, DatabasePort } from "../database/database.port";
+import type { StaffRoleKey } from "../database/database.port";
 
 @Injectable()
 export class CustomersService {
@@ -81,14 +83,17 @@ export class CustomersService {
    * Account figures per company. Active means an unfinished job or a job
    * opened within `customerActiveDays`. Money stays per currency.
    */
-  async insights(companyId?: string) {
+  /** Money figures go only to finance roles; other staff get an empty `money` list. */
+  async insights(roles: StaffRoleKey[], companyId?: string) {
     if (companyId !== undefined && !isUuid(companyId)) {
       throw new BadRequestException("companyId must be a valid ID");
     }
+    const finance = roles.some((role) => financeRoles.includes(role));
     const records = await this.database.listCustomerInsights(companyId ?? null);
     const since = Date.now() - customerActiveDays * 86_400_000;
     return records.map((record) => ({
       ...record,
+      money: finance ? record.money : [],
       active:
         record.activeJobs > 0 ||
         (record.lastJobAt !== null && Date.parse(record.lastJobAt) >= since),

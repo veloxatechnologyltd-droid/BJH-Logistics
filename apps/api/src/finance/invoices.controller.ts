@@ -16,7 +16,6 @@ import {
   JobScopeGuard,
   StaffRolesGuard,
   SupabaseIdentityGuard,
-  financeReadRoles,
   financeRoles,
 } from "../auth/auth.guards";
 import type { AuthenticatedRequest } from "../auth/auth.guards";
@@ -44,10 +43,7 @@ export class InvoicesController {
   ) {}
 
   @Get()
-  @UseGuards(
-    JobScopeGuard,
-    StaffRolesGuard(financeReadRoles, { customers: true }),
-  )
+  @UseGuards(JobScopeGuard, StaffRolesGuard(financeRoles, { customers: true }))
   list(@Param("id") id: string, @Req() request: AuthenticatedRequest) {
     return this.invoices.list(id, scopeOf(request));
   }
@@ -144,10 +140,7 @@ export class InvoicesController {
   }
 
   @Get(":invoiceId/pdf")
-  @UseGuards(
-    JobScopeGuard,
-    StaffRolesGuard(financeReadRoles, { customers: true }),
-  )
+  @UseGuards(JobScopeGuard, StaffRolesGuard(financeRoles, { customers: true }))
   async pdf(
     @Param("id") id: string,
     @Param("invoiceId") invoiceId: string,
@@ -184,10 +177,7 @@ export class InvoicesController {
 
   /** Customers get their own company's receipts too (client meeting, 2026-11-01). */
   @Get(":invoiceId/payments/:paymentId/receipt")
-  @UseGuards(
-    JobScopeGuard,
-    StaffRolesGuard(financeReadRoles, { customers: true }),
-  )
+  @UseGuards(JobScopeGuard, StaffRolesGuard(financeRoles, { customers: true }))
   async receipt(
     @Param("id") id: string,
     @Param("invoiceId") invoiceId: string,
@@ -226,13 +216,9 @@ export class InvoicesController {
     );
   }
 
-  /** Emails the receipt PDF to the client's contacts; customer service or finance. */
+  /** Emails the receipt PDF to the client's contacts; finance only. */
   @Post(":invoiceId/payments/:paymentId/receipt/send")
-  @UseGuards(
-    DepartmentStaffGuard,
-    JobScopeGuard,
-    StaffRolesGuard(financeReadRoles),
-  )
+  @UseGuards(DepartmentStaffGuard, JobScopeGuard, StaffRolesGuard(financeRoles))
   sendReceipt(
     @Param("id") id: string,
     @Param("invoiceId") invoiceId: string,
@@ -249,12 +235,12 @@ export class InvoicesController {
   }
 }
 
-/** Every receipt the caller may see: staff with finance or customer service, customers their own. */
+/** Every receipt the caller may see: finance staff, customers their own. */
 @Controller("api/v1/receipts")
 @UseGuards(
   SupabaseIdentityGuard,
   JobScopeGuard,
-  StaffRolesGuard(financeReadRoles, { customers: true }),
+  StaffRolesGuard(financeRoles, { customers: true }),
 )
 export class ReceiptsController {
   constructor(

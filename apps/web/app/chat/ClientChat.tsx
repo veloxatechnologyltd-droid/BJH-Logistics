@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { listCustomers } from "../customers/customerApi";
 import type { CustomerCompany } from "../customers/customerApi";
 import { takeChatDraft } from "../assistant/chatHandoff";
@@ -19,10 +20,22 @@ export function ClientChat() {
   const [threads, setThreads] = useState<ChatThread[] | null>(null);
   const [customers, setCustomers] = useState<CustomerCompany[]>([]);
   const [selected, setSelected] = useState("");
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
   const [thread, setThread] = useState<Thread | null>(null);
-  const [draft, setDraft] = useState("");
+  // One draft per client, so switching conversations never carries a message
+  // written for one client into another client's thread.
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [drafting, setDrafting] = useState(false);
   const [error, setError] = useState("");
+  const companyParam = useSearchParams().get("company");
+
+  const draft = drafts[selected] ?? "";
+  const setDraft = useCallback(
+    (value: string) =>
+      setDrafts((current) => ({ ...current, [selected]: value })),
+    [selected],
+  );
 
   const loadThreads = useCallback(async () => {
     try {
@@ -38,7 +51,11 @@ export function ClientChat() {
 
   const loadThread = useCallback(async (companyId: string) => {
     try {
-      setThread(await getConversation(companyId));
+      const loaded = await getConversation(companyId);
+      // A slow answer for the previous client must not replace the open one.
+      setThread((current) =>
+        loaded.company.id === selectedRef.current ? loaded : current,
+      );
     } catch (cause) {
       setError(
         cause instanceof Error ? cause.message : "The conversation failed",
@@ -47,13 +64,14 @@ export function ClientChat() {
   }, []);
 
   // Opened from a Bra Evans button: show that client, with its draft if any.
+  // Runs on every in-app link to this page, not only the first.
   useEffect(() => {
-    const company = new URLSearchParams(window.location.search).get("company");
-    if (!company) return;
-    setSelected(company);
-    const handed = takeChatDraft(company);
-    if (handed) setDraft(handed);
-  }, []);
+    if (!companyParam) return;
+    setSelected(companyParam);
+    const handed = takeChatDraft(companyParam);
+    if (handed)
+      setDrafts((current) => ({ ...current, [companyParam]: handed }));
+  }, [companyParam]);
 
   useEffect(() => {
     void loadThreads();
@@ -164,7 +182,7 @@ export function ClientChat() {
           )}
         </div>
         <section className={styles.panel} aria-label="Conversation">
-          {!selected || !thread ? (
+          {!selected || !thread || thread.company.id !== selected ? (
             <p className={styles.empty}>
               Choose a conversation, or pick a client to start one.
             </p>

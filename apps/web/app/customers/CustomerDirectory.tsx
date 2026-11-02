@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { customerActiveDays } from "@bjh/contracts";
 import { listCustomerInsights, listCustomers } from "./customerApi";
 import type { CustomerCompany, CustomerInsight } from "./customerApi";
+import { canWorkFinance } from "../auth/roleAccess";
 import { useStaffAccess } from "../auth/useStaffAccess";
 import { formatMoney } from "../quotes/quoteApi";
 import ui from "../jobs/jobs.module.css";
@@ -26,7 +27,9 @@ const shortDate = (value: string | null) =>
     : "—";
 
 export function CustomerDirectory() {
-  const { isSuperAdmin } = useStaffAccess();
+  const { isSuperAdmin, roles } = useStaffAccess();
+  // Money columns, filters and sorts are for finance; the API sends others none.
+  const finance = canWorkFinance(roles);
   const [customers, setCustomers] = useState<CustomerCompany[]>([]);
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [loadError, setLoadError] = useState("");
@@ -227,7 +230,7 @@ export function CustomerDirectory() {
               >
                 <option value="all">All customers</option>
                 <option value="quotes">Quotes issued</option>
-                <option value="paid">Paid invoices</option>
+                {finance && <option value="paid">Paid invoices</option>}
                 <option value="new">New clients (90 days)</option>
               </select>
             </label>
@@ -238,12 +241,12 @@ export function CustomerDirectory() {
                 value={sortKey}
               >
                 <option value="name">Name</option>
-                <option value="revenue">Revenue</option>
-                <option value="owing">Amount owing</option>
+                {finance && <option value="revenue">Revenue</option>}
+                {finance && <option value="owing">Amount owing</option>}
                 <option value="lastJob">Latest job</option>
               </select>
             </label>
-            {currencies.length > 1 && (
+            {finance && currencies.length > 1 && (
               <label className={styles.sortLabel}>
                 Amounts in
                 <select
@@ -306,12 +309,16 @@ export function CustomerDirectory() {
                         <>
                           <th scope="col">Jobs</th>
                           <th scope="col">Latest job</th>
-                          <th className={styles.numeric} scope="col">
-                            Invoiced{currency ? ` (${currency})` : ""}
-                          </th>
-                          <th className={styles.numeric} scope="col">
-                            Owing
-                          </th>
+                          {finance && (
+                            <>
+                              <th className={styles.numeric} scope="col">
+                                Invoiced{currency ? ` (${currency})` : ""}
+                              </th>
+                              <th className={styles.numeric} scope="col">
+                                Owing
+                              </th>
+                            </>
+                          )}
                         </>
                       )}
                     </tr>
@@ -369,16 +376,21 @@ export function CustomerDirectory() {
                               <td className={styles.nowrap}>
                                 {shortDate(insight?.lastJobAt ?? null)}
                               </td>
-                              <td className={styles.numeric}>
-                                {entry ? money(entry.invoicedMinor) : "—"}
-                              </td>
-                              <td className={styles.numeric}>
-                                {entry
-                                  ? money(
-                                      entry.invoicedMinor - entry.receivedMinor,
-                                    )
-                                  : "—"}
-                              </td>
+                              {finance && (
+                                <>
+                                  <td className={styles.numeric}>
+                                    {entry ? money(entry.invoicedMinor) : "—"}
+                                  </td>
+                                  <td className={styles.numeric}>
+                                    {entry
+                                      ? money(
+                                          entry.invoicedMinor -
+                                            entry.receivedMinor,
+                                        )
+                                      : "—"}
+                                  </td>
+                                </>
+                              )}
                             </>
                           )}
                         </tr>

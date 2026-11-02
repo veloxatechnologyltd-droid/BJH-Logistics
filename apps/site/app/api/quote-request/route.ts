@@ -28,6 +28,26 @@ const keys: (keyof QuoteDetails)[] = [
   "notes",
 ];
 
+/** No person fills in this form in under 3 seconds. */
+const minimumFillMs = 3000;
+
+/**
+ * Basic bot screening: the hidden `trap` field must stay empty, and the form
+ * reports how long it was open (measured in the browser, so clock differences
+ * do not matter). A failing request gets the normal "received" answer, so a
+ * bot learns nothing, but it is never sent on to intake.
+ */
+function looksAutomated(values: Record<string, unknown>) {
+  const trap = values.trap;
+  const elapsed = values.elapsedMs;
+  return (
+    (typeof trap === "string" && trap.length > 0) ||
+    typeof elapsed !== "number" ||
+    !Number.isFinite(elapsed) ||
+    elapsed < minimumFillMs
+  );
+}
+
 export async function POST(request: Request) {
   const apiBase = process.env.SITE_API_BASE_URL?.trim();
   const secret = process.env.INBOUND_EMAIL_SECRET?.trim();
@@ -54,6 +74,7 @@ export async function POST(request: Request) {
     );
   }
   const values = input as Record<string, unknown>;
+  if (looksAutomated(values)) return Response.json({ received: true });
   const details = {} as QuoteDetails;
   for (const key of keys) {
     const value = values[key];

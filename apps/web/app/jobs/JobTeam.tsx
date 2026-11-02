@@ -3,14 +3,22 @@
 import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { useStaffAccess } from "../auth/useStaffAccess";
-import { assignJobMember, getJobTeam, removeJobMember } from "./jobApi";
+import {
+  acceptInvoice,
+  assignJobMember,
+  getJobTeam,
+  removeJobMember,
+} from "./jobApi";
 import type { JobTeam as Team } from "./jobApi";
 import styles from "./jobs.module.css";
 import { ErrorPopup } from "../ErrorPopup";
 
 const kindLabels = { lead: "Lead", assistant: "Assisting" } as const;
 
-/** Who works the job. Customer service assigns once the client has accepted the invoice. */
+/**
+ * Who works the job. Customer service records the client's acceptance of an
+ * issued invoice here (number and date only, no amounts), then assigns.
+ */
 export function JobTeam({
   jobId,
   closedJob,
@@ -27,6 +35,8 @@ export function JobTeam({
   const [userId, setUserId] = useState("");
   const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
+  const [accepting, setAccepting] = useState<string | null>(null);
+  const [signatory, setSignatory] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -74,6 +84,23 @@ export function JobTeam({
     }
   }
 
+  // Customer service records the client's word (they see no amounts).
+  async function recordAcceptance(event: FormEvent, invoiceId: string) {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    try {
+      await acceptInvoice(jobId, invoiceId, signatory.trim());
+      setAccepting(null);
+      setSignatory("");
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "The action failed");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function remove(assignmentId: string) {
     setError("");
     try {
@@ -103,7 +130,9 @@ export function JobTeam({
         <p className={styles.muted}>
           {view.invoiceAccepted
             ? "Nobody assigned yet."
-            : "Waiting for the client to accept the invoice."}
+            : view.invoices.length === 0
+              ? "Waiting for finance to issue an invoice."
+              : "Waiting for the client to accept the invoice."}
         </p>
       ) : (
         <ul className={styles.nextTasks}>
@@ -124,6 +153,66 @@ export function JobTeam({
                 >
                   Remove
                 </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {view.invoices.length > 0 && (
+        <ul className={styles.list} aria-label="Invoices to accept">
+          {view.invoices.map((invoice) => (
+            <li key={invoice.id}>
+              <strong>{invoice.invoiceNumber ?? "Invoice"}</strong>
+              {invoice.issuedAt &&
+                ` · issued ${new Date(invoice.issuedAt).toLocaleDateString()}`}
+              {" · "}
+              {invoice.acceptance
+                ? `accepted by ${invoice.acceptance.signatoryName}${
+                    invoice.acceptance.via === "portal" ? " in the portal" : ""
+                  }`
+                : "not accepted yet"}
+              {canAssign && !invoice.acceptance && accepting !== invoice.id && (
+                <button
+                  className={styles.secondaryButton}
+                  onClick={() => {
+                    setAccepting(invoice.id);
+                    setSignatory("");
+                  }}
+                  type="button"
+                >
+                  Record client acceptance
+                </button>
+              )}
+              {accepting === invoice.id && (
+                <form
+                  className={styles.form}
+                  onSubmit={(event) => void recordAcceptance(event, invoice.id)}
+                >
+                  <label className={styles.field}>
+                    Who at the client agreed
+                    <input
+                      onChange={(event) => setSignatory(event.target.value)}
+                      required
+                      value={signatory}
+                    />
+                  </label>
+                  <div className={styles.actions}>
+                    <button
+                      className={styles.button}
+                      disabled={saving}
+                      type="submit"
+                    >
+                      {saving ? "Saving…" : "Record acceptance"}
+                    </button>
+                    <button
+                      className={styles.secondaryButton}
+                      onClick={() => setAccepting(null)}
+                      type="button"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
               )}
             </li>
           ))}

@@ -98,11 +98,11 @@ export function JobInvoices({
   const [accepting, setAccepting] = useState<string | null>(null);
   const [signatory, setSignatory] = useState("");
   const { roles, isSuperAdmin } = useStaffAccess();
-  // The client accepts in the portal; on the staff side customer service records it.
-  const canRecordAcceptance =
-    !isStaff || isSuperAdmin || roles.includes("customer_service_rep");
-  // Customer service reads invoices and receipts; only finance changes them.
+  // Only finance (and the super admin) reach this tab on the staff side. The
+  // client accepts in the portal; on the staff side customer service records
+  // it from the job's Team card, so here only the super admin may.
   const finance = isStaff && canWorkFinance(roles);
+  const canRecordAcceptance = !isStaff || isSuperAdmin;
 
   const load = useCallback(async () => {
     try {
@@ -365,7 +365,7 @@ export function JobInvoices({
                   {new Date(invoice.acceptance.acceptedAt).toLocaleDateString()}
                   {invoice.acceptance.via === "portal"
                     ? " in the portal"
-                    : " (recorded by customer service)"}
+                    : " (recorded by staff)"}
                 </span>
               )}
               <span className={styles.muted}>

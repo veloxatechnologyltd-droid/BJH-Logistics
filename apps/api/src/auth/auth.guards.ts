@@ -240,11 +240,6 @@ export const financeRoles: StaffRoleKey[] = [
   "finance_rep",
   ...legacyRoles,
 ];
-/** Customer service also reads invoices and receipts: it records acceptance and sends receipts. */
-export const financeReadRoles: StaffRoleKey[] = [
-  ...financeRoles,
-  "customer_service_rep",
-];
 /** Customer service prepares and issues quotes; sales may too. */
 export const quoteDeskRoles: StaffRoleKey[] = [
   "super_admin",

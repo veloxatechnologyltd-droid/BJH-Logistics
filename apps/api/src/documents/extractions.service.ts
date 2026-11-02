@@ -52,7 +52,20 @@ export class ExtractionsService {
 
   async list(id: string, scope: JobScope): Promise<DocumentExtractionRecord[]> {
     const job = await this.jobs.get(id, scope);
-    return this.database.listDocumentExtractions(job.id);
+    const visible = await this.visibleDocumentIds(job.id, scope);
+    return (await this.database.listDocumentExtractions(job.id)).filter(
+      (extraction) => visible.has(extraction.documentId),
+    );
+  }
+
+  /** The job's documents of types the caller may see (cost evidence is finance-only). */
+  private async visibleDocumentIds(jobId: string, scope: JobScope) {
+    const hidden = scope.hiddenDocumentTypes ?? [];
+    return new Set(
+      (await this.database.listDocuments(jobId))
+        .filter((document) => !hidden.includes(document.documentType))
+        .map((document) => document.id),
+    );
   }
 
   async extract(
@@ -70,13 +83,15 @@ export class ExtractionsService {
     ) {
       throw new BadRequestException("version must be a positive integer");
     }
-    const stored = isUuid(documentId)
-      ? await this.database.findDocumentVersion(
-          job.id,
-          documentId,
-          versionNumber,
-        )
-      : null;
+    const visible = await this.visibleDocumentIds(job.id, scope);
+    const stored =
+      isUuid(documentId) && visible.has(documentId)
+        ? await this.database.findDocumentVersion(
+            job.id,
+            documentId,
+            versionNumber,
+          )
+        : null;
     if (!stored) throw new NotFoundException("Document was not found");
     if (this.reader.model) {
       if (!AI_READABLE_TYPES.includes(stored.contentType)) {

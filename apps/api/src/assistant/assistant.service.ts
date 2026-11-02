@@ -26,7 +26,7 @@ import { LeadsService } from "../leads/leads.service";
 import { StaffNotificationsService } from "../notifications/staff-notifications.service";
 import { STAFF_AUTH_DIRECTORY } from "../auth/staff-admin.port";
 import type { StaffAuthDirectory } from "../auth/staff-admin.port";
-import { financeReadRoles } from "../auth/auth.guards";
+import { financeRoles } from "../auth/auth.guards";
 import type { ClaudeSetup } from "../ai/claude";
 import { callOpenAi, openAiText } from "../ai/openai";
 import type { OpenAiSetup } from "../ai/openai";
@@ -577,10 +577,8 @@ export class AssistantService {
         );
         break;
       case "email_receipt":
-        if (!this.has(actor.roles, financeReadRoles)) {
-          throw new ForbiddenException(
-            "Only customer service or finance sends receipts",
-          );
+        if (!this.has(actor.roles, financeRoles)) {
+          throw new ForbiddenException("Only finance sends receipts");
         }
         await this.invoices.sendReceipt(
           id("jobId"),

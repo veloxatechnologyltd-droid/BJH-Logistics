@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
   BadRequestException,
+  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
@@ -15,18 +16,35 @@ import {
   parseContract,
 } from "@bjh/contracts";
 import type { DocumentType } from "@bjh/contracts";
+import { financeRoles } from "../auth/auth.guards";
 import {
   DatabasePort,
   DocumentRecord,
   JobScope,
   LibraryDocumentRecord,
 } from "../database/database.port";
+import type { StaffRoleKey } from "../database/database.port";
 import { JobsService } from "../jobs/jobs.service";
 import { DOCUMENT_STORAGE, SIGNED_URL_SECONDS } from "./document-storage.port";
 import type { DocumentStorage } from "./document-storage.port";
 import { detectContentType, sanitizeFilename } from "./file-signature";
 
 export const MAX_DOCUMENT_BYTES = 25 * 1024 * 1024;
+
+/** BJH's own costs (supplier invoices, disbursement proof): finance roles only. */
+export const COST_EVIDENCE_TYPES: DocumentType[] = [
+  "supplier_invoice",
+  "disbursement_evidence",
+];
+
+/** Customers and non-finance staff (no roles, or none of the finance roles) do not see cost evidence. */
+export function hiddenDocumentTypesFor(
+  roles: StaffRoleKey[] | undefined,
+): DocumentType[] {
+  return (roles ?? []).some((role) => financeRoles.includes(role))
+    ? []
+    : COST_EVIDENCE_TYPES;
+}
 
 export interface UploadedFile {
   originalname: string;
@@ -44,7 +62,26 @@ export class DocumentsService {
 
   async list(id: string, scope: JobScope): Promise<DocumentRecord[]> {
     const job = await this.jobs.get(id, scope);
-    return this.database.listDocuments(job.id);
+    const hidden = scope.hiddenDocumentTypes ?? [];
+    return (await this.database.listDocuments(job.id)).filter(
+      (document) => !hidden.includes(document.documentType),
+    );
+  }
+
+  /** 404 unless the document is on the job and of a type the caller may see. */
+  async assertVisible(id: string, documentId: string, scope: JobScope) {
+    const visible = await this.list(id, scope);
+    if (!visible.some((document) => document.id === documentId)) {
+      throw new NotFoundException("Document was not found");
+    }
+  }
+
+  private refuseHiddenType(documentType: DocumentType, scope: JobScope) {
+    if (scope.hiddenDocumentTypes?.includes(documentType)) {
+      throw new ForbiddenException(
+        "Supplier invoices and disbursement evidence are handled by finance",
+      );
+    }
   }
 
   /** Stores the file privately under a random key and records a new version. */
@@ -58,6 +95,10 @@ export class DocumentsService {
     const job = await this.jobs.get(id, scope);
     const parsed = parseContract(documentUploadFieldsSchema, fields ?? {});
     if (!parsed.success) throw new BadRequestException(parsed.message);
+    this.refuseHiddenType(parsed.data.documentType, scope);
+    if (parsed.data.documentId) {
+      await this.assertVisible(job.id, parsed.data.documentId, scope);
+    }
     const { file: checked, contentType } = this.checkFile(file);
 
     const objectKey = `${job.id}/${randomUUID()}`;
@@ -130,6 +171,7 @@ export class DocumentsService {
     const parsed = parseContract(libraryUploadFieldsSchema, fields ?? {});
     if (!parsed.success) throw new BadRequestException(parsed.message);
     const { jobId, companyId, title, documentType } = parsed.data;
+    this.refuseHiddenType(documentType, scope);
     if (jobId) await this.jobs.get(jobId, scope);
     if (companyId && !(await this.database.findCustomer(companyId))) {
       throw new NotFoundException("Customer company was not found");
@@ -208,6 +250,7 @@ export class DocumentsService {
     ) {
       throw new BadRequestException("version must be a positive integer");
     }
+    if (isUuid(documentId)) await this.assertVisible(job.id, documentId, scope);
     const stored = isUuid(documentId)
       ? await this.database.findDocumentVersion(
           job.id,

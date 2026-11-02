@@ -169,7 +169,7 @@ test("old roles can no longer be assigned through staff management", async () =>
   assert.equal(refused.status, 400);
 });
 
-test("finance work belongs to finance; customer service may only read invoices", async () => {
+test("finance work belongs to finance; customer service sees no money either", async () => {
   const opened = await post("/api/v1/jobs", TEST_SUPER_ADMIN_TOKEN, {
     customerCompanyId: companyId,
     serviceLine: "sea_import",
@@ -191,12 +191,18 @@ test("finance work belongs to finance; customer service may only read invoices",
     403,
   );
 
+  // Evans, 2026-11-02: customer service does not see finances, invoices and
+  // receipts included.
   await actAs("customer_service_rep");
-  assert.equal(
-    (await call(`/api/v1/jobs/${jobId}/invoices`, TEST_UNASSIGNED_TOKEN))
-      .status,
-    200,
-  );
+  for (const path of [
+    `/api/v1/jobs/${jobId}/invoices`,
+    `/api/v1/jobs/${jobId}/charges`,
+    "/api/v1/receipts",
+    "/api/v1/invoices/outstanding",
+    "/api/v1/finance/statements",
+  ]) {
+    assert.equal((await call(path, TEST_UNASSIGNED_TOKEN)).status, 403, path);
+  }
   assert.equal(
     (
       await post(

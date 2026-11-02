@@ -18,13 +18,18 @@ import {
   SupabaseIdentityGuard,
 } from "../auth/auth.guards";
 import type { AuthenticatedRequest } from "../auth/auth.guards";
-import { DocumentsService, MAX_DOCUMENT_BYTES } from "./documents.service";
+import {
+  DocumentsService,
+  MAX_DOCUMENT_BYTES,
+  hiddenDocumentTypesFor,
+} from "./documents.service";
 import type { UploadedFile as UploadedFileData } from "./documents.service";
 
 function scopeOf(request: AuthenticatedRequest) {
   return {
     companyIds: request.allowedCompanyIds,
     serviceLines: request.allowedServiceLines,
+    hiddenDocumentTypes: hiddenDocumentTypesFor(request.staffRoles),
   };
 }
 

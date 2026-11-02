@@ -977,6 +977,8 @@ export interface JobListRecord extends JobRecord {
 export interface JobScope {
   companyIds?: string[];
   serviceLines?: ServiceLine[];
+  /** Document types the caller may not see (cost evidence for non-finance callers). */
+  hiddenDocumentTypes?: DocumentType[];
 }
 
 export interface CustomerContactRecord {

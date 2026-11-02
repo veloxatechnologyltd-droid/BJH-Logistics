@@ -45,6 +45,20 @@ export interface JobTeamView {
   history: JobAssignmentView[];
   /** True once the client has accepted an issued invoice on the job. */
   invoiceAccepted: boolean;
+  /**
+   * The job's issued invoices, so customer service can record the client's
+   * acceptance. Number and date only: never amounts, lines or payments.
+   */
+  invoices: Array<{
+    id: string;
+    invoiceNumber: string | null;
+    issuedAt: string | null;
+    acceptance: {
+      signatoryName: string;
+      acceptedAt: string;
+      via: "staff" | "portal";
+    } | null;
+  }>;
   /** Staff who may be assigned: the reps whose roles cover the job's line. */
   candidates: Array<{ userId: string; email: string | null }>;
 }
@@ -65,9 +79,9 @@ export class JobAssignmentsService {
 
   async team(id: string, scope: JobScope): Promise<JobTeamView> {
     const job = await this.jobs.get(id, scope);
-    const [assignments, invoiceAccepted, candidateIds] = await Promise.all([
+    const [assignments, invoices, candidateIds] = await Promise.all([
       this.database.listJobAssignments(job.id),
-      this.invoiceAccepted(job.id),
+      this.issuedInvoices(job.id),
       this.candidateIds(job),
     ]);
     const emails = await this.emails([
@@ -81,7 +95,8 @@ export class JobAssignmentsService {
     return {
       team: assignments.filter((item) => !item.removedAt).map(withEmail),
       history: assignments.map(withEmail),
-      invoiceAccepted,
+      invoiceAccepted: invoices.some((invoice) => invoice.acceptance),
+      invoices,
       candidates: candidateIds.map((userId) => ({
         userId,
         email: emails.get(userId) ?? null,
@@ -179,15 +194,39 @@ export class JobAssignmentsService {
   }
 
   private async invoiceAccepted(jobId: string): Promise<boolean> {
+    return (await this.issuedInvoices(jobId)).some(
+      (invoice) => invoice.acceptance,
+    );
+  }
+
+  /** Issued invoices with their acceptance; a voided one no longer counts. */
+  private async issuedInvoices(
+    jobId: string,
+  ): Promise<JobTeamView["invoices"]> {
     const [invoices, acceptances] = await Promise.all([
       this.database.listInvoices(jobId),
       this.database.listInvoiceAcceptances(jobId),
     ]);
-    const accepted = new Set(acceptances.map((item) => item.invoiceId));
-    // A voided invoice no longer counts, even if the client had accepted it.
-    return invoices.some(
-      (invoice) => invoice.status === "issued" && accepted.has(invoice.id),
+    const byInvoice = new Map(
+      acceptances.map((item) => [item.invoiceId, item]),
     );
+    return invoices
+      .filter((invoice) => invoice.status === "issued")
+      .map((invoice) => {
+        const accepted = byInvoice.get(invoice.id);
+        return {
+          id: invoice.id,
+          invoiceNumber: invoice.invoiceNumber,
+          issuedAt: invoice.issuedAt,
+          acceptance: accepted
+            ? {
+                signatoryName: accepted.signatoryName,
+                acceptedAt: accepted.acceptedAt,
+                via: accepted.via,
+              }
+            : null,
+        };
+      });
   }
 
   private async candidateIds(job: JobRecord): Promise<string[]> {

@@ -10,9 +10,12 @@ import {
   TEST_MATCHING_USER_ID,
   TEST_SUPER_ADMIN_ID,
   TEST_SUPER_ADMIN_TOKEN,
+  TEST_UNASSIGNED_TOKEN,
+  TEST_UNASSIGNED_USER_ID,
   createTestApplication,
 } from "./test-application";
 import { DatabasePort } from "../src/database/database.port";
+import type { StaffRoleKey } from "../src/database/database.port";
 import {
   beginTestDatabase,
   endTestDatabase,
@@ -266,6 +269,54 @@ test("one company's figures can be read by ID; an unknown company is not found",
     (await call("/api/v1/customers/not-an-id/insights", TEST_MATCHING_TOKEN))
       .status,
     400,
+  );
+});
+
+test("money figures go only to finance roles; other staff see counts with no money", async () => {
+  const database = application.get(DatabasePort);
+  const actAs = async (role: StaffRoleKey) => {
+    for (const held of await database.getActiveStaffRoles(
+      TEST_UNASSIGNED_USER_ID,
+    )) {
+      await database.revokeStaffRole(
+        TEST_UNASSIGNED_USER_ID,
+        held,
+        TEST_SUPER_ADMIN_ID,
+      );
+    }
+    await database.assignStaffRole(
+      TEST_UNASSIGNED_USER_ID,
+      role,
+      TEST_SUPER_ADMIN_ID,
+    );
+  };
+  const busyFor = async () => {
+    const all = await insights(TEST_UNASSIGNED_TOKEN);
+    const one = await json<Insight>(
+      await call(
+        `/api/v1/customers/${busyCompany}/insights`,
+        TEST_UNASSIGNED_TOKEN,
+      ),
+    );
+    return [all.find((row) => row.companyId === busyCompany)!, one];
+  };
+
+  for (const role of [
+    "customer_service_rep",
+    "sales_rep",
+    "import_rep",
+  ] as const) {
+    await actAs(role);
+    for (const row of await busyFor()) {
+      assert.deepEqual(row.money, [], `${role} must not see money`);
+      assert.ok(row.totalJobs > 0, `${role} still sees job counts`);
+    }
+  }
+  await actAs("finance_rep");
+  for (const row of await busyFor()) assert.ok(row.money.length > 0);
+  const admin = await insights(TEST_SUPER_ADMIN_TOKEN);
+  assert.ok(
+    admin.find((row) => row.companyId === busyCompany)!.money.length > 0,
   );
 });
 

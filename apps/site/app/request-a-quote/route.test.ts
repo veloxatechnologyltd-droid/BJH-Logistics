@@ -15,10 +15,11 @@ const details = {
   readyDate: "",
   notes: "",
 };
-const request = (body: unknown) =>
+// A person: the form was open for a while and the hidden field is empty.
+const request = (body: object) =>
   new Request("http://localhost/api/quote-request", {
     method: "POST",
-    body: JSON.stringify(body),
+    body: JSON.stringify({ trap: "", elapsedMs: 45_000, ...body }),
   });
 
 test("website quote request reaches intake with its server-only secret", async () => {
@@ -68,4 +69,39 @@ test("invalid requests and intake failure never show a success receipt", async (
     delete process.env.INBOUND_EMAIL_SECRET;
   }
   assert.equal((await POST(request(details))).status, 503);
+});
+
+test("bot-like requests get a normal answer but never reach intake", async () => {
+  process.env.SITE_API_BASE_URL = "https://api.example.test/api";
+  process.env.INBOUND_EMAIL_SECRET = "synthetic-secret";
+  const originalFetch = globalThis.fetch;
+  let forwarded = 0;
+  globalThis.fetch = async () => {
+    forwarded += 1;
+    return Response.json({ requestId: "synthetic-id" });
+  };
+  const raw = (body: object) =>
+    new Request("http://localhost/api/quote-request", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  try {
+    for (const body of [
+      { ...details, trap: "http://spam.example", elapsedMs: 45_000 },
+      { ...details, trap: "", elapsedMs: 800 },
+      { ...details, trap: "" },
+      { ...details, trap: "", elapsedMs: "45000" },
+    ]) {
+      const response = await POST(raw(body));
+      assert.equal(response.status, 200);
+      assert.deepEqual(await response.json(), { received: true });
+    }
+    assert.equal(forwarded, 0);
+    assert.equal((await POST(request(details))).status, 200);
+    assert.equal(forwarded, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    delete process.env.SITE_API_BASE_URL;
+    delete process.env.INBOUND_EMAIL_SECRET;
+  }
 });

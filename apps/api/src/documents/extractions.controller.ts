@@ -15,12 +15,14 @@ import {
   SupabaseIdentityGuard,
 } from "../auth/auth.guards";
 import type { AuthenticatedRequest } from "../auth/auth.guards";
+import { hiddenDocumentTypesFor } from "./documents.service";
 import { ExtractionsService } from "./extractions.service";
 
 function scopeOf(request: AuthenticatedRequest) {
   return {
     companyIds: request.allowedCompanyIds,
     serviceLines: request.allowedServiceLines,
+    hiddenDocumentTypes: hiddenDocumentTypesFor(request.staffRoles),
   };
 }
 

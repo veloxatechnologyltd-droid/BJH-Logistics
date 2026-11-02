@@ -33,6 +33,13 @@ export function QuoteForm() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState(false);
   const confirmation = useRef<HTMLHeadingElement>(null);
+  // Bot screening (see the route): when the form opened, and a hidden field
+  // that people never see and so never fill in.
+  const openedAt = useRef(0);
+  const [trap, setTrap] = useState("");
+  useEffect(() => {
+    openedAt.current = Date.now();
+  }, []);
 
   // The form is long, so the sender may be scrolled well down the page when it
   // is sent. Bring the confirmation into view and announce it.
@@ -58,7 +65,11 @@ export function QuoteForm() {
       const response = await fetch("/api/quote-request", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(details),
+        body: JSON.stringify({
+          ...details,
+          trap,
+          elapsedMs: Date.now() - openedAt.current,
+        }),
       });
       if (!response.ok) throw new Error("Request not received");
       setSent(true);
@@ -89,6 +100,21 @@ export function QuoteForm() {
 
   return (
     <form className="quote-form" onSubmit={submit}>
+      <div
+        aria-hidden="true"
+        style={{ position: "absolute", left: "-10000px", height: 0 }}
+      >
+        <label>
+          Leave this empty
+          <input
+            autoComplete="off"
+            name="trap"
+            onChange={(event) => setTrap(event.target.value)}
+            tabIndex={-1}
+            value={trap}
+          />
+        </label>
+      </div>
       <fieldset>
         <legend>Your details</legend>
         <div className="form-row">
