@@ -102,13 +102,14 @@ export function SignInForm() {
       }
 
       if (mode === "forgot") {
-        const { error: resetError } = await supabase.auth.resetPasswordForEmail(
-          email,
-          {
-            redirectTo: `${window.location.origin}/set-password`,
-          },
-        );
-        if (resetError) throw resetError;
+        // The API makes the link and emails it from BJH's own mail server.
+        const response = await fetch(`${apiBaseUrl}/v1/auth/password-reset`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ email }),
+        });
+        const failure = await responseError(response);
+        if (failure) throw failure;
         // Same reply whether or not the address has an account.
         setNotice(
           "If an account uses this email, a link to set a new password is on its way.",
