@@ -195,6 +195,12 @@ export function SignInForm() {
           details.
         </p>
       )}
+      {mode === "forgot" && (
+        <p className={styles.accountHelp}>
+          Enter the email you sign in with. We will send you a link to set a new
+          password.
+        </p>
+      )}
 
       <form className={styles.form} onSubmit={submit}>
         <label htmlFor="auth-email">
@@ -226,6 +232,17 @@ export function SignInForm() {
             />
           </label>
         )}
+        {mode === "signin" && (
+          <div className={styles.forgotRow}>
+            <button
+              className={styles.modeButton}
+              onClick={() => switchMode("forgot")}
+              type="button"
+            >
+              Forgot password?
+            </button>
+          </div>
+        )}
         <ErrorPopup message={error} />
         {notice && (
           <p className={styles.notice} role="status">
@@ -241,15 +258,8 @@ export function SignInForm() {
         </button>
       </form>
 
-      {mode === "signin" ? (
-        <>
-          <button
-            className={styles.modeButton}
-            onClick={() => switchMode("forgot")}
-            type="button"
-          >
-            Forgot password?
-          </button>
+      <div className={styles.cardFooter}>
+        {mode === "signin" ? (
           <button
             className={styles.modeButton}
             onClick={() => switchMode("signup")}
@@ -257,32 +267,32 @@ export function SignInForm() {
           >
             New here? Create an account
           </button>
-        </>
-      ) : (
-        mode !== "bootstrap" && (
+        ) : (
+          mode !== "bootstrap" && (
+            <button
+              className={styles.modeButton}
+              onClick={() => switchMode("signin")}
+              type="button"
+            >
+              Back to sign in
+            </button>
+          )
+        )}
+
+        {bootstrapAvailable && (
           <button
             className={styles.modeButton}
-            onClick={() => switchMode("signin")}
+            onClick={() =>
+              switchMode(mode === "bootstrap" ? "signin" : "bootstrap")
+            }
             type="button"
           >
-            Back to sign in
+            {mode === "bootstrap"
+              ? "Already signed up? Sign in"
+              : "First setup? Create the super admin"}
           </button>
-        )
-      )}
-
-      {bootstrapAvailable && (
-        <button
-          className={styles.modeButton}
-          onClick={() =>
-            switchMode(mode === "bootstrap" ? "signin" : "bootstrap")
-          }
-          type="button"
-        >
-          {mode === "bootstrap"
-            ? "Already signed up? Sign in"
-            : "First setup? Create the super admin"}
-        </button>
-      )}
+        )}
+      </div>
     </section>
   );
 }

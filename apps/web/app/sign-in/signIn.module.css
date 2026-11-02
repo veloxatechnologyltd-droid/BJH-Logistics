@@ -8,6 +8,13 @@
   padding: 32px 0;
 }
 
+/* Sign in changes height between its views; a fixed top offset keeps the card
+   from jumping. The offset grows with the window, up to 140px. */
+.signInPage {
+  align-content: start;
+  padding: clamp(16px, calc((100vh - 620px) / 2), 140px) 0 24px;
+}
+
 .backLink {
   justify-self: start;
   color: var(--brand-primary);
@@ -21,7 +28,7 @@
   border-radius: 12px;
   background: #fff;
   box-shadow: 0 5px 18px rgb(20 48 72 / 4%);
-  padding: 36px;
+  padding: 32px 36px;
 }
 
 .eyebrow {
@@ -123,11 +130,43 @@
   border: 0;
   background: transparent;
   color: var(--brand-primary);
-  padding: 5px 0;
+  padding: 8px 0;
   font: inherit;
-  font-size: 0.74rem;
+  font-size: 0.875rem;
   font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
   cursor: pointer;
+}
+
+.forgotRow {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: -12px;
+}
+
+.forgotRow .modeButton {
+  margin-top: 0;
+  padding: 4px 0;
+}
+
+.cardFooter {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  margin-top: 18px;
+  border-top: 1px solid #e3ebf2;
+  padding-top: 6px;
+}
+
+.cardFooter .modeButton {
+  margin-top: 0;
+}
+
+@media (max-width: 480px) {
+  .signInCard {
+    padding: 24px 20px;
+  }
 }
 
 .localNote {
