@@ -54,6 +54,8 @@ import {
 } from "./assistant/assistant.service";
 import { claudeFromEnvironment } from "./ai/claude";
 import { ChatService } from "./chat/chat.service";
+import { TeamChatController } from "./team-chat/team-chat.controller";
+import { TeamChatService } from "./team-chat/team-chat.service";
 import { StaffNotificationsController } from "./notifications/staff-notifications.controller";
 import { StaffNotificationsService } from "./notifications/staff-notifications.service";
 import { JobAssignmentsController } from "./jobs/job-assignments.controller";
@@ -134,6 +136,7 @@ import { ReportsService } from "./reports/reports.service";
     JobAssignmentsController,
     StaffNotificationsController,
     ChatController,
+    TeamChatController,
     AssistantController,
     JobDetailsController,
     JobCorrespondenceController,
@@ -174,6 +177,7 @@ import { ReportsService } from "./reports/reports.service";
     JobAssignmentsService,
     StaffNotificationsService,
     ChatService,
+    TeamChatService,
     AssistantService,
     {
       provide: ASSISTANT_CLAUDE,

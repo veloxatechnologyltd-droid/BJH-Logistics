@@ -1532,6 +1532,55 @@ export const chatMessageInputSchema = z.object(
   objectError("A message object is required"),
 );
 
+/** Internal team chat (Evans, 2026-11-02): what a message may point to. */
+export const teamTagKinds = ["user", "job", "invoice", "document"] as const;
+export type TeamTagKind = (typeof teamTagKinds)[number];
+export const teamKeys = [
+  "sales",
+  "customer_service",
+  "operations",
+  "finance",
+] as const;
+export type TeamKey = (typeof teamKeys)[number];
+
+/** A staff message, with the people, jobs, invoices and documents it tags. */
+export const teamMessageInputSchema = z.object(
+  {
+    body: requiredText("body", 4000),
+    tags: z
+      .array(
+        z.object({
+          kind: z.enum(teamTagKinds, {
+            error: "tag kind must be user, job, invoice or document",
+          }),
+          id: uuidField("tag id"),
+        }),
+        { error: "tags must be a list" },
+      )
+      .max(20, { error: "A message can tag at most 20 things" })
+      .default([]),
+  },
+  objectError("A message object is required"),
+);
+
+/** A new group conversation: its name and who else is in it. */
+export const teamGroupInputSchema = z.object(
+  {
+    title: requiredText("title", 80),
+    memberIds: z
+      .array(uuidField("memberIds"), { error: "memberIds must be a list" })
+      .max(50, { error: "A group can start with at most 50 people" })
+      .default([]),
+  },
+  objectError("A group object is required"),
+);
+
+/** One staff member: to message directly, or to add to a group. */
+export const teamPersonInputSchema = z.object(
+  { userId: uuidField("userId") },
+  objectError("A userId is required"),
+);
+
 export const jobAssignmentKinds = ["lead", "assistant"] as const;
 export type JobAssignmentKind = (typeof jobAssignmentKinds)[number];
 

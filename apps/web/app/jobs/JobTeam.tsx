@@ -174,6 +174,7 @@ export function JobTeam({
               {canAssign && !invoice.acceptance && accepting !== invoice.id && (
                 <button
                   className={styles.secondaryButton}
+                  style={{ marginLeft: 10 }}
                   onClick={() => {
                     setAccepting(invoice.id);
                     setSignatory("");

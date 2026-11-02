@@ -27,6 +27,7 @@ import {
   StaffRoleKey,
 } from "../database/database.port";
 import { JobsService } from "../jobs/jobs.service";
+import { TeamChatService } from "../team-chat/team-chat.service";
 import { JobChargesService, JobChargeView } from "./job-charges.service";
 import { computeInvoiceTotals } from "./invoice-totals";
 import {
@@ -91,6 +92,7 @@ export class InvoicesService {
     @Inject(JobChargesService) private readonly charges: JobChargesService,
     @Inject(NotificationsService)
     private readonly notifications: NotificationsService,
+    @Inject(TeamChatService) private readonly teamChat: TeamChatService,
   ) {}
 
   async list(id: string, scope: JobScope): Promise<InvoiceView[]> {
@@ -163,6 +165,22 @@ export class InvoicesService {
     if (result === "already_accepted") {
       throw new ConflictException("This invoice has already been accepted");
     }
+    // Finance hears of it in its team channel (Evans, 2026-11-02).
+    const invoice = (await this.database.listInvoices(job.id)).find(
+      (item) => item.id === invoiceId,
+    );
+    await this.teamChat.postToTeam(
+      "finance",
+      `${invoice?.invoiceNumber ?? "An invoice"} on ${job.fileNumber} was accepted by the client (${result.signatoryName})${
+        result.via === "portal"
+          ? " in the portal."
+          : ", recorded by customer service."
+      }`,
+      [
+        { kind: "invoice", id: invoiceId },
+        { kind: "job", id: job.id },
+      ],
+    );
     return result;
   }
 

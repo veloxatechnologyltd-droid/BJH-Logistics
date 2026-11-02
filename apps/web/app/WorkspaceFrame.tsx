@@ -11,6 +11,7 @@ import type { NavIconName } from "./NavIcon";
 import { SettingsSidebarSection } from "./SettingsSidebarSection";
 import { StaffNotices } from "./StaffNotices";
 import { listChatThreads } from "./chat/chatApi";
+import { getTeamUnread } from "./team-chat/teamChatApi";
 import { listQuoteRequests } from "./quotations/quoteRequestApi";
 import type { RequestMailbox } from "./quotations/quoteRequestApi";
 import { getFeed } from "./messages/messageApi";
@@ -51,6 +52,7 @@ const staffNav: NavGroup[] = [
     items: [
       { href: "/", label: "Overview", icon: "overview", exact: true },
       { href: "/reports", label: "Reports", icon: "reports" },
+      { href: "/team-chat", label: "Team chat", icon: "team" },
       { href: "/assistant", label: "Bra Evans", icon: "helper" },
     ],
   },
@@ -196,6 +198,29 @@ function useChatUnread(enabled: boolean, pathname: string): number {
   return enabled ? count : 0;
 }
 
+/** Unread team chat messages for the menu badge; every 30 seconds. */
+function useTeamUnread(enabled: boolean, pathname: string): number {
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    if (!enabled) return;
+    let current = true;
+    const load = () =>
+      getTeamUnread()
+        .then((result) => {
+          if (current) setCount(result.unread);
+        })
+        // The badge is a hint; the Team chat page shows any failure.
+        .catch(() => undefined);
+    void load();
+    const timer = window.setInterval(load, 30_000);
+    return () => {
+      current = false;
+      window.clearInterval(timer);
+    };
+  }, [enabled, pathname]);
+  return enabled ? count : 0;
+}
+
 const weekMs = 7 * 24 * 60 * 60 * 1000;
 
 /**
@@ -310,6 +335,7 @@ export function WorkspaceFrame({ children }: { children: ReactNode }) {
       (roles.includes("customer_service_rep") || roles.includes("super_admin")),
     pathname,
   );
+  const unreadTeam = useTeamUnread(status === "ready" && !isCustomer, pathname);
   const { draftQuotes, failedMessages } = useWorkCounts(
     status === "ready" && !isCustomer,
     pathname,
@@ -419,11 +445,13 @@ export function WorkspaceFrame({ children }: { children: ReactNode }) {
                       ? inquiriesForAPerson
                       : item.href === "/chat"
                         ? unreadChat
-                        : item.href === "/quotes"
-                          ? draftQuotes
-                          : item.href === "/messages"
-                            ? failedMessages
-                            : 0;
+                        : item.href === "/team-chat"
+                          ? unreadTeam
+                          : item.href === "/quotes"
+                            ? draftQuotes
+                            : item.href === "/messages"
+                              ? failedMessages
+                              : 0;
                 const label = badge
                   ? `${item.label}, ${badge} ${
                       item.href === "/quotes"

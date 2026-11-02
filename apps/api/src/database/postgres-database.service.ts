@@ -16,6 +16,7 @@ import type {
   LeadStage,
   RequestDetails,
   RequestKind,
+  TeamKey,
 } from "@bjh/contracts";
 import { parseContract, requestDetailsSchema } from "@bjh/contracts";
 import {
@@ -101,6 +102,11 @@ import {
   RequestAttachmentRecord,
   StaffRoleKey,
   StaffRoleAssignmentRecord,
+  TeamConversationRecord,
+  TeamConversationSummary,
+  TeamMessageRecord,
+  TeamTag,
+  TeamTagTargets,
 } from "./database.port";
 
 /** Task rows joined to their job; `source` is the table or CTE holding the task. */
@@ -3647,6 +3653,378 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       `UPDATE app.chat_message SET read_at = clock_timestamp()
        WHERE company_id = $1::uuid AND direction = $2 AND read_at IS NULL`,
       [companyId, direction],
+    );
+  }
+
+  // --- Internal team chat (Evans, 2026-11-02) ---
+
+  private static readonly teamConversationSelect = `
+    SELECT conversation.*,
+           COALESCE((SELECT array_agg(member.user_id::text ORDER BY member.added_at)
+                     FROM app.team_conversation_member AS member
+                     WHERE member.conversation_id = conversation.conversation_id
+                       AND member.left_at IS NULL), '{}') AS member_ids
+    FROM app.team_conversation AS conversation`;
+
+  private mapTeamConversation(
+    row: Record<string, unknown>,
+  ): TeamConversationRecord {
+    return {
+      id: String(row.conversation_id),
+      kind: row.kind as TeamConversationRecord["kind"],
+      title: (row.title as string | null) ?? null,
+      teamKey: (row.team_key as TeamKey | null) ?? null,
+      createdBy: row.created_by ? String(row.created_by) : null,
+      createdAt: this.toIsoString(row.created_at),
+      memberIds: (row.member_ids as string[] | null) ?? [],
+    };
+  }
+
+  private mapTeamMessage(row: Record<string, unknown>): TeamMessageRecord {
+    return {
+      id: String(row.message_id),
+      conversationId: String(row.conversation_id),
+      authorUserId: row.author_user_id ? String(row.author_user_id) : null,
+      body: String(row.body),
+      tags: (row.tags as TeamTag[] | null) ?? [],
+      createdAt: this.toIsoString(row.created_at),
+    };
+  }
+
+  async listTeamConversations(
+    userId: string,
+    teamKeys: TeamKey[],
+  ): Promise<TeamConversationSummary[]> {
+    const result = await this.pool.query(
+      `WITH mine AS (
+         ${PostgresDatabaseService.teamConversationSelect}
+         WHERE (conversation.kind = 'team' AND conversation.team_key = ANY($2::text[]))
+            OR EXISTS (
+              SELECT 1 FROM app.team_conversation_member AS member
+              WHERE member.conversation_id = conversation.conversation_id
+                AND member.user_id = $1::uuid AND member.left_at IS NULL)
+       )
+       SELECT mine.*, last.body AS last_body,
+              last.author_user_id AS last_author, last.created_at AS last_at,
+              (SELECT count(*) FROM app.team_message AS unseen
+               WHERE unseen.conversation_id = mine.conversation_id
+                 AND unseen.author_user_id IS DISTINCT FROM $1::uuid
+                 AND unseen.created_at > COALESCE(
+                   (SELECT state.last_read_at FROM app.team_read_state AS state
+                    WHERE state.conversation_id = mine.conversation_id
+                      AND state.user_id = $1::uuid),
+                   '-infinity'::timestamptz)) AS unread
+       FROM mine
+       LEFT JOIN LATERAL (
+         SELECT body, author_user_id, created_at FROM app.team_message AS newest
+         WHERE newest.conversation_id = mine.conversation_id
+         ORDER BY newest.created_at DESC, newest.message_id DESC LIMIT 1
+       ) AS last ON true
+       ORDER BY COALESCE(last.created_at, mine.created_at) DESC`,
+      [userId, teamKeys],
+    );
+    return result.rows.map((row) => ({
+      ...this.mapTeamConversation(row),
+      lastMessage: row.last_at
+        ? {
+            body: String(row.last_body),
+            authorUserId: row.last_author ? String(row.last_author) : null,
+            createdAt: this.toIsoString(row.last_at),
+          }
+        : null,
+      unread: Number(row.unread),
+    }));
+  }
+
+  async findTeamConversation(
+    id: string,
+  ): Promise<TeamConversationRecord | null> {
+    const result = await this.pool.query(
+      `${PostgresDatabaseService.teamConversationSelect}
+       WHERE conversation.conversation_id = $1::uuid`,
+      [id],
+    );
+    return result.rows[0] ? this.mapTeamConversation(result.rows[0]) : null;
+  }
+
+  async ensureTeamChannels(): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO app.team_conversation (kind, title, team_key) VALUES
+         ('team', 'Sales', 'sales'),
+         ('team', 'Customer Service', 'customer_service'),
+         ('team', 'Operations', 'operations'),
+         ('team', 'Finance', 'finance')
+       ON CONFLICT (team_key) DO NOTHING`,
+    );
+  }
+
+  async findTeamChannel(teamKey: TeamKey): Promise<TeamConversationRecord> {
+    const result = await this.pool.query(
+      `${PostgresDatabaseService.teamConversationSelect}
+       WHERE conversation.team_key = $1`,
+      [teamKey],
+    );
+    return this.mapTeamConversation(result.rows[0]);
+  }
+
+  async findOrCreateDirectConversation(
+    userA: string,
+    userB: string,
+    createdBy: string,
+  ): Promise<TeamConversationRecord> {
+    const directKey = [userA, userB].sort().join(":");
+    const client = await this.pool.connect();
+    let id: string;
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        `INSERT INTO app.team_conversation (kind, direct_key, created_by)
+         VALUES ('direct', $1, $2::uuid)
+         ON CONFLICT (direct_key) DO NOTHING`,
+        [directKey, createdBy],
+      );
+      const found = await client.query(
+        `SELECT conversation_id FROM app.team_conversation WHERE direct_key = $1`,
+        [directKey],
+      );
+      id = String(found.rows[0].conversation_id);
+      await client.query(
+        `INSERT INTO app.team_conversation_member (conversation_id, user_id, added_by)
+         SELECT $1::uuid, unnest($2::uuid[]), $3::uuid
+         ON CONFLICT (conversation_id, user_id) DO NOTHING`,
+        [id, [userA, userB], createdBy],
+      );
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+    // Read back after the connection is released, not while holding it.
+    return (await this.findTeamConversation(id))!;
+  }
+
+  async createTeamGroup(
+    title: string,
+    memberIds: string[],
+    createdBy: string,
+  ): Promise<TeamConversationRecord> {
+    const client = await this.pool.connect();
+    let id: string;
+    try {
+      await client.query("BEGIN");
+      const created = await client.query(
+        `INSERT INTO app.team_conversation (kind, title, created_by)
+         VALUES ('group', $1, $2::uuid) RETURNING conversation_id`,
+        [title, createdBy],
+      );
+      id = String(created.rows[0].conversation_id);
+      await client.query(
+        `INSERT INTO app.team_conversation_member (conversation_id, user_id, added_by)
+         SELECT $1::uuid, member, $3::uuid
+         FROM unnest($2::uuid[]) AS member
+         ON CONFLICT (conversation_id, user_id) DO NOTHING`,
+        [id, [createdBy, ...memberIds], createdBy],
+      );
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+    return (await this.findTeamConversation(id))!;
+  }
+
+  async addTeamConversationMember(
+    conversationId: string,
+    userId: string,
+    addedBy: string,
+  ): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO app.team_conversation_member (conversation_id, user_id, added_by)
+       VALUES ($1::uuid, $2::uuid, $3::uuid)
+       ON CONFLICT (conversation_id, user_id)
+       DO UPDATE SET left_at = NULL, added_by = EXCLUDED.added_by,
+                     added_at = clock_timestamp()
+       WHERE app.team_conversation_member.left_at IS NOT NULL`,
+      [conversationId, userId, addedBy],
+    );
+  }
+
+  async leaveTeamConversation(
+    conversationId: string,
+    userId: string,
+  ): Promise<void> {
+    await this.pool.query(
+      `UPDATE app.team_conversation_member SET left_at = clock_timestamp()
+       WHERE conversation_id = $1::uuid AND user_id = $2::uuid AND left_at IS NULL`,
+      [conversationId, userId],
+    );
+  }
+
+  async listTeamMessages(
+    conversationId: string,
+    before: string | null,
+    limit: number,
+  ): Promise<TeamMessageRecord[]> {
+    const result = await this.pool.query(
+      `SELECT * FROM (
+         SELECT * FROM app.team_message
+         WHERE conversation_id = $1::uuid
+           AND ($2::timestamptz IS NULL OR created_at < $2::timestamptz)
+         ORDER BY created_at DESC, message_id DESC
+         LIMIT $3::int
+       ) AS page
+       ORDER BY created_at, message_id`,
+      [conversationId, before, limit],
+    );
+    return result.rows.map((row) => this.mapTeamMessage(row));
+  }
+
+  async addTeamMessage(
+    message: Omit<TeamMessageRecord, "id" | "createdAt">,
+  ): Promise<TeamMessageRecord> {
+    const result = await this.pool.query(
+      `INSERT INTO app.team_message (conversation_id, author_user_id, body, tags)
+       VALUES ($1::uuid, $2::uuid, $3, $4::jsonb)
+       RETURNING *`,
+      [
+        message.conversationId,
+        message.authorUserId,
+        message.body,
+        JSON.stringify(message.tags),
+      ],
+    );
+    return this.mapTeamMessage(result.rows[0]);
+  }
+
+  async markTeamConversationRead(
+    conversationId: string,
+    userId: string,
+  ): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO app.team_read_state (conversation_id, user_id, last_read_at)
+       VALUES ($1::uuid, $2::uuid, clock_timestamp())
+       ON CONFLICT (conversation_id, user_id)
+       DO UPDATE SET last_read_at = GREATEST(
+         app.team_read_state.last_read_at, EXCLUDED.last_read_at)`,
+      [conversationId, userId],
+    );
+  }
+
+  /** The same job scope rule as `findJob`, for the alias `job`. */
+  private static readonly teamJobScope = `
+    ($2::uuid[] IS NULL OR job.customer_company_id = ANY($2::uuid[]))
+    AND ($3::text[] IS NULL OR job.service_line = ANY($3::text[]))`;
+
+  private async teamTagTargets(
+    where: { jobs: string; invoices: string; documents: string },
+    first: unknown,
+    scope: JobScope,
+    limit: number | null,
+  ): Promise<TeamTagTargets> {
+    if (scope.companyIds?.length === 0 || scope.serviceLines?.length === 0) {
+      return { jobs: [], invoices: [], documents: [] };
+    }
+    const params = [
+      first,
+      scope.companyIds ?? null,
+      scope.serviceLines ?? null,
+      scope.hiddenDocumentTypes ?? [],
+    ];
+    const cap = limit === null ? "" : `LIMIT ${Math.trunc(limit)}`;
+    const [jobs, invoices, documents] = await Promise.all([
+      this.pool.query(
+        `SELECT job.job_id, job.file_number FROM app.job AS job
+         WHERE ${where.jobs} AND ${PostgresDatabaseService.teamJobScope}
+         ORDER BY job.opened_at DESC ${cap}`,
+        params.slice(0, 3),
+      ),
+      this.pool.query(
+        `SELECT invoice.invoice_id, invoice.job_id, invoice.invoice_number,
+                invoice.status
+         FROM app.invoice AS invoice
+         JOIN app.job AS job ON job.job_id = invoice.job_id
+         WHERE invoice.status <> 'draft' AND ${where.invoices}
+           AND ${PostgresDatabaseService.teamJobScope}
+         ORDER BY invoice.issued_at DESC ${cap}`,
+        params.slice(0, 3),
+      ),
+      this.pool.query(
+        `SELECT document.document_id, document.job_id,
+                COALESCE(document.title, latest.original_filename,
+                         replace(document.document_type, '_', ' ')) AS label
+         FROM app.document AS document
+         LEFT JOIN app.job AS job ON job.job_id = document.job_id
+         LEFT JOIN LATERAL (
+           SELECT original_filename FROM app.document_version AS version
+           WHERE version.document_id = document.document_id
+           ORDER BY version.version_number DESC LIMIT 1
+         ) AS latest ON true
+         WHERE ${where.documents}
+           AND NOT (document.document_type = ANY($4::text[]))
+           AND (($2::uuid[] IS NULL AND $3::text[] IS NULL)
+             OR ($2::uuid[] IS NOT NULL
+                 AND COALESCE(job.customer_company_id, document.company_id) = ANY($2::uuid[]))
+             OR ($3::text[] IS NOT NULL
+                 AND (document.job_id IS NULL OR job.service_line = ANY($3::text[]))))
+         ORDER BY document.created_at DESC ${cap}`,
+        params,
+      ),
+    ]);
+    return {
+      jobs: jobs.rows.map((row) => ({
+        id: String(row.job_id),
+        fileNumber: String(row.file_number),
+      })),
+      invoices: invoices.rows.map((row) => ({
+        id: String(row.invoice_id),
+        jobId: String(row.job_id),
+        invoiceNumber: String(row.invoice_number),
+        status: row.status as "issued" | "void",
+      })),
+      documents: documents.rows.map((row) => ({
+        id: String(row.document_id),
+        jobId: row.job_id ? String(row.job_id) : null,
+        label: String(row.label),
+      })),
+    };
+  }
+
+  async findTeamTagTargets(
+    ids: { jobIds: string[]; invoiceIds: string[]; documentIds: string[] },
+    scope: JobScope,
+  ): Promise<TeamTagTargets> {
+    const all = [...ids.jobIds, ...ids.invoiceIds, ...ids.documentIds];
+    if (all.length === 0) return { jobs: [], invoices: [], documents: [] };
+    return this.teamTagTargets(
+      {
+        jobs: "job.job_id = ANY($1::uuid[])",
+        invoices: "invoice.invoice_id = ANY($1::uuid[])",
+        documents: "document.document_id = ANY($1::uuid[])",
+      },
+      all,
+      scope,
+      null,
+    );
+  }
+
+  async searchTeamTagTargets(
+    term: string,
+    scope: JobScope,
+  ): Promise<TeamTagTargets> {
+    return this.teamTagTargets(
+      {
+        jobs: "strpos(lower(job.file_number), lower($1::text)) > 0",
+        invoices: "strpos(lower(invoice.invoice_number), lower($1::text)) > 0",
+        documents: `strpos(lower(COALESCE(document.title, '') || ' ' ||
+                     COALESCE(latest.original_filename, '')), lower($1::text)) > 0`,
+      },
+      term,
+      scope,
+      6,
     );
   }
 
