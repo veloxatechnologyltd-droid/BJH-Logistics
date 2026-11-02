@@ -271,6 +271,9 @@ const PAYMENT_COLUMNS = `p.payment_id, p.invoice_id, p.receipt_number, p.amount_
   p.reference, p.evidence_document_id, p.note, p.recorded_by, p.recorded_at,
   r.reason AS reversal_reason, r.reversed_by, r.reversed_at`;
 
+/** The longest a jobs search may run (audit D2). */
+const JOBS_LIST_TIMEOUT_MS = 20_000;
+
 const UUID_PATTERN =
   "'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'";
 
@@ -1068,6 +1071,33 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     }
   }
 
+  /**
+   * Runs one query that must finish within `milliseconds`, so a runaway search
+   * cannot hold one of the few pooled connections. The limit is set inside a
+   * transaction (`SET LOCAL`), which also works behind a transaction-mode pooler.
+   */
+  async queryWithTimeout(
+    sql: string,
+    params: unknown[],
+    milliseconds: number,
+  ): Promise<PostgresQueryResult> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        `SET LOCAL statement_timeout = ${Math.trunc(milliseconds)}`,
+      );
+      const result = await client.query(sql, params);
+      await client.query("COMMIT");
+      return result;
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async listJobs(
     search: string,
     scope: JobScope,
@@ -1077,7 +1107,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       return [];
     }
     // Dates are Ghana days; Ghana keeps UTC all year.
-    const result = await this.pool.query(
+    const result = await this.queryWithTimeout(
       `SELECT listed.*, eta.eta_at AS current_eta_at, lead.user_id AS lead_user_id
        FROM (
        ${jobSelect}
@@ -1156,6 +1186,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
         filter.vessel ?? null,
         filter.port ?? null,
       ],
+      JOBS_LIST_TIMEOUT_MS,
     );
     return result.rows.map((row) => ({
       ...this.mapJob(row),

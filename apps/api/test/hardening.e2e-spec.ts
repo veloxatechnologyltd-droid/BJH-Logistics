@@ -8,6 +8,8 @@ import {
   resolveListenHost,
 } from "../src/app.config";
 import { beginTestDatabase, endTestDatabase } from "./postgres-test-database";
+import { DatabasePort } from "../src/database/database.port";
+import type { PostgresDatabaseService } from "../src/database/postgres-database.service";
 import {
   createTestApplication,
   TEST_CUSTOMER_A_TOKEN,
@@ -164,4 +166,17 @@ test("expensive routes limit each signed-in person, not the shared address", asy
   );
   // Someone else on the same address is not held back by that person's use.
   assert.notEqual(await search(TEST_CUSTOMER_A_TOKEN), 429);
+});
+
+test("a search that runs too long is stopped by the database, and the connection stays usable", async () => {
+  const database = application.get(DatabasePort) as unknown as Pick<
+    PostgresDatabaseService,
+    "queryWithTimeout"
+  >;
+  await assert.rejects(
+    database.queryWithTimeout("SELECT pg_sleep(2)", [], 50),
+    (error: { code?: string }) => error.code === "57014",
+  );
+  const fine = await database.queryWithTimeout("SELECT 1 AS one", [], 5_000);
+  assert.equal(fine.rows[0].one, 1);
 });
