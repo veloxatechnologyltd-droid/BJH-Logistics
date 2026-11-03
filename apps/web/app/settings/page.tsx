@@ -99,6 +99,17 @@ export default function SettingsPage() {
               View status <span aria-hidden="true">→</span>
             </Link>
           </article>
+          <article className="action-card">
+            <span className="action-icon" aria-hidden="true">
+              <NavIcon name="help" />
+            </span>
+            <div className="action-copy">
+              <h3>Support requests</h3>
+            </div>
+            <Link className="action-link" href="/settings/support">
+              View requests <span aria-hidden="true">→</span>
+            </Link>
+          </article>
         </section>
       </main>
     </>

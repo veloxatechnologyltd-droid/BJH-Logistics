@@ -2212,3 +2212,30 @@ export const leadActivityInputSchema = z.object(
   },
   objectError("An activity object is required"),
 );
+
+/** Support requests (Evans, 2026-11-03): a problem, a feature wish or a question. */
+export const supportRequestKinds = ["problem", "feature", "question"] as const;
+export const supportRequestStatuses = ["new", "in_progress", "done"] as const;
+
+export const supportRequestInputSchema = z.object(
+  {
+    kind: z.enum(supportRequestKinds, {
+      error: "kind must be problem, feature or question",
+    }),
+    description: requiredText("description", 4000),
+    pagePath: optionalText("pagePath", 500),
+    userAgent: optionalText("userAgent", 500),
+    lastError: optionalText("lastError", 1000),
+  },
+  objectError("A support request object is required"),
+);
+export type SupportRequestInput = z.infer<typeof supportRequestInputSchema>;
+
+export const supportRequestStatusSchema = z.object(
+  {
+    status: z.enum(supportRequestStatuses, {
+      error: "status must be new, in_progress or done",
+    }),
+  },
+  objectError("A status object is required"),
+);

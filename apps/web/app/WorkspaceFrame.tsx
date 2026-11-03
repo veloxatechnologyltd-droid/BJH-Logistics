@@ -10,6 +10,7 @@ import { NavIcon } from "./NavIcon";
 import type { NavIconName } from "./NavIcon";
 import { SettingsSidebarSection } from "./SettingsSidebarSection";
 import { StaffNotices } from "./StaffNotices";
+import { SupportButton } from "./support/SupportButton";
 import { listChatThreads } from "./chat/chatApi";
 import { getTeamUnread } from "./team-chat/teamChatApi";
 import { listQuoteRequests } from "./quotations/quoteRequestApi";
@@ -284,6 +285,7 @@ const settingsPages: Array<{ href: string; label: string }> = [
   { href: "/settings/notifications", label: "Customer messages" },
   { href: "/settings/activity", label: "Activity log" },
   { href: "/settings/system-status", label: "System status" },
+  { href: "/settings/support", label: "Support requests" },
   { href: "/admin/users", label: "Staff management" },
   { href: "/transport", label: "Transport" },
 ];
@@ -486,6 +488,12 @@ export function WorkspaceFrame({ children }: { children: ReactNode }) {
 
         {!resolving && !isCustomer && (
           <SettingsSidebarSection active={settingsActive} />
+        )}
+
+        {!resolving && status === "ready" && (
+          <div className="sidebar-support">
+            <SupportButton />
+          </div>
         )}
       </aside>
 
