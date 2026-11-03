@@ -8,9 +8,15 @@ export const PLATFORM_URL = (
   process.env.NEXT_PUBLIC_PLATFORM_URL ?? "http://127.0.0.1:3002"
 ).replace(/\/$/, "");
 
+// The live site is served from www: Vercel redirects bjhlogistics.com to it,
+// so every canonical, sitemap and structured-data URL must use the www host.
 export const SITE_URL = (
-  process.env.NEXT_PUBLIC_SITE_URL ?? "https://bjhlogistics.com"
+  process.env.NEXT_PUBLIC_SITE_URL ?? "https://www.bjhlogistics.com"
 ).replace(/\/$/, "");
+
+// Shown as <lastmod> in the sitemap. Bump it when page copy really changes;
+// search engines ignore lastmod values that change on every build.
+export const CONTENT_UPDATED = "2026-11-02";
 
 export const contact = {
   company: "BJH Logistics Services Ltd",

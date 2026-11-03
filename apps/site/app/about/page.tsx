@@ -10,11 +10,13 @@ import {
 } from "../content";
 import { Icon } from "../Icon";
 import { CtaBand, PageHero, SectionHeading } from "../Sections";
+import { pageMetadata } from "../seo";
 
-export const metadata: Metadata = {
-  title: "About us",
+export const metadata: Metadata = pageMetadata({
+  title: "About Us: Freight Forwarder in Tema",
   description: `BJH Logistics has delivered freight forwarding, customs and logistics services from Tema, Ghana since ${FOUNDED}.`,
-};
+  path: "/about",
+});
 
 export default function AboutPage() {
   return (

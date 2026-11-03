@@ -4,12 +4,15 @@ import Image from "next/image";
 import { clearance, serviceGroups } from "../content";
 import { Icon } from "../Icon";
 import { CtaBand, PageHero } from "../Sections";
+import { pageMetadata } from "../seo";
+import { serviceHref } from "../serviceDetails";
 
-export const metadata: Metadata = {
-  title: "Services",
+export const metadata: Metadata = pageMetadata({
+  title: "Freight and Logistics Services in Ghana",
   description:
-    "Sea, air and road freight, customs clearance at Tema Port, warehousing and bonded storage, container sales, cargo insurance and project cargo from Tema, Ghana.",
-};
+    "Sea, air and road freight, customs clearance at Tema Port, warehousing, container sales, cargo insurance and project cargo from Tema, Ghana.",
+  path: "/services",
+});
 
 export default function ServicesPage() {
   return (
@@ -54,7 +57,11 @@ export default function ServicesPage() {
                   <span className="icon-box">
                     <Icon name={service.icon} />
                   </span>
-                  <h3>{service.title}</h3>
+                  <h3>
+                    <Link href={serviceHref(service.slug)}>
+                      {service.title}
+                    </Link>
+                  </h3>
                   <p>{service.summary}</p>
                   <Link
                     href={`/request-a-quote?service=${service.slug}`}
