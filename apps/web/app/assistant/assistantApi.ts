@@ -21,6 +21,15 @@ export type ProposedAction = {
   summary: string;
 };
 
+/** A button to the page where the person finishes the work. */
+export type PageLink = {
+  id: string;
+  label: string;
+  href: string;
+  /** Client chat only: the drafted message to put in the reply box. */
+  draft?: string;
+};
+
 async function read<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as {
@@ -64,6 +73,7 @@ export const askHelper = (conversationId: string | null, message: string) =>
     title: string;
     reply: string;
     proposals: ProposedAction[];
+    links: PageLink[];
   }>("/turn", { conversationId: conversationId ?? undefined, message });
 export const confirmAction = (
   conversationId: string | null,

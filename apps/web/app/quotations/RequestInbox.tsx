@@ -98,6 +98,24 @@ function shortTime(iso: string): string {
   });
 }
 
+const periods = [
+  { key: "all", label: "Any time", days: 0 },
+  { key: "today", label: "Today", days: 1 },
+  { key: "week", label: "Last 7 days", days: 7 },
+  { key: "month", label: "Last 30 days", days: 30 },
+] as const;
+type Period = (typeof periods)[number]["key"];
+
+/** The earliest time a period shows (local midnight, n-1 days back); null for any time. */
+function periodStart(period: Period): string | null {
+  const days = periods.find((entry) => entry.key === period)!.days;
+  if (!days) return null;
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  start.setDate(start.getDate() - (days - 1));
+  return start.toISOString();
+}
+
 function initials(name: string): string {
   const letters = name
     .split(/[\s@._-]+/)
@@ -143,6 +161,9 @@ export function RequestInbox({
   const [tab, setTab] = useState<Tab>(shownTabs[0].key);
   const [query, setQuery] = useState("");
   const normalizedQuery = query.trim().toLocaleLowerCase();
+  const [period, setPeriod] = useState<Period>("all");
+  const since = periodStart(period);
+  const filtering = Boolean(normalizedQuery || since);
 
   const load = useCallback(async () => {
     setLoadState("loading");
@@ -191,8 +212,11 @@ export function RequestInbox({
   const counts = { ...byTab, sent };
 
   const shownSent = useMemo(() => {
-    if (!normalizedQuery) return sent;
-    return sent.filter((message) =>
+    const inPeriod = since
+      ? sent.filter((message) => message.createdAt >= since)
+      : sent;
+    if (!normalizedQuery) return inPeriod;
+    return inPeriod.filter((message) =>
       [
         message.companyName,
         message.subject,
@@ -203,11 +227,16 @@ export function RequestInbox({
         ),
       ].some((value) => value.toLocaleLowerCase().includes(normalizedQuery)),
     );
-  }, [sent, normalizedQuery]);
+  }, [sent, normalizedQuery, since]);
 
   const shown = useMemo(() => {
     if (tab === "sent") return [];
-    const list = byTab[tab];
+    const list = since
+      ? byTab[tab].filter(
+          (request) =>
+            (request.intake?.receivedAt ?? request.createdAt) >= since,
+        )
+      : byTab[tab];
     if (!normalizedQuery) return list;
     return list.filter((request) =>
       [
@@ -221,7 +250,7 @@ export function RequestInbox({
         request.intake?.reply?.subject ?? "",
       ].some((value) => value.toLocaleLowerCase().includes(normalizedQuery)),
     );
-  }, [byTab, tab, normalizedQuery]);
+  }, [byTab, tab, normalizedQuery, since]);
 
   const newCount = byTab.received.filter(
     (request) => request.intake && !request.intake.reviewedAt,
@@ -318,6 +347,17 @@ export function RequestInbox({
                 Clear
               </button>
             )}
+            <select
+              aria-label="Show emails from"
+              onChange={(event) => setPeriod(event.target.value as Period)}
+              value={period}
+            >
+              {periods.map((entry) => (
+                <option key={entry.key} value={entry.key}>
+                  {entry.label}
+                </option>
+              ))}
+            </select>
           </div>
 
           {tab === "sent" && shownSent.length > 0 ? (
@@ -334,12 +374,22 @@ export function RequestInbox({
             </ul>
           ) : (
             <div className={styles.emptyState}>
-              {normalizedQuery ? (
+              {filtering ? (
                 <>
                   <h3>Nothing matches</h3>
-                  <p>Try another name, address or phrase.</p>
-                  <button onClick={() => setQuery("")} type="button">
-                    Clear search
+                  <p>
+                    {normalizedQuery
+                      ? "Try another name, address or phrase, or a longer period."
+                      : "Nothing in this period. Try a longer one."}
+                  </p>
+                  <button
+                    onClick={() => {
+                      setQuery("");
+                      setPeriod("all");
+                    }}
+                    type="button"
+                  >
+                    Clear filters
                   </button>
                 </>
               ) : (

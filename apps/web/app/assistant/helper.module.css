@@ -227,3 +227,10 @@
   font: inherit;
   resize: none;
 }
+
+/* A Bra Evans button to another page, drawn like the Send button. */
+.pageLink {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}

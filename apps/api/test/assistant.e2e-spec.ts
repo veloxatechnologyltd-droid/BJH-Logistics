@@ -21,6 +21,7 @@ let application: INestApplication;
 let baseUrl: string;
 let jobId: string;
 let fileNumber: string;
+let companyId: string;
 
 let conversationId: string;
 let firstSystem: string;
@@ -75,7 +76,7 @@ before(async () => {
     "import_rep",
     TEST_SUPER_ADMIN_ID,
   );
-  const companyId = randomUUID();
+  companyId = randomUUID();
   await database.createCustomer({
     id: companyId,
     companyName: "Helper Synthetic Ltd",
@@ -157,6 +158,79 @@ test("the helper looks things up at once but only proposes changes", async () =>
   // A new conversation was saved, titled with the first question.
   conversationId = turn.conversationId;
   assert.equal(turn.title, `Assign the import rep to ${fileNumber}`);
+});
+
+test("drafted messages come back as buttons to the page that finishes them", async () => {
+  testAssistantClaude.requests.length = 0;
+  const invented = randomUUID();
+  testAssistantClaude.replies.push(
+    reply(
+      [
+        {
+          type: "tool_use",
+          id: "toolu_chat",
+          name: "open_page",
+          input: {
+            page: "client_chat",
+            id: companyId,
+            draft: "Dear Helper Synthetic Ltd, we have your request.",
+          },
+        },
+        {
+          type: "tool_use",
+          id: "toolu_job",
+          name: "open_page",
+          input: { page: "job", id: jobId },
+        },
+        {
+          type: "tool_use",
+          id: "toolu_invented",
+          name: "open_page",
+          input: { page: "customer", id: invented },
+        },
+      ],
+      "tool_use",
+    ),
+    reply([{ type: "text", text: "Press the button to finish it." }]),
+  );
+  const response = await post("/api/v1/assistant/turn", TEST_UNASSIGNED_TOKEN, {
+    message: "Draft a message to Helper Synthetic Ltd",
+  });
+  assert.equal(response.status, 200, await response.clone().text());
+  const turn = (await response.json()) as Turn & {
+    links: Array<{ id: string; label: string; href: string; draft?: string }>;
+  };
+  assert.deepEqual(turn.links, [
+    {
+      id: "toolu_chat",
+      label: "Finish the message to Helper Synthetic Ltd in Client chat",
+      href: `/chat?company=${companyId}`,
+      draft: "Dear Helper Synthetic Ltd, we have your request.",
+    },
+    {
+      id: "toolu_job",
+      label: `Open job ${fileNumber}`,
+      href: `/jobs/${jobId}`,
+    },
+  ]);
+  // Nothing was sent, and an invented ID gives no button, only an error.
+  assert.deepEqual(turn.proposals, []);
+  const results = (
+    testAssistantClaude.requests[1] as {
+      messages: Array<{
+        content: Array<{ tool_use_id?: string; is_error?: boolean }>;
+      }>;
+    }
+  ).messages.at(-1)!.content;
+  assert.equal(
+    results.find((result) => result.tool_use_id === "toolu_invented")?.is_error,
+    true,
+  );
+  await call(
+    `/api/v1/assistant/conversations/${turn.conversationId}`,
+    TEST_UNASSIGNED_TOKEN,
+    { method: "DELETE" },
+  );
 });
 
 test("confirming runs the action under the person's own rules", async () => {
