@@ -550,6 +550,24 @@ export interface AssistantLine {
   proposalId?: string;
 }
 
+/** A problem, feature wish or question sent from inside the app. */
+export interface SupportRequestRecord {
+  id: string;
+  reporterUserId: string;
+  reporterEmail: string | null;
+  reporterKind: "staff" | "customer";
+  companyId: string | null;
+  companyName: string | null;
+  kind: "problem" | "feature" | "question";
+  description: string;
+  pagePath: string | null;
+  userAgent: string | null;
+  lastError: string | null;
+  status: "new" | "in_progress" | "done";
+  createdAt: string;
+  updatedAt: string;
+}
+
 /** A staff member's conversation with the helper, private to them. */
 export interface AssistantConversationRecord {
   id: string;
@@ -1700,6 +1718,22 @@ export abstract class DatabasePort {
   abstract findCompanyByCustomerNumber(
     customerNumber: string,
   ): Promise<string | null>;
+  /** Saves a support request sent from the app. */
+  abstract createSupportRequest(
+    request: Omit<
+      SupportRequestRecord,
+      "id" | "companyName" | "status" | "createdAt" | "updatedAt"
+    >,
+  ): Promise<SupportRequestRecord>;
+  /** Every support request, newest first; only the person's own with `reporterUserId`. */
+  abstract listSupportRequests(
+    reporterUserId?: string,
+  ): Promise<SupportRequestRecord[]>;
+  /** Sets a request's status; null when there is no such request. */
+  abstract setSupportRequestStatus(
+    id: string,
+    status: SupportRequestRecord["status"],
+  ): Promise<SupportRequestRecord | null>;
   /** The person's helper conversations, most recent first, without their contents. */
   abstract listAssistantConversations(
     userId: string,

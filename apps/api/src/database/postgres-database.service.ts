@@ -79,6 +79,7 @@ import {
   SalesPeriodRecord,
   SalesServiceReportRecord,
   AssistantConversationRecord,
+  SupportRequestRecord,
   AssistantLine,
   ChatThreadRecord,
   PaymentBatchLine,
@@ -4106,6 +4107,98 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       jobId: optional(row.job_id),
       createdAt: this.toIsoString(row.created_at),
       readAt: row.read_at ? this.toIsoString(row.read_at) : null,
+    };
+  }
+
+  async createSupportRequest(
+    request: Omit<
+      SupportRequestRecord,
+      "id" | "companyName" | "status" | "createdAt" | "updatedAt"
+    >,
+  ): Promise<SupportRequestRecord> {
+    const result = await this.pool.query(
+      `INSERT INTO app.support_request (reporter_user_id, reporter_email,
+         reporter_kind, company_id, kind, description, page_path, user_agent,
+         last_error)
+       VALUES ($1::uuid, $2, $3, $4::uuid, $5, $6, $7, $8, $9)
+       RETURNING support_request_id`,
+      [
+        request.reporterUserId,
+        request.reporterEmail,
+        request.reporterKind,
+        request.companyId,
+        request.kind,
+        request.description,
+        request.pagePath,
+        request.userAgent,
+        request.lastError,
+      ],
+    );
+    return (await this.findSupportRequest(
+      String(result.rows[0].support_request_id),
+    ))!;
+  }
+
+  async listSupportRequests(
+    reporterUserId?: string,
+  ): Promise<SupportRequestRecord[]> {
+    const result = await this.pool.query(
+      `SELECT request.*, company.company_name
+       FROM app.support_request request
+       LEFT JOIN app.customer_company company USING (company_id)
+       WHERE $1::uuid IS NULL OR request.reporter_user_id = $1::uuid
+       ORDER BY request.created_at DESC, request.support_request_id
+       LIMIT 500`,
+      [reporterUserId ?? null],
+    );
+    return result.rows.map((row) => this.mapSupportRequest(row));
+  }
+
+  async setSupportRequestStatus(
+    id: string,
+    status: SupportRequestRecord["status"],
+  ): Promise<SupportRequestRecord | null> {
+    const result = await this.pool.query(
+      `UPDATE app.support_request
+       SET status = $2, updated_at = clock_timestamp()
+       WHERE support_request_id = $1::uuid`,
+      [id, status],
+    );
+    return (result.rowCount ?? 0) > 0 ? this.findSupportRequest(id) : null;
+  }
+
+  private async findSupportRequest(
+    id: string,
+  ): Promise<SupportRequestRecord | null> {
+    const result = await this.pool.query(
+      `SELECT request.*, company.company_name
+       FROM app.support_request request
+       LEFT JOIN app.customer_company company USING (company_id)
+       WHERE request.support_request_id = $1::uuid`,
+      [id],
+    );
+    return result.rows[0] ? this.mapSupportRequest(result.rows[0]) : null;
+  }
+
+  private mapSupportRequest(
+    row: Record<string, unknown>,
+  ): SupportRequestRecord {
+    const optional = (value: unknown) => (value ? String(value) : null);
+    return {
+      id: String(row.support_request_id),
+      reporterUserId: String(row.reporter_user_id),
+      reporterEmail: optional(row.reporter_email),
+      reporterKind: row.reporter_kind as SupportRequestRecord["reporterKind"],
+      companyId: optional(row.company_id),
+      companyName: optional(row.company_name),
+      kind: row.kind as SupportRequestRecord["kind"],
+      description: String(row.description),
+      pagePath: optional(row.page_path),
+      userAgent: optional(row.user_agent),
+      lastError: optional(row.last_error),
+      status: row.status as SupportRequestRecord["status"],
+      createdAt: this.toIsoString(row.created_at),
+      updatedAt: this.toIsoString(row.updated_at),
     };
   }
 

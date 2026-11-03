@@ -120,6 +120,8 @@ import { QuotesController } from "./quotations/quotes.controller";
 import { QuotesService } from "./quotations/quotes.service";
 import { ReportsController } from "./reports/reports.controller";
 import { ReportsService } from "./reports/reports.service";
+import { SupportController } from "./support/support.controller";
+import { SupportService } from "./support/support.service";
 
 @Module({
   imports: [
@@ -169,6 +171,7 @@ import { ReportsService } from "./reports/reports.service";
     DocumentLibraryController,
     ExtractionsController,
     ActivityController,
+    SupportController,
   ],
   providers: [
     QuoteRequestsService,
@@ -222,6 +225,7 @@ import { ReportsService } from "./reports/reports.service";
     ExtractionsService,
     { provide: DOCUMENT_READER, useFactory: () => createDocumentReader() },
     { provide: DOCUMENT_STORAGE, useClass: SupabaseDocumentStorage },
+    SupportService,
     ActivityLogMiddleware,
     { provide: APP_FILTER, useClass: RequestErrorFilter },
   ],
