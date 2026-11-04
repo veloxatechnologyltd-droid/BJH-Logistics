@@ -10,6 +10,7 @@ import {
   removeReference,
 } from "../../jobApi";
 import { JobExtractions } from "../../JobExtractions";
+import { JobReportDetails } from "../../JobReportDetails";
 import { JobVoyage } from "../../JobVoyage";
 import { useJob } from "../../JobShell";
 import styles from "../../jobs.module.css";
@@ -79,6 +80,12 @@ export default function JobShipmentPage() {
         canEdit={isStaff && !closedJob}
         job={job}
         key={`${job.vessel}|${job.portOfLoading}|${job.portOfDischarge}`}
+        onSaved={reload}
+      />
+      <JobReportDetails
+        canEdit={isStaff && !closedJob}
+        job={job}
+        key={`${job.goodsDescription}|${job.remarks}|${job.expectedCompletionDate}`}
         onSaved={reload}
       />
       <section className={styles.card} aria-labelledby="parties-title">

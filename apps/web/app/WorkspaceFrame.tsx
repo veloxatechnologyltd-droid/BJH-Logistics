@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { AuthStatus } from "./auth/AuthStatus";
 import { useStaffAccess } from "./auth/useStaffAccess";
+import { InstallPrompt } from "./install/InstallPrompt";
 import { NavIcon } from "./NavIcon";
 import type { NavIconName } from "./NavIcon";
 import { SettingsSidebarSection } from "./SettingsSidebarSection";
@@ -147,6 +148,8 @@ function activeHref(pathname: string, groups: NavGroup[]): string | undefined {
 }
 
 const collapsedKey = "bjh.sidebar.collapsed";
+/** Phones and tablets held upright: the menu is a drawer, not a sidebar. */
+const drawerQuery = "(max-width: 900px)";
 const newRequestsEveryMs = 60_000;
 
 /**
@@ -354,6 +357,11 @@ export function WorkspaceFrame({ children }: { children: ReactNode }) {
     twoFactorRequired,
   } = useStaffAccess();
   const [collapsed, setCollapsed] = useState(false);
+  const [drawerMode, setDrawerMode] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuButton = useRef<HTMLButtonElement>(null);
+  const closeButton = useRef<HTMLButtonElement>(null);
+  const wasOpen = useRef(false);
   const newRequests = useNewRequestCount(
     status === "ready" && !isCustomer,
     pathname,
@@ -395,6 +403,46 @@ export function WorkspaceFrame({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  useEffect(() => {
+    const query = window.matchMedia(drawerQuery);
+    const update = () => {
+      setDrawerMode(query.matches);
+      // Turning a tablet sideways puts the sidebar back; the drawer is not needed.
+      if (!query.matches) setMenuOpen(false);
+    };
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+
+  // Opening a page puts the drawer away.
+  useEffect(() => {
+    setMenuOpen(false);
+  }, [pathname]);
+
+  // Focus goes into the drawer when it opens and back to its button when it
+  // closes, so keyboard and screen-reader users are never left behind it.
+  useEffect(() => {
+    if (menuOpen) closeButton.current?.focus();
+    else if (wasOpen.current) menuButton.current?.focus();
+    wasOpen.current = menuOpen;
+  }, [menuOpen]);
+
+  // While the drawer is open the page behind it stays still, and Escape closes it.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMenuOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = overflow;
+    };
+  }, [menuOpen]);
+
   const toggle = () => {
     const next = !collapsed;
     setCollapsed(next);
@@ -425,8 +473,30 @@ export function WorkspaceFrame({ children }: { children: ReactNode }) {
   const current = activeHref(pathname, groups);
 
   return (
-    <div className={`workspace-shell${collapsed ? " collapsed" : ""}`}>
-      <aside className="sidebar">
+    <div
+      className={`workspace-shell${collapsed && !drawerMode ? " collapsed" : ""}${menuOpen ? " menu-open" : ""}`}
+    >
+      <aside className="sidebar" id="workspace-sidebar">
+        <button
+          aria-label="Close menu"
+          className="drawer-close"
+          onClick={() => setMenuOpen(false)}
+          ref={closeButton}
+          type="button"
+        >
+          <svg
+            aria-hidden="true"
+            fill="none"
+            height="20"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeWidth="2"
+            viewBox="0 0 24 24"
+            width="20"
+          >
+            <path d="M6 6l12 12M18 6L6 18" />
+          </svg>
+        </button>
         <button
           aria-expanded={!collapsed}
           aria-label={collapsed ? "Open sidebar" : "Hide sidebar"}
@@ -527,11 +597,43 @@ export function WorkspaceFrame({ children }: { children: ReactNode }) {
           </div>
         )}
       </aside>
+      {menuOpen && (
+        <button
+          aria-label="Close menu"
+          className="menu-backdrop"
+          onClick={() => setMenuOpen(false)}
+          tabIndex={-1}
+          type="button"
+        />
+      )}
 
-      <div className="workspace-main">
+      {/* Inert while the drawer is open: no Tab, tap or screen reader reaches the page behind it. */}
+      <div className="workspace-main" inert={menuOpen}>
         {/* One header on every page: where you are, who is signed in, sign out. */}
         <header className="topbar">
           <div className="breadcrumb">
+            <button
+              aria-controls="workspace-sidebar"
+              aria-expanded={menuOpen}
+              aria-label="Open menu"
+              className="menu-button"
+              onClick={() => setMenuOpen(true)}
+              ref={menuButton}
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                fill="none"
+                height="22"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeWidth="2"
+                viewBox="0 0 24 24"
+                width="22"
+              >
+                <path d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+            </button>
             {!resolving && (
               <>
                 <Link href={isCustomer ? "/portal" : "/"}>
@@ -555,6 +657,7 @@ export function WorkspaceFrame({ children }: { children: ReactNode }) {
             <AuthStatus />
           </div>
         </header>
+        {status === "ready" && <InstallPrompt />}
         {status === "ready" && !isCustomer && <PushPrompt />}
         {status === "unavailable" && (
           <p className="access-notice" role="alert">

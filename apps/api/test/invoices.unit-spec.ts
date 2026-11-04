@@ -103,6 +103,9 @@ const job: JobRecord = {
   vessel: null,
   portOfLoading: null,
   portOfDischarge: null,
+  goodsDescription: null,
+  remarks: null,
+  expectedCompletionDate: null,
 };
 
 const invoice = (over: Partial<InvoiceView> = {}): InvoiceView => ({

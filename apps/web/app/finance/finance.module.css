@@ -284,6 +284,14 @@
   }
   .num {
     text-align: left !important;
+    /* A figure in two currencies is long; it wraps rather than spilling out of the card. */
+    white-space: normal;
+  }
+  /* The client's open/close button is the whole bar, tall enough to tap. */
+  .clientToggle {
+    display: block;
+    width: 100%;
+    min-height: 44px;
   }
   .cardTable td[data-label]::before {
     content: attr(data-label);
@@ -417,6 +425,14 @@
 .rowActions {
   text-align: right;
   white-space: nowrap;
+}
+/* In a card the actions take their own line and wrap, instead of overflowing a narrow column. */
+@container board (max-width: 860px) {
+  .rowActions {
+    grid-column: 1 / -1;
+    text-align: left;
+    white-space: normal;
+  }
 }
 .srOnly {
   position: absolute;

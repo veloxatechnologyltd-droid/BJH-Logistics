@@ -63,7 +63,7 @@ function VersionView({ version }: { version: QuoteVersion }) {
         );
         return (
           <div className={styles.tableScroll} key={section.heading}>
-            <table className={styles.table}>
+            <table className={styles.table} data-cards>
               <caption>{section.heading}</caption>
               <thead>
                 <tr>
@@ -101,7 +101,10 @@ function VersionView({ version }: { version: QuoteVersion }) {
                     {sized ? (
                       <>
                         {version.sizeLabels.map((_, index) => (
-                          <td key={`${line.id}-${index}`}>
+                          <td
+                            data-label={version.sizeLabels[index]}
+                            key={`${line.id}-${index}`}
+                          >
                             {amountText(
                               line,
                               line.sizeAmountsMinor?.[index] ?? null,
@@ -110,7 +113,7 @@ function VersionView({ version }: { version: QuoteVersion }) {
                           </td>
                         ))}
                         {hasSingleAmount && (
-                          <td>
+                          <td data-label="Amount">
                             {line.sizeAmountsMinor === null
                               ? amountText(
                                   line,
@@ -123,12 +126,12 @@ function VersionView({ version }: { version: QuoteVersion }) {
                       </>
                     ) : (
                       <>
-                        <td>{line.containerSize ?? ""}</td>
-                        <td>{line.quantity}</td>
-                        <td>
+                        <td data-label="Size">{line.containerSize ?? ""}</td>
+                        <td data-label="Qty">{line.quantity}</td>
+                        <td data-label="Unit price">
                           {amountText(line, line.amountMinor, version.currency)}
                         </td>
-                        <td>
+                        <td data-label="Total">
                           {amountText(
                             line,
                             line.amountMinor === null
@@ -139,7 +142,7 @@ function VersionView({ version }: { version: QuoteVersion }) {
                         </td>
                       </>
                     )}
-                    <td>
+                    <td data-label="Basis" data-wide>
                       {line.basis === "at_cost" && line.basisNote
                         ? line.basisNote
                         : `${quoteBasisLabels[line.basis]}${

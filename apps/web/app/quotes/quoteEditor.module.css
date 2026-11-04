@@ -117,6 +117,12 @@
     grid-column: 1 / -1;
   }
 }
+/* One field to a line on a phone, so a long choice is not cut off. */
+@media (max-width: 560px) {
+  .row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
 .list {
   display: grid;
   gap: 8px;

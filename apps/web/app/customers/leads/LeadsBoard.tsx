@@ -429,7 +429,7 @@ export function LeadsBoard() {
         )}
         {shown.length > 0 && (
           <div className={styles.tableScroll}>
-            <table className={styles.customerTable}>
+            <table className={styles.customerTable} data-cards>
               <thead>
                 <tr>
                   <th scope="col">Lead</th>
@@ -479,7 +479,7 @@ export function LeadsBoard() {
                       )}
                       <LeadActivities leadId={lead.id} />
                     </th>
-                    <td>
+                    <td data-label="Stage">
                       <select
                         aria-label={`Stage of ${lead.companyName}`}
                         onChange={(event) =>
@@ -494,8 +494,8 @@ export function LeadsBoard() {
                         ))}
                       </select>
                     </td>
-                    <td>{sourceLabels[lead.source]}</td>
-                    <td>
+                    <td data-label="Source">{sourceLabels[lead.source]}</td>
+                    <td data-label="Owner">
                       {lead.ownerName ?? "Unassigned"}{" "}
                       <button
                         className={ui.textButton}
@@ -509,7 +509,7 @@ export function LeadsBoard() {
                         {lead.ownerId ? "Release" : "Take"}
                       </button>
                     </td>
-                    <td>
+                    <td data-label="Follow up">
                       {isOpen(lead.stage) ? (
                         <>
                           <input

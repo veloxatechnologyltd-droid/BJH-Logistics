@@ -249,8 +249,12 @@ export function ReceiptList({ reloadKey = 0 }: { reloadKey?: number }) {
     const isOpen = expanded.has(key);
     return (
       <tr className={nested ? cards.invoiceRow : undefined} key={key}>
-        <td>{receipt.receivedOn}</td>
-        {isStaff && <td>{nested ? "" : receipt.customerCompanyName}</td>}
+        <td data-label="Date">{receipt.receivedOn}</td>
+        {isStaff && (
+          <td data-label="Customer" data-wide>
+            {nested ? "" : receipt.customerCompanyName}
+          </td>
+        )}
         <th scope="row">
           {formatMoney(total, receipt.currency)}
           {standing.length === 0 && (
@@ -263,7 +267,7 @@ export function ReceiptList({ reloadKey = 0 }: { reloadKey?: number }) {
           <span className={styles.muted}>{methodLabels[receipt.method]}</span>
         </th>
         {rows.length === 1 ? (
-          <td>
+          <td data-label="For" data-wide>
             {receipt.invoiceNumber}
             <br />
             <Link
@@ -274,7 +278,7 @@ export function ReceiptList({ reloadKey = 0 }: { reloadKey?: number }) {
             </Link>
           </td>
         ) : (
-          <td>
+          <td data-label="For" data-wide>
             <button
               aria-expanded={isOpen}
               className={styles.textButton}
@@ -303,7 +307,7 @@ export function ReceiptList({ reloadKey = 0 }: { reloadKey?: number }) {
             )}
           </td>
         )}
-        <td>
+        <td data-label="Receipt" data-wide>
           <span className={styles.muted}>{receipt.receiptNumber}</span>
           <div className={styles.actions}>
             <button
@@ -331,21 +335,23 @@ export function ReceiptList({ reloadKey = 0 }: { reloadKey?: number }) {
   function creditRow(credit: CustomerCredit, nested = false) {
     return (
       <tr className={nested ? cards.invoiceRow : undefined} key={credit.id}>
-        <td>{credit.receivedOn}</td>
-        <td>{nested ? "" : credit.companyName}</td>
+        <td data-label="Date">{credit.receivedOn}</td>
+        <td data-label="Customer" data-wide>
+          {nested ? "" : credit.companyName}
+        </td>
         <th scope="row">
           {formatMoney(credit.amountMinor, credit.currency)}
           {credit.reversal && <span className={styles.badge}> Reversed</span>}
           <br />
           <span className={styles.muted}>{methodLabels[credit.method]}</span>
         </th>
-        <td>
+        <td data-label="For" data-wide>
           Credit on account
           {credit.availableMinor > 0 &&
             credit.availableMinor < credit.amountMinor &&
             ` (${formatMoney(credit.availableMinor, credit.currency)} left)`}
         </td>
-        <td>
+        <td data-label="Receipt" data-wide>
           <span className={styles.muted}>{credit.receiptNumber}</span>
           <div className={styles.actions}>
             <button
@@ -442,7 +448,7 @@ export function ReceiptList({ reloadKey = 0 }: { reloadKey?: number }) {
         )}
       {shownReceipts.length + shownCredits.length > 0 && (
         <div className={`${styles.tableScroll} ${cards.scrollBox}`}>
-          <table className={styles.table}>
+          <table className={styles.table} data-cards>
             <thead>
               <tr>
                 <th scope="col">Date</th>
@@ -467,7 +473,7 @@ export function ReceiptList({ reloadKey = 0 }: { reloadKey?: number }) {
                   ].sort()[count - 1];
                   return (
                     <Fragment key={`client:${name}`}>
-                      <tr className={cards.clientRow}>
+                      <tr className={cards.clientRow} data-group>
                         <td>{latest}</td>
                         <td>
                           <button

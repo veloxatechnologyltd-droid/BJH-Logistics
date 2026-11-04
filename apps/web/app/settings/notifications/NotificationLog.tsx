@@ -152,7 +152,7 @@ export function NotificationLog() {
           )}
           {overview && overview.deliveries.length > 0 && (
             <div className={styles.tableScroll}>
-              <table className={styles.table}>
+              <table className={styles.table} data-cards>
                 <thead>
                   <tr>
                     <th>Created</th>
@@ -166,17 +166,21 @@ export function NotificationLog() {
                 <tbody>
                   {overview.deliveries.map((row) => (
                     <tr key={row.id}>
-                      <td>{new Date(row.createdAt).toLocaleString()}</td>
-                      <td>
+                      <td data-label="Created">
+                        {new Date(row.createdAt).toLocaleString()}
+                      </td>
+                      <td data-label="Customer" data-wide>
                         {row.companyName}
                         {row.fileNumber ? ` · ${row.fileNumber}` : ""}
                       </td>
-                      <td>{row.subject}</td>
-                      <td>
+                      <td data-label="Message" data-wide>
+                        {row.subject}
+                      </td>
+                      <td data-label="To" data-wide>
                         {row.channel === "sms" ? "SMS" : "Email"} ·{" "}
                         {row.contactName ?? "-"} · {row.recipient ?? "-"}
                       </td>
-                      <td>
+                      <td data-label="Status" data-wide>
                         {row.status}
                         {row.attempts > 0 ? ` (${row.attempts} tries)` : ""}
                         {row.lastError ? ` · ${row.lastError}` : ""}

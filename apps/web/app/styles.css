@@ -41,6 +41,26 @@ textarea {
   font-family: inherit;
 }
 
+/*
+ * An iPhone zooms the page into any field set smaller than 16px and does not
+ * zoom back out. Page styles set field sizes one by one, so this wins by force.
+ */
+@media (pointer: coarse) {
+  input:not([type="checkbox"], [type="radio"], [type="range"]),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+  /* A fingertip needs a taller target than a mouse pointer does. */
+  [class*="backLink"] {
+    min-height: 44px;
+  }
+  input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"]),
+  select {
+    min-height: 44px;
+  }
+}
+
 .workspace-shell {
   display: grid;
   min-height: 100vh;
@@ -267,6 +287,79 @@ textarea {
   text-decoration: underline;
 }
 
+/* Add to home screen: shown on phones and tablets only (see InstallPrompt). */
+.install-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 14px;
+  padding: 12px clamp(17px, 4vw, 54px);
+  border-bottom: 1px solid var(--brand-border);
+  background: #eaf1fb;
+  color: var(--brand-ink);
+}
+.install-banner-mark {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 11px;
+  background: var(--brand-primary);
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+.install-banner-text {
+  display: grid;
+  min-width: 200px;
+  flex: 1 1 200px;
+  gap: 2px;
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+.install-banner-text span {
+  color: var(--brand-muted);
+}
+.install-share-icon {
+  vertical-align: -3px;
+  color: var(--brand-primary);
+}
+.install-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+.install-add,
+.install-later {
+  min-height: 44px;
+  border-radius: 999px;
+  padding: 0 18px;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.install-add {
+  border: 0;
+  background: var(--brand-primary);
+  color: #fff;
+}
+.install-add:hover {
+  background: var(--brand-primary-dark);
+}
+.install-later {
+  border: 0;
+  background: none;
+  color: var(--brand-primary);
+}
+.install-later:hover {
+  text-decoration: underline;
+}
+
 /* Collapsed: an icon rail; labels and headings are hidden. */
 .collapsed .sidebar {
   padding-right: 12px;
@@ -323,6 +416,38 @@ textarea {
   display: flex;
   align-items: center;
   gap: 11px;
+}
+
+/* The drawer's buttons exist only where the menu is a drawer (see 900px below). */
+.menu-button,
+.drawer-close {
+  display: none;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+}
+.menu-button {
+  margin-left: -10px;
+  color: var(--brand-primary);
+}
+.menu-button:hover,
+.menu-button:focus-visible {
+  background: #eaf1fb;
+}
+.drawer-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  color: #fff;
+}
+.drawer-close:hover,
+.drawer-close:focus-visible {
+  background: rgb(255 255 255 / 12%);
 }
 .breadcrumb > span:first-child {
   color: #8295a8;
@@ -599,13 +724,44 @@ a:focus-visible {
   outline-offset: 3px;
 }
 
+/* Phones, and tablets held upright: the menu is a drawer opened from the top bar. */
 @media (max-width: 900px) {
-  .workspace-shell {
-    grid-template-columns: 216px minmax(0, 1fr);
+  .workspace-shell,
+  .workspace-shell.collapsed {
+    display: block;
+  }
+  .sidebar-toggle {
+    display: none;
+  }
+  .menu-button,
+  .drawer-close {
+    display: grid;
   }
   .sidebar {
-    padding-right: 13px;
-    padding-left: 13px;
+    position: fixed;
+    z-index: 40;
+    inset: 0 auto 0 0;
+    width: min(300px, 86vw);
+    height: 100dvh;
+    padding-top: 64px;
+    overscroll-behavior: contain;
+    transform: translateX(-100%);
+    visibility: hidden;
+    transition:
+      transform 0.2s ease,
+      visibility 0s linear 0.2s;
+  }
+  .menu-open .sidebar {
+    transform: none;
+    visibility: visible;
+    transition-delay: 0s;
+  }
+  .menu-backdrop {
+    position: fixed;
+    z-index: 35;
+    inset: 0;
+    border: 0;
+    background: rgb(8 24 52 / 55%);
   }
   .dashboard {
     padding-top: 34px;
@@ -622,86 +778,6 @@ a:focus-visible {
 }
 
 @media (max-width: 680px) {
-  .workspace-shell,
-  .workspace-shell.collapsed {
-    display: block;
-  }
-  .sidebar-toggle {
-    display: none;
-  }
-  .collapsed .nav-label {
-    display: inline;
-  }
-  .collapsed .brand-copy {
-    display: block;
-  }
-  .collapsed .nav-link {
-    justify-content: flex-start;
-  }
-  .sidebar {
-    position: sticky;
-    z-index: 20;
-    top: 0;
-    display: block;
-    width: 100%;
-    height: auto;
-    border-bottom: 1px solid #365b9b;
-    padding: 13px 16px 10px;
-  }
-  .brand {
-    padding: 0 1px 12px;
-  }
-  .brand-mark {
-    width: 36px;
-    height: 36px;
-  }
-  .nav-heading {
-    display: none;
-  }
-  .settings-heading {
-    display: block;
-    margin: 0;
-    white-space: nowrap;
-  }
-  .sidebar-settings {
-    display: flex;
-    align-items: center;
-    gap: 9px;
-    margin-top: 7px;
-  }
-  .settings-nav {
-    display: flex;
-    min-width: 0;
-    gap: 5px;
-    overflow-x: auto;
-  }
-  .settings-nav .nav-link {
-    min-height: 32px;
-    gap: 7px;
-    padding: 6px 9px;
-    font-size: 0.72rem;
-    white-space: nowrap;
-  }
-  .workspace-nav {
-    display: flex;
-    gap: 5px;
-    overflow-x: auto;
-    padding-bottom: 2px;
-  }
-  .nav-link {
-    min-height: 36px;
-    flex: 0 0 auto;
-    gap: 7px;
-    padding: 7px 9px;
-    font-size: 0.75rem;
-    white-space: nowrap;
-  }
-  .nav-link.active::before {
-    display: none;
-  }
-  .nav-group {
-    display: contents;
-  }
   .topbar {
     min-height: 52px;
     flex-wrap: wrap;
@@ -712,6 +788,19 @@ a:focus-visible {
   .topbar-actions {
     gap: 12px;
     margin-left: auto;
+  }
+  /* The bell's list spans the screen; anchored to the bell it ran off the left edge. */
+  .topbar .notices-panel {
+    position: fixed;
+    top: 64px;
+    right: 12px;
+    left: 12px;
+    width: auto;
+  }
+  /* One row on a phone: the page name, the bell, sign out. */
+  .breadcrumb > a,
+  .breadcrumb > span {
+    display: none;
   }
   .dashboard {
     padding: 28px 17px 20px;
@@ -752,6 +841,113 @@ a:focus-visible {
   .dashboard-footer {
     flex-direction: column;
     font-size: 0.75rem;
+  }
+}
+
+/*
+ * Tables on a phone or an upright tablet. A wide table scrolled sideways hides
+ * most of its columns, so a table marked `data-cards` shows each row as a card
+ * (the look the Finance tables already have): every cell led by its column name
+ * (`data-label`), a long cell across the whole card (`data-wide`), and a row
+ * marked `data-group` as a client or section heading. The header row stays for
+ * screen readers.
+ */
+@media (max-width: 900px) {
+  div:has(> table[data-cards]) {
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    background: none;
+  }
+  table[data-cards],
+  table[data-cards] tbody {
+    display: block;
+    width: 100%;
+    min-width: 0;
+  }
+  table[data-cards] caption {
+    display: block;
+    padding: 0 0 8px;
+    text-align: left;
+    font-weight: 700;
+  }
+  table[data-cards] thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  table[data-cards] tbody tr:first-child {
+    margin-top: 14px;
+  }
+  table[data-cards] tr {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 10px 16px;
+    margin: 0 0 10px;
+    border: 1px solid var(--brand-border);
+    border-radius: 10px;
+    background: #fff;
+    padding: 12px 14px;
+  }
+  table[data-cards] tr[data-group] {
+    display: block;
+    background: #f6f9fc;
+  }
+  table[data-cards] tr[data-group] td + td {
+    margin-top: 6px;
+  }
+  /* The heading's open/close button is the whole bar, tall enough to tap. */
+  table[data-cards] tr[data-group] button {
+    display: block;
+    width: 100%;
+    min-height: 44px;
+    text-align: left;
+  }
+  /* Rows under a client heading sit a step in from it. */
+  table[data-cards] tr[data-group] ~ tr:not([data-group]) {
+    margin-left: 14px;
+  }
+  table[data-cards] th,
+  table[data-cards] td {
+    display: block;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    font-size: 0.9rem;
+    text-align: left;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  table[data-cards] th[scope="row"] {
+    grid-column: 1 / -1;
+    font-size: 1rem;
+  }
+  /* A long value, or an action with no label, takes the whole card. */
+  table[data-cards] td[data-wide],
+  table[data-cards] td:not([data-label]) {
+    grid-column: 1 / -1;
+  }
+  /* Beats a page's own right-aligned money columns, so every value lines up. */
+  table[data-cards] td[data-label] {
+    text-align: left;
+  }
+  /* A field inside a card never pokes past the card's edge. */
+  table[data-cards] :is(input, select, textarea) {
+    max-width: 100%;
+  }
+  table[data-cards] td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 2px;
+    color: var(--brand-muted);
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+  table[data-cards] tr td:empty {
+    display: none;
   }
 }
 

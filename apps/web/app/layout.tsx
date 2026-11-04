@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import type { ReactNode } from "react";
 import { WorkspaceFrame } from "./WorkspaceFrame";
@@ -18,7 +18,12 @@ export const metadata: Metadata = {
   title: "Operations | BJH Logistics",
   description:
     "Manage customer records and quotation requests in the BJH Logistics staff workspace.",
+  // Name under the icon when added to an iPhone or iPad home screen.
+  appleWebApp: { title: "BJH Logistics", statusBarStyle: "default" },
 };
+
+// The browser's address bar takes the brand blue on phones.
+export const viewport: Viewport = { themeColor: "#0b3fae" };
 
 export default function RootLayout({
   children,

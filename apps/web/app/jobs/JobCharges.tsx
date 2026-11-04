@@ -208,7 +208,7 @@ export function JobCharges({
       )}
       {costs.length > 0 && (
         <div className={styles.tableScroll}>
-          <table className={styles.table}>
+          <table className={styles.table} data-cards>
             <thead>
               <tr>
                 <th scope="col">Cost</th>
@@ -221,7 +221,7 @@ export function JobCharges({
               {costs.map((charge) => (
                 <tr key={charge.id}>
                   <th scope="row">{charge.description}</th>
-                  <td>
+                  <td data-label="BJH paid">
                     {charge.currentActual
                       ? formatMoney(
                           charge.currentActual.amountMinor,
@@ -229,7 +229,7 @@ export function JobCharges({
                         )
                       : "Not recorded"}
                   </td>
-                  <td>
+                  <td data-label="Supplier document">
                     {charge.currentActual
                       ? (documentName(
                           charge.currentActual.supplierDocumentId,

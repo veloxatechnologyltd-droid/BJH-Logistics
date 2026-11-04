@@ -143,7 +143,7 @@ export function QuoteList() {
               <p className={styles.muted}>Nothing matches these filters.</p>
             ) : (
               <div className={styles.tableScroll}>
-                <table className={styles.table}>
+                <table className={styles.table} data-cards>
                   <thead>
                     <tr>
                       <th scope="col">Client and quotes</th>
@@ -164,7 +164,7 @@ export function QuoteList() {
                       ).length;
                       return (
                         <Fragment key={id}>
-                          <tr className={cards.clientRow}>
+                          <tr className={cards.clientRow} data-group>
                             <td className={cards.jobCell}>
                               <button
                                 aria-expanded={open}
@@ -205,9 +205,13 @@ export function QuoteList() {
                                       "Draft (not numbered)"}
                                   </Link>
                                 </th>
-                                <td>{serviceLineLabels[quote.serviceLine]}</td>
-                                <td>{quote.title}</td>
-                                <td>
+                                <td data-label="Service">
+                                  {serviceLineLabels[quote.serviceLine]}
+                                </td>
+                                <td data-label="Title" data-wide>
+                                  {quote.title}
+                                </td>
+                                <td data-label="Latest version">
                                   <span className={styles.badge}>
                                     v{quote.latestVersionNumber} ·{" "}
                                     {quote.latestStatus === "issued"

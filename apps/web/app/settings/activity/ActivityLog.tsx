@@ -122,7 +122,7 @@ export function ActivityLog() {
 
         <ErrorPopup message={error} />
         <div className={styles.tableWrap}>
-          <table className={styles.table}>
+          <table className={styles.table} data-cards>
             <thead>
               <tr>
                 <th>When</th>
@@ -136,18 +136,23 @@ export function ActivityLog() {
             <tbody>
               {entries.map((entry) => (
                 <tr key={entry.id}>
-                  <td>{formatDate(entry.occurredAt)}</td>
-                  <td title={entry.actorUserId}>
+                  <td data-label="When">{formatDate(entry.occurredAt)}</td>
+                  <td data-label="User" title={entry.actorUserId}>
                     {entry.actorName ?? entry.actorUserId}
                   </td>
-                  <td>
+                  <td data-label="Action" data-wide>
                     {entry.method} {entry.route}
                   </td>
-                  <td>{entry.entityId ?? "—"}</td>
-                  <td className={entry.statusCode >= 400 ? styles.denied : ""}>
+                  <td data-label="Record" data-wide>
+                    {entry.entityId ?? "—"}
+                  </td>
+                  <td
+                    className={entry.statusCode >= 400 ? styles.denied : ""}
+                    data-label="Result"
+                  >
                     {entry.statusCode}
                   </td>
-                  <td>{entry.clientIp ?? "—"}</td>
+                  <td data-label="IP">{entry.clientIp ?? "—"}</td>
                 </tr>
               ))}
             </tbody>

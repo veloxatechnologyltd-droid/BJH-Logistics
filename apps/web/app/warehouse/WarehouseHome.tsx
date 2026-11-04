@@ -132,7 +132,7 @@ export function WarehouseHome() {
           )}
           {rows && rows.length > 0 && (
             <div className={styles.tableScroll}>
-              <table className={styles.table}>
+              <table className={styles.table} data-cards>
                 <thead>
                   <tr>
                     <th>Customer</th>
@@ -147,8 +147,10 @@ export function WarehouseHome() {
                     <tr
                       key={`${row.jobId}-${row.locationId}-${row.item}-${row.unit}`}
                     >
-                      <td>{row.customerCompanyName}</td>
-                      <td>
+                      <td data-label="Customer" data-wide>
+                        {row.customerCompanyName}
+                      </td>
+                      <td data-label="Job">
                         <Link
                           className={styles.link}
                           href={`/jobs/${row.jobId}`}
@@ -156,9 +158,11 @@ export function WarehouseHome() {
                           {row.fileNumber}
                         </Link>
                       </td>
-                      <td>{row.locationName}</td>
-                      <td>{row.item}</td>
-                      <td>
+                      <td data-label="Location">{row.locationName}</td>
+                      <td data-label="Item" data-wide>
+                        {row.item}
+                      </td>
+                      <td data-label="Quantity">
                         {row.balance} {row.unit}
                       </td>
                     </tr>
