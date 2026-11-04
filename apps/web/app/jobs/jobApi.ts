@@ -33,6 +33,11 @@ export type Job = {
   vessel: string | null;
   portOfLoading: string | null;
   portOfDischarge: string | null;
+  /** Shown on the client job report. */
+  goodsDescription: string | null;
+  remarks: string | null;
+  /** YYYY-MM-DD. */
+  expectedCompletionDate: string | null;
   /** On the jobs list: the newest ETA and, for staff, the lead's name. */
   currentEtaAt?: string | null;
   leadUserId?: string | null;
@@ -60,6 +65,16 @@ export const updateVoyage = (
   id: string,
   voyage: { vessel: string; portOfLoading: string; portOfDischarge: string },
 ) => send<Job>(`/${encodeURIComponent(id)}/voyage`, "PUT", voyage);
+
+/** Saves what the client job report shows beyond the job's own fields; an empty value clears it. */
+export const updateReportDetails = (
+  id: string,
+  details: {
+    goodsDescription: string;
+    remarks: string;
+    expectedCompletionDate: string;
+  },
+) => send<Job>(`/${encodeURIComponent(id)}/report-details`, "PUT", details);
 
 export type MilestoneEvent = {
   id: string;
@@ -1036,6 +1051,29 @@ export async function fetchJobReportPdf(
     `${apiRoot}/finance/job-reports/pdf?${query.toString()}`,
   );
   if (!response.ok) throw new Error("The job report could not be created");
+  return response.blob();
+}
+
+/** A customer's jobs, one line each, as a status update for the client (no money). */
+export async function fetchClientJobReportPdf(
+  companyId: string,
+  jobIds: string[],
+): Promise<Blob> {
+  const query = new URLSearchParams({ companyId });
+  if (jobIds.length > 0) query.set("jobIds", jobIds.join(","));
+  const response = await authenticatedFetch(
+    `${apiRoot}/client-job-reports/pdf?${query.toString()}`,
+  );
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as {
+      message?: unknown;
+    } | null;
+    throw new Error(
+      typeof body?.message === "string"
+        ? body.message
+        : "The client job report could not be created",
+    );
+  }
   return response.blob();
 }
 

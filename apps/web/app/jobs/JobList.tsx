@@ -353,7 +353,7 @@ export function JobList() {
           </p>
         ) : (
           <div className={styles.tableScroll}>
-            <table className={styles.table}>
+            <table className={styles.table} data-cards>
               <thead>
                 <tr>
                   <th scope="col">File number</th>
@@ -373,7 +373,7 @@ export function JobList() {
                   ).length;
                   return (
                     <Fragment key={id}>
-                      <tr className={cards.clientRow}>
+                      <tr className={cards.clientRow} data-group>
                         <td className={cards.jobCell}>
                           <button
                             aria-expanded={open}
@@ -411,19 +411,25 @@ export function JobList() {
                                 {job.fileNumber}
                               </Link>
                             </th>
-                            <td>{serviceLineLabels[job.serviceLine]}</td>
-                            <td>
+                            <td data-label="Service">
+                              {serviceLineLabels[job.serviceLine]}
+                            </td>
+                            <td data-label="Status">
                               <span className={styles.badge}>
                                 {statusLabels[job.status]}
                               </span>
                             </td>
-                            {isStaff && <td>{job.leadName ?? "—"}</td>}
-                            <td>
+                            {isStaff && (
+                              <td data-label="Lead">{job.leadName ?? "—"}</td>
+                            )}
+                            <td data-label="ETA">
                               {job.currentEtaAt
                                 ? formatShortDate(job.currentEtaAt)
                                 : "—"}
                             </td>
-                            <td>{formatShortDate(job.openedAt)}</td>
+                            <td data-label="Opened">
+                              {formatShortDate(job.openedAt)}
+                            </td>
                           </tr>
                         ))}
                     </Fragment>

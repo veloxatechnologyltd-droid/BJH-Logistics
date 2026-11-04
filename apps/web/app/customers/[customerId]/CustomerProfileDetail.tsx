@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useStaffAccess } from "../../auth/useStaffAccess";
 import { canWorkFinance } from "../../auth/roleAccess";
+import { ClientJobReport } from "./ClientJobReport";
 import { JobReport } from "./JobReport";
 import { customerActiveDays } from "@bjh/contracts";
 import {
@@ -288,7 +289,7 @@ export function CustomerProfileDetail() {
             </div>
           </div>
           {insight.money.length > 0 && (
-            <table className={styles.moneyTable}>
+            <table className={styles.moneyTable} data-cards>
               <thead>
                 <tr>
                   <th scope="col">Currency</th>
@@ -302,15 +303,19 @@ export function CustomerProfileDetail() {
                 {insight.money.map((entry) => (
                   <tr key={entry.currency}>
                     <th scope="row">{entry.currency}</th>
-                    <td>{formatMoney(entry.invoicedMinor, entry.currency)}</td>
-                    <td>{formatMoney(entry.receivedMinor, entry.currency)}</td>
-                    <td>
+                    <td data-label="Invoiced">
+                      {formatMoney(entry.invoicedMinor, entry.currency)}
+                    </td>
+                    <td data-label="Received">
+                      {formatMoney(entry.receivedMinor, entry.currency)}
+                    </td>
+                    <td data-label="Owing">
                       {formatMoney(
                         entry.invoicedMinor - entry.receivedMinor,
                         entry.currency,
                       )}
                     </td>
-                    <td>
+                    <td data-label="Average days to pay">
                       {entry.averageDaysToPay === null
                         ? "—"
                         : `${entry.averageDaysToPay} days`}
@@ -640,6 +645,8 @@ export function CustomerProfileDetail() {
               </details>
             )}
           </section>
+
+          {jobs && <ClientJobReport customerId={customerId} jobs={jobs} />}
 
           {canWorkFinance(roles) && jobs && (
             <JobReport customerId={customerId} jobs={jobs} />

@@ -110,7 +110,7 @@ export function TaskList() {
           </p>
         ) : (
           <div className={styles.tableScroll}>
-            <table className={styles.table}>
+            <table className={styles.table} data-cards>
               <thead>
                 <tr>
                   <th scope="col">Task</th>
@@ -126,7 +126,7 @@ export function TaskList() {
                 {tasks.map((task) => (
                   <tr key={task.id}>
                     <th scope="row">{task.title}</th>
-                    <td>
+                    <td data-label="Job" data-wide>
                       <Link
                         className={styles.link}
                         href={`/jobs/${task.jobId}`}
@@ -135,10 +135,12 @@ export function TaskList() {
                       </Link>{" "}
                       · {task.customerCompanyName}
                     </td>
-                    <td>{taskKindLabels[task.kind]}</td>
-                    <td>{roleLabels[task.assignedRole]}</td>
-                    <td>{task.dueDate ?? "—"}</td>
-                    <td>
+                    <td data-label="Type">{taskKindLabels[task.kind]}</td>
+                    <td data-label="Whose work">
+                      {roleLabels[task.assignedRole]}
+                    </td>
+                    <td data-label="Due">{task.dueDate ?? "—"}</td>
+                    <td data-label="Status">
                       <span className={styles.badge}>
                         {task.status === "done" ? "Done" : "To do"}
                       </span>

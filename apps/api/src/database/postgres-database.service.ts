@@ -245,7 +245,10 @@ const jobSelect = `
     job.closed_at,
     job.vessel,
     job.port_of_loading,
-    job.port_of_discharge
+    job.port_of_discharge,
+    job.goods_description,
+    job.remarks,
+    to_char(job.expected_completion_date, 'YYYY-MM-DD') AS expected_completion_date
   FROM app.job AS job
   JOIN app.customer_company AS company
     ON company.company_id = job.customer_company_id`;
@@ -1282,6 +1285,29 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     return this.findJob(jobId, {});
   }
 
+  async updateJobReportDetails(
+    jobId: string,
+    details: {
+      goodsDescription: string | null;
+      remarks: string | null;
+      expectedCompletionDate: string | null;
+    },
+  ): Promise<JobRecord | null> {
+    await this.pool.query(
+      `UPDATE app.job
+       SET goods_description = $2, remarks = $3,
+           expected_completion_date = $4::date
+       WHERE job_id = $1::uuid`,
+      [
+        jobId,
+        details.goodsDescription,
+        details.remarks,
+        details.expectedCompletionDate,
+      ],
+    );
+    return this.findJob(jobId, {});
+  }
+
   async findJob(id: string, scope: JobScope): Promise<JobRecord | null> {
     if (scope.companyIds?.length === 0 || scope.serviceLines?.length === 0) {
       return null;
@@ -1314,6 +1340,10 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       vessel: (row.vessel as string | null) ?? null,
       portOfLoading: (row.port_of_loading as string | null) ?? null,
       portOfDischarge: (row.port_of_discharge as string | null) ?? null,
+      goodsDescription: (row.goods_description as string | null) ?? null,
+      remarks: (row.remarks as string | null) ?? null,
+      expectedCompletionDate:
+        (row.expected_completion_date as string | null) ?? null,
     };
   }
 

@@ -299,7 +299,7 @@ export function CustomerDirectory() {
 
             {rows.length > 0 ? (
               <div className={styles.tableScroll}>
-                <table className={styles.customerTable}>
+                <table className={styles.customerTable} data-cards>
                   <thead>
                     <tr>
                       <th scope="col">Company</th>
@@ -343,13 +343,13 @@ export function CustomerDirectory() {
                               )}
                             </Link>
                           </th>
-                          <td>
+                          <td data-label="Customer ID">
                             <span className={styles.customerId}>
                               {customer.customerNumber}
                             </span>
                           </td>
                           {insights && (
-                            <td>
+                            <td data-label="Status">
                               <span
                                 className={`${ui.badge} ${insight?.active ? "" : styles.inactiveBadge}`}
                                 title={
@@ -362,27 +362,36 @@ export function CustomerDirectory() {
                               </span>
                             </td>
                           )}
-                          <td>
+                          <td data-label="Contacts" data-wide>
                             {customer.contacts
                               .map((contact) => contact.name)
                               .join(", ") || "—"}
                           </td>
                           {insights && (
                             <>
-                              <td className={styles.nowrap}>
+                              <td className={styles.nowrap} data-label="Jobs">
                                 {insight
                                   ? `${insight.activeJobs} open · ${insight.totalJobs} total`
                                   : "—"}
                               </td>
-                              <td className={styles.nowrap}>
+                              <td
+                                className={styles.nowrap}
+                                data-label="Latest job"
+                              >
                                 {shortDate(insight?.lastJobAt ?? null)}
                               </td>
                               {finance && (
                                 <>
-                                  <td className={styles.numeric}>
+                                  <td
+                                    className={styles.numeric}
+                                    data-label={`Invoiced${currency ? ` (${currency})` : ""}`}
+                                  >
                                     {entry ? money(entry.invoicedMinor) : "—"}
                                   </td>
-                                  <td className={styles.numeric}>
+                                  <td
+                                    className={styles.numeric}
+                                    data-label="Owing"
+                                  >
                                     {entry
                                       ? money(
                                           entry.invoicedMinor -

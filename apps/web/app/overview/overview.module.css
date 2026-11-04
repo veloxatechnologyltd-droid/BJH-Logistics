@@ -212,6 +212,13 @@
   font-size: 0.95rem;
 }
 
+/* On a touch screen the panel links get a taller place to tap. */
+@media (pointer: coarse) {
+  .panelLink {
+    padding-block: 10px;
+  }
+}
+
 @media (max-width: 1000px) {
   .grid {
     grid-template-columns: minmax(0, 1fr);
@@ -223,8 +230,9 @@
     padding: 24px 16px 40px;
   }
 
+  /* Title left, the attention bell right, on one row. */
   .header {
-    display: block;
+    align-items: center;
   }
 
   .metrics {

@@ -297,6 +297,12 @@
   font-weight: 700;
   text-decoration: none;
 }
+/* On a touch screen a link gets a taller place to tap. */
+@media (pointer: coarse) {
+  .link {
+    padding-block: 8px;
+  }
+}
 .badge {
   display: inline-block;
   border-radius: 999px;
@@ -580,6 +586,16 @@
 .moreMenu > div button:hover {
   background: #eaf1fb;
   color: var(--brand-primary);
+}
+/* On a phone the menu is a sheet along the bottom, so it can never run off the side. */
+@media (max-width: 680px) {
+  .moreMenu > div {
+    position: fixed;
+    z-index: 50;
+    inset: auto 12px 12px;
+    min-width: 0;
+    box-shadow: 0 -8px 32px rgb(11 63 174 / 25%);
+  }
 }
 .stepsHeading {
   display: flex;
