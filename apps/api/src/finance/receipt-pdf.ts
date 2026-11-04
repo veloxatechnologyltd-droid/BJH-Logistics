@@ -17,7 +17,13 @@ const MUTED = "#526b7d";
 const BORDER = "#d7e3ed";
 const MARK_RED = "#b3261e";
 
-const PAGE_MARGIN = 50;
+const PAGE_MARGIN = 40;
+
+// Print type scale (pt): body text 11, small labels 9, footer 9.
+const BODY = 11;
+const LABEL = 9;
+// Space kept above the bottom margin for the page footer.
+const FOOTER_SPACE = 24;
 
 export const methodLabels: Record<InvoicePaymentRecord["method"], string> = {
   cash: "Cash",
@@ -190,35 +196,37 @@ export function renderPaymentSummaryPdf(
   const left = PAGE_MARGIN;
   const width = doc.page.width - PAGE_MARGIN * 2;
 
-  doc.font("Helvetica-Bold").fontSize(16).fillColor(PRIMARY);
-  doc.text(issuerName, left, PAGE_MARGIN, { width: width * 0.6 });
+  const bottom = doc.page.height - PAGE_MARGIN - FOOTER_SPACE;
+
+  doc.font("Helvetica-Bold").fontSize(20).fillColor(PRIMARY);
+  doc.text(issuerName, left, PAGE_MARGIN, { width: width * 0.5 });
   const brandBottom = doc.y;
-  doc.font("Helvetica-Bold").fontSize(8).fillColor(PRIMARY);
+  doc.font("Helvetica-Bold").fontSize(11).fillColor(PRIMARY);
   doc.text("PAYMENT SUMMARY RECEIPT", left + width * 0.5, PAGE_MARGIN, {
     width: width * 0.5,
     align: "right",
-    characterSpacing: 1,
+    characterSpacing: 1.5,
   });
-  doc.y = Math.max(brandBottom, PAGE_MARGIN + 20) + 6;
+  doc.y = Math.max(brandBottom, PAGE_MARGIN + 28) + 10;
   doc
     .moveTo(left, doc.y)
     .lineTo(left + width, doc.y)
-    .lineWidth(2)
+    .lineWidth(2.5)
     .strokeColor(PRIMARY)
     .stroke();
-  doc.y += 14;
+  doc.y += 18;
 
   const period =
     input.from || input.to
       ? `${input.from ? formatDate(input.from) : "First payment"} to ${input.to ? formatDate(input.to) : "today"}`
       : "All payments";
-  doc.font("Helvetica").fontSize(9).fillColor(MUTED);
+  doc.font("Helvetica").fontSize(LABEL).fillColor(MUTED);
   doc.text("RECEIVED FROM", left, doc.y, { characterSpacing: 0.5 });
-  doc.font("Helvetica-Bold").fontSize(12).fillColor(INK);
-  doc.text(input.companyName, left, doc.y + 2, { width });
-  doc.font("Helvetica").fontSize(9).fillColor(MUTED);
-  doc.text(period, left, doc.y + 2, { width });
-  doc.y += 12;
+  doc.font("Helvetica-Bold").fontSize(14).fillColor(INK);
+  doc.text(input.companyName, left, doc.y + 3, { width });
+  doc.font("Helvetica").fontSize(BODY).fillColor(MUTED);
+  doc.text(period, left, doc.y + 3, { width });
+  doc.y += 16;
 
   const totals = new Map<string, number>();
   for (const line of lines) {
@@ -229,11 +237,11 @@ export function renderPaymentSummaryPdf(
     );
   }
   const columns: Array<[string, number, "left" | "right"]> = [
-    ["DATE", 0.17, "left"],
-    ["RECEIPT", 0.2, "left"],
-    ["PAID FOR", 0.29, "left"],
+    ["DATE", 0.21, "left"],
+    ["RECEIPT", 0.25, "left"],
+    ["PAID FOR", 0.23, "left"],
     ["METHOD", 0.14, "left"],
-    ["AMOUNT", 0.2, "right"],
+    ["AMOUNT", 0.17, "right"],
   ];
   const row = (values: string[], header: boolean) => {
     const cell = (share: number, align: "left" | "right") => ({
@@ -242,29 +250,29 @@ export function renderPaymentSummaryPdf(
       characterSpacing: header ? 0.5 : 0,
     });
     doc
-      .font("Helvetica")
-      .fontSize(header ? 7.5 : 8.5)
-      .fillColor(header ? MUTED : INK);
+      .font(header ? "Helvetica-Bold" : "Helvetica")
+      .fontSize(header ? LABEL : 10)
+      .fillColor(header ? PRIMARY : INK);
     const height = Math.max(
       ...columns.map(([, share, align], index) =>
         doc.heightOfString(values[index], cell(share, align)),
       ),
     );
-    if (doc.y + height + 12 > doc.page.height - 60) doc.addPage();
+    if (doc.y + height + 20 > bottom) doc.addPage();
     const top = doc.y;
     let x = left;
     columns.forEach(([, share, align], index) => {
-      doc.text(values[index], x + 6, top + 6, cell(share, align));
+      doc.text(values[index], x + 6, top + 9, cell(share, align));
       x += width * share;
     });
-    const bottom = top + Math.max(20, height + 12);
+    const rowBottom = top + Math.max(30, height + 18);
     doc
-      .moveTo(left, bottom)
-      .lineTo(left + width, bottom)
-      .lineWidth(0.7)
+      .moveTo(left, rowBottom)
+      .lineTo(left + width, rowBottom)
+      .lineWidth(header ? 1 : 0.6)
       .strokeColor(BORDER)
       .stroke();
-    doc.y = bottom;
+    doc.y = rowBottom;
   };
   row(
     columns.map(([label]) => label),
@@ -285,17 +293,17 @@ export function renderPaymentSummaryPdf(
   }
 
   // The summing-up under the table: one total per currency, then the count.
-  if (doc.y + (totals.size + 1) * 20 + 60 > doc.page.height - 60) {
+  if (doc.y + (totals.size + 1) * 26 + 80 > bottom) {
     doc.addPage();
   }
-  doc.y += 8;
+  doc.y += 12;
   const labelX = left + width * 0.45;
   const valueX = left + width * 0.72;
   for (const [currency, minor] of totals.size > 0
     ? totals
     : new Map([["", 0]])) {
     const y = doc.y;
-    doc.font("Helvetica-Bold").fontSize(10).fillColor(PRIMARY);
+    doc.font("Helvetica-Bold").fontSize(12.5).fillColor(PRIMARY);
     doc.text(
       currency ? `Total received ${currency}` : "Total received",
       labelX,
@@ -311,18 +319,21 @@ export function renderPaymentSummaryPdf(
       y,
       { width: width * 0.28 - 6, align: "right", lineBreak: false },
     );
-    doc.y = y + 18;
+    doc.y = y + 24;
   }
-  doc.font("Helvetica").fontSize(8.5).fillColor(MUTED);
+  doc.font("Helvetica").fontSize(BODY).fillColor(MUTED);
   doc.text(
     `${lines.length} ${lines.length === 1 ? "payment" : "payments"}`,
     labelX,
     doc.y,
     { width: width * 0.55 - 6 },
   );
-  doc.y += 18;
+  doc.y += 24;
 
-  doc.font("Helvetica").fontSize(8.5).fillColor(MUTED);
+  doc
+    .font("Helvetica")
+    .fontSize(LABEL + 1)
+    .fillColor(MUTED);
   doc.text(
     "This summary lists payments recorded by " +
       `${issuerName}. Each payment's receipt, by its number, is the record ` +
@@ -374,10 +385,12 @@ function drawReceipt(
   const left = PAGE_MARGIN;
   const width = doc.page.width - PAGE_MARGIN * 2;
 
+  const bottom = doc.page.height - PAGE_MARGIN - FOOTER_SPACE;
+
   // Brand block, receipt number on the right.
-  doc.font("Helvetica-Bold").fontSize(16).fillColor(PRIMARY);
-  doc.text(issuerName, left, PAGE_MARGIN, { width: width * 0.6 });
-  doc.font("Helvetica").fontSize(8.5).fillColor(MUTED);
+  doc.font("Helvetica-Bold").fontSize(20).fillColor(PRIMARY);
+  doc.text(issuerName, left, PAGE_MARGIN, { width: width * 0.58 });
+  doc.font("Helvetica").fontSize(10).fillColor(MUTED);
   const contact = [
     settings?.issuer.address,
     [settings?.issuer.phone, settings?.issuer.email, settings?.issuer.website]
@@ -385,60 +398,63 @@ function drawReceipt(
       .join("  |  "),
   ].filter(Boolean);
   for (const row of contact) {
-    doc.text(String(row), left, doc.y, { width: width * 0.6 });
+    doc.text(String(row), left, doc.y + 2, { width: width * 0.58 });
   }
   const brandBottom = doc.y;
-  doc.font("Helvetica-Bold").fontSize(8).fillColor(PRIMARY);
-  doc.text("PAYMENT RECEIPT", left + width * 0.6, PAGE_MARGIN, {
-    width: width * 0.4,
+  doc.font("Helvetica-Bold").fontSize(11).fillColor(PRIMARY);
+  doc.text("PAYMENT RECEIPT", left + width * 0.58, PAGE_MARGIN, {
+    width: width * 0.42,
     align: "right",
-    characterSpacing: 1,
+    characterSpacing: 1.5,
   });
-  doc.font("Helvetica-Bold").fontSize(15).fillColor(INK);
-  doc.text(receiptNumber, left + width * 0.6, PAGE_MARGIN + 13, {
-    width: width * 0.4,
+  doc.font("Helvetica-Bold").fontSize(18).fillColor(INK);
+  doc.text(receiptNumber, left + width * 0.58, PAGE_MARGIN + 17, {
+    width: width * 0.42,
     align: "right",
   });
-  doc.y = Math.max(brandBottom, PAGE_MARGIN + 34) + 6;
+  doc.y = Math.max(brandBottom, PAGE_MARGIN + 42) + 10;
   doc
     .moveTo(left, doc.y)
     .lineTo(left + width, doc.y)
-    .lineWidth(2)
+    .lineWidth(2.5)
     .strokeColor(PRIMARY)
     .stroke();
-  doc.y += 14;
+  doc.y += 20;
 
   // Amount received, set apart.
-  doc.font("Helvetica").fontSize(9).fillColor(MUTED);
+  doc
+    .font("Helvetica")
+    .fontSize(LABEL + 1)
+    .fillColor(MUTED);
   doc.text("AMOUNT RECEIVED", left, doc.y, { characterSpacing: 0.5 });
-  doc.font("Helvetica-Bold").fontSize(24).fillColor(INK);
-  doc.text(input.amount, left, doc.y + 2, { width });
-  doc.y += 14;
+  doc.font("Helvetica-Bold").fontSize(32).fillColor(INK);
+  doc.text(input.amount, left, doc.y + 4, { width });
+  doc.y += 18;
 
   const cellWidth = width / 2;
-  const cellHeight = 38;
+  const cellHeight = 54;
   const gridTop = doc.y;
   cells.forEach(([label, value], index) => {
     const x = left + (index % 2) * cellWidth;
     const y = gridTop + Math.floor(index / 2) * cellHeight;
     doc
-      .lineWidth(0.7)
+      .lineWidth(0.8)
       .strokeColor(BORDER)
       .rect(x, y, cellWidth, cellHeight)
       .stroke();
-    doc.font("Helvetica").fontSize(7.5).fillColor(MUTED);
-    doc.text(label.toUpperCase(), x + 8, y + 7, {
-      width: cellWidth - 16,
+    doc.font("Helvetica").fontSize(LABEL).fillColor(MUTED);
+    doc.text(label.toUpperCase(), x + 10, y + 10, {
+      width: cellWidth - 20,
       characterSpacing: 0.5,
     });
-    doc.font("Helvetica-Bold").fontSize(9.5).fillColor(INK);
-    doc.text(value, x + 8, y + 19, {
-      width: cellWidth - 16,
-      height: 16,
+    doc.font("Helvetica-Bold").fontSize(12).fillColor(INK);
+    doc.text(value, x + 10, y + 26, {
+      width: cellWidth - 20,
+      height: 18,
       ellipsis: true,
     });
   });
-  doc.y = gridTop + cellHeight * Math.ceil(cells.length / 2) + 14;
+  doc.y = gridTop + cellHeight * Math.ceil(cells.length / 2) + 20;
 
   if (input.invoices) {
     const columns: Array<[string, number, "left" | "right"]> = [
@@ -448,13 +464,13 @@ function drawReceipt(
       ["BALANCE NOW", 0.22, "right"],
     ];
     const row = (values: string[], header: boolean) => {
-      if (doc.y > doc.page.height - 120) doc.addPage();
+      if (doc.y > bottom - 90) doc.addPage();
       const top = doc.y;
       let x = left;
       doc
-        .font(header ? "Helvetica" : "Helvetica-Bold")
-        .fontSize(header ? 7.5 : 9.5)
-        .fillColor(header ? MUTED : INK);
+        .font("Helvetica-Bold")
+        .fontSize(header ? LABEL : BODY)
+        .fillColor(header ? PRIMARY : INK);
       const options = (share: number, align: "left" | "right") => ({
         width: width * share - 16,
         align,
@@ -467,35 +483,38 @@ function drawReceipt(
         ),
       );
       columns.forEach(([, share, align], index) => {
-        doc.text(values[index], x + 8, top + 6, options(share, align));
+        doc.text(values[index], x + 8, top + 9, options(share, align));
         x += width * share;
       });
-      const bottom = top + Math.max(22, height + 12);
+      const rowBottom = top + Math.max(32, height + 18);
       doc
-        .moveTo(left, bottom)
-        .lineTo(left + width, bottom)
-        .lineWidth(0.7)
+        .moveTo(left, rowBottom)
+        .lineTo(left + width, rowBottom)
+        .lineWidth(header ? 1 : 0.6)
         .strokeColor(BORDER)
         .stroke();
-      doc.y = bottom;
+      doc.y = rowBottom;
     };
     row(
       columns.map(([label]) => label),
       true,
     );
     for (const values of input.invoices) row(values, false);
-    doc.y += 14;
+    doc.y += 20;
   }
 
   if (input.note) {
-    doc.font("Helvetica-Bold").fontSize(9.5).fillColor(PRIMARY);
+    doc.font("Helvetica-Bold").fontSize(BODY).fillColor(PRIMARY);
     doc.text("Note", left, doc.y, { width });
-    doc.font("Helvetica").fontSize(9.5).fillColor(INK);
+    doc.font("Helvetica").fontSize(BODY).fillColor(INK);
     doc.text(input.note, left, doc.y + 2, { width, lineGap: 2 });
-    doc.moveDown(0.8);
+    doc.moveDown(1);
   }
 
-  doc.font("Helvetica").fontSize(8.5).fillColor(MUTED);
+  doc
+    .font("Helvetica")
+    .fontSize(LABEL + 1)
+    .fillColor(MUTED);
   doc.text(
     "This receipt acknowledges a payment recorded by " +
       `${issuerName}. It is not a bank confirmation.`,
@@ -504,29 +523,28 @@ function drawReceipt(
     { width },
   );
 
-  // Received-by signature.
-  doc.y += 40;
-  const signatureTop = doc.y;
-  doc.font("Helvetica-Bold").fontSize(9.5).fillColor(PRIMARY);
+  // Received-by signature, at the foot of the page.
+  const signatureTop = Math.max(doc.y + 40, bottom - 72);
+  doc.font("Helvetica-Bold").fontSize(BODY).fillColor(PRIMARY);
   doc.text(`Received for ${issuerName}`, left, signatureTop, {
-    width: width / 2 - 12,
+    width: width / 2 - 14,
   });
-  const lineY = signatureTop + 40;
+  const lineY = signatureTop + 52;
   doc
     .moveTo(left, lineY)
-    .lineTo(left + width / 2 - 12, lineY)
-    .lineWidth(0.7)
+    .lineTo(left + width / 2 - 14, lineY)
+    .lineWidth(0.8)
     .strokeColor(SECONDARY)
     .stroke();
-  doc.font("Helvetica").fontSize(7.5).fillColor(MUTED);
-  doc.text("Name and signature", left, lineY + 3, { width: width / 2 - 12 });
+  doc.font("Helvetica").fontSize(LABEL).fillColor(MUTED);
+  doc.text("Name and signature", left, lineY + 4, { width: width / 2 - 14 });
 
   doc.page.margins.bottom = 0;
-  doc.font("Helvetica").fontSize(7.5).fillColor(MUTED);
+  doc.font("Helvetica").fontSize(LABEL).fillColor(MUTED);
   doc.text(
     `${issuerName}  |  Receipt ${receiptNumber}`,
     left,
-    doc.page.height - 34,
+    doc.page.height - PAGE_MARGIN + 6,
     { width, align: "center", lineBreak: false },
   );
 
