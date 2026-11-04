@@ -2234,9 +2234,15 @@ export abstract class DatabasePort {
     companyId: string | null;
     scope: JobScope;
   }): Promise<InvoiceRegisterRecord[]>;
-  /** Every issued invoice and standing payment of one customer company, any currency, oldest first. */
+  /**
+   * Every issued invoice and standing payment of one customer company, any
+   * currency, oldest first. With a service line, only that service's jobs:
+   * credit on account belongs to no job, so it is left out and the payments
+   * made from it are shown instead.
+   */
   abstract listStatementEntries(
     companyId: string,
+    serviceLine?: ServiceLine | null,
   ): Promise<StatementEntryRecord[]>;
   abstract listJobFinance(scope: JobScope): Promise<JobFinanceRecord[]>;
   abstract listReportInvoices(

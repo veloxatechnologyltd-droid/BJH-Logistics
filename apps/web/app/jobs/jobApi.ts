@@ -995,6 +995,7 @@ export type Statement = {
   company: { id: string; name: string; customerNumber: string | null };
   from: string | null;
   to: string | null;
+  serviceLine: ServiceLine | null;
   generatedOn: string;
   sections: Array<{
     currency: string;
@@ -1018,23 +1019,34 @@ const statementPath = (
   companyId: string,
   from: string,
   to: string,
+  serviceLine: ServiceLine | "",
 ) => {
   const query = new URLSearchParams({ companyId });
   if (from) query.set("from", from);
   if (to) query.set("to", to);
+  if (serviceLine) query.set("serviceLine", serviceLine);
   return `/finance/statements${path}?${query}`;
 };
 
-export const getStatement = (companyId: string, from: string, to: string) =>
-  sendApi<Statement>(statementPath("", companyId, from, to), "GET");
+export const getStatement = (
+  companyId: string,
+  from: string,
+  to: string,
+  serviceLine: ServiceLine | "",
+) =>
+  sendApi<Statement>(
+    statementPath("", companyId, from, to, serviceLine),
+    "GET",
+  );
 
 export async function fetchStatementPdf(
   companyId: string,
   from: string,
   to: string,
+  serviceLine: ServiceLine | "",
 ): Promise<Blob> {
   const response = await authenticatedFetch(
-    `${apiRoot}${statementPath("/pdf", companyId, from, to)}`,
+    `${apiRoot}${statementPath("/pdf", companyId, from, to, serviceLine)}`,
   );
   if (!response.ok) throw new Error("The statement could not be created");
   return response.blob();

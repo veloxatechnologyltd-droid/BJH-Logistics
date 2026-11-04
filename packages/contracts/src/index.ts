@@ -1882,6 +1882,14 @@ export const statementQuerySchema = z
       to: isoDate("to")
         .nullish()
         .transform((value) => value ?? null),
+      /** Only that service's jobs: their invoices and the payments made on them. */
+      serviceLine: z
+        .enum(serviceLineKeys, {
+          error:
+            "serviceLine must be sea_import, sea_export, air_import, air_export, warehousing or road_transport",
+        })
+        .nullish()
+        .transform((value) => value ?? null),
     },
     objectError("A statement query is required"),
   )

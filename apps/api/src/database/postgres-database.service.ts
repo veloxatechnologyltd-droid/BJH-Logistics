@@ -6736,6 +6736,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
 
   async listStatementEntries(
     companyId: string,
+    serviceLine: ServiceLine | null = null,
   ): Promise<StatementEntryRecord[]> {
     const result = await this.pool.query(
       `SELECT * FROM (
@@ -6748,6 +6749,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
          FROM app.invoice i
          JOIN app.job job ON job.job_id = i.job_id
          WHERE job.customer_company_id = $1::uuid AND i.status = 'issued'
+           AND ($2::text IS NULL OR job.service_line = $2::text)
          UNION ALL
          SELECT 'payment', to_char(p.received_on, 'YYYY-MM-DD'), p.recorded_at, i.currency,
                 p.amount_minor, i.invoice_number, job.file_number, job.job_id,
@@ -6756,8 +6758,10 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
          JOIN app.invoice i ON i.invoice_id = p.invoice_id
          JOIN app.job job ON job.job_id = i.job_id
          WHERE job.customer_company_id = $1::uuid AND i.status = 'issued'
-           -- Paid from credit: the money already shows as the credit below.
-           AND p.credit_id IS NULL
+           AND ($2::text IS NULL OR job.service_line = $2::text)
+           -- Paid from credit: the money already shows as the credit below,
+           -- except for one service, where the credit (no job) is left out.
+           AND (p.credit_id IS NULL OR $2::text IS NOT NULL)
            AND NOT EXISTS (
              SELECT 1 FROM app.invoice_payment_reversal r WHERE r.payment_id = p.payment_id)
          UNION ALL
@@ -6766,9 +6770,10 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
                 c.reference, true
          FROM app.customer_credit c
          WHERE c.company_id = $1::uuid AND c.reversed_at IS NULL
+           AND $2::text IS NULL
        ) entry
        ORDER BY entry_date, recorded_at`,
-      [companyId],
+      [companyId, serviceLine],
     );
     const jobIds = [
       ...new Set(

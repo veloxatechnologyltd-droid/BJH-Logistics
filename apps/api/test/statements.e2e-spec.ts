@@ -290,6 +290,56 @@ test("a period folds earlier entries into the opening balance and drops later on
   assert.deepEqual(earlier.sections, []);
 });
 
+test("a service narrows the statement to that service's invoices and their payments", async () => {
+  const sea = await json<Statement & { serviceLine: string | null }>(
+    await statement(
+      TEST_SUPER_ADMIN_TOKEN,
+      companyA,
+      "&serviceLine=sea_import",
+    ),
+  );
+  assert.equal(sea.serviceLine, "sea_import");
+  // The air job's GHS and USD invoices are gone, so there is no USD section.
+  assert.deepEqual(
+    sea.sections.map((section) => section.currency),
+    ["GHS"],
+  );
+  assert.deepEqual(
+    sectionOf(sea, "GHS").lines.map((line) => line.balanceMinor),
+    [100_000, 150_000, 110_000],
+  );
+
+  const air = await json<Statement>(
+    await statement(
+      TEST_SUPER_ADMIN_TOKEN,
+      companyA,
+      "&serviceLine=air_import",
+    ),
+  );
+  assert.equal(sectionOf(air, "GHS").closingMinor, 70_000);
+  assert.equal(sectionOf(air, "USD").closingMinor, 25_000);
+
+  const none = await json<Statement>(
+    await statement(
+      TEST_SUPER_ADMIN_TOKEN,
+      companyA,
+      "&serviceLine=warehousing",
+    ),
+  );
+  assert.deepEqual(none.sections, []);
+
+  const bad = await statement(
+    TEST_SUPER_ADMIN_TOKEN,
+    companyA,
+    "&serviceLine=rail",
+  );
+  assert.equal(bad.status, 400);
+  assert.match(
+    (await json<{ message: string }>(bad)).message,
+    /serviceLine must be/,
+  );
+});
+
 test("any staff member reads any customer's statement, including other departments' jobs", async () => {
   const rep = await json<Statement>(
     await statement(TEST_MATCHING_TOKEN, companyA),
@@ -361,4 +411,16 @@ test("the statement downloads as a PDF for staff", async () => {
   );
   const body = Buffer.from(await response.arrayBuffer());
   assert.equal(body.subarray(0, 5).toString(), "%PDF-");
+});
+
+test("a statement for one service names the service in the PDF's file name", async () => {
+  const response = await get(
+    `/api/v1/finance/statements/pdf?companyId=${companyA}&serviceLine=sea_import`,
+    TEST_SUPER_ADMIN_TOKEN,
+  );
+  assert.equal(response.status, 200);
+  assert.match(
+    response.headers.get("content-disposition") ?? "",
+    /filename="statement-Northstar-Synthetic-Ltd-sea-import-\d{4}-\d{2}-\d{2}\.pdf"$/,
+  );
 });

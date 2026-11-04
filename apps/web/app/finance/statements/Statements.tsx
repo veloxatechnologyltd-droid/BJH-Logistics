@@ -1,11 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import type { ServiceLine } from "@bjh/contracts";
 import { listCustomers } from "../../customers/customerApi";
 import type { CustomerCompany } from "../../customers/customerApi";
 import { ErrorPopup } from "../../ErrorPopup";
 import { FinanceTabs } from "../../invoices/FinanceTabs";
-import { fetchStatementPdf, getStatement } from "../../jobs/jobApi";
+import {
+  fetchStatementPdf,
+  getStatement,
+  serviceLineLabels,
+} from "../../jobs/jobApi";
 import type { Statement } from "../../jobs/jobApi";
 import styles from "../../jobs/jobs.module.css";
 import { formatMoney } from "../../quotes/quoteApi";
@@ -22,6 +27,7 @@ export function Statements() {
   const [companyId, setCompanyId] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  const [serviceLine, setServiceLine] = useState<ServiceLine | "">("");
   const [statement, setStatement] = useState<Statement | null>(null);
   const [error, setError] = useState("");
   const [reloads, setReloads] = useState(0);
@@ -42,7 +48,7 @@ export function Statements() {
     setStatement(null);
     if (!companyId) return;
     let current = true;
-    getStatement(companyId, from, to)
+    getStatement(companyId, from, to, serviceLine)
       .then((result) => {
         if (current) setStatement(result);
       })
@@ -58,7 +64,7 @@ export function Statements() {
     return () => {
       current = false;
     };
-  }, [companyId, from, to, reloads]);
+  }, [companyId, from, to, serviceLine, reloads]);
 
   async function openPdf() {
     // Opened first so the browser treats it as a click, not a pop-up.
@@ -66,7 +72,7 @@ export function Statements() {
     setError("");
     try {
       const url = URL.createObjectURL(
-        await fetchStatementPdf(companyId, from, to),
+        await fetchStatementPdf(companyId, from, to, serviceLine),
       );
       if (tab) tab.location.href = url;
       else window.location.href = url;
@@ -103,6 +109,22 @@ export function Statements() {
             </select>
           </label>
           <label className={styles.field}>
+            Service
+            <select
+              onChange={(event) =>
+                setServiceLine(event.target.value as ServiceLine | "")
+              }
+              value={serviceLine}
+            >
+              <option value="">All services</option>
+              {(Object.keys(serviceLineLabels) as ServiceLine[]).map((line) => (
+                <option key={line} value={line}>
+                  {serviceLineLabels[line]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className={styles.field}>
             From
             <input
               onChange={(event) => setFrom(event.target.value)}
@@ -130,7 +152,9 @@ export function Statements() {
       </section>
       {statement && statement.sections.length === 0 && (
         <p className={styles.muted}>
-          No invoices or payments for this customer in this period.
+          No invoices or payments for this customer
+          {serviceLine ? ` in ${serviceLineLabels[serviceLine]}` : ""} in this
+          period.
         </p>
       )}
       {statement?.sections.map((section) => (

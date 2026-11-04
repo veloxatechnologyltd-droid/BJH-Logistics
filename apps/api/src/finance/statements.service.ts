@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { parseContract, statementQuerySchema } from "@bjh/contracts";
+import type { ServiceLine } from "@bjh/contracts";
 import { DatabasePort } from "../database/database.port";
 import { buildStatement } from "./statement";
 import type { StatementSection } from "./statement";
@@ -16,6 +17,8 @@ export interface StatementView {
   from: string | null;
   /** YYYY-MM-DD, or null for up to today. */
   to: string | null;
+  /** Only this service's jobs, or null for the whole account. */
+  serviceLine: ServiceLine | null;
   generatedOn: string;
   sections: StatementSection[];
 }
@@ -33,10 +36,13 @@ export class StatementsService {
   async statement(query: unknown): Promise<StatementView> {
     const parsed = parseContract(statementQuerySchema, query);
     if (!parsed.success) throw new BadRequestException(parsed.message);
-    const { companyId, from, to } = parsed.data;
+    const { companyId, from, to, serviceLine } = parsed.data;
     const company = await this.database.findCustomer(companyId);
     if (!company) throw new NotFoundException("Customer was not found");
-    const entries = await this.database.listStatementEntries(companyId);
+    const entries = await this.database.listStatementEntries(
+      companyId,
+      serviceLine,
+    );
     return {
       company: {
         id: company.id,
@@ -45,6 +51,7 @@ export class StatementsService {
       },
       from,
       to,
+      serviceLine,
       generatedOn: new Date().toISOString().slice(0, 10),
       sections: buildStatement(entries, { from, to }),
     };
@@ -62,7 +69,11 @@ export class StatementsService {
       .replace(/^-+|-+$/g, "");
     return {
       file,
-      filename: `statement-${name || "customer"}-${statement.generatedOn}.pdf`,
+      filename: `statement-${name || "customer"}${
+        statement.serviceLine
+          ? `-${statement.serviceLine.replace("_", "-")}`
+          : ""
+      }-${statement.generatedOn}.pdf`,
     };
   }
 }
