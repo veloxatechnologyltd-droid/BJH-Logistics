@@ -1929,6 +1929,20 @@ export const jobReportQuerySchema = z
 export type JobReportQuery = z.infer<typeof jobReportQuerySchema>;
 
 /**
+ * Which jobs a client job report covers when none are ticked: the ones still
+ * being worked (the default, so old jobs are not printed), the completed ones,
+ * or both.
+ */
+export const clientJobReportIncludes = ["ongoing", "completed", "all"] as const;
+export type ClientJobReportInclude = (typeof clientJobReportIncludes)[number];
+export const clientJobReportIncludeSchema = z
+  .enum(clientJobReportIncludes, {
+    error: "include must be ongoing, completed or all",
+  })
+  .nullish()
+  .transform((value): ClientJobReportInclude => value ?? "ongoing");
+
+/**
  * What the client job report shows beyond the job's own fields: the goods, a
  * status remark staff write by hand and the date the job should finish. Each
  * is free text or a date; an empty value clears it.

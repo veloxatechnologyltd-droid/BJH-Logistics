@@ -282,18 +282,3 @@ test("customer service, sales and the import/export reps prepare quotes; finance
     403,
   );
 });
-
-test("reports carry money figures for finance only", async () => {
-  const range = "from=2020-01-01&to=2099-12-31";
-  await actAs("sales_rep");
-  const sales = (await (
-    await call(`/api/v1/reports?${range}`, TEST_UNASSIGNED_TOKEN)
-  ).json()) as { finance: boolean; invoices: unknown[] };
-  assert.equal(sales.finance, false);
-  assert.deepEqual(sales.invoices, []);
-  await actAs("finance_rep");
-  const finance = (await (
-    await call(`/api/v1/reports?${range}`, TEST_UNASSIGNED_TOKEN)
-  ).json()) as { finance: boolean };
-  assert.equal(finance.finance, true);
-});

@@ -6,7 +6,7 @@ import {
   serviceLineLabels,
   statusLabels,
 } from "../../jobs/jobApi";
-import type { Job } from "../../jobs/jobApi";
+import type { ClientJobReportInclude, Job } from "../../jobs/jobApi";
 import styles from "../../jobs/jobs.module.css";
 
 /**
@@ -21,8 +21,26 @@ export function ClientJobReport({
   customerId: string;
   jobs: Job[];
 }) {
-  const reportable = jobs.filter((job) => job.status !== "cancelled");
+  const [include, setInclude] = useState<ClientJobReportInclude>("ongoing");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  // The same rule as the API: no cancelled jobs; ongoing, completed or both;
+  // opened within the dates, when given.
+  const reportable = jobs.filter((job) => {
+    if (job.status === "cancelled") return false;
+    if (
+      include !== "all" &&
+      (include === "completed") !== (job.status === "closed")
+    ) {
+      return false;
+    }
+    const opened = job.openedAt.slice(0, 10);
+    return (!from || opened >= from) && (!to || opened <= to);
+  });
   const [ticked, setTicked] = useState<Set<string>>(new Set());
+  const chosen = [...ticked].filter((id) =>
+    reportable.some((job) => job.id === id),
+  );
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -33,7 +51,12 @@ export function ClientJobReport({
     setError("");
     try {
       const url = URL.createObjectURL(
-        await fetchClientJobReportPdf(customerId, [...ticked]),
+        await fetchClientJobReportPdf(customerId, {
+          jobIds: chosen,
+          include,
+          from,
+          to,
+        }),
       );
       if (tab) tab.location.href = url;
       else window.location.href = url;
@@ -51,11 +74,44 @@ export function ClientJobReport({
       <p className={styles.muted}>
         A one-line-per-job status update to share with the client: goods,
         vessel, ETA, status and expected completion. It has no invoices or
-        amounts. Tick jobs to include only those; with none ticked, every job is
-        included.
+        amounts. Choose which jobs, then tick some to include only those; with
+        none ticked, every job listed is included.
       </p>
+      <div className={styles.filters}>
+        <label className={styles.field}>
+          Jobs
+          <select
+            onChange={(event) =>
+              setInclude(event.target.value as ClientJobReportInclude)
+            }
+            value={include}
+          >
+            <option value="ongoing">Ongoing</option>
+            <option value="completed">Completed</option>
+            <option value="all">Ongoing and completed</option>
+          </select>
+        </label>
+        <label className={styles.field}>
+          Opened from
+          <input
+            max={to || undefined}
+            onChange={(event) => setFrom(event.target.value)}
+            type="date"
+            value={from}
+          />
+        </label>
+        <label className={styles.field}>
+          Opened to
+          <input
+            min={from || undefined}
+            onChange={(event) => setTo(event.target.value)}
+            type="date"
+            value={to}
+          />
+        </label>
+      </div>
       {reportable.length === 0 ? (
-        <p className={styles.muted}>No jobs yet.</p>
+        <p className={styles.muted}>No jobs match.</p>
       ) : (
         <ul className={styles.itemList}>
           {reportable.map((job) => (
@@ -97,9 +153,9 @@ export function ClientJobReport({
         >
           {busy
             ? "Preparing…"
-            : ticked.size > 0
-              ? `Open client report for ${ticked.size} ${ticked.size === 1 ? "job" : "jobs"}`
-              : "Open client report for all jobs"}
+            : chosen.length > 0
+              ? `Open client report for ${chosen.length} ${chosen.length === 1 ? "job" : "jobs"}`
+              : `Open client report for ${reportable.length} ${reportable.length === 1 ? "job" : "jobs"}`}
         </button>
       </div>
     </section>

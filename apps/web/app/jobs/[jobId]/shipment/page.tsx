@@ -79,13 +79,13 @@ export default function JobShipmentPage() {
       <JobVoyage
         canEdit={isStaff && !closedJob}
         job={job}
-        key={`${job.vessel}|${job.portOfLoading}|${job.portOfDischarge}`}
+        key={`voyage:${job.vessel}|${job.portOfLoading}|${job.portOfDischarge}`}
         onSaved={reload}
       />
       <JobReportDetails
         canEdit={isStaff && !closedJob}
         job={job}
-        key={`${job.goodsDescription}|${job.remarks}|${job.expectedCompletionDate}`}
+        key={`report:${job.goodsDescription}|${job.remarks}|${job.expectedCompletionDate}`}
         onSaved={reload}
       />
       <section className={styles.card} aria-labelledby="parties-title">

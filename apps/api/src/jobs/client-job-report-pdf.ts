@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import PDFDocument from "pdfkit";
 import type { BusinessSettings } from "@bjh/contracts";
 import type {
@@ -13,6 +15,20 @@ const BORDER = "#d7e3ed";
 const CANVAS = "#f4f8fc";
 
 const PAGE_MARGIN = 36;
+const LOGO_HEIGHT = 44;
+
+/** BJH's logo, as on the client's sample; copied next to the build by nest-cli. */
+let logo: Buffer | null | undefined;
+function loadLogo(): Buffer | null {
+  if (logo === undefined) {
+    try {
+      logo = readFileSync(join(__dirname, "..", "assets", "bjh-logo.png"));
+    } catch {
+      logo = null;
+    }
+  }
+  return logo;
+}
 const CELL_PADDING = 4;
 
 const serviceLabels: Record<string, string> = {
@@ -144,10 +160,17 @@ export function renderClientJobReportPdf(
     doc.moveDown(1.2);
   };
 
-  // Letterhead: the issuer on the left, its address on the right, then a rule.
+  // Letterhead: the logo (or the issuer's name) on the left, its address on
+  // the right, then a rule.
   const top = PAGE_MARGIN;
-  doc.font("Helvetica-Bold").fontSize(16).fillColor(PRIMARY);
-  doc.text(issuerName, left, top, { width: width / 2 });
+  const logoImage = loadLogo();
+  if (logoImage) {
+    doc.image(logoImage, left, top, { height: LOGO_HEIGHT });
+    doc.y = top + LOGO_HEIGHT;
+  } else {
+    doc.font("Helvetica-Bold").fontSize(16).fillColor(PRIMARY);
+    doc.text(issuerName, left, top, { width: width / 2 });
+  }
   const contact = [issuer?.phone, issuer?.email, issuer?.website].filter(
     (part): part is string => Boolean(part),
   );
@@ -158,7 +181,7 @@ export function renderClientJobReportPdf(
       align: "right",
     });
   }
-  doc.y = Math.max(doc.y, top + 22) + 8;
+  doc.y = Math.max(doc.y, top + (logoImage ? LOGO_HEIGHT : 22)) + 8;
   doc
     .moveTo(left, doc.y)
     .lineTo(left + width, doc.y)

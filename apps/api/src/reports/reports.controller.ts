@@ -14,7 +14,6 @@ import {
 } from "../auth/auth.guards";
 import type { AuthenticatedRequest } from "../auth/auth.guards";
 import { ReportPdfService } from "./report-pdf.service";
-import { ReportsService } from "./reports.service";
 
 /** The part of the Express response the PDF route writes to. */
 interface BinaryResponse {
@@ -29,12 +28,11 @@ function scopeOf(request: AuthenticatedRequest) {
   };
 }
 
-/** Date-filtered report data; staff see only companies and service lines in their API scope. */
+/** PDF reports; staff see only companies and service lines in their API scope. */
 @Controller("api/v1/reports")
 @UseGuards(SupabaseIdentityGuard, DepartmentStaffGuard, JobScopeGuard)
 export class ReportsController {
   constructor(
-    @Inject(ReportsService) private readonly reports: ReportsService,
     @Inject(ReportPdfService) private readonly pdfs: ReportPdfService,
   ) {}
 
@@ -57,17 +55,5 @@ export class ReportsController {
     response.setHeader("content-disposition", `inline; filename="${filename}"`);
     response.setHeader("content-length", String(file.length));
     response.end(file);
-  }
-
-  @Get()
-  report(
-    @Query() query: Record<string, unknown>,
-    @Req() request: AuthenticatedRequest,
-  ) {
-    return this.reports.report(
-      query,
-      scopeOf(request),
-      request.staffRoles ?? [],
-    );
   }
 }

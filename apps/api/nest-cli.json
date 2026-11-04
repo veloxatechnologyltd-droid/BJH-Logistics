@@ -5,7 +5,7 @@
   "compilerOptions": {
     "deleteOutDir": true,
     "webpack": false,
-    "assets": ["**/*.sql"],
+    "assets": ["**/*.sql", "**/*.png"],
     "watchAssets": true,
     "tsConfigPath": "tsconfig.build.json"
   }

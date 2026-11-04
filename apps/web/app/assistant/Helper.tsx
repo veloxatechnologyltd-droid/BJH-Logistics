@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { ErrorPopup } from "../ErrorPopup";
+import { canUseAssistant } from "../auth/roleAccess";
+import { useStaffAccess } from "../auth/useStaffAccess";
 import jobStyles from "../jobs/jobs.module.css";
 import chat from "../chat/chat.module.css";
 import {
@@ -36,6 +38,23 @@ const examples = [
  * private to each person.
  */
 export function Helper() {
+  const { status, roles } = useStaffAccess();
+  if (status === "loading") return null;
+  if (!canUseAssistant(roles)) {
+    return (
+      <main className={jobStyles.page}>
+        <h1 className={jobStyles.title}>Bra Evans</h1>
+        <p className={jobStyles.muted}>
+          Bra Evans is for customer service and the super admin. Ask your
+          administrator if you need it.
+        </p>
+      </main>
+    );
+  }
+  return <HelperChat />;
+}
+
+function HelperChat() {
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [currentId, setCurrentId] = useState<string | null>(null);
