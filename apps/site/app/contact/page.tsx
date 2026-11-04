@@ -3,12 +3,14 @@ import Link from "next/link";
 import { contact, telHref } from "../content";
 import { Icon } from "../Icon";
 import { PageHero } from "../Sections";
+import { pageMetadata } from "../seo";
 
-export const metadata: Metadata = {
-  title: "Contact us",
+export const metadata: Metadata = pageMetadata({
+  title: "Contact Us in Tema, Ghana",
   description:
     "Call, WhatsApp, email or visit BJH Logistics in Tema Community 1, Ghana.",
-};
+  path: "/contact",
+});
 
 export default function ContactPage() {
   const cards = [

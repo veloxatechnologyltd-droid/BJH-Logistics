@@ -1,13 +1,17 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { processSteps, sectors, specialistServices } from "../content";
 import { Icon } from "../Icon";
 import { CtaBand, PageHero, SectionHeading } from "../Sections";
+import { pageMetadata } from "../seo";
+import { serviceHref } from "../serviceDetails";
 
-export const metadata: Metadata = {
-  title: "Projects and specialist cargo",
+export const metadata: Metadata = pageMetadata({
+  title: "Project Cargo and Specialist Logistics",
   description:
-    "Mining, oil and gas, humanitarian and automotive projects, plus project cargo, offshore and ship supply, ship agency, RoRo, container sales, cargo insurance, licence support and scrap metal export logistics from Tema, Ghana.",
-};
+    "Project cargo for mining, oil and gas, humanitarian and automotive sectors, plus offshore supply, ship agency and RoRo, from Tema, Ghana.",
+  path: "/projects",
+});
 
 export default function ProjectsPage() {
   return (
@@ -64,7 +68,11 @@ export default function ProjectsPage() {
                   <Icon name={project.icon} size={30} />
                 </span>
                 <div>
-                  <h2>{project.title}</h2>
+                  <h2>
+                    <Link href={serviceHref(project.slug)}>
+                      {project.title}
+                    </Link>
+                  </h2>
                   <p>{project.summary}</p>
                 </div>
               </article>

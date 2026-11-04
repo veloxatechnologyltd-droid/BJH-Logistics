@@ -13,6 +13,7 @@ export default async function NewQuotePage({
       fromRequest={
         requestId && customerId ? { requestId, customerId } : undefined
       }
+      initialCustomerId={customerId}
     />
   );
 }

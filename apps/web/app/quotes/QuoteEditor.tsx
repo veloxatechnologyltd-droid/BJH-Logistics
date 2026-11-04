@@ -14,6 +14,8 @@ import type { HeldStaffRoleKey, QuoteBasis, ServiceLine } from "@bjh/contracts";
 import { useStaffAccess } from "../auth/useStaffAccess";
 import { listCustomers } from "../customers/customerApi";
 import type { CustomerCompany } from "../customers/customerApi";
+import { leadToCustomer, listLeads } from "../customers/leadApi";
+import type { Lead } from "../customers/leadApi";
 import { serviceLineLabels } from "../jobs/jobApi";
 import styles from "../jobs/jobs.module.css";
 import layout from "./quoteEditor.module.css";
@@ -105,6 +107,7 @@ export function QuoteEditor({
   draft,
   onSaved,
   fromRequest,
+  initialCustomerId,
   initialServiceLine,
   notice,
 }: {
@@ -113,6 +116,8 @@ export function QuoteEditor({
   onSaved?: (quote: Quote) => void;
   /** Set when the quote answers a customer request: the client is fixed. */
   fromRequest?: { requestId: string; customerId: string };
+  /** The client to start with when staff can still change it. */
+  initialCustomerId?: string;
   /** The service to start with, for example the request's. */
   initialServiceLine?: ServiceLine;
   /** Shown under the page heading of a new quote. */
@@ -121,7 +126,13 @@ export function QuoteEditor({
   const router = useRouter();
   const { roles, isSuperAdmin } = useStaffAccess();
   const [customers, setCustomers] = useState<CustomerCompany[]>([]);
-  const [customerId, setCustomerId] = useState(fromRequest?.customerId ?? "");
+  /** Open leads not yet linked to a customer; a quote can be prepared for them too. */
+  const [leads, setLeads] = useState<Lead[]>([]);
+  /** Whether the quote is for a customer or a lead; picked before the name. */
+  const [partyKind, setPartyKind] = useState<"customer" | "lead">("customer");
+  const [customerId, setCustomerId] = useState(
+    fromRequest?.customerId ?? initialCustomerId ?? "",
+  );
   const [serviceLine, setServiceLine] = useState<ServiceLine | "">(
     initialServiceLine ?? "",
   );
@@ -149,6 +160,16 @@ export function QuoteEditor({
   const [configuredCurrencies, setConfiguredCurrencies] = useState<string[]>(
     [],
   );
+  /** The standard wording saved in Settings; null until loaded. */
+  const [defaults, setDefaults] = useState<Wording | null>(null);
+  /**
+   * How this quote's wording is made: the Settings defaults as they are, the
+   * defaults changed for this quote only, or new text. Settings never change.
+   * A saved draft or a prefilled quote has its own text, so it starts editable.
+   */
+  const [wordingMode, setWordingMode] = useState<"default" | "edit" | "new">(
+    draft ? "edit" : "default",
+  );
 
   const allowedLines = isSuperAdmin
     ? serviceLines
@@ -161,6 +182,17 @@ export function QuoteEditor({
     listCustomers("")
       .then(setCustomers)
       .catch(() => setError("Customers could not be loaded"));
+    listLeads()
+      .then((all) =>
+        setLeads(
+          all.filter(
+            (lead) =>
+              !lead.customerCompanyId &&
+              ["new", "contacted", "quoted"].includes(lead.stage),
+          ),
+        ),
+      )
+      .catch(() => undefined);
   }, [quote]);
 
   // Configured currencies and, for a new quote, the default text from Settings.
@@ -171,17 +203,38 @@ export function QuoteEditor({
         if (!current) return;
         const { settings } = current;
         setConfiguredCurrencies(settings.currencies);
+        setDefaults(settings.quoteDefaults);
         if (draft) return;
-        setIntro(settings.quoteDefaults.intro ?? "");
-        setAtCostNote(settings.quoteDefaults.atCostNote ?? "");
-        setSteps(settings.quoteDefaults.procedureSteps);
-        setDocuments(settings.quoteDefaults.requiredDocuments);
-        setDocumentsNote(settings.quoteDefaults.documentsNote ?? "");
-        setTimeline(settings.quoteDefaults.timeline ?? "");
-        setTerms(settings.quoteDefaults.terms);
+        applyWording(settings.quoteDefaults);
       })
       .catch(() => undefined);
   }, [draft]);
+
+  function applyWording(wording: Wording) {
+    setIntro(wording.intro ?? "");
+    setAtCostNote(wording.atCostNote ?? "");
+    setSteps(wording.procedureSteps);
+    setDocuments(wording.requiredDocuments);
+    setDocumentsNote(wording.documentsNote ?? "");
+    setTimeline(wording.timeline ?? "");
+    setTerms(wording.terms);
+  }
+
+  function chooseWording(mode: "default" | "edit" | "new") {
+    setWordingMode(mode);
+    if (mode === "default" && defaults) applyWording(defaults);
+    if (mode === "new") applyWording(emptyWording);
+  }
+
+  const noDefaults =
+    defaults !== null &&
+    !defaults.intro &&
+    !defaults.atCostNote &&
+    !defaults.documentsNote &&
+    !defaults.timeline &&
+    defaults.procedureSteps.length === 0 &&
+    defaults.requiredDocuments.length === 0 &&
+    defaults.terms.length === 0;
 
   function change(index: number, patch: Partial<LineDraft>) {
     setLines((current) =>
@@ -244,8 +297,12 @@ export function QuoteEditor({
       if (quote) {
         onSaved?.(await saveQuoteDraft(quote.id, body));
       } else {
+        // A lead becomes a customer first; the quote is saved for that company.
+        const companyId = customerId.startsWith("lead:")
+          ? (await leadToCustomer(customerId.slice(5))).customerCompanyId
+          : customerId;
         const created = await createQuote({
-          customerCompanyId: customerId,
+          customerCompanyId: companyId,
           serviceLine: serviceLine as ServiceLine,
           quoteRequestId: fromRequest?.requestId,
           version: body,
@@ -279,18 +336,52 @@ export function QuoteEditor({
                 Prepared for
                 <select
                   disabled={Boolean(fromRequest)}
+                  onChange={(event) => {
+                    setPartyKind(event.target.value as "customer" | "lead");
+                    setCustomerId("");
+                  }}
+                  value={partyKind}
+                >
+                  <option value="customer">Customer</option>
+                  <option value="lead">Lead</option>
+                </select>
+              </label>
+              <label className={styles.field}>
+                {partyKind === "customer" ? "Customer" : "Lead"}
+                <select
+                  disabled={Boolean(fromRequest)}
                   onChange={(event) => setCustomerId(event.target.value)}
                   required
                   value={customerId}
                 >
-                  <option value="">Select a customer</option>
-                  {customers.map((customer) => (
-                    <option key={customer.id} value={customer.id}>
-                      {customer.companyName} ({customer.customerNumber})
-                    </option>
-                  ))}
+                  {partyKind === "customer" ? (
+                    <>
+                      <option value="">Select a customer</option>
+                      {customers.map((customer) => (
+                        <option key={customer.id} value={customer.id}>
+                          {customer.companyName} ({customer.customerNumber})
+                        </option>
+                      ))}
+                    </>
+                  ) : (
+                    <>
+                      <option value="">
+                        {leads.length ? "Select a lead" : "No open leads"}
+                      </option>
+                      {leads.map((lead) => (
+                        <option key={lead.id} value={`lead:${lead.id}`}>
+                          {lead.companyName}
+                          {lead.contactName ? ` (${lead.contactName})` : ""}
+                        </option>
+                      ))}
+                    </>
+                  )}
                 </select>
               </label>
+            </div>
+          )}
+          {!quote && (
+            <div className={layout.row}>
               <label className={styles.field}>
                 Service
                 <select
@@ -523,8 +614,44 @@ export function QuoteEditor({
           </p>
 
           <details className={layout.more}>
-            <summary>Standard wording (from Settings)</summary>
-            <div className={layout.section}>
+            <summary>Standard wording</summary>
+            <div className={layout.wordingChoice} role="radiogroup">
+              {(
+                [
+                  ["default", "Use the defaults"],
+                  ["edit", "Edit the defaults for this quote"],
+                  ["new", "Write new wording"],
+                ] as const
+              ).map(([mode, label]) => (
+                <label key={mode}>
+                  <input
+                    checked={wordingMode === mode}
+                    name="wording"
+                    onChange={() => chooseWording(mode)}
+                    type="radio"
+                  />{" "}
+                  {label}
+                </label>
+              ))}
+            </div>
+            <p className={styles.muted}>
+              {noDefaults
+                ? "No default wording is set yet. "
+                : wordingMode === "default"
+                  ? "This quote uses the wording saved in Settings. "
+                  : "Changes here apply to this quote only. "}
+              {isSuperAdmin ? (
+                <Link href="/settings/business">
+                  Set the defaults in Business settings
+                </Link>
+              ) : (
+                "The defaults are set in Business settings."
+              )}
+            </p>
+            <fieldset
+              className={`${layout.section} ${layout.wordingFields}`}
+              disabled={wordingMode === "default"}
+            >
               <label className={styles.field}>
                 Introduction
                 <textarea
@@ -583,7 +710,7 @@ export function QuoteEditor({
                 onChange={setTerms}
                 placeholder="Rates are subject to confirmation at the time of shipment"
               />
-            </div>
+            </fieldset>
           </details>
 
           <ErrorPopup message={error} />
@@ -597,6 +724,26 @@ export function QuoteEditor({
     </main>
   );
 }
+
+type Wording = {
+  intro: string | null;
+  atCostNote: string | null;
+  procedureSteps: string[];
+  requiredDocuments: string[];
+  documentsNote: string | null;
+  timeline: string | null;
+  terms: string[];
+};
+
+const emptyWording: Wording = {
+  intro: null,
+  atCostNote: null,
+  procedureSteps: [],
+  requiredDocuments: [],
+  documentsNote: null,
+  timeline: null,
+  terms: [],
+};
 
 /** An editable list: one box per entry, with add and remove. */
 function ListEditor({

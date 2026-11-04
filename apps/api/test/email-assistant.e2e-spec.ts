@@ -452,6 +452,96 @@ test("a person edits and sends the reply once, to the sender only; others cannot
   );
 });
 
+test("staff reply again after the first reply, in Henry's template; others cannot", async () => {
+  const request = await deliver(
+    "kojo@again.example",
+    "quote",
+    {},
+    "Again Synthetic Ltd",
+  );
+  const base = `/api/v1/quote-requests/${request.id}`;
+  const first = {
+    subject: "Re: Quotation needed",
+    body: "Dear Kojo,\n\nThanks.",
+  };
+  const another = {
+    subject: "Re: Quotation needed",
+    body: "Your quote is attached <today>.",
+  };
+
+  // Before the first reply, "another reply" is the first reply.
+  const firstSent = await send(
+    "POST",
+    `${base}/replies`,
+    TEST_MATCHING_TOKEN,
+    first,
+  );
+  assert.equal(firstSent.status, 201, await firstSent.clone().text());
+  assert.equal((await json<unknown[]>(firstSent)).length, 1);
+  const after = await json<Request>(await call(base, TEST_MATCHING_TOKEN));
+  assert.ok(after.intake?.reply?.sentAt);
+
+  // Refused for the rep of another service and for customers.
+  for (const token of [TEST_UNASSIGNED_TOKEN, TEST_CUSTOMER_A_TOKEN]) {
+    assert.equal(
+      (await send("POST", `${base}/replies`, token, another)).status,
+      403,
+    );
+  }
+  assert.equal(
+    (
+      await send("POST", `${base}/replies`, TEST_MATCHING_TOKEN, {
+        subject: "x",
+      })
+    ).status,
+    400,
+  );
+
+  const second = await send(
+    "POST",
+    `${base}/replies`,
+    TEST_MATCHING_TOKEN,
+    another,
+  );
+  assert.equal(second.status, 201, await second.clone().text());
+  const thread = await json<
+    Array<{
+      subject: string;
+      body: string;
+      sentBy: string | null;
+      status: string;
+    }>
+  >(await call(`${base}/replies`, TEST_MATCHING_TOKEN));
+  assert.deepEqual(
+    thread.map((reply) => reply.body),
+    [first.body, another.body],
+  );
+  assert.ok(thread.every((reply) => reply.sentBy !== null));
+  assert.ok(thread.every((reply) => reply.status === "pending"));
+
+  // Sent with Henry's signature below the text, and as escaped HTML too.
+  const sender = application.get<RecordingEmailProvider>(EMAIL_PROVIDER);
+  sender.sent.length = 0;
+  await application.get(NotificationDispatcher).dispatchDue();
+  const mail = sender.sent.find((item) =>
+    item.text.startsWith(another.body),
+  ) as { text: string; html?: string; inReplyTo?: string } | undefined;
+  assert.ok(mail, "the second reply was sent");
+  // Threaded under the customer's own email.
+  assert.match(mail.inReplyTo ?? "", /^<[0-9a-f-]+@mail\.test>$/);
+  assert.equal(
+    mail.inReplyTo,
+    await database.findRequestEmailMessageId(request.id),
+  );
+  assert.match(
+    mail.text,
+    /\n--\nHenry Yaw Somuah\nBJH Logistics Services Ltd\n/,
+  );
+  assert.match(mail.text, /VAT No\. C0000064351/);
+  assert.match(mail.html ?? "", /&lt;today&gt;/);
+  assert.match(mail.html ?? "", /henry@bjhlogistics\.com/);
+});
+
 test("customers never see what the assistant read or wrote", async () => {
   const request = await deliver("efua@akwaaba.example", "quote");
   const seen = await json<Request>(

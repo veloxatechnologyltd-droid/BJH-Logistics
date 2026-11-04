@@ -33,10 +33,10 @@ export type Job = {
   vessel: string | null;
   portOfLoading: string | null;
   portOfDischarge: string | null;
-  /** On the jobs list: the newest ETA and, for staff, the lead's email. */
+  /** On the jobs list: the newest ETA and, for staff, the lead's name. */
   currentEtaAt?: string | null;
   leadUserId?: string | null;
-  leadEmail?: string | null;
+  leadName?: string | null;
 };
 
 /** Jobs list and board filters; each is optional and they combine. */
@@ -418,6 +418,9 @@ export const recordActual = (
 export type InvoiceLine = {
   description: string;
   amountMinor: number;
+  /** Set together when the amount is a quantity times a unit price. */
+  quantity?: number | null;
+  unitAmountMinor?: number | null;
   taxable: boolean;
 };
 
@@ -469,7 +472,7 @@ export type InvoiceAcceptance = {
 export type JobTeamMember = {
   id: string;
   userId: string;
-  email: string | null;
+  name: string | null;
   kind: "lead" | "assistant";
   assignedAt: string;
   overrideReason: string | null;
@@ -491,7 +494,7 @@ export type JobTeam = {
       via: "staff" | "portal";
     } | null;
   }>;
-  candidates: Array<{ userId: string; email: string | null }>;
+  candidates: Array<{ userId: string; name: string | null }>;
 };
 
 export const getJobTeam = (id: string) =>
@@ -1072,20 +1075,97 @@ export async function fetchStatementPdf(
   return response.blob();
 }
 
+/** A customer's job report PDF: their jobs (all, or those chosen) in detail, with invoices and balances. */
+export async function fetchJobReportPdf(
+  companyId: string,
+  jobIds: string[],
+): Promise<Blob> {
+  const query = new URLSearchParams({ companyId });
+  if (jobIds.length > 0) query.set("jobIds", jobIds.join(","));
+  const response = await authenticatedFetch(
+    `${apiRoot}/finance/job-reports/pdf?${query.toString()}`,
+  );
+  if (!response.ok) throw new Error("The job report could not be created");
+  return response.blob();
+}
+
+/** Emails the job report PDF to the customer's contacts. */
+export const sendJobReport = (companyId: string, jobIds: string[]) =>
+  sendApi<{ queued: boolean }>("/finance/job-reports/send", "POST", {
+    companyId,
+    ...(jobIds.length > 0 ? { jobIds: jobIds.join(",") } : {}),
+  });
+
+/** Money a customer paid that is not set against an invoice: credit on their account. */
+export type CustomerCredit = {
+  id: string;
+  companyId: string;
+  companyName: string;
+  currency: string;
+  amountMinor: number;
+  appliedMinor: number;
+  availableMinor: number;
+  receivedOn: string;
+  method: PaymentMethod;
+  reference: string | null;
+  note: string | null;
+  receiptNumber: string;
+  reversal: { reason: string; reversedAt: string } | null;
+};
+
 export type PaymentBatch = {
   payments: InvoicePayment[];
+  /** What was left over, kept as credit on the account. */
+  credit: CustomerCredit | null;
   totalMinor: number;
   currency: string;
 };
 
-/** One customer payment applied across several of their invoices, saved all or nothing. */
+/**
+ * One customer payment of any amount, saved all or nothing: set against any of
+ * their invoices, with the rest (or all of it, with no invoice) kept as credit.
+ */
 export const recordPayments = (input: {
+  companyId?: string;
+  currency?: string;
+  totalMinor?: number;
   receivedOn: string;
   method: PaymentMethod;
   reference?: string;
   note?: string;
   allocations: Array<{ invoiceId: string; amountMinor: number }>;
 }) => sendApi<PaymentBatch>("/payments", "POST", input);
+
+export const listCredits = (companyId = "") =>
+  sendApi<CustomerCredit[]>(
+    `/credits${companyId ? `?companyId=${encodeURIComponent(companyId)}` : ""}`,
+    "GET",
+  );
+
+export const applyCredit = (
+  creditId: string,
+  allocations: Array<{ invoiceId: string; amountMinor: number }>,
+) =>
+  sendApi<CustomerCredit>(
+    `/credits/${encodeURIComponent(creditId)}/apply`,
+    "POST",
+    { allocations },
+  );
+
+export const reverseCredit = (creditId: string, reason: string) =>
+  sendApi<CustomerCredit>(
+    `/credits/${encodeURIComponent(creditId)}/reverse`,
+    "POST",
+    { reason },
+  );
+
+export async function fetchCreditReceiptPdf(creditId: string): Promise<Blob> {
+  const response = await authenticatedFetch(
+    `${apiRoot}/credits/${encodeURIComponent(creditId)}/receipt`,
+  );
+  if (!response.ok) throw new Error("The receipt could not be created");
+  return response.blob();
+}
 
 export const getOutstandingInvoices = (companyId: string) =>
   sendApi<{
@@ -1100,14 +1180,44 @@ export const getOutstandingInvoices = (companyId: string) =>
     "GET",
   );
 
+/** One invoice of any status on Finance's invoice list. */
+export type InvoiceRegisterRow = {
+  invoiceId: string;
+  invoiceNumber: string | null;
+  status: "draft" | "issued" | "void";
+  paymentStatus: Invoice["paymentStatus"];
+  jobId: string;
+  fileNumber: string;
+  customerCompanyId: string;
+  customerCompanyName: string;
+  currency: string;
+  totalMinor: number;
+  paidMinor: number;
+  outstandingMinor: number;
+  dueDate: string | null;
+  overdue: boolean;
+  createdAt: string;
+  issuedAt: string | null;
+};
+
+/** Every invoice, drafts to paid: finance staff only. */
+export const listAllInvoices = (companyId: string) =>
+  sendApi<InvoiceRegisterRow[]>(
+    `/invoices${companyId ? `?companyId=${encodeURIComponent(companyId)}` : ""}`,
+    "GET",
+  );
+
 export type Receipt = {
   paymentId: string;
   invoiceId: string;
   jobId: string;
   fileNumber: string;
+  customerCompanyId: string;
   customerCompanyName: string;
   invoiceNumber: string;
   receiptNumber: string;
+  /** Shared by the invoices one payment settled: they share one receipt. */
+  batchId: string | null;
   currency: string;
   amountMinor: number;
   receivedOn: string;
@@ -1118,6 +1228,64 @@ export type Receipt = {
 };
 
 export const listReceipts = () => sendApi<Receipt[]>("/receipts", "GET");
+
+/** One PDF adding up a customer's payments; each keeps its own receipt. */
+export async function fetchPaymentSummaryPdf(query: {
+  companyId: string;
+  from: string;
+  to: string;
+  method: string;
+}): Promise<Blob> {
+  const params = new URLSearchParams(
+    Object.entries(query).filter(([, value]) => value !== ""),
+  );
+  const response = await authenticatedFetch(
+    `${apiRoot}/receipts/summary?${params}`,
+  );
+  if (!response.ok) throw new Error("The payment summary could not be created");
+  return response.blob();
+}
+
+/** Issues several drafts of one client together; the client gets one message. */
+export const issueInvoices = (companyId: string, invoiceIds: string[]) =>
+  sendApi<Invoice[]>("/invoices/issue", "POST", { companyId, invoiceIds });
+
+/** Emails the client their issued invoices still owing, in one PDF. */
+export const sendInvoiceSummary = (companyId: string) =>
+  sendApi<{ queued: boolean }>(
+    `/invoices/summary/send?companyId=${encodeURIComponent(companyId)}`,
+    "POST",
+  );
+
+/** Emails the customer their payment summary, with the page's filters. */
+export const sendPaymentSummary = (query: {
+  companyId: string;
+  from: string;
+  to: string;
+  method: string;
+}) =>
+  sendApi<{ queued: boolean }>(
+    `/receipts/summary/send?${new URLSearchParams(
+      Object.entries(query).filter(([, value]) => value !== ""),
+    )}`,
+    "POST",
+  );
+
+/** A client's invoices in one PDF: a summary, then each invoice in full. */
+export async function fetchInvoiceSummaryPdf(
+  companyId: string,
+  invoiceIds: string[],
+): Promise<Blob> {
+  const params = new URLSearchParams({
+    companyId,
+    invoiceIds: invoiceIds.join(","),
+  });
+  const response = await authenticatedFetch(
+    `${apiRoot}/invoices/summary?${params}`,
+  );
+  if (!response.ok) throw new Error("The invoice summary could not be created");
+  return response.blob();
+}
 
 /** Emails the receipt, PDF attached, to the client's contacts. */
 export const sendReceipt = (id: string, invoiceId: string, paymentId: string) =>

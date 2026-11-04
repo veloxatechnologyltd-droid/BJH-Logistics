@@ -10,9 +10,9 @@ const legacy: readonly string[] = legacyStaffRoleKeys;
 const hasAny = (roles: string[], allowed: readonly string[]) =>
   roles.some((role) => allowed.includes(role) || legacy.includes(role));
 
-/** Invoices, receipts, payments, costs and statements: finance and the super admin only. */
+/** Invoices, receipts, payments, costs and statements: finance, customer service and the super admin. */
 export const canWorkFinance = (roles: string[]) =>
-  hasAny(roles, ["super_admin", "finance_rep"]);
+  hasAny(roles, ["super_admin", "finance_rep", "customer_service_rep"]);
 
 /** Supplier invoices and disbursement proof are BJH's costs: finance only, as in the API. */
 const costEvidenceTypes: readonly DocumentType[] = [
@@ -26,6 +26,16 @@ export const documentTypesFor = (roles: string[]): DocumentType[] =>
     (key) => canWorkFinance(roles) || !costEvidenceTypes.includes(key),
   );
 
+/** Creating and editing customer profiles (the API's ClientDeskGuard). */
+export const canWorkClientDesk = (roles: string[]) =>
+  hasAny(roles, ["super_admin", "customer_service_rep", "sales_rep"]);
+
 /** Preparing, issuing and sending quotes. */
 export const canWorkQuotes = (roles: string[]) =>
-  hasAny(roles, ["super_admin", "customer_service_rep", "sales_rep"]);
+  hasAny(roles, [
+    "super_admin",
+    "customer_service_rep",
+    "sales_rep",
+    "import_rep",
+    "export_rep",
+  ]);

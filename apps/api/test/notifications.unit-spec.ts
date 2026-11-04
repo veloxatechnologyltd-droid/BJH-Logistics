@@ -246,3 +246,43 @@ test("replies to inquiries go out from the inquiries mailbox, never from the quo
     "BJH <inquiries@example.test>",
   );
 });
+
+test("customer replies go from Henry's mailbox only when it is set up, answers back to the read mailbox", async () => {
+  const { createReplySender } = await import("../src/notifications/providers");
+  const mail = {
+    EMAIL_SMTP_HOST: "mail.example.test",
+    EMAIL_FROM: "BJH <quotes@example.test>",
+    INBOUND_IMAP_USER: "quotes@example.test",
+  };
+  assert.equal(createReplySender({}), null);
+  assert.equal(createReplySender(mail), null);
+  assert.equal(
+    createReplySender({ EMAIL_REPLY_FROM: "Henry <henry@example.test>" }),
+    null,
+  );
+  const henry = createReplySender({
+    ...mail,
+    EMAIL_REPLY_FROM: "Henry <henry@example.test>",
+    EMAIL_INQUIRY_FROM: "inquiries@example.test",
+  });
+  assert.equal(henry?.email.name, "smtp");
+  assert.deepEqual(henry?.replyTo, {
+    quotes: "quotes@example.test",
+    inquiries: "inquiries@example.test",
+  });
+});
+
+test("the reply template adds the signature and escapes the text in HTML", async () => {
+  const { replyHtml, replyText } =
+    await import("../src/notifications/reply-template");
+  const text = replyText("Dear Ama,\n\nKind regards,\n");
+  assert.match(text, /^Dear Ama,\n\nKind regards,\n\n--\nHenry Yaw Somuah\n/);
+  assert.match(text, /Email: henry@bjhlogistics\.com/);
+  const html = replyHtml('A <b>"bold"</b> & more\nnext line\n\nNew paragraph');
+  assert.match(
+    html,
+    /A &lt;b&gt;&quot;bold&quot;&lt;\/b&gt; &amp; more<br>next line<\/p>/,
+  );
+  assert.match(html, /<p style="margin:0 0 14px">New paragraph<\/p>/);
+  assert.ok(!html.includes("<b>"));
+});

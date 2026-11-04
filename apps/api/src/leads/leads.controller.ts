@@ -11,7 +11,9 @@ import {
 } from "@nestjs/common";
 import {
   DepartmentStaffGuard,
+  StaffRolesGuard,
   SupabaseIdentityGuard,
+  quoteDeskRoles,
 } from "../auth/auth.guards";
 import type { AuthenticatedRequest } from "../auth/auth.guards";
 import { LeadsService } from "./leads.service";
@@ -49,6 +51,13 @@ export class LeadsController {
   @Post()
   create(@Body() body: unknown, @Req() request: AuthenticatedRequest) {
     return this.leads.create(body, request.authUser!.userId);
+  }
+
+  /** Before a quote for a lead: whoever may prepare quotes. */
+  @Post(":id/customer")
+  @UseGuards(StaffRolesGuard(quoteDeskRoles))
+  toCustomer(@Param("id") id: string) {
+    return this.leads.toCustomer(id);
   }
 
   @Patch(":id")

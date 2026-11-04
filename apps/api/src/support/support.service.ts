@@ -8,11 +8,13 @@ import {
 import {
   isUuid,
   parseContract,
+  supportReplyInputSchema,
   supportRequestInputSchema,
   supportRequestStatusSchema,
 } from "@bjh/contracts";
 import { DatabasePort } from "../database/database.port";
 import type { SupportRequestRecord } from "../database/database.port";
+import { publicWebUrl } from "../notifications/notifications.service";
 import { EMAIL_PROVIDER } from "../notifications/providers";
 import type { EmailProvider } from "../notifications/providers";
 
@@ -33,8 +35,10 @@ export interface SupportReporter {
 /**
  * Support requests (Evans, 2026-11-03). Anyone signed in may send one; it is
  * saved, then emailed to `SUPPORT_EMAIL_TO` (the developer) after the reply,
- * so a mail failure never loses the request. The super admin sees them all and
- * sets the status; everyone else sees only their own.
+ * so a mail failure never loses the request. The super admin sees them all,
+ * sets the status and replies; everyone else sees only their own and may write
+ * back (Evans, 2026-11-04: a request is a ticket with a conversation). A reply
+ * is saved first and emailed after, so a mail failure never loses it.
  */
 @Injectable()
 export class SupportService {
@@ -89,7 +93,100 @@ export class SupportService {
     return updated;
   }
 
-  private async notify(request: SupportRequestRecord) {
+  /** The super admin answers a ticket; the person who sent it is emailed. */
+  async replyAsSupport(
+    adminUserId: string,
+    id: string,
+    body: unknown,
+  ): Promise<SupportRequestRecord> {
+    const updated = await this.saveReply(id, adminUserId, "support", body);
+    void this.notifyReporter(updated).catch((error: unknown) => {
+      this.logger.error(
+        `Reply on support request ${id} could not be emailed: ${
+          error instanceof Error ? error.message : "unknown error"
+        }`,
+      );
+    });
+    return updated;
+  }
+
+  /**
+   * The person who sent a ticket writes again. Only their own: anyone else's
+   * ticket answers "not found", so its existence is not revealed.
+   */
+  async replyAsReporter(
+    userId: string,
+    id: string,
+    body: unknown,
+  ): Promise<SupportRequestRecord> {
+    if (!isUuid(id)) throw new NotFoundException("Support request not found");
+    const existing = await this.database.findSupportRequest(id);
+    if (!existing || existing.reporterUserId !== userId) {
+      throw new NotFoundException("Support request not found");
+    }
+    const updated = await this.saveReply(id, userId, "reporter", body);
+    const latest = updated.messages[updated.messages.length - 1];
+    void this.emailDeveloper(
+      updated,
+      `[BJH support] Reply from ${updated.reporterEmail ?? "a user"}`,
+      [
+        `${updated.reporterEmail ?? "A user"} replied on their ${kindLabels[updated.kind].toLowerCase()}.`,
+        `Request ID: ${updated.id}`,
+        "",
+        latest.body,
+      ].join("\n"),
+    ).catch((error: unknown) => {
+      this.logger.error(
+        `Reply on support request ${id} could not be emailed: ${
+          error instanceof Error ? error.message : "unknown error"
+        }`,
+      );
+    });
+    return updated;
+  }
+
+  private async saveReply(
+    id: string,
+    authorUserId: string,
+    authorRole: "support" | "reporter",
+    body: unknown,
+  ): Promise<SupportRequestRecord> {
+    if (!isUuid(id)) throw new NotFoundException("Support request not found");
+    const input = parseContract(supportReplyInputSchema, body);
+    if (!input.success) throw new BadRequestException(input.message);
+    const updated = await this.database.addSupportMessage(id, {
+      authorUserId,
+      authorRole,
+      body: input.data.body,
+    });
+    if (!updated) throw new NotFoundException("Support request not found");
+    return updated;
+  }
+
+  private async notifyReporter(request: SupportRequestRecord) {
+    if (!request.reporterEmail) return;
+    const latest = request.messages[request.messages.length - 1];
+    await this.email.send({
+      to: request.reporterEmail,
+      subject: `BJH Logistics support replied to your ${kindLabels[request.kind].toLowerCase()}`,
+      text: [
+        `BJH Logistics support has replied to your ${kindLabels[request.kind].toLowerCase()}.`,
+        "",
+        latest.body,
+        "",
+        `Your message: ${request.description.slice(0, 300)}${request.description.length > 300 ? "…" : ""}`,
+        "",
+        `To answer, sign in and choose Get help: ${publicWebUrl()}`,
+      ].join("\n"),
+    });
+  }
+
+  /** Emails the developer, if `SUPPORT_EMAIL_TO` is set; the ticket is saved either way. */
+  private async emailDeveloper(
+    request: SupportRequestRecord,
+    subject: string,
+    text: string,
+  ) {
     const to = process.env.SUPPORT_EMAIL_TO?.trim();
     if (!to) {
       this.logger.warn(
@@ -97,16 +194,20 @@ export class SupportService {
       );
       return;
     }
+    await this.email.send({ to, subject, text });
+  }
+
+  private async notify(request: SupportRequestRecord) {
     const from =
       request.reporterKind === "customer"
         ? `Customer${request.companyName ? ` (${request.companyName})` : ""}`
         : "Staff";
-    await this.email.send({
-      to,
-      subject: `[BJH support] ${kindLabels[request.kind]} from ${
+    await this.emailDeveloper(
+      request,
+      `[BJH support] ${kindLabels[request.kind]} from ${
         request.reporterEmail ?? "a user"
       }`,
-      text: [
+      [
         `${kindLabels[request.kind]} sent from the BJH Logistics app.`,
         "",
         `From: ${request.reporterEmail ?? "unknown"} — ${from}`,
@@ -118,6 +219,6 @@ export class SupportService {
         "",
         request.description,
       ].join("\n"),
-    });
+    );
   }
 }

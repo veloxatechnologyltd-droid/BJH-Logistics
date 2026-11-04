@@ -7,6 +7,8 @@ export const STAFF_AUTH_DIRECTORY = Symbol("STAFF_AUTH_DIRECTORY");
 export interface StaffDirectoryUser {
   id: string;
   email: string | null;
+  /** The name the super admin gave the person; null until one is set. */
+  name?: string | null;
   createdAt: string;
   invitedAt: string | null;
   suspended: boolean;
@@ -15,11 +17,36 @@ export interface StaffDirectoryUser {
 
 import type { StaffRoleKey } from "../database/database.port";
 
+/**
+ * How a person is shown to others: their name, or, until one is set, their
+ * email's first part tidied up ("john.evans@…" becomes "John Evans"). Never
+ * the whole address.
+ */
+export function staffDisplayName(
+  user: { name?: string | null; email?: string | null } | null | undefined,
+): string {
+  const name = user?.name?.trim();
+  if (name) return name;
+  const local = user?.email?.split("@")[0] ?? "";
+  const words = local
+    .split(/[._\-+\s]+/)
+    .map((word) => word.replace(/\d+$/, ""))
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase());
+  return words.join(" ") || "Staff member";
+}
+
 export interface StaffAuthDirectory {
   listUsers(page: number, perPage: number): Promise<StaffDirectoryUser[]>;
   getUser(userId: string): Promise<StaffDirectoryUser | null>;
   /** Creates an account with an admin-chosen, temporary password. */
-  createUser(email: string, password: string): Promise<StaffDirectoryUser>;
+  createUser(
+    email: string,
+    password: string,
+    name?: string,
+  ): Promise<StaffDirectoryUser>;
+  /** Sets the name others see; an empty name clears it. */
+  setName(userId: string, name: string): Promise<void>;
   /**
    * A temporary password (set by the admin) must be replaced at the next
    * sign-in; the user's own password clears that requirement.
@@ -90,15 +117,28 @@ export class SupabaseStaffAuthDirectory implements StaffAuthDirectory {
   async createUser(
     email: string,
     password: string,
+    name?: string,
   ): Promise<StaffDirectoryUser> {
     const { data, error } = await this.requireClient().auth.admin.createUser({
       email,
       password,
       email_confirm: true,
+      ...(name ? { user_metadata: { full_name: name } } : {}),
       app_metadata: { bjh_must_change_password: true },
     });
     if (error || !data.user) throw this.providerUnavailable();
     return this.toUser(data.user);
+  }
+
+  async setName(userId: string, name: string): Promise<void> {
+    const client = this.requireClient();
+    const { data, error: lookupError } =
+      await client.auth.admin.getUserById(userId);
+    if (lookupError || !data.user) throw this.providerUnavailable();
+    const { error } = await client.auth.admin.updateUserById(userId, {
+      user_metadata: { ...data.user.user_metadata, full_name: name || null },
+    });
+    if (error) throw this.providerUnavailable();
   }
 
   async setPassword(
@@ -169,10 +209,13 @@ export class SupabaseStaffAuthDirectory implements StaffAuthDirectory {
     created_at: string;
     invited_at?: string;
     app_metadata?: Record<string, unknown>;
+    user_metadata?: Record<string, unknown>;
   }): StaffDirectoryUser {
+    const name = user.user_metadata?.full_name;
     return {
       id: user.id,
       email: user.email ?? null,
+      name: typeof name === "string" && name.trim() ? name.trim() : null,
       createdAt: user.created_at,
       invitedAt: user.invited_at ?? null,
       suspended: Array.isArray(user.app_metadata?.bjh_suspended_roles),

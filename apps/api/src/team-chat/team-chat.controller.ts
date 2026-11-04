@@ -41,8 +41,8 @@ export class TeamChatController {
   ) {}
 
   @Get("people")
-  people() {
-    return this.chat.people();
+  people(@Req() request: AuthenticatedRequest) {
+    return this.chat.people(request.authUser!.userId);
   }
 
   @Get("unread")

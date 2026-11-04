@@ -1,6 +1,7 @@
 import "reflect-metadata";
 import assert from "node:assert/strict";
 import type { INestApplication } from "@nestjs/common";
+import { randomUUID } from "node:crypto";
 import { Test } from "@nestjs/testing";
 import { after, before, test } from "node:test";
 import { AddressInfo } from "node:net";
@@ -61,11 +62,12 @@ const directory: StaffAuthDirectory = {
   async getUser(userId) {
     return users.get(userId) ?? null;
   },
-  async createUser(email, password) {
+  async createUser(email, password, name) {
     createdAccount = { email, password };
     const user = {
       id: invitedId,
       email,
+      name: name ?? null,
       createdAt: "2026-09-28T10:00:00.000Z",
       invitedAt: null,
       suspended: false,
@@ -73,6 +75,10 @@ const directory: StaffAuthDirectory = {
     };
     users.set(invitedId, user);
     return user;
+  },
+  async setName(userId, name) {
+    const user = users.get(userId);
+    if (user) users.set(userId, { ...user, name: name || null });
   },
   async setPassword() {},
   async setSuspended(userId, suspended, roles = []) {
@@ -139,6 +145,7 @@ test("super admin creates an account directly with a password and role", async (
       email: " new@example.test ",
       password: "secure-example-password",
       roleKey: "export_rep",
+      name: "  Ama Mensah ",
     }),
   });
   assert.equal(response.status, 201);
@@ -149,6 +156,38 @@ test("super admin creates an account directly with a password and role", async (
   };
   assert.equal(data.assignment.roleKey, "export_rep");
   assert.equal(data.assignment.assignedBy, adminId);
+  assert.equal(users.get(invitedId)?.name, "Ama Mensah");
+});
+
+test("super admin sets and clears a staff name; others cannot", async () => {
+  const name = (value: unknown) => ({
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: value }),
+  });
+  const path = `/api/v1/admin/staff/${staffId}/name`;
+  assert.equal((await call(path, staffToken, name("Kofi"))).status, 403);
+  assert.equal(
+    (await call(path, adminToken, name("x".repeat(81)))).status,
+    400,
+  );
+  assert.equal(
+    (
+      await call(
+        `/api/v1/admin/staff/${randomUUID()}/name`,
+        adminToken,
+        name("Kofi"),
+      )
+    ).status,
+    404,
+  );
+  assert.equal(
+    (await call(path, adminToken, name("  Kofi Boateng "))).status,
+    200,
+  );
+  assert.equal(users.get(staffId)?.name, "Kofi Boateng");
+  assert.equal((await call(path, adminToken, name(""))).status, 200);
+  assert.equal(users.get(staffId)?.name, null);
 });
 
 test("super admin can assign and revoke roles while preserving history", async () => {

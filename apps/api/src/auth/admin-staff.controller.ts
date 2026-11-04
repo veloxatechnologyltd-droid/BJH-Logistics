@@ -32,6 +32,11 @@ export class AdminStaffController {
     return this.staff.create(body, request.authUser!);
   }
 
+  @Patch(":userId/name")
+  setName(@Param("userId") userId: string, @Body() body: unknown) {
+    return this.staff.setName(userId, body);
+  }
+
   @Patch(":userId/password")
   setPassword(@Param("userId") userId: string, @Body() body: unknown) {
     return this.staff.setPassword(userId, body);

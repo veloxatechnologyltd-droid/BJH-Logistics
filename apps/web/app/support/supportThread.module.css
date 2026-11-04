@@ -1,0 +1,65 @@
+.thread {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.message {
+  padding: 8px 10px;
+  border: 1px solid var(--brand-border);
+  border-radius: 8px;
+  font-size: 0.9rem;
+}
+.fromSupport {
+  background: rgb(11 63 174 / 8%);
+}
+.who {
+  font-weight: 600;
+}
+.when {
+  margin-left: 8px;
+  color: var(--brand-muted);
+  font-size: 0.8rem;
+}
+.text {
+  margin: 4px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.reply {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+.reply textarea {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid var(--brand-border);
+  border-radius: 8px;
+  font: inherit;
+  resize: vertical;
+}
+.reply button {
+  justify-self: end;
+  min-width: 96px;
+  padding: 8px 16px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--brand-primary);
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.reply button:hover {
+  background: var(--brand-primary-dark);
+}
+.reply button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.error {
+  margin: 0;
+  color: #b42318;
+}

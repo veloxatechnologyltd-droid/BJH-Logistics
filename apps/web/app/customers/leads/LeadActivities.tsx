@@ -83,7 +83,7 @@ export function LeadActivities({ leadId }: { leadId: string }) {
               <strong>{activityLabels[item.kind]}</strong> {item.note}
               <span>
                 {new Date(item.occurredAt).toLocaleString()}
-                {item.createdByEmail ? ` · ${item.createdByEmail}` : ""}
+                {item.createdByName ? ` · ${item.createdByName}` : ""}
               </span>
             </li>
           ))}

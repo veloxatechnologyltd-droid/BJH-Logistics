@@ -9,9 +9,11 @@ import type { Service } from "./content";
 /** Image and title only; the description opens on demand. */
 export function ServiceTile({
   service,
+  href,
   delay,
 }: {
   service: Service;
+  href: string;
   delay: number;
 }) {
   const [open, setOpen] = useState(false);
@@ -53,7 +55,7 @@ export function ServiceTile({
         <div id={panelId} className="tile-panel" inert={!open}>
           <div>
             <p>{service.summary}</p>
-            <Link href={`/services#${service.slug}`} className="card-link">
+            <Link href={href} className="card-link">
               Full details <Icon name="arrow" size={16} />
             </Link>
           </div>

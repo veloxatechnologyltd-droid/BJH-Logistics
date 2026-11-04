@@ -15,6 +15,10 @@ import { listParties } from "./jobApi";
 import type { JobDocument } from "./jobApi";
 import styles from "./jobs.module.css";
 import { ErrorPopup } from "../ErrorPopup";
+import { readNumber } from "../transport/readNumber";
+
+/** The select value for a driver or vehicle from outside BJH. */
+const OUTSIDE = "outside";
 
 function formatDate(value: string): string {
   return new Intl.DateTimeFormat(undefined, {
@@ -39,6 +43,9 @@ export function JobDeliveries({
   const [error, setError] = useState("");
   const [driverId, setDriverId] = useState("");
   const [vehicleId, setVehicleId] = useState("");
+  const [outsideDriverName, setOutsideDriverName] = useState("");
+  const [outsideDriverPhone, setOutsideDriverPhone] = useState("");
+  const [outsideRegistration, setOutsideRegistration] = useState("");
   const [cargo, setCargo] = useState("");
   const [packages, setPackages] = useState("");
   const [weight, setWeight] = useState("");
@@ -103,18 +110,42 @@ export function JobDeliveries({
 
   function submitDispatch(event: FormEvent) {
     event.preventDefault();
+    // A waybill cannot be changed once numbered, so a figure that cannot be
+    // read is refused here instead of being left off the waybill.
+    const packageCount = readNumber(packages);
+    const weightKg = readNumber(weight);
+    if (packageCount !== null && !Number.isInteger(packageCount)) {
+      setError("Packages must be a whole number, for example 12");
+      return;
+    }
+    if (Number.isNaN(weightKg)) {
+      setError("Gross weight must be a number in kg, for example 1,250.5");
+      return;
+    }
+    const outsideDriver = driverId === OUTSIDE;
+    const outsideVehicle = vehicleId === OUTSIDE;
     void run(
       () =>
         dispatchDelivery(jobId, {
-          driverId,
-          vehicleId,
+          ...(outsideDriver
+            ? {
+                driverName: outsideDriverName.trim(),
+                driverPhone: outsideDriverPhone.trim(),
+              }
+            : { driverId }),
+          ...(outsideVehicle
+            ? { vehicleRegistration: outsideRegistration.trim() }
+            : { vehicleId }),
           cargoDescription: cargo.trim(),
-          packages: packages.trim() ? Number(packages) : undefined,
-          grossWeightKg: weight.trim() ? Number(weight) : undefined,
+          packages: packageCount ?? undefined,
+          grossWeightKg: weightKg ?? undefined,
           pickupLocation: pickup.trim() || undefined,
           deliveryAddress: address.trim(),
         }),
       () => {
+        setOutsideDriverName("");
+        setOutsideDriverPhone("");
+        setOutsideRegistration("");
         setCargo("");
         setPackages("");
         setWeight("");
@@ -330,8 +361,34 @@ export function JobDeliveries({
                   {item.name} ({item.phone})
                 </option>
               ))}
+              <option value={OUTSIDE}>Outside driver (type below)</option>
             </select>
           </label>
+          {driverId === OUTSIDE && (
+            <>
+              <label className={styles.field}>
+                Outside driver&apos;s name
+                <input
+                  maxLength={160}
+                  onChange={(event) => setOutsideDriverName(event.target.value)}
+                  required
+                  value={outsideDriverName}
+                />
+              </label>
+              <label className={styles.field}>
+                Outside driver&apos;s phone
+                <input
+                  maxLength={40}
+                  onChange={(event) =>
+                    setOutsideDriverPhone(event.target.value)
+                  }
+                  required
+                  type="tel"
+                  value={outsideDriverPhone}
+                />
+              </label>
+            </>
+          )}
           <label className={styles.field}>
             Vehicle
             <select
@@ -345,8 +402,20 @@ export function JobDeliveries({
                   {item.registration}
                 </option>
               ))}
+              <option value={OUTSIDE}>Outside vehicle (type below)</option>
             </select>
           </label>
+          {vehicleId === OUTSIDE && (
+            <label className={styles.field}>
+              Outside vehicle registration
+              <input
+                maxLength={40}
+                onChange={(event) => setOutsideRegistration(event.target.value)}
+                required
+                value={outsideRegistration}
+              />
+            </label>
+          )}
           <label className={styles.field}>
             Cargo
             <input

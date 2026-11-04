@@ -12,9 +12,11 @@ import type { StaffNotice } from "./quotations/quoteRequestApi";
 const checkEveryMs = 60_000;
 
 const linkFor = (notice: StaffNotice) =>
-  notice.quoteRequestId
-    ? `/quotations/requests/${notice.quoteRequestId}`
-    : "/quotations";
+  notice.kind === "vehicle_due"
+    ? "/transport"
+    : notice.quoteRequestId
+      ? `/quotations/requests/${notice.quoteRequestId}`
+      : "/quotations";
 
 /**
  * The bell in the top bar: requests and inquiries left waiting, and the

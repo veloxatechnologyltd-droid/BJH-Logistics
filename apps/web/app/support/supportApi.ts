@@ -8,9 +8,18 @@ const supportUrl = `${apiBaseUrl}/v1/support`;
 export type SupportKind = "problem" | "feature" | "question";
 export type SupportStatus = "new" | "in_progress" | "done";
 
+export type SupportMessage = {
+  id: string;
+  /** The super admin answering, or the person who sent the request. */
+  authorRole: "support" | "reporter";
+  authorName: string | null;
+  body: string;
+  createdAt: string;
+};
+
 export type SupportRequest = {
   id: string;
-  reporterEmail: string | null;
+  reporterName: string | null;
   reporterKind: "staff" | "customer";
   companyName: string | null;
   kind: SupportKind;
@@ -19,6 +28,7 @@ export type SupportRequest = {
   userAgent: string | null;
   lastError: string | null;
   status: SupportStatus;
+  messages: SupportMessage[];
   createdAt: string;
   updatedAt: string;
 };
@@ -72,6 +82,22 @@ export const setSupportStatus = (id: string, status: SupportStatus) =>
   send<SupportRequest>(`${supportUrl}/${encodeURIComponent(id)}`, "PATCH", {
     status,
   });
+
+/** The super admin answers a request; its sender is emailed. */
+export const replyAsSupport = (id: string, body: string) =>
+  send<SupportRequest>(
+    `${supportUrl}/${encodeURIComponent(id)}/replies`,
+    "POST",
+    { body },
+  );
+
+/** The person who sent a request writes again on it. */
+export const replyToMyRequest = (id: string, body: string) =>
+  send<SupportRequest>(
+    `${supportUrl}/mine/${encodeURIComponent(id)}/replies`,
+    "POST",
+    { body },
+  );
 
 /**
  * The last error the error popup showed in this tab, so a report can carry it.

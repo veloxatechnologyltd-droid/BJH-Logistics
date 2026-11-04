@@ -2,7 +2,7 @@ BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 
-SELECT extensions.plan(5);
+SELECT extensions.plan(9);
 
 SELECT extensions.ok(
   NOT has_table_privilege('anon', 'app.receipt_number_sequence', 'SELECT')
@@ -49,6 +49,35 @@ SELECT extensions.lives_ok(
     VALUES ('00000000-0000-4000-8000-0000000002e0', 100, '2099-01-03', 'cash',
             '00000000-0000-4000-8000-0000000002aa')$$,
   'payments recorded before receipts existed have no number and remain valid'
+);
+
+-- One payment across several invoices: one receipt, shared by its invoices.
+SELECT extensions.ok(
+  NOT has_table_privilege('anon', 'app.payment_batch', 'SELECT')
+  AND NOT has_table_privilege('authenticated', 'app.payment_batch', 'SELECT')
+  AND (SELECT relrowsecurity FROM pg_class WHERE oid = 'app.payment_batch'::regclass),
+  'payment batches are private: no grants and row level security is on'
+);
+INSERT INTO app.payment_batch (batch_id, receipt_number)
+VALUES ('00000000-0000-4000-8000-0000000002f0', 'BJH/RCT/2099/9302');
+SELECT extensions.lives_ok(
+  $$INSERT INTO app.invoice_payment (invoice_id, amount_minor, received_on, method, receipt_number, batch_id, recorded_by)
+    VALUES ('00000000-0000-4000-8000-0000000002e0', 100, '2099-01-04', 'cash', 'BJH/RCT/2099/9302',
+            '00000000-0000-4000-8000-0000000002f0', '00000000-0000-4000-8000-0000000002aa'),
+           ('00000000-0000-4000-8000-0000000002e0', 100, '2099-01-04', 'cash', 'BJH/RCT/2099/9302',
+            '00000000-0000-4000-8000-0000000002f0', '00000000-0000-4000-8000-0000000002aa')$$,
+  'the payments of one batch share its receipt number'
+);
+SELECT extensions.throws_ok(
+  $$INSERT INTO app.invoice_payment (invoice_id, amount_minor, received_on, method, receipt_number, batch_id, recorded_by)
+    VALUES ('00000000-0000-4000-8000-0000000002e0', 50, '2099-01-04', 'cash', 'BJH/RCT/2099/9301',
+            '00000000-0000-4000-8000-0000000002f0', '00000000-0000-4000-8000-0000000002aa')$$,
+  '23503', NULL, 'a batch payment carries only its batch''s receipt number'
+);
+SELECT extensions.throws_ok(
+  $$UPDATE app.payment_batch SET receipt_number = 'BJH/RCT/2099/9999'
+    WHERE batch_id = '00000000-0000-4000-8000-0000000002f0'$$,
+  'P0001', 'payment batches are append-only', 'a payment batch never changes'
 );
 
 SELECT * FROM extensions.finish();

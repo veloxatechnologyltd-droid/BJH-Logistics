@@ -13,17 +13,20 @@ import {
   invoiceReasonInputSchema,
   isUuid,
   parseContract,
+  creditApplicationInputSchema,
   paymentBatchInputSchema,
   paymentInputSchema,
 } from "@bjh/contracts";
 import {
   DatabasePort,
+  CustomerCreditRecord,
   InvoiceAcceptanceRecord,
   InvoiceLineRecord,
   InvoicePaymentRecord,
   InvoiceRecord,
   JobRecord,
   JobScope,
+  PaymentBatchResult,
   StaffRoleKey,
 } from "../database/database.port";
 import { JobsService } from "../jobs/jobs.service";
@@ -32,13 +35,24 @@ import { JobChargesService, JobChargeView } from "./job-charges.service";
 import { computeInvoiceTotals } from "./invoice-totals";
 import {
   invoiceIssuedMessage,
+  invoicesIssuedMessage,
+  creditReceivedMessage,
   paymentReceivedMessage,
   receiptSentMessage,
+  invoiceSummarySentMessage,
+  paymentSummarySentMessage,
+  batchReceiptSentMessage,
   paymentsReceivedMessage,
 } from "../notifications/notification-messages";
 import { NotificationsService } from "../notifications/notifications.service";
-import { renderInvoicePdf } from "./invoice-pdf";
-import { renderReceiptPdf } from "./receipt-pdf";
+import { renderInvoicePdf, renderInvoiceSummaryPdf } from "./invoice-pdf";
+import {
+  renderBatchReceiptPdf,
+  methodLabels,
+  renderCreditReceiptPdf,
+  renderPaymentSummaryPdf,
+  renderReceiptPdf,
+} from "./receipt-pdf";
 
 export interface InvoiceView extends InvoiceRecord {
   /** Payments still standing (not reversed). */
@@ -244,9 +258,16 @@ export class InvoicesService {
           currency: billing.currency,
         });
       } else {
+        // Billed at the quoted price: keep its quantity and unit price.
+        const quoted =
+          charge.quotedTotalMinor !== null &&
+          charge.unitQuotedMinor !== null &&
+          billing.amountMinor === charge.quotedTotalMinor;
         lines.push({
           description: charge.description,
           amountMinor: billing.amountMinor,
+          quantity: quoted ? charge.quantity : null,
+          unitAmountMinor: quoted ? charge.unitQuotedMinor : null,
           taxable: true,
         });
       }
@@ -311,6 +332,7 @@ export class InvoicesService {
     invoiceId: string,
     issuedBy: string,
     scope: JobScope,
+    notify = true,
   ): Promise<InvoiceView> {
     const job = await this.editableJob(id, scope);
     const invoice = await this.find(job.id, invoiceId);
@@ -349,7 +371,7 @@ export class InvoicesService {
       throw new BadRequestException("Add at least one line before issuing");
     }
     const invoiceNumber = result.invoiceNumber;
-    if (invoiceNumber) {
+    if (invoiceNumber && notify) {
       await this.notifications.notify({
         companyId: job.customerCompanyId,
         jobId: job.id,
@@ -368,6 +390,101 @@ export class InvoicesService {
       });
     }
     return this.view(result, [], true);
+  }
+
+  /**
+   * Issues several drafts of one client at once (Evans, 2026-11-04). Every
+   * draft is checked before any is issued; each gets its own number, and
+   * the client gets one message listing them.
+   */
+  async issueMany(
+    input: unknown,
+    issuedBy: string,
+    scope: JobScope,
+  ): Promise<InvoiceView[]> {
+    const body = (input ?? {}) as { companyId?: unknown; invoiceIds?: unknown };
+    const { companyId, invoiceIds } = body;
+    if (typeof companyId !== "string" || !isUuid(companyId)) {
+      throw new BadRequestException("companyId must be a valid ID");
+    }
+    if (
+      !Array.isArray(invoiceIds) ||
+      invoiceIds.length === 0 ||
+      invoiceIds.length > 100 ||
+      !invoiceIds.every((id) => typeof id === "string" && isUuid(id))
+    ) {
+      throw new BadRequestException(
+        "invoiceIds must list 1 to 100 invoice IDs",
+      );
+    }
+    const wanted = new Set(invoiceIds as string[]);
+    const rows = (
+      await this.database.listInvoiceRegister({ companyId, scope })
+    ).filter(
+      (row) => row.customerCompanyId === companyId && wanted.has(row.invoiceId),
+    );
+    if (rows.length !== wanted.size) {
+      throw new NotFoundException(
+        "Some invoices were not found for this client",
+      );
+    }
+    const settings = (await this.database.getBusinessSettings())?.settings;
+    if (!settings) {
+      throw new ConflictException(
+        "Configure the business settings before issuing an invoice",
+      );
+    }
+    for (const row of rows) {
+      const label = `Invoice on job ${row.fileNumber}`;
+      if (row.status !== "draft") {
+        throw new ConflictException(`${label} is already issued or void`);
+      }
+      const job = await this.editableJob(row.jobId, scope);
+      const invoice = await this.find(job.id, row.invoiceId);
+      if (invoice.lines.length === 0) {
+        throw new BadRequestException(`${label} has no lines yet`);
+      }
+      if (!settings.currencies.includes(invoice.currency)) {
+        throw new BadRequestException(
+          `${label}: currency must be one of the configured currencies: ${settings.currencies.join(", ")}`,
+        );
+      }
+    }
+    const issued: InvoiceView[] = [];
+    for (const row of rows) {
+      issued.push(
+        await this.issue(row.jobId, row.invoiceId, issuedBy, scope, false),
+      );
+    }
+    const jobIds = new Set(rows.map((row) => row.jobId));
+    const [only] = issued;
+    await this.notifications.notify({
+      companyId,
+      jobId: jobIds.size === 1 ? rows[0].jobId : null,
+      event: "invoice_issued",
+      dedupeKey: `invoice-issued:${only.id}`,
+      message: (sender) =>
+        issued.length === 1
+          ? invoiceIssuedMessage(
+              sender,
+              only.invoiceNumber ?? "",
+              only.totalMinor,
+              only.currency,
+              only.dueDate,
+            )
+          : invoicesIssuedMessage(
+              sender,
+              issued.map((invoice) => ({
+                invoiceNumber: invoice.invoiceNumber ?? "",
+                totalMinor: invoice.totalMinor,
+                currency: invoice.currency,
+                dueDate: invoice.dueDate,
+              })),
+            ),
+      linkPath: jobIds.size === 1 ? `/jobs/${rows[0].jobId}` : "/invoices",
+      createdBy: issuedBy,
+    });
+    return issued;
   }
 
   async voidInvoice(
@@ -475,8 +592,9 @@ export class InvoicesService {
 
   /**
    * One payment from a customer applied across several of their invoices, all
-   * or nothing. Each invoice gets its own payment and receipt; the customer
-   * gets one message for the whole payment.
+   * or nothing. Each invoice gets its own payment row; across several
+   * invoices they share one receipt listing them all. The customer gets one
+   * message for the whole payment.
    */
   async recordPayments(
     input: unknown,
@@ -484,6 +602,7 @@ export class InvoicesService {
     scope: JobScope,
   ): Promise<{
     payments: InvoicePaymentRecord[];
+    credit: CustomerCreditRecord | null;
     totalMinor: number;
     currency: string;
   }> {
@@ -496,73 +615,206 @@ export class InvoicesService {
     ) {
       throw new BadRequestException("receivedOn cannot be in the future");
     }
+    if (parsed.data.currency) {
+      await this.requireConfiguredCurrency(parsed.data.currency);
+    }
     const result = await this.database.recordPaymentBatch(
       parsed.data,
       recordedBy,
       new Date().getUTCFullYear(),
       scope,
     );
-    if ("failed" in result) {
-      switch (result.failed) {
-        case "not_found":
-          throw new NotFoundException("Invoice was not found");
-        case "not_issued":
-          throw new ConflictException(
-            "Payments can only be recorded against an issued invoice",
-          );
-        case "mixed_customers":
-          throw new BadRequestException(
-            "All the invoices must belong to the same customer",
-          );
-        case "mixed_currencies":
-          throw new BadRequestException(
-            "All the invoices must be in the same currency",
-          );
-        case "exceeds_balance":
-          throw new ConflictException(
-            `The payment is more than the outstanding balance of ${result.invoiceNumber ?? "an invoice"}`,
-          );
-      }
-    }
-    const lines = result.recorded;
-    const jobIds = new Set(lines.map((line) => line.jobId));
-    const [only] = lines;
-    await this.notifications.notify({
-      companyId: result.companyId,
-      jobId: jobIds.size === 1 ? only.jobId : null,
-      event: "payment_received",
-      dedupeKey: `payment:${only.payment.id}`,
-      message: (sender) =>
-        lines.length === 1
-          ? paymentReceivedMessage(
-              sender,
-              only.payment.receiptNumber,
-              only.invoiceNumber,
-              only.payment.amountMinor,
-              only.balanceMinor,
-              result.currency,
-            )
-          : paymentsReceivedMessage(
-              sender,
-              result.currency,
-              lines.map((line) => ({
-                invoiceNumber: line.invoiceNumber,
-                receiptNumber: line.payment.receiptNumber,
-                amountMinor: line.payment.amountMinor,
-                balanceMinor: line.balanceMinor,
-              })),
-            ),
-      linkPath: jobIds.size === 1 ? `/jobs/${only.jobId}` : "/invoices",
-      createdBy: recordedBy,
-    });
+    if ("failed" in result) this.paymentFailure(result);
+    await this.tellCustomer(result, recordedBy);
     return {
-      payments: lines.map((line) => line.payment),
-      totalMinor: lines.reduce(
-        (sum, line) => sum + line.payment.amountMinor,
-        0,
-      ),
+      payments: result.recorded.map((line) => line.payment),
+      credit: result.credit,
+      totalMinor:
+        result.recorded.reduce(
+          (sum, line) => sum + line.payment.amountMinor,
+          0,
+        ) + (result.credit?.amountMinor ?? 0),
       currency: result.currency,
     };
+  }
+
+  /** Credits on customers' accounts, with what is left to apply. */
+  listCredits(companyId: string | null, scope: JobScope) {
+    if (companyId !== null && !isUuid(companyId)) {
+      throw new BadRequestException("companyId must be a valid ID");
+    }
+    return this.database.listCustomerCredits(companyId, scope);
+  }
+
+  /** Sets credit on a customer's account against their issued invoices. No new receipt: no new money. */
+  /** The receipt for money held on account, numbered when it was recorded. */
+  async creditReceiptPdf(
+    creditId: string,
+    scope: JobScope,
+  ): Promise<{ file: Buffer; filename: string }> {
+    const credit = isUuid(creditId)
+      ? (await this.database.listCustomerCredits(null, scope)).find(
+          (item) => item.id === creditId,
+        )
+      : undefined;
+    if (!credit) throw new NotFoundException("Credit was not found");
+    const settings = await this.database.getBusinessSettings();
+    const file = await renderCreditReceiptPdf({
+      credit,
+      settings: settings?.settings ?? null,
+    });
+    return {
+      file,
+      filename: `${credit.receiptNumber.replace(/[^A-Za-z0-9-]+/g, "-")}.pdf`,
+    };
+  }
+
+  async applyCredit(
+    creditId: string,
+    input: unknown,
+    appliedBy: string,
+    scope: JobScope,
+  ): Promise<CustomerCreditRecord> {
+    const parsed = parseContract(creditApplicationInputSchema, input);
+    if (!parsed.success) throw new BadRequestException(parsed.message);
+    if (!isUuid(creditId)) throw new NotFoundException("Credit was not found");
+    const result = await this.database.applyCustomerCredit(
+      creditId,
+      parsed.data.allocations,
+      appliedBy,
+      new Date().toISOString().slice(0, 10),
+      scope,
+    );
+    if ("failed" in result) {
+      if (result.failed === "not_found" && result.invoiceNumber === null) {
+        throw new NotFoundException("Credit or invoice was not found");
+      }
+      this.paymentFailure(result);
+    }
+    return result.credit!;
+  }
+
+  async reverseCredit(
+    creditId: string,
+    input: unknown,
+    reversedBy: string,
+    scope: JobScope,
+  ): Promise<CustomerCreditRecord> {
+    const parsed = parseContract(invoiceReasonInputSchema, input);
+    if (!parsed.success) throw new BadRequestException(parsed.message);
+    const result = isUuid(creditId)
+      ? await this.database.reverseCustomerCredit(
+          creditId,
+          parsed.data.reason,
+          reversedBy,
+          scope,
+        )
+      : "not_found";
+    if (result === "not_found") {
+      throw new NotFoundException("Credit was not found");
+    }
+    if (result === "already_reversed") {
+      throw new ConflictException("The credit is already reversed");
+    }
+    if (result === "applied") {
+      throw new ConflictException(
+        "Part of this credit is set against invoices: reverse those payments first",
+      );
+    }
+    return result;
+  }
+
+  private paymentFailure(
+    result: Extract<PaymentBatchResult, { failed: unknown }>,
+  ): never {
+    switch (result.failed) {
+      case "not_found":
+        throw new NotFoundException("Invoice was not found");
+      case "not_issued":
+        throw new ConflictException(
+          "Payments can only be recorded against an issued invoice",
+        );
+      case "mixed_customers":
+        throw new BadRequestException(
+          "All the invoices must belong to the same customer",
+        );
+      case "company_mismatch":
+        throw new BadRequestException(
+          "The invoices do not belong to this customer",
+        );
+      case "mixed_currencies":
+        throw new BadRequestException(
+          "All the invoices must be in the same currency",
+        );
+      case "currency_mismatch":
+        throw new BadRequestException(
+          "The invoices are not in the payment's currency",
+        );
+      case "exceeds_balance":
+        throw new ConflictException(
+          `The payment is more than the outstanding balance of ${result.invoiceNumber ?? "an invoice"}`,
+        );
+      case "exceeds_credit":
+        throw new ConflictException("That is more than is left of this credit");
+    }
+  }
+
+  /** One message for the invoices paid, and one for any credit kept. */
+  private async tellCustomer(
+    result: Extract<PaymentBatchResult, { recorded: unknown }>,
+    recordedBy: string,
+  ) {
+    const lines = result.recorded;
+    if (lines.length > 0) {
+      const jobIds = new Set(lines.map((line) => line.jobId));
+      const [only] = lines;
+      await this.notifications.notify({
+        companyId: result.companyId,
+        jobId: jobIds.size === 1 ? only.jobId : null,
+        event: "payment_received",
+        dedupeKey: `payment:${only.payment.id}`,
+        message: (sender) =>
+          lines.length === 1
+            ? paymentReceivedMessage(
+                sender,
+                only.payment.receiptNumber,
+                only.invoiceNumber,
+                only.payment.amountMinor,
+                only.balanceMinor,
+                result.currency,
+              )
+            : paymentsReceivedMessage(
+                sender,
+                result.currency,
+                only.payment.receiptNumber,
+                lines.map((line) => ({
+                  invoiceNumber: line.invoiceNumber,
+                  amountMinor: line.payment.amountMinor,
+                  balanceMinor: line.balanceMinor,
+                })),
+              ),
+        linkPath: jobIds.size === 1 ? `/jobs/${only.jobId}` : "/invoices",
+        createdBy: recordedBy,
+      });
+    }
+    const credit = result.credit;
+    if (credit) {
+      await this.notifications.notify({
+        companyId: result.companyId,
+        jobId: null,
+        event: "payment_received",
+        dedupeKey: `credit:${credit.id}`,
+        message: (sender) =>
+          creditReceivedMessage(
+            sender,
+            credit.receiptNumber,
+            credit.amountMinor,
+            credit.currency,
+          ),
+        linkPath: "/invoices",
+        createdBy: recordedBy,
+      });
+    }
   }
 
   async reversePayment(
@@ -738,6 +990,100 @@ export class InvoicesService {
     return { invoices: rows, totals: [...totals.values()] };
   }
 
+  /** Finance's invoice list: every invoice with its payment status and what is still owing. */
+  async register(companyId: unknown, scope: JobScope) {
+    if (companyId !== undefined && !isUuid(companyId)) {
+      throw new BadRequestException("companyId must be a valid ID");
+    }
+    const today = new Date().toISOString().slice(0, 10);
+    const rows = await this.database.listInvoiceRegister({
+      companyId: (companyId as string | undefined) ?? null,
+      scope,
+    });
+    return rows.map((row) => {
+      const issued = row.status === "issued";
+      const outstandingMinor = issued
+        ? Math.max(row.totalMinor - row.paidMinor, 0)
+        : 0;
+      const paymentStatus =
+        row.status !== "issued"
+          ? row.status
+          : outstandingMinor === 0
+            ? "paid"
+            : row.paidMinor > 0
+              ? "partial"
+              : "unpaid";
+      return {
+        ...row,
+        paymentStatus,
+        outstandingMinor,
+        overdue:
+          outstandingMinor > 0 && row.dueDate !== null && row.dueDate < today,
+      };
+    });
+  }
+
+  /**
+   * One PDF of a client's invoices (Evans, 2026-11-04): a summary table,
+   * then each invoice in full. `invoiceIds` (comma-separated) keeps the ones
+   * Finance has listed; ids not of this client are left out. Finance staff
+   * only, as drafts are included.
+   */
+  async invoiceSummaryPdf(
+    query: { companyId?: string; invoiceIds?: string; owingOnly?: boolean },
+    scope: JobScope,
+  ): Promise<{ file: Buffer; filename: string }> {
+    const { companyId } = query;
+    if (!companyId || !isUuid(companyId)) {
+      throw new BadRequestException("companyId must be a valid ID");
+    }
+    const wanted = query.invoiceIds
+      ? new Set(query.invoiceIds.split(","))
+      : null;
+    const rows = (
+      await this.database.listInvoiceRegister({ companyId, scope })
+    ).filter(
+      (row) =>
+        row.customerCompanyId === companyId &&
+        (query.owingOnly
+          ? row.status === "issued" && row.totalMinor > row.paidMinor
+          : wanted
+            ? wanted.has(row.invoiceId)
+            : row.status !== "void"),
+    );
+    if (rows.length === 0) {
+      throw new NotFoundException("No invoices were found for this client");
+    }
+    const [settings, invoices] = await Promise.all([
+      this.database.getBusinessSettings(),
+      Promise.all(
+        rows.map(async (row) => {
+          const job = await this.jobs.get(row.jobId, scope);
+          const [invoice, payments] = await Promise.all([
+            this.find(job.id, row.invoiceId),
+            this.database.listInvoicePayments(job.id),
+          ]);
+          return {
+            job,
+            invoice: this.view(
+              invoice,
+              payments.filter((payment) => payment.invoiceId === invoice.id),
+              false,
+            ),
+          };
+        }),
+      ),
+    ]);
+    const companyName = rows[0].customerCompanyName;
+    const file = await renderInvoiceSummaryPdf({
+      companyName,
+      settings: settings?.settings ?? null,
+      invoices,
+    });
+    const base = companyName.replace(/[^A-Za-z0-9-]+/g, "-");
+    return { file, filename: `invoices-${base}.pdf` };
+  }
+
   /** Customers reach only invoices that were issued, on their own company's jobs. */
   async pdf(
     id: string,
@@ -788,12 +1134,20 @@ export class InvoicesService {
       throw new NotFoundException("Receipt was not found on this invoice");
     }
     const settings = await this.database.getBusinessSettings();
-    const file = await renderReceiptPdf({
-      payment,
-      invoice: this.view(invoice, forInvoice, false),
-      job,
-      settings: settings?.settings ?? null,
-    });
+    const file = payment.batchId
+      ? await renderBatchReceiptPdf({
+          lines: await this.database.listBatchReceipt(
+            payment.batchId,
+            scope.companyIds,
+          ),
+          settings: settings?.settings ?? null,
+        })
+      : await renderReceiptPdf({
+          payment,
+          invoice: this.view(invoice, forInvoice, false),
+          job,
+          settings: settings?.settings ?? null,
+        });
     return {
       file,
       filename: `${payment.receiptNumber.replace(/[^A-Za-z0-9-]+/g, "-")}.pdf`,
@@ -820,9 +1174,12 @@ export class InvoicesService {
         invoiceId: row.payment.invoiceId,
         jobId: row.jobId,
         fileNumber: row.fileNumber,
+        customerCompanyId: row.customerCompanyId,
         customerCompanyName: row.customerCompanyName,
         invoiceNumber: row.invoiceNumber,
         receiptNumber: row.payment.receiptNumber,
+        /** Shared by the invoices one payment settled; they share the receipt. */
+        batchId: row.payment.batchId,
         currency: row.currency,
         amountMinor: row.payment.amountMinor,
         receivedOn: row.payment.receivedOn,
@@ -830,6 +1187,178 @@ export class InvoicesService {
         reference: isCustomer ? null : row.payment.reference,
         reversed: row.payment.reversal !== null,
       }));
+  }
+
+  /**
+   * One PDF adding up a customer's payments (Evans, 2026-11-04): every
+   * receipt already issued in the period, with totals. It is not a new
+   * receipt and has no number; each payment keeps its own receipt.
+   */
+  async paymentSummaryPdf(
+    query: {
+      companyId?: string;
+      from?: string;
+      to?: string;
+      method?: string;
+    },
+    scope: JobScope,
+  ): Promise<{ file: Buffer; filename: string }> {
+    const { companyId, method } = query;
+    if (!companyId || !isUuid(companyId)) {
+      throw new BadRequestException("companyId must be a valid ID");
+    }
+    const day = /^\d{4}-\d{2}-\d{2}$/;
+    const from = query.from || "2000-01-01";
+    const to = query.to || new Date().toISOString().slice(0, 10);
+    if (!day.test(from) || !day.test(to)) {
+      throw new BadRequestException("from and to must be dates (YYYY-MM-DD)");
+    }
+    if (method && !(method in methodLabels)) {
+      throw new BadRequestException("method is not a payment method");
+    }
+    // Narrowed to this one company, inside what the caller may already see.
+    const companyIds = scope.companyIds
+      ? scope.companyIds.filter((id) => id === companyId)
+      : [companyId];
+    const keep = (row: { receivedOn: string; method: string }) =>
+      row.receivedOn >= from &&
+      row.receivedOn <= to &&
+      (!method || row.method === method);
+    const [payments, credits, settings] = await Promise.all([
+      this.database.listReportPayments(from, to, { ...scope, companyIds }),
+      // Credits are finance-only: a customer's summary leaves them out.
+      scope.companyIds
+        ? Promise.resolve([])
+        : this.database.listCustomerCredits(companyId, { companyIds }),
+      this.database.getBusinessSettings(),
+    ]);
+    const paid = payments.filter(
+      (row) => row.payment.receiptNumber !== null && keep(row.payment),
+    );
+    const held = credits.filter(keep);
+    const companyName =
+      paid[0]?.customerCompanyName ?? held[0]?.companyName ?? null;
+    if (companyName === null) {
+      throw new NotFoundException("No payments were found for this customer");
+    }
+    const file = await renderPaymentSummaryPdf({
+      companyName,
+      from: query.from || null,
+      to: query.to || null,
+      lines: [
+        ...paid.map((row) => ({
+          receivedOn: row.payment.receivedOn,
+          receiptNumber: row.payment.receiptNumber ?? "",
+          paidFor: `${row.invoiceNumber} (job ${row.fileNumber})`,
+          method: row.payment.method,
+          currency: row.currency,
+          amountMinor: row.payment.amountMinor,
+          reversed: row.payment.reversal !== null,
+        })),
+        ...held.map((credit) => ({
+          receivedOn: credit.receivedOn,
+          receiptNumber: credit.receiptNumber,
+          paidFor: "On account (credit)",
+          method: credit.method,
+          currency: credit.currency,
+          amountMinor: credit.amountMinor,
+          reversed: credit.reversal !== null,
+        })),
+      ].sort(
+        (a, b) =>
+          a.receivedOn.localeCompare(b.receivedOn) ||
+          a.receiptNumber.localeCompare(b.receiptNumber),
+      ),
+      settings: settings?.settings ?? null,
+    });
+    return {
+      file,
+      filename: `Payments-${companyName.replace(/[^A-Za-z0-9-]+/g, "-")}.pdf`,
+    };
+  }
+
+  /**
+   * Emails a client the summary of their issued invoices still owing, each in
+   * full (never drafts). The PDF is made when the email goes out.
+   */
+  async sendInvoiceSummary(
+    companyId: string | undefined,
+    sentBy: string,
+    scope: JobScope,
+  ): Promise<{ queued: boolean }> {
+    if (!companyId || !isUuid(companyId)) {
+      throw new BadRequestException("companyId must be a valid ID");
+    }
+    const owing = (
+      await this.database.listInvoiceRegister({ companyId, scope })
+    ).filter(
+      (row) =>
+        row.customerCompanyId === companyId &&
+        row.status === "issued" &&
+        row.totalMinor > row.paidMinor,
+    );
+    if (owing.length === 0) {
+      throw new NotFoundException("This client has no issued invoice to pay");
+    }
+    return this.queueSummary(
+      companyId,
+      "invoice_summary_sent",
+      `invoice-summary-sent:${companyId}:${Date.now()}`,
+      (sender) =>
+        invoiceSummarySentMessage(
+          sender,
+          owing.map((row) => row.invoiceNumber ?? ""),
+        ),
+      "/invoices",
+      sentBy,
+    );
+  }
+
+  /** Emails a client the summary of their payments, with the page's filters. */
+  async sendPaymentSummary(
+    query: { companyId?: string; from?: string; to?: string; method?: string },
+    sentBy: string,
+    scope: JobScope,
+  ): Promise<{ queued: boolean }> {
+    // Checks the input and that there is something to send.
+    await this.paymentSummaryPdf(query, scope);
+    const { companyId = "", from = "", to = "", method = "" } = query;
+    return this.queueSummary(
+      companyId,
+      "payment_summary_sent",
+      `payment-summary-sent:${companyId}:${from}:${to}:${method}:${Date.now()}`,
+      paymentSummarySentMessage,
+      "/finance/receipts",
+      sentBy,
+    );
+  }
+
+  private async queueSummary(
+    companyId: string,
+    event: string,
+    dedupeKey: string,
+    message: Parameters<NotificationsService["notify"]>[0]["message"],
+    linkPath: string,
+    sentBy: string,
+  ): Promise<{ queued: boolean }> {
+    const result = await this.notifications.notify({
+      companyId,
+      jobId: null,
+      event,
+      dedupeKey,
+      message,
+      linkPath,
+      createdBy: sentBy,
+    });
+    if (!result || result === "duplicate") {
+      throw new ConflictException("The summary could not be queued");
+    }
+    if (result.deliveries.length === 0) {
+      throw new ConflictException(
+        "This customer has no contact to send the summary to",
+      );
+    }
+    return { queued: true };
   }
 
   /** Queues the receipt, PDF attached, to the client's contacts; a resend is a new message. */
@@ -852,19 +1381,34 @@ export class InvoicesService {
     }
     const receiptNumber = payment.receiptNumber;
     const invoiceNumber = invoice.invoiceNumber;
+    const batch = payment.batchId
+      ? (
+          await this.database.listBatchReceipt(payment.batchId, [
+            job.customerCompanyId,
+          ])
+        ).filter((line) => line.payment.reversal === null)
+      : [];
     const result = await this.notifications.notify({
       companyId: job.customerCompanyId,
       jobId: job.id,
       event: "receipt_sent",
       dedupeKey: `receipt-sent:${payment.id}:${Date.now()}`,
       message: (sender) =>
-        receiptSentMessage(
-          sender,
-          receiptNumber,
-          invoiceNumber,
-          payment.amountMinor,
-          invoice.currency,
-        ),
+        batch.length > 1
+          ? batchReceiptSentMessage(
+              sender,
+              receiptNumber,
+              batch.map((line) => line.invoiceNumber),
+              batch.reduce((sum, line) => sum + line.payment.amountMinor, 0),
+              invoice.currency,
+            )
+          : receiptSentMessage(
+              sender,
+              receiptNumber,
+              invoiceNumber,
+              payment.amountMinor,
+              invoice.currency,
+            ),
       linkPath: `/jobs/${job.id}/money`,
       createdBy: sentBy,
     });

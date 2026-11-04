@@ -32,8 +32,10 @@ function asDraft(suggestion: QuoteSuggestion): QuoteVersion {
  */
 export function NewQuote({
   fromRequest,
+  initialCustomerId,
 }: {
   fromRequest?: { requestId: string; customerId: string };
+  initialCustomerId?: string;
 }) {
   const { roles, status } = useStaffAccess();
   const [suggestion, setSuggestion] = useState<QuoteSuggestion | null>(null);
@@ -110,6 +112,7 @@ export function NewQuote({
     <QuoteEditor
       draft={suggestion ? asDraft(suggestion) : undefined}
       fromRequest={fromRequest}
+      initialCustomerId={initialCustomerId}
       initialServiceLine={suggestion?.serviceLine}
       key={suggestion ? "suggested" : "blank"}
       notice={notice}

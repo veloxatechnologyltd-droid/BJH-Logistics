@@ -1,5 +1,6 @@
 import { Inject, Injectable, OnModuleDestroy } from "@nestjs/common";
 import type {
+  JobReportQuery,
   BusinessSettings,
   ChargeKind,
   DocumentType,
@@ -17,8 +18,10 @@ import type {
   RequestDetails,
   RequestKind,
   TeamKey,
+  VehicleInput,
 } from "@bjh/contracts";
 import { parseContract, requestDetailsSchema } from "@bjh/contracts";
+import { staffDisplayName } from "../auth/staff-admin.port";
 import {
   ActiveCustomerMembershipRecord,
   ActivityEntry,
@@ -43,6 +46,7 @@ import {
   JobTaskRecord,
   BusinessSettingsRevisionRecord,
   ChargeActualRecord,
+  CustomerCreditRecord,
   DeliveryRecord,
   InvoiceLineRecord,
   DocumentExtractionRecord,
@@ -51,9 +55,11 @@ import {
   JobFinanceRecord,
   ReportInvoiceRecord,
   ReportPaymentRecord,
+  BatchReceiptLine,
   ReportStockMovementRecord,
   LeadRecord,
   OutstandingInvoiceRecord,
+  InvoiceRegisterRecord,
   ShippingDocumentRecord,
   StatementEntryRecord,
   TransportDocumentRecord,
@@ -79,6 +85,7 @@ import {
   SalesPeriodRecord,
   SalesServiceReportRecord,
   AssistantConversationRecord,
+  SupportMessageRecord,
   SupportRequestRecord,
   AssistantLine,
   ChatThreadRecord,
@@ -96,6 +103,7 @@ import {
   QuoteVersionRecord,
   ServiceLine,
   QuoteRequestRecord,
+  SentReplyRecord,
   QuoteRequestSource,
   KnowledgeEntryRecord,
   RequestMailbox,
@@ -267,7 +275,7 @@ const customerSelect = `
   LEFT JOIN app.customer_contact AS contact ON contact.company_id = company.company_id`;
 
 /** A payment with its reversal (if any) and the receipt date as plain text. */
-const PAYMENT_COLUMNS = `p.payment_id, p.invoice_id, p.receipt_number, p.amount_minor,
+const PAYMENT_COLUMNS = `p.payment_id, p.invoice_id, p.receipt_number, p.credit_id, p.batch_id, p.amount_minor,
   to_char(p.received_on, 'YYYY-MM-DD') AS received_on_text, p.method,
   p.reference, p.evidence_document_id, p.note, p.recorded_by, p.recorded_at,
   r.reason AS reversal_reason, r.reversed_by, r.reversed_at`;
@@ -287,6 +295,16 @@ const UUID_PATTERN =
 const uuidParam = (position: number) =>
   `CASE WHEN $${position}::text ~ ${UUID_PATTERN} THEN $${position}::uuid END`;
 
+/** A YYYY-MM-DD date plus whole months, ending on the month's last day when shorter (as PostgreSQL does). */
+export function addMonths(day: string, months: number): string {
+  const [year, month, date] = day.split("-").map(Number);
+  const target = new Date(Date.UTC(year, month - 1 + months, 1));
+  const last = new Date(
+    Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0),
+  ).getUTCDate();
+  target.setUTCDate(Math.min(date, last));
+  return target.toISOString().slice(0, 10);
+}
 @Injectable()
 export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
   constructor(@Inject(POSTGRES_POOL) private readonly pool: PostgresPool) {}
@@ -410,6 +428,19 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       [messageId],
     );
     return result.rows[0] ? this.toQuoteRequest(result.rows[0]) : null;
+  }
+
+  async findRequestEmailMessageId(requestId: string): Promise<string | null> {
+    const result = await this.pool.query(
+      `SELECT email.message_id FROM app.quote_request AS request
+       JOIN app.inbound_email AS email ON email.email_id = request.inbound_email_id
+       WHERE request.request_id = $1::uuid`,
+      [requestId],
+    );
+    const id = result.rows[0]?.message_id as string | undefined;
+    // An ID made from the content (no Message-ID header) is not a real one.
+    if (!id || id.startsWith("generated:")) return null;
+    return id.startsWith("<") ? id : `<${id}>`;
   }
 
   async completeEmailReading(
@@ -646,6 +677,40 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       return exists.rows.length > 0 ? "sent" : "not_found";
     }
     return (await this.findQuoteRequest(requestId))!;
+  }
+
+  async listRequestReplies(requestId: string): Promise<SentReplyRecord[]> {
+    // The first reply's key is email-reply:<id>; later ones add :<uuid>.
+    const result = await this.pool.query(
+      `SELECT notification.notification_id, notification.subject,
+              notification.body, notification.created_by,
+              notification.created_at, author.email AS author_email,
+              NULLIF(btrim(author.raw_user_meta_data->>'full_name'), '') AS author_name,
+              delivery.status
+       FROM app.notification
+       LEFT JOIN auth.users AS author ON author.id = notification.created_by
+       LEFT JOIN app.notification_delivery AS delivery
+         ON delivery.notification_id = notification.notification_id
+        AND delivery.channel = 'email'
+       WHERE notification.dedupe_key = 'email-reply:' || $1
+          OR notification.dedupe_key LIKE 'email-reply:' || $1 || ':%'
+       ORDER BY notification.created_at, notification.notification_id`,
+      [requestId],
+    );
+    return result.rows.map((row) => ({
+      id: String(row.notification_id),
+      subject: String(row.subject),
+      body: String(row.body),
+      sentBy: row.created_by ? String(row.created_by) : null,
+      sentByName: row.author_email
+        ? staffDisplayName({
+            name: row.author_name ? String(row.author_name) : null,
+            email: String(row.author_email),
+          })
+        : null,
+      createdAt: this.toIsoString(row.created_at),
+      status: (row.status ?? null) as SentReplyRecord["status"],
+    }));
   }
 
   async markRequestReplySent(
@@ -2780,19 +2845,101 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
   }
 
   async createVehicle(
-    vehicle: { registration: string; description: string | null },
+    vehicle: VehicleInput,
     createdBy: string,
   ): Promise<VehicleRecord | "duplicate_registration"> {
     const result = await this.pool.query(
-      `INSERT INTO app.vehicle (registration, description, created_by)
-       VALUES ($1, $2, $3::uuid)
+      `INSERT INTO app.vehicle
+         (registration, description, insurance_start_on, insurance_end_on,
+          dvla_expires_on, service_every_months, last_serviced_on, created_by)
+       VALUES ($1, $2, $3::date, $4::date, $5::date, $6, $7::date, $8::uuid)
        ON CONFLICT (upper(registration)) DO NOTHING
        RETURNING *`,
-      [vehicle.registration, vehicle.description, createdBy],
+      [...this.vehicleValues(vehicle), createdBy],
     );
     return result.rows.length > 0
       ? this.mapVehicle(result.rows[0])
       : "duplicate_registration";
+  }
+
+  async updateVehicle(
+    id: string,
+    vehicle: VehicleInput,
+  ): Promise<VehicleRecord | "not_found" | "duplicate_registration"> {
+    try {
+      const result = await this.pool.query(
+        `UPDATE app.vehicle
+         SET registration = $2, description = $3, insurance_start_on = $4::date,
+             insurance_end_on = $5::date, dvla_expires_on = $6::date,
+             service_every_months = $7, last_serviced_on = $8::date
+         WHERE vehicle_id = $1::uuid RETURNING *`,
+        [id, ...this.vehicleValues(vehicle)],
+      );
+      return result.rows.length > 0
+        ? this.mapVehicle(result.rows[0])
+        : "not_found";
+    } catch (error) {
+      if ((error as { code?: string }).code === "23505") {
+        return "duplicate_registration";
+      }
+      throw error;
+    }
+  }
+
+  private vehicleValues(vehicle: VehicleInput) {
+    return [
+      vehicle.registration,
+      vehicle.description,
+      vehicle.insuranceStartOn,
+      vehicle.insuranceEndOn,
+      vehicle.dvlaExpiresOn,
+      vehicle.serviceEveryMonths,
+      vehicle.lastServicedOn,
+    ];
+  }
+
+  async raiseVehicleNotices(daysBefore: number): Promise<number> {
+    // Each paper's date per active vehicle; then a "soon" notice from
+    // daysBefore days ahead and a "due" notice on the day (and after, if it
+    // was never raised). Dates are Ghana days (UTC).
+    const result = await this.pool.query(
+      `WITH papers AS (
+         SELECT v.vehicle_id, v.registration, p.what, p.label, p.due_on
+         FROM app.vehicle AS v
+         CROSS JOIN LATERAL (VALUES
+           ('insurance', 'Insurance', v.insurance_end_on),
+           ('dvla', 'DVLA roadworthy', v.dvla_expires_on),
+           ('service', 'Servicing',
+             (v.last_serviced_on + make_interval(months => v.service_every_months))::date)
+         ) AS p (what, label, due_on)
+         WHERE v.deactivated_at IS NULL AND p.due_on IS NOT NULL
+       ),
+       today AS (SELECT (clock_timestamp() AT TIME ZONE 'UTC')::date AS day),
+       staged AS (
+         SELECT papers.*,
+                CASE WHEN papers.due_on <= today.day THEN 'due' ELSE 'soon' END AS stage
+         FROM papers, today
+         WHERE papers.due_on <= today.day + $1::integer
+       )
+       INSERT INTO app.staff_notification
+         (user_id, kind, vehicle_id, dedupe_key, title)
+       SELECT admin.user_id, 'vehicle_due', staged.vehicle_id,
+              'vehicle:' || staged.vehicle_id || ':' || staged.what || ':'
+                || staged.due_on || ':' || staged.stage,
+              left(staged.label || ' for ' || staged.registration
+                || CASE WHEN staged.stage = 'due'
+                     THEN ' was due on ' ELSE ' is due on ' END
+                || to_char(staged.due_on, 'FMDD Mon YYYY'), 200)
+       FROM staged
+       CROSS JOIN (
+         SELECT DISTINCT user_id FROM app.staff_role_assignment
+         WHERE role_key = 'super_admin' AND revoked_at IS NULL
+       ) AS admin
+       ON CONFLICT (user_id, dedupe_key) WHERE dedupe_key IS NOT NULL
+       DO NOTHING`,
+      [daysBefore],
+    );
+    return result.rowCount ?? 0;
   }
 
   async listVehicles(): Promise<VehicleRecord[]> {
@@ -2820,8 +2967,11 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
   async createDelivery(
     delivery: {
       jobId: string;
-      driverId: string;
-      vehicleId: string;
+      driverId: string | null;
+      driverName: string | null;
+      driverPhone: string | null;
+      vehicleId: string | null;
+      vehicleRegistration: string | null;
       cargoDescription: string;
       packages: number | null;
       grossWeightKg: number | null;
@@ -2834,23 +2984,34 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
-      const driver = await client.query(
-        `SELECT driver_name, phone FROM app.driver
-         WHERE driver_id = $1::uuid AND deactivated_at IS NULL FOR SHARE`,
-        [delivery.driverId],
-      );
-      if (driver.rows.length === 0) {
-        await client.query("ROLLBACK");
-        return "driver_unavailable";
+      // An outside driver or vehicle has no record: the typed text is used.
+      let driverName = delivery.driverName ?? "";
+      let driverPhone = delivery.driverPhone ?? "";
+      if (delivery.driverId) {
+        const driver = await client.query(
+          `SELECT driver_name, phone FROM app.driver
+           WHERE driver_id = $1::uuid AND deactivated_at IS NULL FOR SHARE`,
+          [delivery.driverId],
+        );
+        if (driver.rows.length === 0) {
+          await client.query("ROLLBACK");
+          return "driver_unavailable";
+        }
+        driverName = String(driver.rows[0].driver_name);
+        driverPhone = String(driver.rows[0].phone);
       }
-      const vehicle = await client.query(
-        `SELECT registration FROM app.vehicle
-         WHERE vehicle_id = $1::uuid AND deactivated_at IS NULL FOR SHARE`,
-        [delivery.vehicleId],
-      );
-      if (vehicle.rows.length === 0) {
-        await client.query("ROLLBACK");
-        return "vehicle_unavailable";
+      let registration = delivery.vehicleRegistration ?? "";
+      if (delivery.vehicleId) {
+        const vehicle = await client.query(
+          `SELECT registration FROM app.vehicle
+           WHERE vehicle_id = $1::uuid AND deactivated_at IS NULL FOR SHARE`,
+          [delivery.vehicleId],
+        );
+        if (vehicle.rows.length === 0) {
+          await client.query("ROLLBACK");
+          return "vehicle_unavailable";
+        }
+        registration = String(vehicle.rows[0].registration);
       }
       const allocated = await client.query(
         `SELECT app.allocate_waybill_number($1, COALESCE(
@@ -2871,9 +3032,9 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
           String(allocated.rows[0].waybill_number),
           delivery.driverId,
           delivery.vehicleId,
-          String(driver.rows[0].driver_name),
-          String(driver.rows[0].phone),
-          String(vehicle.rows[0].registration),
+          driverName,
+          driverPhone,
+          registration,
           delivery.cargoDescription,
           delivery.packages,
           delivery.grossWeightKg,
@@ -3065,6 +3226,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     }
     const result = await this.pool.query(
       `SELECT ${PAYMENT_COLUMNS}, job.job_id, job.file_number,
+              job.customer_company_id,
               company.company_name AS customer_company_name,
               i.currency, i.invoice_number
        FROM app.invoice_payment p
@@ -3081,6 +3243,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     return result.rows.map((row) => ({
       jobId: String(row.job_id),
       fileNumber: String(row.file_number),
+      customerCompanyId: String(row.customer_company_id),
       customerCompanyName: String(row.customer_company_name),
       currency: String(row.currency),
       invoiceNumber: String(row.invoice_number),
@@ -3443,7 +3606,8 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
 
   async listLeadActivities(leadId: string): Promise<LeadActivityRecord[]> {
     const result = await this.pool.query(
-      `SELECT activity.*, author.email AS created_by_email
+      `SELECT activity.*, author.email AS created_by_email,
+              NULLIF(btrim(author.raw_user_meta_data->>'full_name'), '') AS created_by_name
        FROM app.lead_activity AS activity
        LEFT JOIN auth.users AS author ON author.id = activity.created_by
        WHERE activity.lead_id = $1::uuid
@@ -3467,7 +3631,8 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
          FROM app.lead WHERE lead_id = $1::uuid
          RETURNING *
        )
-       SELECT added.*, author.email AS created_by_email
+       SELECT added.*, author.email AS created_by_email,
+              NULLIF(btrim(author.raw_user_meta_data->>'full_name'), '') AS created_by_name
        FROM added LEFT JOIN auth.users AS author ON author.id = added.created_by`,
       [
         activity.leadId,
@@ -3495,6 +3660,18 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
          AND (customer_company_id = $1::uuid
            OR ($2::uuid IS NOT NULL AND quote_request_id = $2::uuid))`,
       [companyId, quoteRequestId],
+    );
+    return result.rowCount ?? 0;
+  }
+
+  async markLeadsQuoted(companyId: string): Promise<number> {
+    const result = await this.pool.query(
+      `UPDATE app.lead
+       SET stage = 'quoted',
+           stage_changed_at = clock_timestamp(),
+           updated_at = clock_timestamp()
+       WHERE stage IN ('new', 'contacted') AND customer_company_id = $1::uuid`,
+      [companyId],
     );
     return result.rowCount ?? 0;
   }
@@ -3623,8 +3800,11 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       note: String(row.note),
       occurredAt: this.toIsoString(row.occurred_at),
       createdBy: String(row.created_by),
-      createdByEmail: row.created_by_email
-        ? String(row.created_by_email)
+      createdByName: row.created_by_email
+        ? staffDisplayName({
+            name: row.created_by_name ? String(row.created_by_name) : null,
+            email: String(row.created_by_email),
+          })
         : null,
     };
   }
@@ -3659,8 +3839,18 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
 
   async listChatMessages(companyId: string): Promise<ChatMessageRecord[]> {
     const result = await this.pool.query(
-      `SELECT * FROM app.chat_message WHERE company_id = $1::uuid
-       ORDER BY created_at, message_id`,
+      `SELECT message.*,
+              COALESCE(
+                NULLIF(btrim(author.raw_user_meta_data->>'full_name'), ''),
+                (SELECT contact.contact_name FROM app.customer_contact contact
+                  WHERE contact.company_id = message.company_id
+                    AND lower(contact.email) = lower(author.email)
+                  ORDER BY contact.created_at LIMIT 1)
+              ) AS resolved_name
+       FROM app.chat_message message
+       LEFT JOIN auth.users author ON author.id = message.author_user_id
+       WHERE message.company_id = $1::uuid
+       ORDER BY message.created_at, message.message_id`,
       [companyId],
     );
     return result.rows.map((row) => this.mapChatMessage(row));
@@ -4093,6 +4283,11 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     return result.rows[0] ? String(result.rows[0].company_id) : null;
   }
 
+  /** Messages saved before names existed carry an email: show it as a tidy name. */
+  private chatAuthorName(name: string | null): string | null {
+    return name?.includes("@") ? staffDisplayName({ email: name }) : name;
+  }
+
   private mapChatMessage(row: Record<string, unknown>): ChatMessageRecord {
     const optional = (value: unknown) => (value ? String(value) : null);
     return {
@@ -4102,7 +4297,9 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       channel: row.channel as ChatMessageRecord["channel"],
       body: String(row.body),
       authorUserId: optional(row.author_user_id),
-      authorName: optional(row.author_name),
+      authorName: this.chatAuthorName(
+        optional(row.resolved_name) ?? optional(row.author_name),
+      ),
       emailFrom: optional(row.email_from),
       jobId: optional(row.job_id),
       createdAt: this.toIsoString(row.created_at),
@@ -4113,7 +4310,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
   async createSupportRequest(
     request: Omit<
       SupportRequestRecord,
-      "id" | "companyName" | "status" | "createdAt" | "updatedAt"
+      "id" | "companyName" | "status" | "messages" | "createdAt" | "updatedAt"
     >,
   ): Promise<SupportRequestRecord> {
     const result = await this.pool.query(
@@ -4143,15 +4340,91 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     reporterUserId?: string,
   ): Promise<SupportRequestRecord[]> {
     const result = await this.pool.query(
-      `SELECT request.*, company.company_name
+      `SELECT request.*, company.company_name,
+              NULLIF(btrim(reporter.raw_user_meta_data->>'full_name'), '') AS reporter_name
        FROM app.support_request request
        LEFT JOIN app.customer_company company USING (company_id)
+       LEFT JOIN auth.users reporter ON reporter.id = request.reporter_user_id
        WHERE $1::uuid IS NULL OR request.reporter_user_id = $1::uuid
        ORDER BY request.created_at DESC, request.support_request_id
        LIMIT 500`,
       [reporterUserId ?? null],
     );
-    return result.rows.map((row) => this.mapSupportRequest(row));
+    const messages = await this.supportMessages(
+      result.rows.map((row) => String(row.support_request_id)),
+    );
+    return result.rows.map((row) =>
+      this.mapSupportRequest(
+        row,
+        messages.get(String(row.support_request_id)) ?? [],
+      ),
+    );
+  }
+
+  async addSupportMessage(
+    id: string,
+    message: {
+      authorUserId: string;
+      authorRole: SupportMessageRecord["authorRole"];
+      body: string;
+    },
+  ): Promise<SupportRequestRecord | null> {
+    // One statement, so a reply and the status change it causes never part.
+    const result = await this.pool.query(
+      `WITH inserted AS (
+         INSERT INTO app.support_message
+           (support_request_id, author_user_id, author_role, body)
+         SELECT support_request_id, $2::uuid, $3::text, $4
+         FROM app.support_request
+         WHERE support_request_id = $1::uuid
+         RETURNING support_request_id
+       )
+       UPDATE app.support_request request
+       SET status = CASE
+             WHEN $3::text = 'support' AND request.status = 'new' THEN 'in_progress'
+             WHEN $3::text = 'reporter' AND request.status = 'done' THEN 'new'
+             ELSE request.status
+           END,
+           updated_at = clock_timestamp()
+       FROM inserted
+       WHERE request.support_request_id = inserted.support_request_id`,
+      [id, message.authorUserId, message.authorRole, message.body],
+    );
+    return (result.rowCount ?? 0) > 0 ? this.findSupportRequest(id) : null;
+  }
+
+  private async supportMessages(
+    requestIds: string[],
+  ): Promise<Map<string, SupportMessageRecord[]>> {
+    const byRequest = new Map<string, SupportMessageRecord[]>();
+    if (requestIds.length === 0) return byRequest;
+    const result = await this.pool.query(
+      `SELECT message.*, author.email AS author_email,
+              NULLIF(btrim(author.raw_user_meta_data->>'full_name'), '') AS author_name
+       FROM app.support_message message
+       LEFT JOIN auth.users author ON author.id = message.author_user_id
+       WHERE message.support_request_id = ANY($1::uuid[])
+       ORDER BY message.created_at, message.support_message_id`,
+      [requestIds],
+    );
+    for (const row of result.rows) {
+      const requestId = String(row.support_request_id);
+      const list = byRequest.get(requestId) ?? [];
+      list.push({
+        id: String(row.support_message_id),
+        authorRole: row.author_role as SupportMessageRecord["authorRole"],
+        authorName: row.author_email
+          ? staffDisplayName({
+              name: row.author_name ? String(row.author_name) : null,
+              email: String(row.author_email),
+            })
+          : null,
+        body: String(row.body),
+        createdAt: this.toIsoString(row.created_at),
+      });
+      byRequest.set(requestId, list);
+    }
+    return byRequest;
   }
 
   async setSupportRequestStatus(
@@ -4167,27 +4440,36 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     return (result.rowCount ?? 0) > 0 ? this.findSupportRequest(id) : null;
   }
 
-  private async findSupportRequest(
-    id: string,
-  ): Promise<SupportRequestRecord | null> {
+  async findSupportRequest(id: string): Promise<SupportRequestRecord | null> {
     const result = await this.pool.query(
-      `SELECT request.*, company.company_name
+      `SELECT request.*, company.company_name,
+              NULLIF(btrim(reporter.raw_user_meta_data->>'full_name'), '') AS reporter_name
        FROM app.support_request request
        LEFT JOIN app.customer_company company USING (company_id)
+       LEFT JOIN auth.users reporter ON reporter.id = request.reporter_user_id
        WHERE request.support_request_id = $1::uuid`,
       [id],
     );
-    return result.rows[0] ? this.mapSupportRequest(result.rows[0]) : null;
+    if (!result.rows[0]) return null;
+    const messages = await this.supportMessages([id]);
+    return this.mapSupportRequest(result.rows[0], messages.get(id) ?? []);
   }
 
   private mapSupportRequest(
     row: Record<string, unknown>,
+    messages: SupportMessageRecord[],
   ): SupportRequestRecord {
     const optional = (value: unknown) => (value ? String(value) : null);
     return {
       id: String(row.support_request_id),
       reporterUserId: String(row.reporter_user_id),
       reporterEmail: optional(row.reporter_email),
+      reporterName: row.reporter_email
+        ? staffDisplayName({
+            name: optional(row.reporter_name),
+            email: String(row.reporter_email),
+          })
+        : null,
       reporterKind: row.reporter_kind as SupportRequestRecord["reporterKind"],
       companyId: optional(row.company_id),
       companyName: optional(row.company_name),
@@ -4197,6 +4479,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       userAgent: optional(row.user_agent),
       lastError: optional(row.last_error),
       status: row.status as SupportRequestRecord["status"],
+      messages,
       createdAt: this.toIsoString(row.created_at),
       updatedAt: this.toIsoString(row.updated_at),
     };
@@ -4405,6 +4688,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       quoteRequestId: row.quote_request_id
         ? String(row.quote_request_id)
         : null,
+      vehicleId: row.vehicle_id ? String(row.vehicle_id) : null,
       title: String(row.title),
       note: (row.note as string | null) ?? null,
       dueAt: this.toIsoString(row.due_at),
@@ -4517,8 +4801,49 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     }
   }
 
+  async listBatchReceipt(
+    batchId: string,
+    companyIds?: string[],
+  ): Promise<BatchReceiptLine[]> {
+    const result = await this.pool.query(
+      `SELECT ${PAYMENT_COLUMNS}, i.invoice_number, i.currency, i.total_minor,
+              i.total_minor - COALESCE((
+                SELECT sum(s.amount_minor) FROM app.invoice_payment s
+                WHERE s.invoice_id = i.invoice_id
+                  AND NOT EXISTS (
+                    SELECT 1 FROM app.invoice_payment_reversal sr
+                    WHERE sr.payment_id = s.payment_id)
+              ), 0) AS outstanding_minor,
+              job.job_id, job.file_number, job.customer_company_id,
+              company.company_name AS customer_company_name
+       FROM app.invoice_payment p
+       JOIN app.invoice i ON i.invoice_id = p.invoice_id
+       JOIN app.job job ON job.job_id = i.job_id
+       JOIN app.customer_company company ON company.company_id = job.customer_company_id
+       LEFT JOIN app.invoice_payment_reversal r ON r.payment_id = p.payment_id
+       WHERE p.batch_id = $1::uuid
+         AND ($2::uuid[] IS NULL OR job.customer_company_id = ANY($2::uuid[]))
+       ORDER BY i.invoice_number, p.payment_id`,
+      [batchId, companyIds ?? null],
+    );
+    return result.rows.map((row) => ({
+      payment: this.mapPayment(row),
+      invoiceNumber: String(row.invoice_number),
+      jobId: String(row.job_id),
+      fileNumber: String(row.file_number),
+      customerCompanyId: String(row.customer_company_id),
+      customerCompanyName: String(row.customer_company_name),
+      currency: String(row.currency),
+      invoiceTotalMinor: Number(row.total_minor),
+      invoiceOutstandingMinor: Number(row.outstanding_minor),
+    }));
+  }
+
   async recordPaymentBatch(
     batch: {
+      companyId: string | null;
+      currency: string | null;
+      totalMinor: number | null;
       receivedOn: string;
       method: InvoicePaymentRecord["method"];
       reference: string | null;
@@ -4536,117 +4861,91 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     if (scope.companyIds?.length === 0 || scope.serviceLines?.length === 0) {
       return missing;
     }
-    const ids = batch.allocations.map((item) => item.invoiceId);
+    const allocated = batch.allocations.reduce(
+      (sum, item) => sum + item.amountMinor,
+      0,
+    );
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
-      // Locked in a fixed order so two simultaneous batches cannot deadlock,
-      // and each invoice's balance is checked one batch at a time.
-      const found = await client.query(
-        `SELECT i.invoice_id, i.invoice_number, i.status, i.total_minor, i.currency,
-                i.job_id, job.customer_company_id
-         FROM app.invoice i
-         JOIN app.job job ON job.job_id = i.job_id
-         WHERE i.invoice_id = ANY($1::uuid[])
-           AND ($2::uuid[] IS NULL OR job.customer_company_id = ANY($2::uuid[]))
-           AND ($3::text[] IS NULL OR job.service_line = ANY($3::text[]))
-         ORDER BY i.invoice_id
-         FOR UPDATE OF i`,
-        [ids, scope.companyIds ?? null, scope.serviceLines ?? null],
-      );
-      if (found.rows.length !== ids.length) {
-        await client.query("ROLLBACK");
-        return missing;
-      }
-      const byId = new Map(
-        found.rows.map((row) => [String(row.invoice_id), row]),
-      );
-      const numberOf = (row: Record<string, unknown>) =>
-        row.invoice_number ? String(row.invoice_number) : null;
       const fail = async (
-        failed: Exclude<PaymentBatchResult, { recorded: unknown }>["failed"],
-        row?: Record<string, unknown>,
-      ): Promise<PaymentBatchResult> => {
+        failure: Extract<PaymentBatchResult, { failed: unknown }>,
+      ) => {
         await client.query("ROLLBACK");
-        return { failed, invoiceNumber: row ? numberOf(row) : null };
+        return failure;
       };
-      const first = found.rows[0];
-      for (const row of found.rows) {
-        if (row.status !== "issued") return fail("not_issued", row);
-        if (row.customer_company_id !== first.customer_company_id) {
-          return fail("mixed_customers", row);
-        }
-        if (row.currency !== first.currency) {
-          return fail("mixed_currencies", row);
-        }
-      }
-      const standing = await client.query(
-        `SELECT p.invoice_id, sum(p.amount_minor) AS paid
-         FROM app.invoice_payment p
-         WHERE p.invoice_id = ANY($1::uuid[])
-           AND NOT EXISTS (
-             SELECT 1 FROM app.invoice_payment_reversal r WHERE r.payment_id = p.payment_id
-           )
-         GROUP BY p.invoice_id`,
-        [ids],
-      );
-      const paidBefore = new Map(
-        standing.rows.map((row) => [String(row.invoice_id), Number(row.paid)]),
-      );
-      for (const allocation of batch.allocations) {
-        const row = byId.get(allocation.invoiceId)!;
-        if (
-          (paidBefore.get(allocation.invoiceId) ?? 0) + allocation.amountMinor >
-          Number(row.total_minor)
-        ) {
-          return fail("exceeds_balance", row);
-        }
-      }
-      const recorded: PaymentBatchLine[] = [];
-      for (const allocation of batch.allocations) {
-        const row = byId.get(allocation.invoiceId)!;
-        const receipt = await client.query(
-          `SELECT app.allocate_receipt_number($1, COALESCE(
-             (SELECT settings #>> '{numbering,receiptPrefix}'
-              FROM app.business_settings_revision
-              ORDER BY revision_number DESC LIMIT 1), 'BJH/RCT')) AS receipt_number`,
-          [year],
+      let companyId = batch.companyId;
+      let currency = batch.currency;
+      let recorded: PaymentBatchLine[] = [];
+      if (batch.allocations.length > 0) {
+        const outcome = await this.allocateToInvoices(
+          client,
+          batch.allocations,
+          {
+            receivedOn: batch.receivedOn,
+            method: batch.method,
+            reference: batch.reference,
+            note: batch.note,
+            creditId: null,
+            year,
+          },
+          recordedBy,
+          scope,
         );
+        if ("failed" in outcome) return fail(outcome);
+        if (companyId && companyId !== outcome.companyId) {
+          return fail({ failed: "company_mismatch", invoiceNumber: null });
+        }
+        if (currency && currency !== outcome.currency) {
+          return fail({ failed: "currency_mismatch", invoiceNumber: null });
+        }
+        companyId = outcome.companyId;
+        currency = outcome.currency;
+        recorded = outcome.recorded;
+      } else {
+        // No invoice: the whole payment becomes credit for this customer.
+        const company = await client.query(
+          `SELECT 1 FROM app.customer_company
+           WHERE company_id = $1::uuid
+             AND ($2::uuid[] IS NULL OR company_id = ANY($2::uuid[]))`,
+          [companyId, scope.companyIds ?? null],
+        );
+        if (company.rows.length === 0) return fail(missing);
+      }
+      const leftover = (batch.totalMinor ?? allocated) - allocated;
+      let credit: CustomerCreditRecord | null = null;
+      if (leftover > 0) {
+        const receipt = await this.allocateReceiptNumber(client, year);
         const inserted = await client.query(
-          `INSERT INTO app.invoice_payment
-            (invoice_id, receipt_number, amount_minor, received_on, method,
-             reference, evidence_document_id, note, recorded_by)
-           VALUES ($1::uuid, $2, $3, $4::date, $5, $6, NULL, $7, $8::uuid)
-           RETURNING payment_id`,
+          `INSERT INTO app.customer_credit
+            (company_id, currency, amount_minor, received_on, method,
+             reference, note, receipt_number, recorded_by)
+           VALUES ($1::uuid, $2, $3, $4::date, $5, $6, $7, $8, $9::uuid)
+           RETURNING credit_id`,
           [
-            allocation.invoiceId,
-            String(receipt.rows[0].receipt_number),
-            allocation.amountMinor,
+            companyId,
+            currency,
+            leftover,
             batch.receivedOn,
             batch.method,
             batch.reference,
             batch.note,
+            receipt,
             recordedBy,
           ],
         );
-        recorded.push({
-          payment: await this.selectPayment(
-            client,
-            String(inserted.rows[0].payment_id),
-          ),
-          invoiceNumber: numberOf(row) ?? "",
-          jobId: String(row.job_id),
-          balanceMinor:
-            Number(row.total_minor) -
-            (paidBefore.get(allocation.invoiceId) ?? 0) -
-            allocation.amountMinor,
-        });
+        credit = (
+          await this.selectCredits(client, {
+            creditId: String(inserted.rows[0].credit_id),
+          })
+        )[0];
       }
       await client.query("COMMIT");
       return {
         recorded,
-        companyId: String(first.customer_company_id),
-        currency: String(first.currency),
+        credit,
+        companyId: companyId!,
+        currency: currency!,
       };
     } catch (error) {
       await client.query("ROLLBACK").catch(() => undefined);
@@ -4654,6 +4953,352 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     } finally {
       client.release();
     }
+  }
+
+  async listCustomerCredits(
+    companyId: string | null,
+    scope: JobScope,
+  ): Promise<CustomerCreditRecord[]> {
+    if (scope.companyIds?.length === 0) return [];
+    return this.selectCredits(this.pool, {
+      companyId,
+      companyIds: scope.companyIds ?? null,
+    });
+  }
+
+  async applyCustomerCredit(
+    creditId: string,
+    allocations: Array<{ invoiceId: string; amountMinor: number }>,
+    appliedBy: string,
+    appliedOn: string,
+    scope: JobScope,
+  ): Promise<PaymentBatchResult> {
+    const missing: PaymentBatchResult = {
+      failed: "not_found",
+      invoiceNumber: null,
+    };
+    if (scope.companyIds?.length === 0 || scope.serviceLines?.length === 0) {
+      return missing;
+    }
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const fail = async (
+        failure: Extract<PaymentBatchResult, { failed: unknown }>,
+      ) => {
+        await client.query("ROLLBACK");
+        return failure;
+      };
+      // Locked first, so two applications cannot both spend the same credit.
+      const locked = await client.query(
+        `SELECT credit_id FROM app.customer_credit
+         WHERE credit_id = $1::uuid
+           AND ($2::uuid[] IS NULL OR company_id = ANY($2::uuid[]))
+         FOR UPDATE`,
+        [creditId, scope.companyIds ?? null],
+      );
+      if (locked.rows.length === 0) return fail(missing);
+      const [credit] = await this.selectCredits(client, { creditId });
+      const wanted = allocations.reduce(
+        (sum, item) => sum + item.amountMinor,
+        0,
+      );
+      if (credit.reversal || wanted > credit.availableMinor) {
+        return fail({ failed: "exceeds_credit", invoiceNumber: null });
+      }
+      const outcome = await this.allocateToInvoices(
+        client,
+        allocations,
+        {
+          receivedOn: appliedOn,
+          method: credit.method,
+          reference: `Credit ${credit.receiptNumber}`,
+          note: null,
+          creditId,
+          year: 0,
+        },
+        appliedBy,
+        scope,
+      );
+      if ("failed" in outcome) return fail(outcome);
+      if (outcome.companyId !== credit.companyId) {
+        return fail({ failed: "company_mismatch", invoiceNumber: null });
+      }
+      if (outcome.currency !== credit.currency) {
+        return fail({ failed: "currency_mismatch", invoiceNumber: null });
+      }
+      const [after] = await this.selectCredits(client, { creditId });
+      await client.query("COMMIT");
+      return { ...outcome, credit: after };
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async reverseCustomerCredit(
+    creditId: string,
+    reason: string,
+    reversedBy: string,
+    scope: JobScope,
+  ): Promise<
+    CustomerCreditRecord | "not_found" | "already_reversed" | "applied"
+  > {
+    if (scope.companyIds?.length === 0) return "not_found";
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const locked = await client.query(
+        `SELECT credit_id FROM app.customer_credit
+         WHERE credit_id = $1::uuid
+           AND ($2::uuid[] IS NULL OR company_id = ANY($2::uuid[]))
+         FOR UPDATE`,
+        [creditId, scope.companyIds ?? null],
+      );
+      if (locked.rows.length === 0) {
+        await client.query("ROLLBACK");
+        return "not_found";
+      }
+      const [credit] = await this.selectCredits(client, { creditId });
+      const refusal = credit.reversal
+        ? "already_reversed"
+        : credit.appliedMinor > 0
+          ? "applied"
+          : null;
+      if (refusal) {
+        await client.query("ROLLBACK");
+        return refusal;
+      }
+      await client.query(
+        `UPDATE app.customer_credit
+         SET reversed_at = clock_timestamp(), reversed_by = $2::uuid,
+             reversal_reason = $3
+         WHERE credit_id = $1::uuid`,
+        [creditId, reversedBy, reason],
+      );
+      const [after] = await this.selectCredits(client, { creditId });
+      await client.query("COMMIT");
+      return after;
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  private async allocateReceiptNumber(
+    client: PostgresClient,
+    year: number,
+  ): Promise<string> {
+    const receipt = await client.query(
+      `SELECT app.allocate_receipt_number($1, COALESCE(
+         (SELECT settings #>> '{numbering,receiptPrefix}'
+          FROM app.business_settings_revision
+          ORDER BY revision_number DESC LIMIT 1), 'BJH/RCT')) AS receipt_number`,
+      [year],
+    );
+    return String(receipt.rows[0].receipt_number);
+  }
+
+  /**
+   * Inside the caller's transaction: sets amounts against issued invoices of
+   * one customer and currency, each within what it still owes. New money gets
+   * one receipt: on one invoice its own, across several a batch whose receipt
+   * lists them all. A payment from credit gets none.
+   */
+  private async allocateToInvoices(
+    client: PostgresClient,
+    allocations: Array<{ invoiceId: string; amountMinor: number }>,
+    payment: {
+      receivedOn: string;
+      method: InvoicePaymentRecord["method"];
+      reference: string | null;
+      note: string | null;
+      creditId: string | null;
+      year: number;
+    },
+    recordedBy: string,
+    scope: JobScope,
+  ): Promise<
+    | Extract<PaymentBatchResult, { failed: unknown }>
+    | { recorded: PaymentBatchLine[]; companyId: string; currency: string }
+  > {
+    const ids = allocations.map((item) => item.invoiceId);
+    // Locked in a fixed order so two simultaneous batches cannot deadlock,
+    // and each invoice's balance is checked one batch at a time.
+    const found = await client.query(
+      `SELECT i.invoice_id, i.invoice_number, i.status, i.total_minor, i.currency,
+              i.job_id, job.customer_company_id
+       FROM app.invoice i
+       JOIN app.job job ON job.job_id = i.job_id
+       WHERE i.invoice_id = ANY($1::uuid[])
+         AND ($2::uuid[] IS NULL OR job.customer_company_id = ANY($2::uuid[]))
+         AND ($3::text[] IS NULL OR job.service_line = ANY($3::text[]))
+       ORDER BY i.invoice_id
+       FOR UPDATE OF i`,
+      [ids, scope.companyIds ?? null, scope.serviceLines ?? null],
+    );
+    if (found.rows.length !== ids.length) {
+      return { failed: "not_found", invoiceNumber: null };
+    }
+    const byId = new Map(
+      found.rows.map((row) => [String(row.invoice_id), row]),
+    );
+    const numberOf = (row: Record<string, unknown>) =>
+      row.invoice_number ? String(row.invoice_number) : null;
+    const first = found.rows[0];
+    for (const row of found.rows) {
+      if (row.status !== "issued") {
+        return { failed: "not_issued", invoiceNumber: numberOf(row) };
+      }
+      if (row.customer_company_id !== first.customer_company_id) {
+        return { failed: "mixed_customers", invoiceNumber: numberOf(row) };
+      }
+      if (row.currency !== first.currency) {
+        return { failed: "mixed_currencies", invoiceNumber: numberOf(row) };
+      }
+    }
+    const standing = await client.query(
+      `SELECT p.invoice_id, sum(p.amount_minor) AS paid
+       FROM app.invoice_payment p
+       WHERE p.invoice_id = ANY($1::uuid[])
+         AND NOT EXISTS (
+           SELECT 1 FROM app.invoice_payment_reversal r WHERE r.payment_id = p.payment_id
+         )
+       GROUP BY p.invoice_id`,
+      [ids],
+    );
+    const paidBefore = new Map(
+      standing.rows.map((row) => [String(row.invoice_id), Number(row.paid)]),
+    );
+    for (const allocation of allocations) {
+      const row = byId.get(allocation.invoiceId)!;
+      if (
+        (paidBefore.get(allocation.invoiceId) ?? 0) + allocation.amountMinor >
+        Number(row.total_minor)
+      ) {
+        return { failed: "exceeds_balance", invoiceNumber: numberOf(row) };
+      }
+    }
+    const recorded: PaymentBatchLine[] = [];
+    let batchId: string | null = null;
+    let batchReceipt: string | null = null;
+    if (!payment.creditId && allocations.length > 1) {
+      batchReceipt = await this.allocateReceiptNumber(client, payment.year);
+      const batch = await client.query(
+        `INSERT INTO app.payment_batch (receipt_number) VALUES ($1)
+         RETURNING batch_id`,
+        [batchReceipt],
+      );
+      batchId = String(batch.rows[0].batch_id);
+    }
+    for (const allocation of allocations) {
+      const row = byId.get(allocation.invoiceId)!;
+      const receipt = payment.creditId
+        ? null
+        : (batchReceipt ??
+          (await this.allocateReceiptNumber(client, payment.year)));
+      const inserted = await client.query(
+        `INSERT INTO app.invoice_payment
+          (invoice_id, receipt_number, amount_minor, received_on, method,
+           reference, evidence_document_id, note, recorded_by, credit_id, batch_id)
+         VALUES ($1::uuid, $2, $3, $4::date, $5, $6, NULL, $7, $8::uuid, $9::uuid, $10::uuid)
+         RETURNING payment_id`,
+        [
+          allocation.invoiceId,
+          receipt,
+          allocation.amountMinor,
+          payment.receivedOn,
+          payment.method,
+          payment.reference,
+          payment.note,
+          recordedBy,
+          payment.creditId,
+          batchId,
+        ],
+      );
+      recorded.push({
+        payment: await this.selectPayment(
+          client,
+          String(inserted.rows[0].payment_id),
+        ),
+        invoiceNumber: numberOf(row) ?? "",
+        jobId: String(row.job_id),
+        balanceMinor:
+          Number(row.total_minor) -
+          (paidBefore.get(allocation.invoiceId) ?? 0) -
+          allocation.amountMinor,
+      });
+    }
+    return {
+      recorded,
+      companyId: String(first.customer_company_id),
+      currency: String(first.currency),
+    };
+  }
+
+  /** Credits with what is applied and left, by id or by customer (within companyIds). */
+  private async selectCredits(
+    client: PostgresClient | PostgresPool,
+    filter: {
+      creditId?: string;
+      companyId?: string | null;
+      companyIds?: string[] | null;
+    },
+  ): Promise<CustomerCreditRecord[]> {
+    const result = await client.query(
+      `SELECT c.*, to_char(c.received_on, 'YYYY-MM-DD') AS received_on_text,
+              company.company_name,
+              COALESCE((
+                SELECT sum(p.amount_minor) FROM app.invoice_payment p
+                WHERE p.credit_id = c.credit_id
+                  AND NOT EXISTS (
+                    SELECT 1 FROM app.invoice_payment_reversal r
+                    WHERE r.payment_id = p.payment_id)
+              ), 0) AS applied_minor
+       FROM app.customer_credit c
+       JOIN app.customer_company company ON company.company_id = c.company_id
+       WHERE ($1::uuid IS NULL OR c.credit_id = $1::uuid)
+         AND ($2::uuid IS NULL OR c.company_id = $2::uuid)
+         AND ($3::uuid[] IS NULL OR c.company_id = ANY($3::uuid[]))
+       ORDER BY c.received_on DESC, c.recorded_at DESC`,
+      [
+        filter.creditId ?? null,
+        filter.companyId ?? null,
+        filter.companyIds ?? null,
+      ],
+    );
+    return result.rows.map((row) => {
+      const amount = Number(row.amount_minor);
+      const applied = Number(row.applied_minor);
+      const optional = (value: unknown) => (value ? String(value) : null);
+      return {
+        id: String(row.credit_id),
+        companyId: String(row.company_id),
+        companyName: String(row.company_name),
+        currency: String(row.currency),
+        amountMinor: amount,
+        appliedMinor: applied,
+        availableMinor: row.reversed_at ? 0 : amount - applied,
+        receivedOn: String(row.received_on_text),
+        method: row.method as InvoicePaymentRecord["method"],
+        reference: optional(row.reference),
+        note: optional(row.note),
+        receiptNumber: String(row.receipt_number),
+        recordedBy: String(row.recorded_by),
+        recordedAt: this.toIsoString(row.recorded_at),
+        reversal: row.reversed_at
+          ? {
+              reason: String(row.reversal_reason),
+              reversedBy: String(row.reversed_by),
+              reversedAt: this.toIsoString(row.reversed_at),
+            }
+          : null,
+      };
+    });
   }
 
   async reverseInvoicePayment(
@@ -5037,6 +5682,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     smsText: string;
     linkUrl: string | null;
     createdBy: string | null;
+    jobReportQuery?: JobReportQuery | null;
     deliveries: Array<{
       contactId: string | null;
       channel: "email" | "sms";
@@ -5050,8 +5696,8 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       await client.query("BEGIN");
       const inserted = await client.query(
         `INSERT INTO app.notification
-          (company_id, job_id, event, dedupe_key, subject, body, sms_text, link_url, created_by)
-         VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9::uuid)
+          (company_id, job_id, event, dedupe_key, subject, body, sms_text, link_url, created_by, job_report_query)
+         VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9::uuid, $10::jsonb)
          ON CONFLICT (dedupe_key) DO NOTHING
          RETURNING *`,
         [
@@ -5064,6 +5710,9 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
           notification.smsText,
           notification.linkUrl,
           notification.createdBy,
+          notification.jobReportQuery
+            ? JSON.stringify(notification.jobReportQuery)
+            : null,
         ],
       );
       if (inserted.rows.length === 0) {
@@ -5124,7 +5773,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       const ids = claimed.rows.map((row) => String(row.notification_id));
       const notifications = ids.length
         ? await client.query(
-            `SELECT notification_id, company_id, event, dedupe_key, subject, body, sms_text, link_url
+            `SELECT notification_id, company_id, event, dedupe_key, subject, body, sms_text, link_url, job_report_query
              FROM app.notification WHERE notification_id = ANY($1::uuid[])`,
             [ids],
           )
@@ -5147,6 +5796,8 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
           body: String(notification.body),
           smsText: String(notification.sms_text),
           linkUrl: notification.link_url ? String(notification.link_url) : null,
+          jobReportQuery:
+            (notification.job_report_query as JobReportQuery | null) ?? null,
         };
       });
     } catch (error) {
@@ -5797,6 +6448,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     SELECT lead.lead_id, lead.company_name, lead.contact_name, lead.email,
            lead.phone, lead.source, lead.stage, lead.owner_id,
            owner.email AS owner_email,
+           NULLIF(btrim(owner.raw_user_meta_data->>'full_name'), '') AS owner_name,
            to_char(lead.next_follow_up, 'YYYY-MM-DD') AS next_follow_up_text,
            lead.notes, lead.lost_reason, lead.quote_request_id,
            lead.customer_company_id, company.company_name AS customer_company_name,
@@ -5818,7 +6470,12 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       source: String(row.source) as LeadSource,
       stage: String(row.stage) as LeadStage,
       ownerId: optional(row.owner_id),
-      ownerEmail: optional(row.owner_email),
+      ownerName: row.owner_email
+        ? staffDisplayName({
+            name: optional(row.owner_name),
+            email: String(row.owner_email),
+          })
+        : null,
       nextFollowUp: optional(row.next_follow_up_text),
       notes: optional(row.notes),
       lostReason: optional(row.lost_reason),
@@ -5969,6 +6626,52 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     }));
   }
 
+  async listInvoiceRegister(filter: {
+    companyId: string | null;
+    scope: JobScope;
+  }): Promise<InvoiceRegisterRecord[]> {
+    const { scope } = filter;
+    if (scope.companyIds?.length === 0 || scope.serviceLines?.length === 0) {
+      return [];
+    }
+    const result = await this.pool.query(
+      `SELECT i.invoice_id, i.invoice_number, i.status, i.currency, i.total_minor,
+              to_char(i.due_date, 'YYYY-MM-DD') AS due_date_text, i.created_at, i.issued_at,
+              job.job_id, job.file_number, job.customer_company_id,
+              company.company_name,
+              COALESCE((
+                SELECT sum(p.amount_minor) FROM app.invoice_payment p
+                WHERE p.invoice_id = i.invoice_id
+                  AND NOT EXISTS (
+                    SELECT 1 FROM app.invoice_payment_reversal r
+                    WHERE r.payment_id = p.payment_id)
+              ), 0) AS paid_minor
+       FROM app.invoice i
+       JOIN app.job job ON job.job_id = i.job_id
+       JOIN app.customer_company company ON company.company_id = job.customer_company_id
+       WHERE ($1::uuid IS NULL OR job.customer_company_id = $1::uuid)
+         AND ($2::uuid[] IS NULL OR job.customer_company_id = ANY($2::uuid[]))
+         AND ($3::text[] IS NULL OR job.service_line = ANY($3::text[]))
+       ORDER BY COALESCE(i.issued_at, i.created_at) DESC, i.invoice_id`,
+      [filter.companyId, scope.companyIds ?? null, scope.serviceLines ?? null],
+    );
+    return result.rows.map((row) => ({
+      invoiceId: String(row.invoice_id),
+      invoiceNumber: row.invoice_number ? String(row.invoice_number) : null,
+      status: row.status as InvoiceRegisterRecord["status"],
+      jobId: String(row.job_id),
+      fileNumber: String(row.file_number),
+      customerCompanyId: String(row.customer_company_id),
+      customerCompanyName: String(row.company_name),
+      currency: String(row.currency),
+      totalMinor: Number(row.total_minor),
+      paidMinor: Number(row.paid_minor),
+      dueDate: row.due_date_text ? String(row.due_date_text) : null,
+      createdAt: this.toIsoString(row.created_at),
+      issuedAt: row.issued_at ? this.toIsoString(row.issued_at) : null,
+    }));
+  }
+
   async listStatementEntries(
     companyId: string,
   ): Promise<StatementEntryRecord[]> {
@@ -5978,25 +6681,40 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
                 to_char(i.issued_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS entry_date,
                 i.issued_at AS recorded_at, i.currency, i.total_minor AS amount_minor,
                 i.invoice_number, job.file_number, job.job_id,
-                NULL::text AS receipt_number, NULL::text AS method, NULL::text AS reference
+                NULL::text AS receipt_number, NULL::text AS method, NULL::text AS reference,
+                false AS on_account
          FROM app.invoice i
          JOIN app.job job ON job.job_id = i.job_id
          WHERE job.customer_company_id = $1::uuid AND i.status = 'issued'
          UNION ALL
          SELECT 'payment', to_char(p.received_on, 'YYYY-MM-DD'), p.recorded_at, i.currency,
                 p.amount_minor, i.invoice_number, job.file_number, job.job_id,
-                p.receipt_number, p.method, p.reference
+                p.receipt_number, p.method, p.reference, false
          FROM app.invoice_payment p
          JOIN app.invoice i ON i.invoice_id = p.invoice_id
          JOIN app.job job ON job.job_id = i.job_id
          WHERE job.customer_company_id = $1::uuid AND i.status = 'issued'
+           -- Paid from credit: the money already shows as the credit below.
+           AND p.credit_id IS NULL
            AND NOT EXISTS (
              SELECT 1 FROM app.invoice_payment_reversal r WHERE r.payment_id = p.payment_id)
+         UNION ALL
+         SELECT 'payment', to_char(c.received_on, 'YYYY-MM-DD'), c.recorded_at, c.currency,
+                c.amount_minor, '', '', NULL::uuid, c.receipt_number, c.method,
+                c.reference, true
+         FROM app.customer_credit c
+         WHERE c.company_id = $1::uuid AND c.reversed_at IS NULL
        ) entry
        ORDER BY entry_date, recorded_at`,
       [companyId],
     );
-    const jobIds = [...new Set(result.rows.map((row) => String(row.job_id)))];
+    const jobIds = [
+      ...new Set(
+        result.rows
+          .filter((row) => row.job_id)
+          .map((row) => String(row.job_id)),
+      ),
+    ];
     const references = await this.pool.query(
       `SELECT job_id, kind, reference_value FROM app.shipment_reference
        WHERE job_id = ANY($1::uuid[]) AND removed_at IS NULL
@@ -6021,6 +6739,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       receiptNumber: row.receipt_number ? String(row.receipt_number) : null,
       method: row.method as StatementEntryRecord["method"],
       reference: row.reference ? String(row.reference) : null,
+      onAccount: row.on_account === true,
     }));
   }
 
@@ -6036,11 +6755,37 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     };
   }
 
+  /** A date column as YYYY-MM-DD (node-pg reads DATE as local midnight). */
+  private day(value: unknown): string | null {
+    if (value === null || value === undefined) return null;
+    if (value instanceof Date) {
+      const pad = (n: number) => String(n).padStart(2, "0");
+      return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`;
+    }
+    return String(value).slice(0, 10);
+  }
+
   private mapVehicle(row: Record<string, unknown>): VehicleRecord {
     return {
       id: String(row.vehicle_id),
       registration: String(row.registration),
       description: row.description ? String(row.description) : null,
+      insuranceStartOn: this.day(row.insurance_start_on),
+      insuranceEndOn: this.day(row.insurance_end_on),
+      dvlaExpiresOn: this.day(row.dvla_expires_on),
+      serviceEveryMonths:
+        row.service_every_months === null ||
+        row.service_every_months === undefined
+          ? null
+          : Number(row.service_every_months),
+      lastServicedOn: this.day(row.last_serviced_on),
+      nextServiceOn:
+        row.last_serviced_on && row.service_every_months
+          ? addMonths(
+              this.day(row.last_serviced_on)!,
+              Number(row.service_every_months),
+            )
+          : null,
       createdAt: this.toIsoString(row.created_at),
       deactivatedAt: row.deactivated_at
         ? this.toIsoString(row.deactivated_at)
@@ -6082,6 +6827,8 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       id: String(row.payment_id),
       invoiceId: String(row.invoice_id),
       receiptNumber: optional(row.receipt_number),
+      creditId: optional(row.credit_id),
+      batchId: optional(row.batch_id),
       amountMinor: Number(row.amount_minor),
       receivedOn: String(row.received_on_text),
       method: row.method as InvoicePaymentRecord["method"],
@@ -6106,8 +6853,8 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       id: String(row.delivery_id),
       jobId: String(row.job_id),
       waybillNumber: String(row.waybill_number),
-      driverId: String(row.driver_id),
-      vehicleId: String(row.vehicle_id),
+      driverId: optional(row.driver_id),
+      vehicleId: optional(row.vehicle_id),
       driverName: String(row.driver_name),
       driverPhone: String(row.driver_phone),
       vehicleRegistration: String(row.vehicle_registration),
@@ -6151,12 +6898,15 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
 
   async listActivity(filter: ActivityFilter): Promise<ActivityRecord[]> {
     const result = await this.pool.query(
-      `SELECT * FROM app.activity_log
-       WHERE ($1::uuid IS NULL OR actor_user_id = $1::uuid)
-         AND ($2::uuid IS NULL OR entity_id = $2::uuid)
-         AND ($3::timestamptz IS NULL OR occurred_at >= $3::timestamptz)
-         AND ($4::timestamptz IS NULL OR occurred_at <= $4::timestamptz)
-       ORDER BY occurred_at DESC, activity_id DESC
+      `SELECT entry.*,
+              NULLIF(btrim(actor.raw_user_meta_data->>'full_name'), '') AS actor_name
+       FROM app.activity_log entry
+       LEFT JOIN auth.users actor ON actor.id = entry.actor_user_id
+       WHERE ($1::uuid IS NULL OR entry.actor_user_id = $1::uuid)
+         AND ($2::uuid IS NULL OR entry.entity_id = $2::uuid)
+         AND ($3::timestamptz IS NULL OR entry.occurred_at >= $3::timestamptz)
+         AND ($4::timestamptz IS NULL OR entry.occurred_at <= $4::timestamptz)
+       ORDER BY entry.occurred_at DESC, entry.activity_id DESC
        LIMIT $5 OFFSET $6`,
       [
         filter.actorUserId ?? null,
@@ -6172,6 +6922,12 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       occurredAt: this.toIsoString(row.occurred_at),
       actorUserId: String(row.actor_user_id),
       actorEmail: row.actor_email ? String(row.actor_email) : null,
+      actorName: row.actor_email
+        ? staffDisplayName({
+            name: row.actor_name ? String(row.actor_name) : null,
+            email: String(row.actor_email),
+          })
+        : null,
       method: String(row.method),
       route: String(row.route),
       entityId: row.entity_id ? String(row.entity_id) : null,

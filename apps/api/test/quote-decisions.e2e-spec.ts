@@ -318,8 +318,8 @@ test("invalid decisions are rejected", async () => {
 test("access boundaries: other departments, customers and anonymous callers", async () => {
   const id = await issuedQuote(TEST_MATCHING_TOKEN, companyA);
   const wrongDepartment = await decide(id, TEST_UNASSIGNED_TOKEN, accept());
-  // Staff without the quote desk are refused by role, whatever the service line.
-  assert.equal(wrongDepartment.status, 403);
+  // A rep on another service line does not find the quote.
+  assert.equal(wrongDepartment.status, 404);
   const customer = await decide(id, TEST_CUSTOMER_A_TOKEN, accept());
   assert.equal(customer.status, 403);
   const anonymous = await fetch(`${baseUrl}/api/v1/quotes/${id}/decision`, {

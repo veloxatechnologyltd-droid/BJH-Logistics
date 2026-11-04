@@ -2238,3 +2238,67 @@ h2 {
     scroll-behavior: auto !important;
   }
 }
+
+/* Service detail pages and in-heading links */
+
+.crumbs {
+  padding-top: 22px;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.crumbs ol {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.crumbs li + li::before {
+  content: "/";
+  margin-right: 6px;
+}
+
+.crumbs a {
+  color: inherit;
+}
+
+.included {
+  display: grid;
+  gap: 12px;
+  margin: 22px 0 28px;
+  padding: 0;
+  list-style: none;
+}
+
+.included li {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+}
+
+.included svg {
+  flex: none;
+  translate: 0 4px;
+  color: var(--blue);
+}
+
+.service-detail-media {
+  width: 100%;
+  height: auto;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.service-card h3 a,
+.project-row h2 a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.service-card h3 a:hover,
+.project-row h2 a:hover {
+  text-decoration: underline;
+}

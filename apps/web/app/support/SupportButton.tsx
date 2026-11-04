@@ -9,11 +9,13 @@ import {
   kindLabels,
   listMySupportRequests,
   openSupportEvent,
+  replyToMyRequest,
   shownError,
   supportButtonMounted,
   statusLabels,
 } from "./supportApi";
 import type { SupportKind, SupportRequest } from "./supportApi";
+import { SupportThread } from "./SupportThread";
 import styles from "./support.module.css";
 
 const formatDate = (value: string) =>
@@ -37,6 +39,7 @@ export function SupportButton() {
   const [error, setError] = useState("");
   const [sent, setSent] = useState(false);
   const [earlier, setEarlier] = useState<SupportRequest[] | null>(null);
+  const [openId, setOpenId] = useState<string | null>(null);
   const textRef = useRef<HTMLTextAreaElement>(null);
 
   // The error popup's "Report this problem" opens the form here.
@@ -57,6 +60,7 @@ export function SupportButton() {
     if (!open) return;
     setSent(false);
     setError("");
+    setOpenId(null);
     textRef.current?.focus();
     listMySupportRequests()
       .then(setEarlier)
@@ -65,6 +69,13 @@ export function SupportButton() {
   }, [open]);
 
   const close = () => setOpen(false);
+
+  async function reply(id: string, body: string) {
+    const updated = await replyToMyRequest(id, body);
+    setEarlier((current) =>
+      (current ?? []).map((item) => (item.id === id ? updated : item)),
+    );
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -189,13 +200,40 @@ export function SupportButton() {
                 <ul className={styles.earlier}>
                   {earlier.slice(0, 5).map((item) => (
                     <li key={item.id}>
-                      <span className={styles.earlierText}>
-                        {kindLabels[item.kind]}: {item.description}
-                      </span>
-                      <span className={styles.earlierMeta}>
-                        {formatDate(item.createdAt)} ·{" "}
-                        <strong>{statusLabels[item.status]}</strong>
-                      </span>
+                      <button
+                        aria-expanded={openId === item.id}
+                        className={styles.earlierHead}
+                        onClick={() =>
+                          setOpenId(openId === item.id ? null : item.id)
+                        }
+                        type="button"
+                      >
+                        <span
+                          className={
+                            openId === item.id ? undefined : styles.earlierText
+                          }
+                        >
+                          {kindLabels[item.kind]}: {item.description}
+                        </span>
+                        <span className={styles.earlierMeta}>
+                          {formatDate(item.createdAt)} ·{" "}
+                          <strong>{statusLabels[item.status]}</strong>
+                          {item.messages.length > 0 &&
+                            ` · ${item.messages.length} ${
+                              item.messages.length === 1 ? "reply" : "replies"
+                            }`}
+                        </span>
+                      </button>
+                      {openId === item.id && (
+                        <SupportThread
+                          messages={item.messages}
+                          nameFor={(message) =>
+                            message.authorRole === "support" ? "Support" : "You"
+                          }
+                          onSend={(body) => reply(item.id, body)}
+                          sendLabel="Send"
+                        />
+                      )}
                     </li>
                   ))}
                 </ul>

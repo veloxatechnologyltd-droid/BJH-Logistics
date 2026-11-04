@@ -33,7 +33,6 @@ export function JobTeam({
   const [error, setError] = useState("");
   const [adding, setAdding] = useState(false);
   const [userId, setUserId] = useState("");
-  const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
   const [accepting, setAccepting] = useState<string | null>(null);
   const [signatory, setSignatory] = useState("");
@@ -58,9 +57,6 @@ export function JobTeam({
   const onTeam = new Set(view.team.map((member) => member.userId));
   const choices = view.candidates.filter((item) => !onTeam.has(item.userId));
   const kind = lead ? "assistant" : "lead";
-  // Before the invoice is accepted only the super admin may assign, with a reason.
-  const blocked = !view.invoiceAccepted && !isSuperAdmin;
-  const needsReason = !view.invoiceAccepted && isSuperAdmin;
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -68,13 +64,9 @@ export function JobTeam({
     setSaving(true);
     setError("");
     try {
-      await assignJobMember(jobId, {
-        userId,
-        kind,
-        overrideReason: needsReason ? reason.trim() : undefined,
-      });
+      // The job opened when the client accepted the quote: assign at once.
+      await assignJobMember(jobId, { userId, kind });
       setUserId("");
-      setReason("");
       setAdding(false);
       await load();
     } catch (cause) {
@@ -115,7 +107,7 @@ export function JobTeam({
     <section className={styles.card} aria-labelledby="team-title">
       <div className={styles.stepsHeading}>
         <h2 id="team-title">Team</h2>
-        {canAssign && !adding && !blocked && choices.length > 0 && (
+        {canAssign && !adding && choices.length > 0 && (
           <button
             className={styles.secondaryButton}
             onClick={() => setAdding(true)}
@@ -127,18 +119,12 @@ export function JobTeam({
       </div>
       <ErrorPopup message={error} />
       {view.team.length === 0 ? (
-        <p className={styles.muted}>
-          {view.invoiceAccepted
-            ? "Nobody assigned yet."
-            : view.invoices.length === 0
-              ? "Waiting for finance to issue an invoice."
-              : "Waiting for the client to accept the invoice."}
-        </p>
+        <p className={styles.muted}>Nobody assigned yet.</p>
       ) : (
         <ul className={styles.nextTasks}>
           {view.team.map((member) => (
             <li key={member.id}>
-              <strong>{member.email ?? "Staff member"}</strong>
+              <strong>{member.name ?? "Staff member"}</strong>
               <span>
                 {kindLabels[member.kind]}
                 {member.overrideReason
@@ -231,21 +217,11 @@ export function JobTeam({
               <option value="">Choose a rep</option>
               {choices.map((item) => (
                 <option key={item.userId} value={item.userId}>
-                  {item.email ?? item.userId}
+                  {item.name ?? item.userId}
                 </option>
               ))}
             </select>
           </label>
-          {needsReason && (
-            <label className={styles.field}>
-              Reason to assign before the client accepts the invoice
-              <input
-                onChange={(event) => setReason(event.target.value)}
-                required
-                value={reason}
-              />
-            </label>
-          )}
           <div className={styles.actions}>
             <button className={styles.button} disabled={saving} type="submit">
               {saving ? "Assigning…" : "Assign"}
@@ -268,7 +244,7 @@ export function JobTeam({
               .filter((member) => member.removedAt)
               .map((member) => (
                 <li key={member.id}>
-                  {member.email ?? "Staff member"} · {kindLabels[member.kind]}{" "}
+                  {member.name ?? "Staff member"} · {kindLabels[member.kind]}{" "}
                   until {new Date(member.removedAt!).toLocaleDateString()}
                 </li>
               ))}

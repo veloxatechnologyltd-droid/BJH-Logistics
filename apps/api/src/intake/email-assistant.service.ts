@@ -19,6 +19,7 @@ import type { ServiceLine } from "@bjh/contracts";
 import { DatabasePort } from "../database/database.port";
 import type {
   QuoteRequestRecord,
+  SentReplyRecord,
   StaffRoleKey,
 } from "../database/database.port";
 import { formatQuoteAmount } from "../quotations/quote-pdf";
@@ -637,12 +638,75 @@ export class EmailAssistantService {
     return this.deliverReply(request, parsed.data, sentBy);
   }
 
+  /** Every reply sent to the request's sender, oldest first: the first one and any later ones. */
+  async listReplies(requestId: string): Promise<SentReplyRecord[]> {
+    const request = await this.database.findQuoteRequest(requestId);
+    if (!request) throw new NotFoundException("Quote request was not found");
+    return this.database.listRequestReplies(requestId);
+  }
+
+  /**
+   * Another reply to the sender, after the first one (the assistant's or a
+   * person's) went out. Before that, it is the first reply.
+   */
+  async sendAnotherReply(
+    requestId: string,
+    input: unknown,
+    sentBy: string,
+    roles: StaffRoleKey[],
+  ): Promise<SentReplyRecord[]> {
+    const request = await this.requireInCharge(requestId, roles);
+    const parsed = parseContract(requestReplyInputSchema, input);
+    if (!parsed.success) throw new BadRequestException(parsed.message);
+    if (!request.customerCompanyId) {
+      throw new ConflictException(
+        "Link the request to a customer before replying",
+      );
+    }
+    if (!request.intake!.reply?.sentAt) {
+      await this.deliverReply(request, parsed.data, sentBy);
+    } else {
+      await this.queueReply(
+        request,
+        parsed.data,
+        sentBy,
+        `email-reply:${request.id}:${randomUUID()}`,
+      );
+    }
+    return this.database.listRequestReplies(requestId);
+  }
+
   /** Queues the reply by email to the sender only, and records it as sent. `sentBy` null: the assistant. */
   private async deliverReply(
     request: QuoteRequestRecord,
     reply: { subject: string; body: string },
     sentBy: string | null,
   ): Promise<QuoteRequestRecord> {
+    const queued = await this.queueReply(
+      request,
+      reply,
+      sentBy,
+      `email-reply:${request.id}`,
+    );
+    const sent = await this.database.markRequestReplySent(request.id, {
+      subject: reply.subject,
+      body: reply.body,
+      sentBy,
+      notificationId: queued.id,
+    });
+    if (sent === "sent") {
+      throw new ConflictException("The reply was already sent");
+    }
+    return sent;
+  }
+
+  /** Puts a reply in the message outbox, by email to the request's sender only. */
+  private async queueReply(
+    request: QuoteRequestRecord,
+    reply: { subject: string; body: string },
+    sentBy: string | null,
+    dedupeKey: string,
+  ) {
     const customer = await this.database.findCustomer(
       request.customerCompanyId!,
     );
@@ -654,7 +718,7 @@ export class EmailAssistantService {
       jobId: null,
       // An inquiry's reply goes out from the inquiries mailbox (the dispatcher picks the sender by event).
       event: request.mailbox === "inquiries" ? "inquiry_reply" : "email_reply",
-      dedupeKey: `email-reply:${request.id}`,
+      dedupeKey,
       subject: reply.subject,
       body: reply.body,
       smsText: reply.subject.slice(0, 700),
@@ -672,16 +736,7 @@ export class EmailAssistantService {
     if (queued === "duplicate") {
       throw new ConflictException("The reply was already sent");
     }
-    const sent = await this.database.markRequestReplySent(request.id, {
-      subject: reply.subject,
-      body: reply.body,
-      sentBy,
-      notificationId: queued.id,
-    });
-    if (sent === "sent") {
-      throw new ConflictException("The reply was already sent");
-    }
-    return sent;
+    return queued;
   }
 
   private async requireInCharge(

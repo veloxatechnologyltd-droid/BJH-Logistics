@@ -11,17 +11,17 @@ import {
   UseGuards,
 } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
-import {
-  DepartmentStaffGuard,
-  SupabaseIdentityGuard,
-} from "../auth/auth.guards";
+import { StaffRolesGuard, SupabaseIdentityGuard } from "../auth/auth.guards";
 import type { AuthenticatedRequest } from "../auth/auth.guards";
 import { UserThrottlerGuard } from "../auth/user-throttler.guard";
 import { AssistantService } from "./assistant.service";
 
-/** The staff helper; customers never reach it. */
+/** The staff helper, for the boss and customer service (Evans, 2026-11-04). */
 @Controller("api/v1/assistant")
-@UseGuards(SupabaseIdentityGuard, DepartmentStaffGuard)
+@UseGuards(
+  SupabaseIdentityGuard,
+  StaffRolesGuard(["super_admin", "customer_service_rep"]),
+)
 export class AssistantController {
   constructor(
     @Inject(AssistantService) private readonly assistant: AssistantService,

@@ -40,6 +40,7 @@ export type QuoteSummary = {
   id: string;
   quoteNumber: string | null;
   serviceLine: ServiceLine;
+  customerCompanyId: string;
   customerCompanyName: string;
   createdAt: string;
   latestVersionNumber: number;

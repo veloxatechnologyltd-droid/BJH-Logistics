@@ -266,6 +266,44 @@ export async function saveRequestReply(
 }
 
 /** Sends the reply by email to the sender; a request's reply is sent once. */
+/** A reply sent to the request's sender, as it went through the outbox. */
+export type SentReply = {
+  id: string;
+  subject: string;
+  body: string;
+  sentBy: string | null;
+  sentByName: string | null;
+  createdAt: string;
+  status: "pending" | "sent" | "failed" | "skipped" | null;
+};
+
+export async function listRequestReplies(
+  requestId: string,
+): Promise<SentReply[]> {
+  return readResponse<SentReply[]>(
+    await authenticatedFetch(
+      `${quoteRequestsUrl}/${encodeURIComponent(requestId)}/replies`,
+    ),
+  );
+}
+
+/** Another reply to the sender, also after the assistant has replied. */
+export async function sendAnotherReply(
+  requestId: string,
+  reply: RequestReplyInput,
+): Promise<SentReply[]> {
+  return readResponse<SentReply[]>(
+    await authenticatedFetch(
+      `${quoteRequestsUrl}/${encodeURIComponent(requestId)}/replies`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(reply),
+      },
+    ),
+  );
+}
+
 export async function sendRequestReply(
   requestId: string,
   reply: RequestReplyInput,
@@ -314,8 +352,9 @@ const apiRoot = apiBaseUrl.replace(/\/$/, "");
 
 export type StaffNotice = {
   id: string;
-  kind: "request_overdue" | "inquiry_overdue" | "reminder";
+  kind: "request_overdue" | "inquiry_overdue" | "reminder" | "vehicle_due";
   quoteRequestId: string | null;
+  vehicleId: string | null;
   title: string;
   note: string | null;
   dueAt: string;

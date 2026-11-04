@@ -35,12 +35,13 @@ type Summary = {
   kind: string;
   teamKey: string | null;
   title: string;
+  personId: string | null;
   unread: number;
 };
 type Tag = { kind: string; id: string; label: string; href: string | null };
 type Message = {
   id: string;
-  authorEmail: string | null;
+  authorName: string | null;
   body: string;
   tags: Tag[];
 };
@@ -187,10 +188,10 @@ test("a direct conversation belongs to its two people only, and counts unread", 
 
   const before = (await list(EXPORT_REP)).find((item) => item.id === id)!;
   assert.equal(before.unread, 1);
-  assert.equal(before.title, "staff@example.test");
+  assert.equal(before.title, "Staff");
   const seen = await open(id, EXPORT_REP);
   assert.equal(seen.messages[0].body, "Is the export booking confirmed?");
-  assert.equal(seen.messages[0].authorEmail, "staff@example.test");
+  assert.equal(seen.messages[0].authorName, "Staff");
   assert.equal(
     (await list(EXPORT_REP)).find((item) => item.id === id)!.unread,
     0,
@@ -244,12 +245,13 @@ test("tags show each reader only what they may open, and never amounts", async (
     deskTags.map((tag) => [tag.kind, tag.label, tag.href]),
     [
       ["job", fileNumber, `/jobs/${jobId}`],
+      // Customer service opens the job's billing in Finance (Evans, 2026-11-04).
       [
         "invoice",
         "SYN/INV/" + deskTags[1].label.split("SYN/INV/")[1],
-        `/jobs/${jobId}`,
+        `/finance/jobs/${jobId}`,
       ],
-      ["user", "air-import@example.test", null],
+      ["user", "Air Import", null],
     ],
   );
 
@@ -260,7 +262,7 @@ test("tags show each reader only what they may open, and never amounts", async (
     [
       ["job", "A job you can't open", null],
       ["invoice", "An invoice you can't open", null],
-      ["user", "air-import@example.test", null],
+      ["user", "Air Import", null],
     ],
   );
   const refused = await post(
@@ -299,6 +301,35 @@ test("tags show each reader only what they may open, and never amounts", async (
     ).status,
     400,
   );
+});
+
+test("people show who is online, and who the reader is", async () => {
+  type Person = {
+    userId: string;
+    you: boolean;
+    online: boolean;
+    lastSeen: string | null;
+  };
+  const people = async (token: string) =>
+    (await (await call(`${chat}/people`, token)).json()) as Person[];
+  // The unread poll is the heartbeat that marks someone online.
+  await call(`${chat}/unread`, EXPORT_REP);
+  const seen = await people(DESK);
+  const rep = seen.find((p) => p.userId === TEST_MATCHING_USER_ID)!;
+  assert.equal(rep.online, true);
+  assert.ok(rep.lastSeen);
+  assert.equal(rep.you, false);
+  const me = seen.find((p) => p.userId === TEST_UNASSIGNED_USER_ID)!;
+  assert.equal(me.you, true);
+  assert.equal(me.online, true, "asking for the list counts as being here");
+  // A direct chat names the other person, so the list can show their status.
+  await post(`${chat}/conversations/direct`, DESK, {
+    userId: TEST_MATCHING_USER_ID,
+  });
+  const direct = (await list(DESK)).find(
+    (item) => item.personId === TEST_MATCHING_USER_ID,
+  );
+  assert.ok(direct);
 });
 
 test("groups: anyone starts one, members add others, and people can leave", async () => {
@@ -356,13 +387,13 @@ test("when customer service records an invoice acceptance, Finance is told in it
 
   const finance = await open(await channel("finance"), ADMIN);
   const alert = finance.messages.at(-1)!;
-  assert.equal(alert.authorEmail, null, "posted by the system");
+  assert.equal(alert.authorName, null, "posted by the system");
   assert.match(alert.body, new RegExp(fileNumber.replace(/\//g, "\\/")));
   assert.match(alert.body, /Kojo Synthetic\), recorded by customer service\./);
   assert.deepEqual(
     alert.tags.map((tag) => [tag.kind, tag.href]),
     [
-      ["invoice", `/jobs/${jobId}/money`],
+      ["invoice", `/finance/jobs/${jobId}`],
       ["job", `/jobs/${jobId}`],
     ],
   );

@@ -81,6 +81,21 @@ export class TransportService {
     return result;
   }
 
+  async updateVehicle(id: string, input: unknown): Promise<VehicleRecord> {
+    const parsed = parseContract(vehicleInputSchema, input);
+    if (!parsed.success) throw new BadRequestException(parsed.message);
+    const result = isUuid(id)
+      ? await this.database.updateVehicle(id, parsed.data)
+      : "not_found";
+    if (result === "not_found") {
+      throw new NotFoundException("Vehicle was not found");
+    }
+    if (result === "duplicate_registration") {
+      throw new ConflictException("A vehicle with this registration exists");
+    }
+    return result;
+  }
+
   async setVehicleActive(id: string, input: unknown): Promise<VehicleRecord> {
     const parsed = parseContract(activeInputSchema, input);
     if (!parsed.success) throw new BadRequestException(parsed.message);

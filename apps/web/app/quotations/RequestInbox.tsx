@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   listQuoteRequests,
+  listStaffNotices,
   misfiledLabel,
   requestSourceLabels,
 } from "./quoteRequestApi";
@@ -164,6 +165,46 @@ export function RequestInbox({
   const [period, setPeriod] = useState<Period>("all");
   const since = periodStart(period);
   const filtering = Boolean(normalizedQuery || since);
+  // The signed-in person's own reminders, by request. A request whose reminder
+  // has come due moves to the top until the reminder is dismissed.
+  const [reminders, setReminders] = useState<Map<string, string>>(new Map());
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    let active = true;
+    const refresh = () => {
+      setNow(Date.now());
+      void listStaffNotices()
+        .then(({ due, upcoming }) => {
+          if (!active) return;
+          const byRequest = new Map<string, string>();
+          for (const notice of [...due, ...upcoming]) {
+            if (notice.kind !== "reminder" || !notice.quoteRequestId) continue;
+            const known = byRequest.get(notice.quoteRequestId);
+            if (!known || notice.dueAt < known) {
+              byRequest.set(notice.quoteRequestId, notice.dueAt);
+            }
+          }
+          setReminders(byRequest);
+        })
+        // Reminders only reorder the list; the inbox works without them.
+        .catch(() => undefined);
+    };
+    refresh();
+    const timer = window.setInterval(refresh, 30_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  const reminderDue = useCallback(
+    (request: QuoteRequest) => {
+      const dueAt = reminders.get(request.id);
+      return dueAt && Date.parse(dueAt) <= now ? dueAt : null;
+    },
+    [reminders, now],
+  );
 
   const load = useCallback(async () => {
     setLoadState("loading");
@@ -198,16 +239,23 @@ export function RequestInbox({
     const received = (request: QuoteRequest) =>
       request.intake?.receivedAt ?? request.createdAt;
     const newestFirst = (a: string, b: string) => b.localeCompare(a);
+    // Due reminders first (the earliest due on top), then newest first.
+    const order = (a: QuoteRequest, b: QuoteRequest) => {
+      const dueA = reminderDue(a);
+      const dueB = reminderDue(b);
+      if (dueA && dueB) return dueA.localeCompare(dueB);
+      if (dueA) return -1;
+      if (dueB) return 1;
+      return newestFirst(received(a), received(b));
+    };
     const of = (key: Tab) =>
-      requests
-        .filter((request) => tabOf(request) === key)
-        .sort((a, b) => newestFirst(received(a), received(b)));
+      requests.filter((request) => tabOf(request) === key).sort(order);
     return {
       person: of("person"),
       received: of("received"),
       other: of("other"),
     };
-  }, [requests]);
+  }, [requests, reminderDue]);
 
   const counts = { ...byTab, sent };
 
@@ -369,7 +417,11 @@ export function RequestInbox({
           ) : tab !== "sent" && shown.length > 0 ? (
             <ul className={styles.requestList}>
               {shown.map((request) => (
-                <ReceivedRow key={request.id} request={request} />
+                <ReceivedRow
+                  key={request.id}
+                  reminderDue={reminderDue(request) !== null}
+                  request={request}
+                />
               ))}
             </ul>
           ) : (
@@ -409,7 +461,13 @@ export function RequestInbox({
   );
 }
 
-function ReceivedRow({ request }: { request: QuoteRequest }) {
+function ReceivedRow({
+  request,
+  reminderDue,
+}: {
+  request: QuoteRequest;
+  reminderDue: boolean;
+}) {
   const intake = request.intake;
   const isNew = Boolean(intake && !intake.reviewedAt);
   const name = senderName(request);
@@ -435,6 +493,9 @@ function ReceivedRow({ request }: { request: QuoteRequest }) {
             {preview(request.message)}
           </span>
           <span className={styles.rowPills}>
+            {reminderDue && (
+              <span className={styles.pillNew}>Reminder due</span>
+            )}
             {isNew && <span className={styles.pillNew}>New</span>}
             {needsPerson(request) && (
               <span className={styles.pillNew}>Needs a person</span>

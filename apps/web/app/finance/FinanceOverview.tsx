@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { FinanceTabs } from "../invoices/FinanceTabs";
 import { RecordPayment } from "./RecordPayment";
 import { getFinanceSummary, getOutstandingInvoices } from "../jobs/jobApi";
@@ -41,6 +41,7 @@ export function FinanceOverview({ view }: { view: "dashboard" | "jobs" }) {
   const [currency, setCurrency] = useState("");
   const [customer, setCustomer] = useState("");
   const [query, setQuery] = useState("");
+  const [opened, setOpened] = useState<Set<string>>(new Set());
 
   // Only the split of what is owing needs this; without it the chart shows one "owing" part.
   useEffect(() => {
@@ -106,6 +107,27 @@ export function FinanceOverview({ view }: { view: "dashboard" | "jobs" }) {
           row.customerCompanyName.toLowerCase().includes(needle)),
     );
   }, [summary, currency, customer, query]);
+
+  // Jobs table: one row per customer, their jobs under it when opened.
+  const jobGroups = useMemo(() => {
+    const byCustomer = new Map<string, typeof rows>();
+    for (const row of rows) {
+      byCustomer.set(row.customerCompanyName, [
+        ...(byCustomer.get(row.customerCompanyName) ?? []),
+        row,
+      ]);
+    }
+    return [...byCustomer].sort(([a], [b]) => a.localeCompare(b));
+  }, [rows]);
+  // Searching, or one customer, shows the jobs straight away.
+  const openAll = jobGroups.length === 1 || query.trim() !== "";
+  const toggleCustomer = (name: string) =>
+    setOpened((current) => {
+      const next = new Set(current);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
 
   const invoiced = sum(rows, (row) => row.invoicedMinor);
   const received = sum(rows, (row) => row.receivedMinor);
@@ -528,7 +550,7 @@ export function FinanceOverview({ view }: { view: "dashboard" | "jobs" }) {
                           label: (
                             <Link
                               className={styles.link}
-                              href={`/jobs/${row.jobId}/money`}
+                              href={`/finance/jobs/${row.jobId}`}
                             >
                               {row.fileNumber}
                             </Link>
@@ -552,7 +574,7 @@ export function FinanceOverview({ view }: { view: "dashboard" | "jobs" }) {
                   <table className={chart.cardTable}>
                     <thead>
                       <tr>
-                        <th scope="col">Job and customer</th>
+                        <th scope="col">Customer and jobs</th>
                         <th className={chart.num} scope="col">
                           Invoiced
                         </th>
@@ -571,44 +593,106 @@ export function FinanceOverview({ view }: { view: "dashboard" | "jobs" }) {
                       </tr>
                     </thead>
                     <tbody>
-                      {rows.map((row) => (
-                        <tr key={`${row.jobId}-${row.currency}`}>
-                          <td className={chart.jobCell}>
-                            <Link
-                              className={styles.link}
-                              href={`/jobs/${row.jobId}/money`}
-                            >
-                              {row.fileNumber}
-                            </Link>
-                            <span className={chart.customerName}>
-                              {row.customerCompanyName}
-                            </span>
-                          </td>
-                          <td className={chart.num} data-label="Invoiced">
-                            {money(row.invoicedMinor)}
-                          </td>
-                          <td className={chart.num} data-label="Received">
-                            {money(row.receivedMinor)}
-                          </td>
-                          <td
-                            className={`${chart.num}${row.owingMinor > 0 ? ` ${chart.owingText}` : ""}`}
-                            data-label="Owing"
-                          >
-                            {money(row.owingMinor)}
-                          </td>
-                          <td className={chart.num} data-label="Costs">
-                            {money(row.costMinor)}
-                          </td>
-                          <td
-                            className={`${chart.num}${(row.marginMinor ?? 0) < 0 ? ` ${chart.lossText}` : ""}`}
-                            data-label="Profit"
-                          >
-                            {row.marginMinor === null
-                              ? "-"
-                              : money(row.marginMinor)}
-                          </td>
-                        </tr>
-                      ))}
+                      {jobGroups.map(([name, jobs]) => {
+                        const open = openAll || opened.has(name);
+                        const owed = sum(jobs, (row) => row.owingMinor);
+                        const priced = jobs.filter(
+                          (row) => row.marginMinor !== null,
+                        );
+                        const margin = sum(
+                          priced,
+                          (row) => row.marginMinor ?? 0,
+                        );
+                        return (
+                          <Fragment key={name}>
+                            <tr className={chart.clientRow}>
+                              <td className={chart.jobCell}>
+                                <button
+                                  aria-expanded={open}
+                                  className={chart.clientToggle}
+                                  onClick={() => toggleCustomer(name)}
+                                  type="button"
+                                >
+                                  <span aria-hidden="true">
+                                    {open ? "▾" : "▸"}
+                                  </span>{" "}
+                                  {name}
+                                </button>
+                                <span className={chart.customerName}>
+                                  {jobs.length}{" "}
+                                  {jobs.length === 1 ? "job" : "jobs"}
+                                </span>
+                              </td>
+                              <td className={chart.num} data-label="Invoiced">
+                                {money(sum(jobs, (row) => row.invoicedMinor))}
+                              </td>
+                              <td className={chart.num} data-label="Received">
+                                {money(sum(jobs, (row) => row.receivedMinor))}
+                              </td>
+                              <td
+                                className={`${chart.num}${owed > 0 ? ` ${chart.owingText}` : ""}`}
+                                data-label="Owing"
+                              >
+                                {money(owed)}
+                              </td>
+                              <td className={chart.num} data-label="Costs">
+                                {money(sum(jobs, (row) => row.costMinor))}
+                              </td>
+                              <td
+                                className={`${chart.num}${margin < 0 ? ` ${chart.lossText}` : ""}`}
+                                data-label="Profit"
+                              >
+                                {priced.length ? money(margin) : "-"}
+                              </td>
+                            </tr>
+                            {open &&
+                              jobs.map((row) => (
+                                <tr
+                                  className={chart.invoiceRow}
+                                  key={`${row.jobId}-${row.currency}`}
+                                >
+                                  <td className={chart.jobCell}>
+                                    <Link
+                                      className={styles.link}
+                                      href={`/finance/jobs/${row.jobId}`}
+                                    >
+                                      {row.fileNumber}
+                                    </Link>
+                                  </td>
+                                  <td
+                                    className={chart.num}
+                                    data-label="Invoiced"
+                                  >
+                                    {money(row.invoicedMinor)}
+                                  </td>
+                                  <td
+                                    className={chart.num}
+                                    data-label="Received"
+                                  >
+                                    {money(row.receivedMinor)}
+                                  </td>
+                                  <td
+                                    className={`${chart.num}${row.owingMinor > 0 ? ` ${chart.owingText}` : ""}`}
+                                    data-label="Owing"
+                                  >
+                                    {money(row.owingMinor)}
+                                  </td>
+                                  <td className={chart.num} data-label="Costs">
+                                    {money(row.costMinor)}
+                                  </td>
+                                  <td
+                                    className={`${chart.num}${(row.marginMinor ?? 0) < 0 ? ` ${chart.lossText}` : ""}`}
+                                    data-label="Profit"
+                                  >
+                                    {row.marginMinor === null
+                                      ? "-"
+                                      : money(row.marginMinor)}
+                                  </td>
+                                </tr>
+                              ))}
+                          </Fragment>
+                        );
+                      })}
                     </tbody>
                     <tfoot>
                       <tr>

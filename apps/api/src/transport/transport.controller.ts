@@ -5,6 +5,7 @@ import {
   Inject,
   Param,
   Post,
+  Put,
   Req,
   Res,
   UseGuards,
@@ -69,6 +70,12 @@ export class VehiclesController {
   @Post()
   create(@Body() body: unknown, @Req() request: AuthenticatedRequest) {
     return this.transport.createVehicle(body, request.authUser!.userId);
+  }
+
+  /** Registration, description, insurance, DVLA and servicing. */
+  @Put(":id")
+  update(@Param("id") id: string, @Body() body: unknown) {
+    return this.transport.updateVehicle(id, body);
   }
 
   @Post(":id/active")
