@@ -39,6 +39,10 @@ export function contentSecurityPolicy(
   }
   return [
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`,
+    // The notification service worker (`public/sw.js`) is this site's own
+    // file. Named on its own so `strict-dynamic` does not leave workers to the
+    // nonce rule, which a worker file cannot meet.
+    `worker-src 'self'`,
     `connect-src ${[...connect].join(" ")}`,
   ].join("; ");
 }

@@ -2446,6 +2446,54 @@ export const supportReplyInputSchema = z.object(
   objectError("A reply object is required"),
 );
 
+/**
+ * The browser push services a subscription may point at. The API posts to the
+ * stored address, so anything else (an internal address, say) is refused.
+ */
+const pushServiceHost =
+  /(^|\.)(fcm\.googleapis\.com|push\.services\.mozilla\.com|push\.apple\.com|notify\.windows\.com)$/;
+
+/** True for an https address on one of the browser push services. */
+export function isPushEndpoint(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === "https:" &&
+      !url.username &&
+      !url.password &&
+      (url.port === "" || url.port === "443") &&
+      pushServiceHost.test(url.hostname)
+    );
+  } catch {
+    return false;
+  }
+}
+
+const pushKey = (field: string) =>
+  requiredText(field, 256).refine((value) => /^[A-Za-z0-9_-]+=*$/.test(value), {
+    error: `${field} is not a valid push key`,
+  });
+
+/** A browser agreeing to receive notifications (Evans, 2026-11-04). */
+export const pushSubscriptionInputSchema = z.object(
+  {
+    endpoint: requiredText("endpoint", 2048).refine(isPushEndpoint, {
+      error: "endpoint must be a browser push service address",
+    }),
+    keys: z.object(
+      { p256dh: pushKey("p256dh"), auth: pushKey("auth") },
+      objectError("keys are required"),
+    ),
+  },
+  objectError("A push subscription object is required"),
+);
+export type PushSubscriptionInput = z.infer<typeof pushSubscriptionInputSchema>;
+
+export const pushUnsubscribeInputSchema = z.object(
+  { endpoint: requiredText("endpoint", 2048) },
+  objectError("An endpoint is required"),
+);
+
 export const supportRequestStatusSchema = z.object(
   {
     status: z.enum(supportRequestStatuses, {

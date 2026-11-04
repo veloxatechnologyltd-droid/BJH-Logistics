@@ -110,6 +110,7 @@ import {
   EmailToRead,
   RequestAttachmentRecord,
   StaffRoleKey,
+  PushSubscriptionRecord,
   StaffRoleAssignmentRecord,
   TeamConversationRecord,
   TeamConversationSummary,
@@ -7096,6 +7097,74 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       [userId],
     );
     return result.rows.map((row) => String(row.role_key) as StaffRoleKey);
+  }
+
+  async savePushSubscription(input: {
+    userId: string;
+    endpoint: string;
+    p256dh: string;
+    auth: string;
+    userAgent: string | null;
+  }): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO app.push_subscription (user_id, endpoint, p256dh, auth, user_agent)
+       VALUES ($1::uuid, $2, $3, $4, $5)
+       ON CONFLICT (endpoint) DO UPDATE
+         SET user_id = EXCLUDED.user_id, p256dh = EXCLUDED.p256dh,
+             auth = EXCLUDED.auth, user_agent = EXCLUDED.user_agent`,
+      [
+        input.userId,
+        input.endpoint,
+        input.p256dh,
+        input.auth,
+        input.userAgent?.slice(0, 400) ?? null,
+      ],
+    );
+  }
+
+  async deletePushSubscription(
+    userId: string,
+    endpoint: string,
+  ): Promise<boolean> {
+    const result = await this.pool.query(
+      `DELETE FROM app.push_subscription
+       WHERE user_id = $1::uuid AND endpoint = $2`,
+      [userId, endpoint],
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async deleteExpiredPushSubscription(endpoint: string): Promise<void> {
+    await this.pool.query(
+      `DELETE FROM app.push_subscription WHERE endpoint = $1`,
+      [endpoint],
+    );
+  }
+
+  async listPushSubscriptions(target: {
+    userIds?: string[];
+    roles?: StaffRoleKey[];
+  }): Promise<PushSubscriptionRecord[]> {
+    // Both filters apply together when both are given; each is open when absent.
+    const result = await this.pool.query(
+      `SELECT subscription.push_subscription_id, subscription.user_id,
+              subscription.endpoint, subscription.p256dh, subscription.auth
+       FROM app.push_subscription subscription
+       WHERE ($1::uuid[] IS NULL OR subscription.user_id = ANY($1::uuid[]))
+         AND EXISTS (
+           SELECT 1 FROM app.staff_role_assignment assignment
+           WHERE assignment.user_id = subscription.user_id
+             AND assignment.revoked_at IS NULL
+             AND ($2::text[] IS NULL OR assignment.role_key = ANY($2::text[])))`,
+      [target.userIds ?? null, target.roles ?? null],
+    );
+    return result.rows.map((row) => ({
+      id: String(row.push_subscription_id),
+      userId: String(row.user_id),
+      endpoint: String(row.endpoint),
+      p256dh: String(row.p256dh),
+      auth: String(row.auth),
+    }));
   }
 
   async listStaffRoleAssignments(): Promise<StaffRoleAssignmentRecord[]> {

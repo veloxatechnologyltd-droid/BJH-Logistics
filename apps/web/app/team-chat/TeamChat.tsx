@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
 import { ErrorPopup } from "../ErrorPopup";
@@ -23,6 +24,8 @@ import type {
   TeamTag,
   TeamTagKind,
 } from "./teamChatApi";
+import { askForPopups, popupPermission } from "./teamNotifications";
+import type { PopupPermission } from "./teamNotifications";
 import jobStyles from "../jobs/jobs.module.css";
 import styles from "./teamChat.module.css";
 
@@ -109,6 +112,20 @@ export function TeamChat() {
   const [groupMembers, setGroupMembers] = useState<string[]>([]);
   const [addPerson, setAddPerson] = useState("");
   const end = useRef<HTMLDivElement>(null);
+
+  // A pop-up opens `/team-chat?c=<conversation>`: select it, then clear the
+  // address so the same pop-up works again later.
+  const router = useRouter();
+  const wanted = useSearchParams().get("c");
+  useEffect(() => {
+    if (!wanted) return;
+    setSelected(wanted);
+    router.replace("/team-chat");
+  }, [wanted, router]);
+
+  // Read after mount: the server cannot know the browser's setting.
+  const [popups, setPopups] = useState<PopupPermission>("unsupported");
+  useEffect(() => setPopups(popupPermission()), []);
 
   const draft = drafts[selected] ?? "";
   const chosen = useMemo(() => pending[selected] ?? [], [pending, selected]);
@@ -425,6 +442,29 @@ export function TeamChat() {
               </button>
             </div>
           </div>
+
+          {popups === "default" && (
+            <div className={styles.form}>
+              <strong>Get a pop-up for new messages</strong>
+              <p className={styles.hint}>
+                It stays on your screen until you read the message, and arrives
+                even when BJH is closed if your browser allows it.
+              </p>
+              <button
+                className={styles.small}
+                onClick={() => void askForPopups().then(setPopups)}
+                type="button"
+              >
+                Turn on pop-ups
+              </button>
+            </div>
+          )}
+          {popups === "denied" && (
+            <p className={styles.hint}>
+              Pop-ups are blocked for this site. Allow notifications in your
+              browser&apos;s site settings to get them.
+            </p>
+          )}
 
           {panel === "direct" && (
             <div className={styles.form}>

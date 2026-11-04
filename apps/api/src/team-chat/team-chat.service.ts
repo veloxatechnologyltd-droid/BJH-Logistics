@@ -17,6 +17,7 @@ import {
 } from "@bjh/contracts";
 import type { TeamKey } from "@bjh/contracts";
 import { financeRoles } from "../auth/auth.guards";
+import { PushService } from "../push/push.service";
 import {
   STAFF_AUTH_DIRECTORY,
   staffDisplayName,
@@ -51,6 +52,21 @@ export function teamsFor(roles: StaffRoleKey[]): TeamKey[] {
     }
   }
   return [...teams];
+}
+
+/** The inverse of `teamsFor`: the roles whose holders are in a team's channel. */
+export function rolesForTeam(team: TeamKey): StaffRoleKey[] {
+  const reps: Record<TeamKey, StaffRoleKey[]> = {
+    sales: ["sales_rep"],
+    customer_service: ["customer_service_rep"],
+    finance: ["finance_rep"],
+    operations: [
+      "import_rep",
+      "export_rep",
+      ...(legacyStaffRoleKeys as readonly StaffRoleKey[]),
+    ],
+  };
+  return ["super_admin", ...reps[team]];
 }
 
 /** The person using the chat, with the access they bring to it. */
@@ -107,6 +123,7 @@ export class TeamChatService implements OnModuleInit {
   constructor(
     @Inject(DatabasePort) private readonly database: DatabasePort,
     @Inject(STAFF_AUTH_DIRECTORY) private readonly auth: StaffAuthDirectory,
+    @Inject(PushService) private readonly push: PushService,
   ) {}
 
   /** The migration creates the four team channels; this restores any that are missing. */
@@ -181,14 +198,35 @@ export class TeamChatService implements OnModuleInit {
     }));
   }
 
-  /** Total unread across everything the person is in, for the menu badge. */
-  async unread(actor: TeamActor): Promise<{ unread: number }> {
+  /**
+   * Total unread across everything the person is in, for the menu badge, and
+   * which conversations hold it, so the browser can tell a new message from
+   * one it already announced (Evans, 2026-11-04). No names are looked up here:
+   * this runs every 30 seconds.
+   */
+  async unread(actor: TeamActor): Promise<{
+    unread: number;
+    conversations: Array<{
+      id: string;
+      unread: number;
+      lastMessageAt: string | null;
+    }>;
+  }> {
     this.lastSeen.set(actor.userId, Date.now());
     const rows = await this.database.listTeamConversations(
       actor.userId,
       teamsFor(actor.roles),
     );
-    return { unread: rows.reduce((sum, row) => sum + row.unread, 0) };
+    return {
+      unread: rows.reduce((sum, row) => sum + row.unread, 0),
+      conversations: rows
+        .filter((row) => row.unread > 0)
+        .map((row) => ({
+          id: row.id,
+          unread: row.unread,
+          lastMessageAt: row.lastMessage?.createdAt ?? null,
+        })),
+    };
   }
 
   /** Opening a conversation shows its newest messages and marks it read. */
@@ -243,8 +281,52 @@ export class TeamChatService implements OnModuleInit {
       tags,
     });
     await this.database.markTeamConversationRead(conversation.id, actor.userId);
+    void this.pushMessage(conversation, actor.userId, parsed.data.body);
     const [shown] = await this.show([saved], actor);
     return shown;
+  }
+
+  /**
+   * Everyone else in the conversation gets a notification, even with BJH
+   * closed (Evans, 2026-11-04): a group or channel message reaches every
+   * member. One notification per conversation: a newer message replaces the
+   * last and the browser counts them.
+   */
+  private async pushMessage(
+    conversation: TeamConversationRecord,
+    authorUserId: string | null,
+    body: string,
+  ) {
+    try {
+      const author = authorUserId
+        ? ((await this.names([authorUserId])).get(authorUserId) ??
+          "A colleague")
+        : null;
+      const text = body.replace(/\s+/g, " ").trim();
+      const preview = text.length > 140 ? `${text.slice(0, 139)}…` : text;
+      const direct = conversation.kind === "direct";
+      await this.push.notify(
+        {
+          ...(conversation.kind === "team"
+            ? { roles: rolesForTeam(conversation.teamKey!) }
+            : { userIds: conversation.memberIds }),
+          exceptUserId: authorUserId ?? undefined,
+        },
+        {
+          // A direct chat is titled by the other person, who is the sender.
+          title: direct
+            ? (author ?? "Team chat")
+            : (conversation.title ?? "Group"),
+          body: direct || !author ? preview : `${author}: ${preview}`,
+          url: `/team-chat?c=${conversation.id}`,
+          tag: `team-chat:${conversation.id}`,
+        },
+      );
+    } catch (error) {
+      this.logger.error(
+        `Could not notify the conversation: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
   /** The one direct conversation with another staff member. */
@@ -330,6 +412,7 @@ export class TeamChatService implements OnModuleInit {
         body,
         tags,
       });
+      void this.pushMessage(channel, null, body);
     } catch (error) {
       this.logger.error(
         `Could not post to the ${teamKey} channel: ${error instanceof Error ? error.message : String(error)}`,

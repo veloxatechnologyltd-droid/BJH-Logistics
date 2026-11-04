@@ -13,6 +13,11 @@ test("scripts need this request's nonce and nothing inline is allowed", () => {
   assert.doesNotMatch(policy, /unsafe-inline|unsafe-eval/);
 });
 
+test("the notification service worker may load from this site only", () => {
+  const policy = contentSecurityPolicy("n", hosted);
+  assert.match(policy, /; worker-src 'self'; /);
+});
+
 test("connections are limited to the app, the API and Supabase", () => {
   const policy = contentSecurityPolicy("n", hosted);
   const connect = /connect-src ([^;]+)/.exec(policy)?.[1].split(" ");
