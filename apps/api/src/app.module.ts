@@ -127,6 +127,7 @@ import { WarehouseService } from "./warehouse/warehouse.service";
 import { QuotesController } from "./quotations/quotes.controller";
 import { QuotesService } from "./quotations/quotes.service";
 import { ReportsController } from "./reports/reports.controller";
+import { ReportPdfService } from "./reports/report-pdf.service";
 import { ReportsService } from "./reports/reports.service";
 import { SupportController } from "./support/support.controller";
 import { SupportService } from "./support/support.service";
@@ -230,6 +231,7 @@ import { PushService } from "./push/push.service";
     JobChargesService,
     InvoicesService,
     ReportsService,
+    ReportPdfService,
     StatementsService,
     JobReportService,
     InboundEmailService,

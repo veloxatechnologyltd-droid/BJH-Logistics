@@ -56,6 +56,7 @@ import {
   ReportInvoiceRecord,
   ReportPaymentRecord,
   BatchReceiptLine,
+  ReportDeliveryRecord,
   ReportStockMovementRecord,
   LeadRecord,
   OutstandingInvoiceRecord,
@@ -5588,6 +5589,36 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       fileNumber: String(row.file_number),
       customerCompanyName: String(row.customer_company_name),
       movement: this.mapStockMovement(row),
+    }));
+  }
+
+  async listReportDeliveries(
+    from: string,
+    to: string,
+    scope: JobScope,
+  ): Promise<ReportDeliveryRecord[]> {
+    if (scope.companyIds?.length === 0 || scope.serviceLines?.length === 0) {
+      return [];
+    }
+    const result = await this.pool.query(
+      `SELECT d.*, job.file_number, company.company_name AS customer_company_name
+       FROM app.delivery d
+       JOIN app.job job ON job.job_id = d.job_id
+       JOIN app.customer_company company ON company.company_id = job.customer_company_id
+       WHERE (d.status = 'dispatched'
+              OR (d.dispatched_at >= ($1::date::timestamp AT TIME ZONE 'Africa/Accra')
+                  AND d.dispatched_at < (($2::date + 1)::timestamp AT TIME ZONE 'Africa/Accra'))
+              OR (d.delivered_at >= ($1::date::timestamp AT TIME ZONE 'Africa/Accra')
+                  AND d.delivered_at < (($2::date + 1)::timestamp AT TIME ZONE 'Africa/Accra')))
+         AND ($3::uuid[] IS NULL OR job.customer_company_id = ANY($3::uuid[]))
+         AND ($4::text[] IS NULL OR job.service_line = ANY($4::text[]))
+       ORDER BY d.dispatched_at, d.delivery_id`,
+      [from, to, scope.companyIds ?? null, scope.serviceLines ?? null],
+    );
+    return result.rows.map((row) => ({
+      fileNumber: String(row.file_number),
+      customerCompanyName: String(row.customer_company_name),
+      delivery: this.mapDelivery(row),
     }));
   }
 

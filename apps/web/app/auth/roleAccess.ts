@@ -10,9 +10,16 @@ const legacy: readonly string[] = legacyStaffRoleKeys;
 const hasAny = (roles: string[], allowed: readonly string[]) =>
   roles.some((role) => allowed.includes(role) || legacy.includes(role));
 
-/** Invoices, receipts, payments, costs and statements: finance, customer service and the super admin. */
+/**
+ * Invoices, receipts, payments, costs, statements and the money reports:
+ * finance, customer service and the super admin. Unlike the other rights here,
+ * the four legacy air/sea roles do not keep this one: the API stopped granting
+ * it to them (audit S6), so the screens must not offer what it would refuse.
+ */
 export const canWorkFinance = (roles: string[]) =>
-  hasAny(roles, ["super_admin", "finance_rep", "customer_service_rep"]);
+  roles.some((role) =>
+    ["super_admin", "finance_rep", "customer_service_rep"].includes(role),
+  );
 
 /** Supplier invoices and disbursement proof are BJH's costs: finance only, as in the API. */
 const costEvidenceTypes: readonly DocumentType[] = [
