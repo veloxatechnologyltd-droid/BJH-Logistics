@@ -17,7 +17,13 @@ const MUTED = "#526b7d";
 const BORDER = "#d7e3ed";
 const MARK_RED = "#b3261e";
 
-const PAGE_MARGIN = 50;
+const PAGE_MARGIN = 40;
+
+// Print type scale (pt): body text 11, small labels 9, footer 9.
+const BODY = 11;
+const LABEL = 9;
+// Space kept above the bottom margin for the page footer.
+const FOOTER_SPACE = 24;
 
 /** Fields that get the full width of the page rather than half of it. */
 const fullWidth = new Set([
@@ -75,12 +81,12 @@ export function renderTransportDocumentPdf(
 
   const left = PAGE_MARGIN;
   const width = doc.page.width - PAGE_MARGIN * 2;
-  const bottom = () => doc.page.height - PAGE_MARGIN - 20;
+  const bottom = () => doc.page.height - PAGE_MARGIN - FOOTER_SPACE;
 
   // Issuer block, document type and number on the right.
-  doc.font("Helvetica-Bold").fontSize(15).fillColor(PRIMARY);
-  doc.text(issuerName, left, PAGE_MARGIN, { width: width * 0.55 });
-  doc.font("Helvetica").fontSize(8.5).fillColor(MUTED);
+  doc.font("Helvetica-Bold").fontSize(20).fillColor(PRIMARY);
+  doc.text(issuerName, left, PAGE_MARGIN, { width: width * 0.45 });
+  doc.font("Helvetica").fontSize(10).fillColor(MUTED);
   const contact = [
     settings?.issuer.address,
     [settings?.issuer.phone, settings?.issuer.email]
@@ -88,46 +94,60 @@ export function renderTransportDocumentPdf(
       .join("  |  "),
   ].filter(Boolean);
   for (const row of contact) {
-    doc.text(String(row), left, doc.y, { width: width * 0.55 });
+    doc.text(String(row), left, doc.y + 2, { width: width * 0.45 });
   }
   const brandBottom = doc.y;
-  doc.font("Helvetica-Bold").fontSize(8).fillColor(PRIMARY);
-  doc.text(title.toUpperCase(), left + width * 0.5, PAGE_MARGIN, {
-    width: width * 0.5,
+  doc.font("Helvetica-Bold").fontSize(10).fillColor(PRIMARY);
+  doc.text(title.toUpperCase(), left + width * 0.45, PAGE_MARGIN, {
+    width: width * 0.55,
     align: "right",
     characterSpacing: 0.6,
   });
-  doc.font("Helvetica-Bold").fontSize(14).fillColor(INK);
+  doc.font("Helvetica-Bold").fontSize(18).fillColor(INK);
   doc.text(
     document.documentNumber ?? "Not yet numbered",
-    left + width * 0.5,
-    PAGE_MARGIN + 22,
-    { width: width * 0.5, align: "right" },
+    left + width * 0.45,
+    PAGE_MARGIN + 18,
+    { width: width * 0.55, align: "right" },
   );
-  doc.font("Helvetica").fontSize(8).fillColor(MUTED);
-  doc.text(`Job file ${job.fileNumber}`, left + width * 0.5, PAGE_MARGIN + 42, {
-    width: width * 0.5,
-    align: "right",
-  });
-  doc.y = Math.max(brandBottom, PAGE_MARGIN + 56) + 6;
+  doc.font("Helvetica").fontSize(10).fillColor(MUTED);
+  doc.text(
+    `Job file ${job.fileNumber}`,
+    left + width * 0.45,
+    PAGE_MARGIN + 44,
+    {
+      width: width * 0.55,
+      align: "right",
+    },
+  );
+  doc.y = Math.max(brandBottom, PAGE_MARGIN + 60) + 10;
   doc
     .moveTo(left, doc.y)
     .lineTo(left + width, doc.y)
-    .lineWidth(2)
+    .lineWidth(2.5)
     .strokeColor(PRIMARY)
     .stroke();
-  doc.y += 12;
+  doc.y += 16;
 
   const definitions = transportDocumentFields[document.kind];
   const groups = [...new Set(definitions.map((field) => field.group))];
   const gap = 8;
   const half = (width - gap) / 2;
 
-  const boxHeight = (value: string, boxWidth: number) => {
-    doc.font("Helvetica").fontSize(9);
+  // A label can wrap in a narrow box; the value starts below it.
+  const labelHeight = (label: string, boxWidth: number) => {
+    doc.font("Helvetica").fontSize(LABEL);
+    return doc.heightOfString(label.toUpperCase(), {
+      width: boxWidth - 20,
+      characterSpacing: 0.4,
+    });
+  };
+  const boxHeight = (label: string, value: string, boxWidth: number) => {
+    const head = labelHeight(label, boxWidth);
+    doc.font("Helvetica").fontSize(BODY);
     return Math.max(
-      36,
-      doc.heightOfString(value || " ", { width: boxWidth - 16 }) + 24,
+      38,
+      head + doc.heightOfString(value || " ", { width: boxWidth - 20 }) + 14,
     );
   };
   const drawBox = (
@@ -139,18 +159,18 @@ export function renderTransportDocumentPdf(
     height: number,
   ) => {
     doc
-      .lineWidth(0.7)
+      .lineWidth(0.8)
       .strokeColor(BORDER)
       .rect(x, y, boxWidth, height)
       .stroke();
-    doc.font("Helvetica").fontSize(7).fillColor(MUTED);
-    doc.text(label.toUpperCase(), x + 8, y + 6, {
-      width: boxWidth - 16,
+    doc.font("Helvetica").fontSize(LABEL).fillColor(MUTED);
+    doc.text(label.toUpperCase(), x + 10, y + 8, {
+      width: boxWidth - 20,
       characterSpacing: 0.4,
-      lineBreak: false,
     });
-    doc.font("Helvetica").fontSize(9).fillColor(INK);
-    doc.text(value, x + 8, y + 18, { width: boxWidth - 16 });
+    const valueTop = y + 8 + labelHeight(label, boxWidth) + 5;
+    doc.font("Helvetica").fontSize(BODY).fillColor(INK);
+    doc.text(value, x + 10, valueTop, { width: boxWidth - 20 });
   };
 
   type Definition = (typeof definitions)[number];
@@ -159,7 +179,9 @@ export function renderTransportDocumentPdf(
     const columnWidth = (width - gap * (columns - 1)) / columns;
     const values = row.map((field) => document.fields[field.key] ?? "");
     const height = Math.max(
-      ...values.map((value) => boxHeight(value, columnWidth)),
+      ...values.map((value, index) =>
+        boxHeight(row[index].label, value, columnWidth),
+      ),
     );
     if (doc.y + height > bottom()) doc.addPage();
     const y = doc.y;
@@ -178,8 +200,8 @@ export function renderTransportDocumentPdf(
 
   for (const group of groups) {
     const inGroup = definitions.filter((field) => field.group === group);
-    if (doc.y + 60 > bottom()) doc.addPage();
-    doc.font("Helvetica-Bold").fontSize(9).fillColor(PRIMARY);
+    if (doc.y + 70 > bottom()) doc.addPage();
+    doc.font("Helvetica-Bold").fontSize(BODY).fillColor(PRIMARY);
     doc.text(group.toUpperCase(), left, doc.y, { characterSpacing: 0.8 });
     doc.y += 4;
 
@@ -207,25 +229,25 @@ export function renderTransportDocumentPdf(
       buffer.push(field);
     }
     flush();
-    doc.y += 10;
+    doc.y += 6;
   }
 
   // Signature line for the issuer.
-  if (doc.y + 56 > bottom()) doc.addPage();
-  doc.y += 4;
-  const signatureTop = doc.y;
-  doc.font("Helvetica-Bold").fontSize(9).fillColor(PRIMARY);
+  // It sits at the foot of the last page.
+  if (doc.y + 50 > bottom()) doc.addPage();
+  const signatureTop = Math.max(doc.y + 4, bottom() - 50);
+  doc.font("Helvetica-Bold").fontSize(BODY).fillColor(PRIMARY);
   doc.text(`For ${issuerName}`, left, signatureTop, { width: half });
   for (const [index, label] of ["Name and signature", "Date"].entries()) {
     const x = left + index * (half + gap);
     doc
       .moveTo(x, signatureTop + 36)
       .lineTo(x + half, signatureTop + 36)
-      .lineWidth(0.7)
+      .lineWidth(0.8)
       .strokeColor(SECONDARY)
       .stroke();
-    doc.font("Helvetica").fontSize(7.5).fillColor(MUTED);
-    doc.text(label, x, signatureTop + 39, { width: half });
+    doc.font("Helvetica").fontSize(LABEL).fillColor(MUTED);
+    doc.text(label, x, signatureTop + 40, { width: half });
   }
 
   // Footer, DRAFT and VOID marks on every page.
@@ -234,11 +256,11 @@ export function renderTransportDocumentPdf(
     doc.switchToPage(index);
     const { height, width: pageWidth } = doc.page;
     doc.page.margins.bottom = 0;
-    doc.font("Helvetica").fontSize(7.5).fillColor(MUTED);
+    doc.font("Helvetica").fontSize(LABEL).fillColor(MUTED);
     doc.text(
       `${issuerName}  |  ${document.documentNumber ?? "Draft"}  |  Page ${index + 1} of ${range.count}`,
       left,
-      height - 34,
+      height - PAGE_MARGIN + 6,
       { width, align: "center", lineBreak: false },
     );
     const mark =

@@ -94,7 +94,7 @@ export function renderReportPdf(
   doc.text(issuerName, left, PAGE_MARGIN, { width });
   doc.font("Helvetica-Bold").fontSize(14).fillColor(INK);
   doc.text(document.title, left, doc.y + 4, { width });
-  doc.font("Helvetica").fontSize(9).fillColor(MUTED);
+  doc.font("Helvetica").fontSize(10.5).fillColor(MUTED);
   doc.text(
     `${document.subtitle} · Prepared ${formatDay(input.generatedOn)}`,
     left,
@@ -106,7 +106,7 @@ export function renderReportPdf(
   const heading = (text: string) => {
     // Leave room for the first rows too, so a heading is never alone at a page's foot.
     ensure(90);
-    doc.font("Helvetica-Bold").fontSize(11).fillColor(PRIMARY);
+    doc.font("Helvetica-Bold").fontSize(13).fillColor(PRIMARY);
     doc.text(text, left, doc.y, { width });
     doc
       .moveTo(left, doc.y + 2)
@@ -127,20 +127,20 @@ export function renderReportPdf(
     const gap = 8;
     const tile = (width - gap * (perRow - 1)) / perRow;
     for (let start = 0; start < items.length; start += perRow) {
-      ensure(56);
+      ensure(66);
       const y = doc.y;
       items.slice(start, start + perRow).forEach((item, index) => {
         const x = left + index * (tile + gap);
-        doc.rect(x, y, tile, 48).fillAndStroke(CANVAS, BORDER);
-        doc.font("Helvetica-Bold").fontSize(7.5).fillColor(MUTED);
+        doc.rect(x, y, tile, 58).fillAndStroke(CANVAS, BORDER);
+        doc.font("Helvetica-Bold").fontSize(9).fillColor(MUTED);
         doc.text(item.label.toUpperCase(), x + 8, y + 7, {
           width: tile - 16,
-          height: 9,
+          height: 11,
           ellipsis: true,
           characterSpacing: 0.4,
         });
         // A long amount shrinks to fit its tile instead of running over.
-        let size = 14;
+        let size = 16;
         doc.font("Helvetica-Bold");
         while (
           size > 9 &&
@@ -149,27 +149,27 @@ export function renderReportPdf(
           size -= 0.5;
         }
         doc.fontSize(size).fillColor(INK);
-        doc.text(item.value, x + 8, y + 18, {
+        doc.text(item.value, x + 8, y + 20, {
           width: tile - 16,
           lineBreak: false,
         });
         if (item.note) {
-          doc.font("Helvetica").fontSize(7.5).fillColor(MUTED);
-          doc.text(item.note, x + 8, y + 37, {
+          doc.font("Helvetica").fontSize(9).fillColor(MUTED);
+          doc.text(item.note, x + 8, y + 42, {
             width: tile - 16,
-            height: 9,
+            height: 11,
             ellipsis: true,
           });
         }
       });
-      doc.y = y + 48 + gap;
+      doc.y = y + 58 + gap;
     }
     doc.moveDown(0.4);
   };
 
   const table = (block: Extract<ReportBlock, { kind: "table" }>) => {
     if (block.rows.length === 0) {
-      doc.font("Helvetica").fontSize(9.5).fillColor(MUTED);
+      doc.font("Helvetica").fontSize(10.5).fillColor(MUTED);
       doc.text(block.empty, left, doc.y, { width });
       doc.moveDown(0.8);
       return;
@@ -179,13 +179,13 @@ export function renderReportPdf(
       (column) => (column.width / weight) * width,
     );
     const measure = (cells: string[], bold: boolean) => {
-      doc.font(bold ? "Helvetica-Bold" : "Helvetica").fontSize(8.5);
+      doc.font(bold ? "Helvetica-Bold" : "Helvetica").fontSize(10);
       return (
         Math.max(
           ...cells.map((text, index) =>
-            doc.heightOfString(text, { width: columns[index] - 10 }),
+            doc.heightOfString(text, { width: columns[index] - 12 }),
           ),
-        ) + 8
+        ) + 12
       );
     };
     const row = (cells: string[], style: "head" | "body" | "total") => {
@@ -212,12 +212,12 @@ export function renderReportPdf(
       }
       doc
         .font(bold ? "Helvetica-Bold" : "Helvetica")
-        .fontSize(8.5)
+        .fontSize(10)
         .fillColor(style === "body" ? INK : PRIMARY);
       let x = left;
       cells.forEach((text, index) => {
-        doc.text(text, x + 5, y + 4, {
-          width: columns[index] - 10,
+        doc.text(text, x + 6, y + 6, {
+          width: columns[index] - 12,
           align: block.columns[index].align ?? "left",
         });
         x += columns[index];
@@ -239,7 +239,7 @@ export function renderReportPdf(
       .filter(([, value]) => value > 0)
       .sort((a, b) => b[1] - a[1]);
     if (shown.length === 0) {
-      doc.font("Helvetica").fontSize(9.5).fillColor(MUTED);
+      doc.font("Helvetica").fontSize(10.5).fillColor(MUTED);
       doc.text(block.empty, left, doc.y, { width });
       doc.moveDown(0.8);
       return;
@@ -248,28 +248,28 @@ export function renderReportPdf(
     const labelWidth = Math.min(180, width * 0.3);
     const trackWidth = width - labelWidth - 50;
     for (const [label, value] of shown) {
-      ensure(18);
+      ensure(22);
       const y = doc.y;
-      doc.font("Helvetica").fontSize(9).fillColor(INK);
+      doc.font("Helvetica").fontSize(10.5).fillColor(INK);
       doc.text(label, left, y + 2, {
         width: labelWidth - 8,
         lineBreak: false,
       });
-      doc.rect(left + labelWidth, y + 2, trackWidth, 9).fill(CANVAS);
+      doc.rect(left + labelWidth, y + 2, trackWidth, 11).fill(CANVAS);
       doc
         .rect(
           left + labelWidth,
           y + 2,
           Math.max(3, (value / top) * trackWidth),
-          9,
+          11,
         )
         .fill(PRIMARY);
-      doc.font("Helvetica-Bold").fontSize(9).fillColor(INK);
+      doc.font("Helvetica-Bold").fontSize(10.5).fillColor(INK);
       doc.text(String(value), left + labelWidth + trackWidth + 8, y + 2, {
         width: 40,
         lineBreak: false,
       });
-      doc.y = y + 16;
+      doc.y = y + 20;
     }
     doc.moveDown(0.8);
   };
@@ -280,8 +280,8 @@ export function renderReportPdf(
     else if (block.kind === "table") table(block);
     else if (block.kind === "bars") bars(block);
     else {
-      ensure(24);
-      doc.font("Helvetica").fontSize(8.5).fillColor(MUTED);
+      ensure(28);
+      doc.font("Helvetica").fontSize(10).fillColor(MUTED);
       doc.text(block.text, left, doc.y, { width });
       doc.moveDown(0.8);
     }
@@ -293,7 +293,7 @@ export function renderReportPdf(
     doc.switchToPage(range.start + index);
     // Writing inside the bottom margin would otherwise start a new page.
     doc.page.margins.bottom = 0;
-    doc.font("Helvetica").fontSize(7.5).fillColor(MUTED);
+    doc.font("Helvetica").fontSize(9).fillColor(MUTED);
     doc.text(
       `${issuerName}  |  ${document.title}  |  Page ${index + 1} of ${range.count}`,
       left,

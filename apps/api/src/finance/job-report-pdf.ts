@@ -88,25 +88,25 @@ export function renderJobReportPdf(
     if (doc.y + height > bottom()) doc.addPage();
   };
   const label = (text: string) => {
-    doc.font("Helvetica-Bold").fontSize(8).fillColor(MUTED);
+    doc.font("Helvetica-Bold").fontSize(9.5).fillColor(MUTED);
     doc.text(text.toUpperCase(), left, doc.y, { characterSpacing: 0.5 });
     doc.moveDown(0.2);
   };
   const body = (text: string) => {
-    doc.font("Helvetica").fontSize(9.5).fillColor(INK);
+    doc.font("Helvetica").fontSize(11).fillColor(INK);
     doc.text(text, left, doc.y, { width });
   };
 
   // Header.
-  doc.font("Helvetica-Bold").fontSize(16).fillColor(PRIMARY);
+  doc.font("Helvetica-Bold").fontSize(20).fillColor(PRIMARY);
   doc.text(issuerName, left, PAGE_MARGIN, { width });
-  doc.font("Helvetica-Bold").fontSize(13).fillColor(INK);
+  doc.font("Helvetica-Bold").fontSize(16).fillColor(INK);
   doc.text("Job report", left, doc.y + 4);
-  doc.font("Helvetica").fontSize(10).fillColor(INK);
+  doc.font("Helvetica").fontSize(12).fillColor(INK);
   doc.text(
     `${report.company.name}${report.company.customerNumber ? ` (${report.company.customerNumber})` : ""}`,
   );
-  doc.fontSize(9).fillColor(MUTED);
+  doc.fontSize(10.5).fillColor(MUTED);
   const period =
     report.from && report.to
       ? `Jobs opened ${formatDate(report.from)} to ${formatDate(report.to)}`
@@ -127,21 +127,21 @@ export function renderJobReportPdf(
     const titles = ["Currency", "Invoiced", "Paid", "Outstanding", "Credit"];
     const rowAt = (cells: string[], bold: boolean, fill: boolean) => {
       const y = doc.y;
-      if (fill) doc.rect(left, y, width, 18).fillAndStroke(CANVAS, BORDER);
+      if (fill) doc.rect(left, y, width, 26).fillAndStroke(CANVAS, BORDER);
       doc
         .font(bold ? "Helvetica-Bold" : "Helvetica")
-        .fontSize(9)
+        .fontSize(10.5)
         .fillColor(bold ? PRIMARY : INK);
       let x = left;
       cells.forEach((text, index) => {
-        doc.text(text, x + 6, y + 5, {
+        doc.text(text, x + 6, y + 7, {
           width: columns[index] - 12,
           align: index === 0 ? "left" : "right",
           lineBreak: false,
         });
         x += columns[index];
       });
-      doc.y = y + 18;
+      doc.y = y + 26;
     };
     rowAt(titles, true, true);
     const currencies = [
@@ -175,18 +175,18 @@ export function renderJobReportPdf(
 
   for (const item of report.jobs) {
     const { job } = item;
-    ensure(90);
+    ensure(110);
     // Job heading band.
     const y = doc.y;
-    doc.rect(left, y, width, 24).fill(PRIMARY);
-    doc.font("Helvetica-Bold").fontSize(11).fillColor("#ffffff");
+    doc.rect(left, y, width, 30).fill(PRIMARY);
+    doc.font("Helvetica-Bold").fontSize(13).fillColor("#ffffff");
     doc.text(
       `${job.fileNumber} · ${serviceLabels[job.serviceLine] ?? job.serviceLine} · ${statusLabels[job.status] ?? job.status}`,
-      left + 8,
-      y + 7,
-      { width: width - 16, lineBreak: false },
+      left + 10,
+      y + 8.5,
+      { width: width - 20, lineBreak: false },
     );
-    doc.y = y + 32;
+    doc.y = y + 40;
 
     const facts = [
       `Opened ${formatDate(job.openedAt)}`,
@@ -228,9 +228,9 @@ export function renderJobReportPdf(
     if (item.milestones.length > 0) {
       ensure(40);
       label("Progress");
-      doc.font("Helvetica").fontSize(9);
+      doc.font("Helvetica").fontSize(11);
       for (const step of item.milestones) {
-        ensure(14);
+        ensure(18);
         doc.fillColor(step.occurredAt ? INK : MUTED);
         doc.text(
           `${step.occurredAt ? "Done" : "Pending"}  ${step.label}${step.occurredAt ? ` (${formatDate(step.occurredAt)})` : ""}`,
@@ -245,7 +245,7 @@ export function renderJobReportPdf(
       ensure(30);
       label("Deliveries");
       for (const delivery of item.deliveries) {
-        ensure(14);
+        ensure(18);
         body(
           `Waybill ${delivery.waybillNumber} · dispatched ${formatDate(delivery.dispatchedAt)} to ${delivery.deliveryAddress} · ${
             delivery.status === "delivered" && delivery.deliveredAt
@@ -257,32 +257,32 @@ export function renderJobReportPdf(
       doc.moveDown(0.5);
     }
 
-    ensure(40);
+    ensure(80);
     label("Invoices");
     if (item.invoices.length === 0) {
       body("No invoice issued yet.");
     } else {
-      const columns = [0.26, 0.16, 0.16, 0.14, 0.14, 0.14].map(
+      const columns = [0.22, 0.15, 0.15, 0.16, 0.16, 0.16].map(
         (part) => part * width,
       );
       const row = (cells: string[], bold: boolean) => {
-        ensure(18);
+        ensure(24);
         const rowY = doc.y;
-        if (bold) doc.rect(left, rowY, width, 16).fillAndStroke(CANVAS, BORDER);
+        if (bold) doc.rect(left, rowY, width, 22).fillAndStroke(CANVAS, BORDER);
         doc
           .font(bold ? "Helvetica-Bold" : "Helvetica")
-          .fontSize(8.5)
+          .fontSize(10)
           .fillColor(bold ? PRIMARY : INK);
         let x = left;
         cells.forEach((text, index) => {
-          doc.text(text, x + 5, rowY + 4, {
+          doc.text(text, x + 5, rowY + 6, {
             width: columns[index] - 10,
             align: index < 3 ? "left" : "right",
             lineBreak: false,
           });
           x += columns[index];
         });
-        doc.y = rowY + 16;
+        doc.y = rowY + 22;
       };
       row(["Invoice", "Issued", "Due", "Total", "Paid", "Outstanding"], true);
       for (const invoice of item.invoices) {
@@ -310,7 +310,7 @@ export function renderJobReportPdf(
     doc.switchToPage(range.start + index);
     // Writing inside the bottom margin would otherwise start a new page.
     doc.page.margins.bottom = 0;
-    doc.font("Helvetica").fontSize(7.5).fillColor(MUTED);
+    doc.font("Helvetica").fontSize(9).fillColor(MUTED);
     doc.text(
       `${issuerName}  |  Job report  |  ${report.company.name}  |  Page ${index + 1} of ${range.count}`,
       left,
