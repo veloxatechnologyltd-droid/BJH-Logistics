@@ -96,6 +96,18 @@ export const paymentReceivedMessage = (
   smsText: `${sender}: payment of ${money(amountMinor, currency)} received for ${invoiceNumber}. Balance ${money(balanceMinor, currency)}.`,
 });
 
+/** Money received with no invoice to set it against (or more than was owed): kept as credit. */
+export const creditReceivedMessage = (
+  sender: string,
+  receiptNumber: string,
+  amountMinor: number,
+  currency: string,
+): Message => ({
+  subject: `Payment received: ${money(amountMinor, currency)} on your account`,
+  body: `We have recorded your payment of ${money(amountMinor, currency)} (receipt ${receiptNumber}). It is held as credit on your account and will be set against your next invoices.${sign(sender)}`,
+  smsText: `${sender}: payment of ${money(amountMinor, currency)} received and held as credit on your account (receipt ${receiptNumber}).`,
+});
+
 /** Customer service writing in the client's conversation; the tag lets an emailed reply find its way back. */
 export const chatMessage = (
   sender: string,
@@ -105,6 +117,17 @@ export const chatMessage = (
   subject: `Message from ${sender}${tag ? ` ${tag}` : ""}`,
   body: `${body}\n\nYou can reply to this email or answer in your customer portal.${sign(sender)}`,
   smsText: `${sender}: you have a new message. ${body.length > 80 ? `${body.slice(0, 77)}...` : body}`,
+});
+
+/** A job report emailed by finance; the PDF is attached to the email. */
+export const jobReportSentMessage = (
+  sender: string,
+  companyName: string,
+  jobCount: number,
+): Message => ({
+  subject: `Job report for ${companyName}`,
+  body: `Please find attached the report on your ${jobCount === 1 ? "job" : `${jobCount} jobs`} with us, with each job's progress, deliveries and invoices.${sign(sender)}`,
+  smsText: `${sender}: your job report has been emailed to you.`,
 });
 
 /** A receipt sent on request by customer service or finance; the PDF is attached to the email. */

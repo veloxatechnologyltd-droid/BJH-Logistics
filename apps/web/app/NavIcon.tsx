@@ -112,6 +112,13 @@ const paths = {
       <circle cx="9" cy="17" r="2" />
     </>
   ),
+  help: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M9.6 9.3a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.3-2.4 3.8" />
+      <path d="M12 17.2h.01" />
+    </>
+  ),
 };
 
 export type NavIconName = keyof typeof paths;

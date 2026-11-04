@@ -158,8 +158,8 @@ export function JobShell({
   const { job } = data.timeline;
   const closedJob = job.status === "closed" || job.status === "cancelled";
   const base = `/jobs/${jobId}`;
-  // Finance sees costs and invoices; customers see their invoices; other staff
-  // (customer service included) see no money.
+  // Finance and customer service see costs and invoices; customers see their
+  // invoices; other staff see no money.
   const visibleTabs = tabs
     .filter((tab) => isStaff || !tab.staffOnly)
     .filter((tab) => tab.slug !== "money" || !isStaff || canWorkFinance(roles))

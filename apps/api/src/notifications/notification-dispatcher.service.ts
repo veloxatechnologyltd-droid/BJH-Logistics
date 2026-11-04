@@ -9,15 +9,19 @@ import { DatabasePort, DueDelivery } from "../database/database.port";
 import {
   EMAIL_PROVIDER,
   INQUIRY_EMAIL_PROVIDER,
+  REPLY_EMAIL_PROVIDER,
   SMS_PROVIDER,
   type EmailProvider,
+  type ReplySender,
   type SmsProvider,
 } from "./providers";
+import { replyEvents, replyHtml, replyText } from "./reply-template";
 import { etaReminderMessage } from "./notification-messages";
 import { NotificationsService } from "./notifications.service";
 import { invoiceView } from "../finance/invoices.service";
 import { renderReceiptPdf } from "../finance/receipt-pdf";
 import { renderQuotePdf } from "../quotations/quote-pdf";
+import { JobReportService } from "../finance/job-report.service";
 import {
   OVERDUE_AFTER_HOURS,
   OVERDUE_WITHIN_DAYS,
@@ -28,6 +32,8 @@ export const MAX_ATTEMPTS = 5;
 /** Waits before attempts 2, 3, 4 and 5: 1, 4, 9 and 16 minutes. */
 export const retryDelaySeconds = (attemptsSoFar: number) =>
   attemptsSoFar * attemptsSoFar * 60;
+/** How many days before a vehicle's insurance, DVLA or service date the super admin is told. */
+export const VEHICLE_NOTICE_DAYS = 14;
 /** How long before the expected arrival a reminder goes out. */
 export const REMINDER_HOURS = 24;
 
@@ -49,9 +55,12 @@ export class NotificationDispatcher implements OnModuleInit, OnModuleDestroy {
     @Inject(EMAIL_PROVIDER) private readonly email: EmailProvider,
     @Inject(INQUIRY_EMAIL_PROVIDER)
     private readonly inquiryEmail: EmailProvider,
+    @Inject(REPLY_EMAIL_PROVIDER)
+    private readonly replySender: ReplySender | null,
     @Inject(SMS_PROVIDER) private readonly sms: SmsProvider,
     @Inject(NotificationsService)
     private readonly notifications: NotificationsService,
+    @Inject(JobReportService) private readonly jobReports: JobReportService,
   ) {}
 
   onModuleInit(): void {
@@ -81,6 +90,8 @@ export class NotificationDispatcher implements OnModuleInit, OnModuleDestroy {
           OVERDUE_AFTER_HOURS,
           OVERDUE_WITHIN_DAYS,
         );
+        // The super admin is told before a vehicle's insurance, DVLA or service falls due.
+        await this.database.raiseVehicleNotices(VEHICLE_NOTICE_DAYS);
       }
       await this.dispatchDue();
     } catch (error) {
@@ -100,19 +111,31 @@ export class NotificationDispatcher implements OnModuleInit, OnModuleDestroy {
   }
 
   private async send(delivery: DueDelivery): Promise<void> {
-    // Replies to inquiries go out from the inquiries mailbox; everything else from the main one.
-    const email =
-      delivery.event === "inquiry_reply" ? this.inquiryEmail : this.email;
+    // A reply to a customer's email goes out in the reply template, from
+    // Henry's mailbox when it is set up, with Reply-To the mailbox the request
+    // came in on. Otherwise replies to inquiries go out from the inquiries
+    // mailbox, and everything else from the main one.
+    const isReply = replyEvents.includes(delivery.event);
+    const inquiry = delivery.event === "inquiry_reply";
+    const henry = isReply ? this.replySender : null;
+    const email = henry?.email ?? (inquiry ? this.inquiryEmail : this.email);
     try {
       const result =
         delivery.channel === "email"
           ? await email.send({
               to: delivery.recipient,
               subject: delivery.subject,
-              text: delivery.body,
+              text: isReply ? replyText(delivery.body) : delivery.body,
+              html: isReply ? replyHtml(delivery.body) : undefined,
+              replyTo:
+                (henry &&
+                  (inquiry ? henry.replyTo.inquiries : henry.replyTo.quotes)) ||
+                undefined,
+              inReplyTo: isReply ? await this.inReplyTo(delivery) : undefined,
               attachments:
                 (await this.quoteAttachment(delivery)) ??
-                (await this.receiptAttachment(delivery)),
+                (await this.receiptAttachment(delivery)) ??
+                (await this.jobReportAttachment(delivery)),
             })
           : await this.sms.send({
               to: delivery.recipient,
@@ -168,6 +191,26 @@ export class NotificationDispatcher implements OnModuleInit, OnModuleDestroy {
     });
     const filename = `${(quote.quoteNumber ?? "quotation").replace(/[^A-Za-z0-9-]+/g, "-")}-v${version.versionNumber}.pdf`;
     return [{ filename, content }];
+  }
+
+  private async inReplyTo(delivery: DueDelivery) {
+    const requestId = /^email-reply:([0-9a-f-]{36})(?::|$)/.exec(
+      delivery.dedupeKey,
+    )?.[1];
+    if (!requestId) return undefined;
+    return (
+      (await this.database.findRequestEmailMessageId(requestId)) ?? undefined
+    );
+  }
+
+  private async jobReportAttachment(delivery: DueDelivery) {
+    if (delivery.event !== "job_report_sent") return undefined;
+    const query = delivery.jobReportQuery;
+    if (!query || query.companyId !== delivery.companyId) {
+      throw new Error("Job report reference is missing");
+    }
+    const { file, filename } = await this.jobReports.pdfOf(query, {});
+    return [{ filename, content: file }];
   }
 
   private async receiptAttachment(delivery: DueDelivery) {

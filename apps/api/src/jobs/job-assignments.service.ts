@@ -114,7 +114,7 @@ export class JobAssignmentsService {
     this.requireAssigner(roles);
     const parsed = parseContract(jobAssignmentInputSchema, input);
     if (!parsed.success) throw new BadRequestException(parsed.message);
-    const { userId, kind, overrideReason } = parsed.data;
+    const { userId, kind } = parsed.data;
     const job = await this.openJob(id, scope);
 
     if (!(await this.candidateIds(job)).includes(userId)) {
@@ -129,26 +129,14 @@ export class JobAssignmentsService {
       }
     }
 
-    let reason: string | null = null;
-    if (!(await this.invoiceAccepted(job.id))) {
-      if (!roles.includes("super_admin")) {
-        throw new ConflictException(
-          "The client has not accepted an invoice on this job yet",
-        );
-      }
-      if (!overrideReason) {
-        throw new ConflictException(
-          "The client has not accepted an invoice yet: give a reason to assign anyway",
-        );
-      }
-      reason = overrideReason;
-    }
-
+    // A job opens when the client accepts the quote (client walkthrough,
+    // 2026-11-03), so customer service assigns it straight away; an accepted
+    // invoice is no longer needed first.
     const result = await this.database.assignJob(job.id, {
       userId,
       kind,
       assignedBy: actorId,
-      overrideReason: reason,
+      overrideReason: null,
     });
     if (result === "already_on_job") {
       throw new ConflictException("This person is already on the job");
@@ -191,12 +179,6 @@ export class JobAssignmentsService {
       throw new ConflictException("Reopen the job before changing it");
     }
     return job;
-  }
-
-  private async invoiceAccepted(jobId: string): Promise<boolean> {
-    return (await this.issuedInvoices(jobId)).some(
-      (invoice) => invoice.acceptance,
-    );
   }
 
   /** Issued invoices with their acceptance; a voided one no longer counts. */

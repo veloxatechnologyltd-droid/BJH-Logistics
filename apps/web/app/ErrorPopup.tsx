@@ -2,6 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import styles from "./errorPopup.module.css";
+import {
+  openSupportEvent,
+  rememberShownError,
+  supportAvailable,
+} from "./support/supportApi";
 
 const plainWording: Array<[RegExp, string]> = [
   [
@@ -52,6 +57,11 @@ export function ErrorPopup({ message }: { message: string }) {
     if (open) okRef.current?.focus();
   }, [open]);
 
+  // Kept so a problem report sent afterwards carries the error.
+  useEffect(() => {
+    if (message) rememberShownError(message);
+  }, [message]);
+
   if (!open) return null;
   const close = () => setDismissed(message);
   return (
@@ -70,9 +80,23 @@ export function ErrorPopup({ message }: { message: string }) {
       >
         <h2 id="error-popup-title">That did not work</h2>
         <p id="error-popup-text">{plainMessage(message)}</p>
-        <button type="button" ref={okRef} onClick={close}>
-          OK
-        </button>
+        <div className={styles.actions}>
+          {supportAvailable() && (
+            <button
+              className={styles.report}
+              type="button"
+              onClick={() => {
+                close();
+                window.dispatchEvent(new Event(openSupportEvent));
+              }}
+            >
+              Report this problem
+            </button>
+          )}
+          <button type="button" ref={okRef} onClick={close}>
+            OK
+          </button>
+        </div>
       </div>
     </div>
   );

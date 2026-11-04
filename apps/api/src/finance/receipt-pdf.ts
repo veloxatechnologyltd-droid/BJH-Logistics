@@ -1,6 +1,7 @@
 import PDFDocument from "pdfkit";
 import type { BusinessSettings } from "@bjh/contracts";
 import type {
+  CustomerCreditRecord,
   InvoicePaymentRecord,
   JobRecord,
 } from "../database/database.port";
@@ -52,15 +53,81 @@ export function renderReceiptPdf(
   options: { compress?: boolean } = {},
 ): Promise<Buffer> {
   const { payment, invoice, job, settings } = input;
-  const issuerName = settings?.issuer.name ?? "Issuer details not configured";
   const money = (minor: number) => formatInvoiceAmount(minor, invoice.currency);
+  return drawReceipt(
+    {
+      receiptNumber: payment.receiptNumber ?? "",
+      amount: money(payment.amountMinor),
+      cells: [
+        ["Received from", job.customerCompanyName],
+        ["Date received", formatDate(payment.receivedOn)],
+        ["In payment of invoice", invoice.invoiceNumber ?? "-"],
+        ["Job file", job.fileNumber],
+        ["Payment method", methodLabels[payment.method]],
+        ["Reference", payment.reference ?? "-"],
+        ["Invoice total", money(invoice.totalMinor)],
+        ["Invoice balance now", money(invoice.outstandingMinor)],
+      ],
+      note: payment.note,
+      reversal: payment.reversal,
+      settings,
+    },
+    options,
+  );
+}
+
+/**
+ * The receipt for money received on account (client walkthrough, 2026-11-03):
+ * a payment not set against any invoice, kept as credit for later invoices.
+ */
+export function renderCreditReceiptPdf(
+  input: { credit: CustomerCreditRecord; settings: BusinessSettings | null },
+  options: { compress?: boolean } = {},
+): Promise<Buffer> {
+  const { credit, settings } = input;
+  const money = (minor: number) => formatInvoiceAmount(minor, credit.currency);
+  return drawReceipt(
+    {
+      receiptNumber: credit.receiptNumber,
+      amount: money(credit.amountMinor),
+      cells: [
+        ["Received from", credit.companyName],
+        ["Date received", formatDate(credit.receivedOn)],
+        ["In payment of", "On account (credit)"],
+        ["Payment method", methodLabels[credit.method]],
+        ["Reference", credit.reference ?? "-"],
+        ["Credit left to apply", money(credit.availableMinor)],
+      ],
+      note: credit.note,
+      reversal: credit.reversal,
+      settings,
+    },
+    options,
+  );
+}
+
+interface ReceiptLayout {
+  receiptNumber: string;
+  amount: string;
+  cells: Array<[string, string]>;
+  note: string | null;
+  reversal: { reason: string } | null;
+  settings: BusinessSettings | null;
+}
+
+function drawReceipt(
+  input: ReceiptLayout,
+  options: { compress?: boolean },
+): Promise<Buffer> {
+  const { receiptNumber, cells, settings } = input;
+  const issuerName = settings?.issuer.name ?? "Issuer details not configured";
 
   const doc = new PDFDocument({
     size: "A4",
     margin: PAGE_MARGIN,
     compress: options.compress ?? true,
     info: {
-      Title: `Receipt ${payment.receiptNumber ?? ""}`.trim(),
+      Title: `Receipt ${receiptNumber}`.trim(),
       Author: issuerName,
     },
   });
@@ -95,7 +162,7 @@ export function renderReceiptPdf(
     characterSpacing: 1,
   });
   doc.font("Helvetica-Bold").fontSize(15).fillColor(INK);
-  doc.text(payment.receiptNumber ?? "", left + width * 0.6, PAGE_MARGIN + 13, {
+  doc.text(receiptNumber, left + width * 0.6, PAGE_MARGIN + 13, {
     width: width * 0.4,
     align: "right",
   });
@@ -112,19 +179,9 @@ export function renderReceiptPdf(
   doc.font("Helvetica").fontSize(9).fillColor(MUTED);
   doc.text("AMOUNT RECEIVED", left, doc.y, { characterSpacing: 0.5 });
   doc.font("Helvetica-Bold").fontSize(24).fillColor(INK);
-  doc.text(money(payment.amountMinor), left, doc.y + 2, { width });
+  doc.text(input.amount, left, doc.y + 2, { width });
   doc.y += 14;
 
-  const cells: Array<[string, string]> = [
-    ["Received from", job.customerCompanyName],
-    ["Date received", formatDate(payment.receivedOn)],
-    ["In payment of invoice", invoice.invoiceNumber ?? "-"],
-    ["Job file", job.fileNumber],
-    ["Payment method", methodLabels[payment.method]],
-    ["Reference", payment.reference ?? "-"],
-    ["Invoice total", money(invoice.totalMinor)],
-    ["Invoice balance now", money(invoice.outstandingMinor)],
-  ];
   const cellWidth = width / 2;
   const cellHeight = 38;
   const gridTop = doc.y;
@@ -150,11 +207,11 @@ export function renderReceiptPdf(
   });
   doc.y = gridTop + cellHeight * Math.ceil(cells.length / 2) + 14;
 
-  if (payment.note) {
+  if (input.note) {
     doc.font("Helvetica-Bold").fontSize(9.5).fillColor(PRIMARY);
     doc.text("Note", left, doc.y, { width });
     doc.font("Helvetica").fontSize(9.5).fillColor(INK);
-    doc.text(payment.note, left, doc.y + 2, { width, lineGap: 2 });
+    doc.text(input.note, left, doc.y + 2, { width, lineGap: 2 });
     doc.moveDown(0.8);
   }
 
@@ -187,13 +244,13 @@ export function renderReceiptPdf(
   doc.page.margins.bottom = 0;
   doc.font("Helvetica").fontSize(7.5).fillColor(MUTED);
   doc.text(
-    `${issuerName}  |  Receipt ${payment.receiptNumber ?? ""}`,
+    `${issuerName}  |  Receipt ${receiptNumber}`,
     left,
     doc.page.height - 34,
     { width, align: "center", lineBreak: false },
   );
 
-  if (payment.reversal) {
+  if (input.reversal) {
     const { height, width: pageWidth } = doc.page;
     doc.save();
     doc.fillColor(MARK_RED).opacity(0.1);
@@ -206,7 +263,7 @@ export function renderReceiptPdf(
     });
     doc.restore();
     doc.opacity(1).font("Helvetica-Bold").fontSize(8).fillColor(MARK_RED);
-    doc.text(`REVERSED - ${payment.reversal.reason}`.toUpperCase(), left, 24, {
+    doc.text(`REVERSED - ${input.reversal.reason}`.toUpperCase(), left, 24, {
       width,
       align: "right",
       lineBreak: false,

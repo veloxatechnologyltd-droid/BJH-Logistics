@@ -5,29 +5,45 @@ import type { FormEvent } from "react";
 import { paymentMethodKeys } from "@bjh/contracts";
 import type { PaymentMethod } from "@bjh/contracts";
 import { plainMessage } from "../ErrorPopup";
+import { listCustomers } from "../customers/customerApi";
 import { methodLabels } from "../jobs/JobInvoices";
 import { getOutstandingInvoices, recordPayments } from "../jobs/jobApi";
 import type { OutstandingInvoice } from "../jobs/jobApi";
 import styles from "../jobs/jobs.module.css";
 import { formatMoney, toMinor } from "../quotes/quoteApi";
+import { popularCurrencies } from "../settings/business/BusinessSettingsForm";
+import { getSettings } from "../settings/business/settingsApi";
 import cards from "./finance.module.css";
 
 const today = () => new Date().toISOString().slice(0, 10);
 
 const amountText = (minor: number) => (minor / 100).toFixed(2);
 
+const readMinor = (text: string | undefined) => {
+  const minor = toMinor(text ?? "");
+  return minor !== undefined && !Number.isNaN(minor) ? minor : null;
+};
+
+/** Oldest first: earliest due date, then invoice number. */
+const oldestFirst = (a: OutstandingInvoice, b: OutstandingInvoice) =>
+  (a.dueDate ?? "9999").localeCompare(b.dueDate ?? "9999") ||
+  a.invoiceNumber.localeCompare(b.invoiceNumber);
+
 /**
- * Records a payment a customer made outside the system: choose the customer,
- * tick all or some of their unpaid invoices, and give each ticked invoice the
- * amount it receives (its full balance by default). One payment can settle
- * several invoices; they are saved together or not at all, each with its own
- * receipt. The same rules as the job's invoice list apply.
+ * Records a payment a customer made outside the system, of any amount: choose
+ * the customer and currency and type what they paid. It is set against their
+ * unpaid invoices, oldest first (change the ticks and amounts as needed), and
+ * whatever is left over, or all of it when nothing is owing, is kept as
+ * credit on their account with its own receipt. Saved all or nothing.
  */
 export function RecordPayment({ onRecorded }: { onRecorded: () => void }) {
   const [open, setOpen] = useState(false);
   const [invoices, setInvoices] = useState<OutstandingInvoice[] | null>(null);
+  const [customers, setCustomers] = useState<Array<[string, string]>>([]);
+  const [configured, setConfigured] = useState<string[]>([]);
   const [customerId, setCustomerId] = useState("");
   const [currency, setCurrency] = useState("");
+  const [received, setReceived] = useState("");
   // A ticked invoice has an entry here: the amount it receives, as typed.
   const [amounts, setAmounts] = useState<Record<string, string>>({});
   const [receivedOn, setReceivedOn] = useState(today());
@@ -44,53 +60,63 @@ export function RecordPayment({ onRecorded }: { onRecorded: () => void }) {
     else dialog.current?.close();
   }, [open]);
 
-  const customers = useMemo(
-    () =>
-      [
-        ...new Map(
-          (invoices ?? []).map((row) => [
-            row.customerCompanyId,
-            row.customerCompanyName,
-          ]),
-        ),
-      ].sort((a, b) => a[1].localeCompare(b[1])),
-    [invoices],
-  );
   const theirs = useMemo(
     () =>
-      (invoices ?? []).filter((row) => row.customerCompanyId === customerId),
+      (invoices ?? [])
+        .filter((row) => row.customerCompanyId === customerId)
+        .sort(oldestFirst),
     [invoices, customerId],
   );
-  const currencies = useMemo(
+  const owedCurrencies = useMemo(
     () => [...new Set(theirs.map((row) => row.currency))].sort(),
     [theirs],
   );
+  const currencyChoices = [
+    ...new Set([
+      ...owedCurrencies,
+      ...(configured.length > 0 ? configured : popularCurrencies),
+    ]),
+  ];
   // One payment is in one currency, so a customer owing in two currencies pays one at a time.
   const shown = theirs.filter((row) => row.currency === currency);
   const ticked = shown.filter((row) => row.invoiceId in amounts);
-  const total = ticked.reduce((sum, row) => {
-    const minor = toMinor(amounts[row.invoiceId]);
-    return sum + (minor !== undefined && !Number.isNaN(minor) ? minor : 0);
-  }, 0);
+  const allocated = ticked.reduce(
+    (sum, row) => sum + (readMinor(amounts[row.invoiceId]) ?? 0),
+    0,
+  );
+  const receivedMinor = readMinor(received);
+  const leftover = receivedMinor === null ? null : receivedMinor - allocated;
 
-  /** Start from the invoices of one customer and currency: a lone invoice is ticked for them. */
+  /** Sets the amount against the shown invoices, oldest first, up to what each owes. */
+  function spread(text: string, rows: OutstandingInvoice[]) {
+    let left = readMinor(text) ?? 0;
+    const next: Record<string, string> = {};
+    for (const row of rows) {
+      if (left <= 0) break;
+      const part = Math.min(left, row.outstandingMinor);
+      next[row.invoiceId] = amountText(part);
+      left -= part;
+    }
+    setAmounts(next);
+  }
+
   function chooseCurrency(code: string, mine: OutstandingInvoice[]) {
     setCurrency(code);
-    const rows = mine.filter((row) => row.currency === code);
-    setAmounts(
-      rows.length === 1
-        ? { [rows[0].invoiceId]: amountText(rows[0].outstandingMinor) }
-        : {},
+    spread(
+      received,
+      mine.filter((row) => row.currency === code),
     );
   }
 
   function chooseCustomer(id: string, from: OutstandingInvoice[]) {
     setCustomerId(id);
-    const mine = from.filter((row) => row.customerCompanyId === id);
+    const mine = from
+      .filter((row) => row.customerCompanyId === id)
+      .sort(oldestFirst);
     const codes = [...new Set(mine.map((row) => row.currency))];
     if (codes.length === 1) chooseCurrency(codes[0], mine);
     else {
-      setCurrency("");
+      setCurrency(codes.length === 0 ? (configured[0] ?? "GHS") : "");
       setAmounts({});
     }
   }
@@ -104,46 +130,47 @@ export function RecordPayment({ onRecorded }: { onRecorded: () => void }) {
     });
   }
 
-  function toggleAll() {
-    setAmounts(
-      ticked.length === shown.length
-        ? {}
-        : Object.fromEntries(
-            shown.map((row) => [
-              row.invoiceId,
-              amountText(row.outstandingMinor),
-            ]),
-          ),
-    );
-  }
-
   function start() {
     setNotice("");
     setError("");
     setInvoices(null);
     setCustomerId("");
     setCurrency("");
+    setReceived("");
     setAmounts({});
     setReceivedOn(today());
     setMethod("bank_transfer");
     setReference("");
     setNote("");
     setOpen(true);
-    getOutstandingInvoices("")
+    getSettings()
       .then((result) => {
+        if (result.current) setConfigured(result.current.settings.currencies);
+      })
+      .catch(() => undefined);
+    Promise.all([getOutstandingInvoices(""), listCustomers("")])
+      .then(([result, all]) => {
         setInvoices(result.invoices);
+        // Every customer can pay: those who owe are listed first.
         const owing = new Set(
           result.invoices.map((row) => row.customerCompanyId),
         );
-        // One customer owes: no need to pick them.
-        if (owing.size === 1) chooseCustomer([...owing][0], result.invoices);
+        setCustomers(
+          all
+            .map((item): [string, string] => [item.id, item.companyName])
+            .sort(
+              (a, b) =>
+                Number(owing.has(b[0])) - Number(owing.has(a[0])) ||
+                a[1].localeCompare(b[1]),
+            ),
+        );
       })
       .catch((cause) =>
         setError(
           plainMessage(
             cause instanceof Error
               ? cause.message
-              : "Unpaid invoices could not be loaded",
+              : "Customers and unpaid invoices could not be loaded",
           ),
         ),
       );
@@ -151,30 +178,34 @@ export function RecordPayment({ onRecorded }: { onRecorded: () => void }) {
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (ticked.length === 0) {
-      setError("Tick at least one invoice");
+    if (receivedMinor === null || receivedMinor < 1) {
+      setError("Enter the amount received, written like 250 or 250.50");
       return;
     }
     const allocations: Array<{ invoiceId: string; amountMinor: number }> = [];
     for (const row of ticked) {
-      const minor = toMinor(amounts[row.invoiceId]);
-      if (
-        minor === undefined ||
-        Number.isNaN(minor) ||
-        minor < 1 ||
-        minor > row.outstandingMinor
-      ) {
+      const minor = readMinor(amounts[row.invoiceId]);
+      if (minor === null || minor < 1 || minor > row.outstandingMinor) {
         setError(
-          `The amount for ${row.invoiceNumber} must be more than zero and at most ${formatMoney(row.outstandingMinor, row.currency)}, written like 250 or 250.50`,
+          `The amount for ${row.invoiceNumber} must be more than zero and at most ${formatMoney(row.outstandingMinor, row.currency)}`,
         );
         return;
       }
       allocations.push({ invoiceId: row.invoiceId, amountMinor: minor });
     }
+    if (allocated > receivedMinor) {
+      setError(
+        `The invoices add up to ${formatMoney(allocated, currency)}, more than the ${formatMoney(receivedMinor, currency)} received`,
+      );
+      return;
+    }
     setSaving(true);
     setError("");
     try {
       const result = await recordPayments({
+        companyId: customerId,
+        currency,
+        totalMinor: receivedMinor,
         receivedOn,
         method,
         reference: reference.trim() || undefined,
@@ -182,14 +213,20 @@ export function RecordPayment({ onRecorded }: { onRecorded: () => void }) {
         allocations,
       });
       setOpen(false);
-      const [first] = result.payments;
-      setNotice(
-        `Recorded ${formatMoney(result.totalMinor, result.currency)} ` +
-          (result.payments.length === 1
-            ? `against ${ticked[0].invoiceNumber}` +
-              (first.receiptNumber ? `, receipt ${first.receiptNumber}.` : ".")
-            : `across ${result.payments.length} invoices, one receipt each.`),
-      );
+      const parts = [
+        `Recorded ${formatMoney(result.totalMinor, result.currency)}`,
+      ];
+      if (result.payments.length > 0) {
+        parts.push(
+          `${result.payments.length === 1 ? "1 invoice" : `${result.payments.length} invoices`} paid, one receipt each`,
+        );
+      }
+      if (result.credit) {
+        parts.push(
+          `${formatMoney(result.credit.amountMinor, result.credit.currency)} kept as credit, receipt ${result.credit.receiptNumber}`,
+        );
+      }
+      setNotice(`${parts.join(". ")}.`);
       onRecorded();
     } catch (cause) {
       setError(
@@ -224,12 +261,7 @@ export function RecordPayment({ onRecorded }: { onRecorded: () => void }) {
         <form className={styles.form} onSubmit={submit}>
           <h2 id="record-payment-title">Record payment received</h2>
           {!invoices && !error && <p className={styles.muted}>Loading…</p>}
-          {invoices && invoices.length === 0 && (
-            <p className={styles.muted}>
-              Nothing is owing, so there is no payment to record.
-            </p>
-          )}
-          {invoices && invoices.length > 0 && (
+          {invoices && (
             <>
               <label className={styles.field}>
                 Customer
@@ -248,7 +280,7 @@ export function RecordPayment({ onRecorded }: { onRecorded: () => void }) {
                   ))}
                 </select>
               </label>
-              {currencies.length > 1 && (
+              {customerId && (
                 <label className={styles.field}>
                   Currency
                   <select
@@ -259,27 +291,39 @@ export function RecordPayment({ onRecorded }: { onRecorded: () => void }) {
                     value={currency}
                   >
                     <option value="">Choose a currency</option>
-                    {currencies.map((code) => (
+                    {currencyChoices.map((code) => (
                       <option key={code} value={code}>
                         {code}
+                        {owedCurrencies.includes(code) ? " (owing)" : ""}
                       </option>
                     ))}
                   </select>
                 </label>
               )}
+              {customerId && currency && (
+                <label className={styles.field}>
+                  Amount received ({currency})
+                  <input
+                    inputMode="decimal"
+                    onChange={(event) => {
+                      setReceived(event.target.value);
+                      spread(event.target.value, shown);
+                    }}
+                    placeholder="Any amount, for example 1500 or 1500.50"
+                    required
+                    value={received}
+                  />
+                </label>
+              )}
+              {customerId && currency && shown.length === 0 && (
+                <p className={styles.muted}>
+                  Nothing is owing in {currency}: the whole amount is kept as
+                  credit on the customer&apos;s account.
+                </p>
+              )}
               {shown.length > 0 && (
                 <fieldset className={cards.allocations}>
-                  <legend>Invoices paid</legend>
-                  {shown.length > 1 && (
-                    <label className={cards.selectAll}>
-                      <input
-                        checked={ticked.length === shown.length}
-                        onChange={toggleAll}
-                        type="checkbox"
-                      />
-                      Select all ({shown.length})
-                    </label>
-                  )}
+                  <legend>Set against invoices (oldest first)</legend>
                   <ul className={cards.allocationList}>
                     {shown.map((row) => (
                       <li key={row.invoiceId}>
@@ -299,7 +343,7 @@ export function RecordPayment({ onRecorded }: { onRecorded: () => void }) {
                           </span>
                         </label>
                         <input
-                          aria-label={`Amount received for ${row.invoiceNumber}`}
+                          aria-label={`Amount for ${row.invoiceNumber}`}
                           className={cards.allocationAmount}
                           disabled={!(row.invoiceId in amounts)}
                           inputMode="decimal"
@@ -315,10 +359,21 @@ export function RecordPayment({ onRecorded }: { onRecorded: () => void }) {
                     ))}
                   </ul>
                   <p className={cards.allocationTotal}>
-                    Total {formatMoney(total, currency)} on {ticked.length}{" "}
+                    {formatMoney(allocated, currency)} on {ticked.length}{" "}
                     {ticked.length === 1 ? "invoice" : "invoices"}
                   </p>
                 </fieldset>
+              )}
+              {leftover !== null && leftover > 0 && (
+                <p className={styles.notice}>
+                  {formatMoney(leftover, currency)} will be kept as credit on
+                  the customer&apos;s account, with its own receipt.
+                </p>
+              )}
+              {leftover !== null && leftover < 0 && (
+                <p className={styles.error}>
+                  The invoices add up to more than the amount received.
+                </p>
               )}
               <label className={styles.field}>
                 Date received
@@ -369,10 +424,16 @@ export function RecordPayment({ onRecorded }: { onRecorded: () => void }) {
             </p>
           )}
           <div className={styles.actions}>
-            {invoices && invoices.length > 0 && (
+            {invoices && (
               <button
                 className={styles.button}
-                disabled={saving || ticked.length === 0}
+                disabled={
+                  saving ||
+                  !customerId ||
+                  !currency ||
+                  receivedMinor === null ||
+                  (leftover !== null && leftover < 0)
+                }
                 type="submit"
               >
                 Save payment
@@ -383,7 +444,7 @@ export function RecordPayment({ onRecorded }: { onRecorded: () => void }) {
               onClick={() => setOpen(false)}
               type="button"
             >
-              {invoices && invoices.length > 0 ? "Cancel" : "Close"}
+              Cancel
             </button>
           </div>
         </form>

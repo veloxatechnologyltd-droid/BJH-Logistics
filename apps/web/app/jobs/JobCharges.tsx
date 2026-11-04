@@ -409,6 +409,7 @@ export function JobCharges({
                 <input
                   autoFocus
                   list="job-charge-options"
+                  placeholder="Pick or type any charge"
                   onChange={(event) => setDescription(event.target.value)}
                   required
                   value={description}

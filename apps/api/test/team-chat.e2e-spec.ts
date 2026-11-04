@@ -244,10 +244,11 @@ test("tags show each reader only what they may open, and never amounts", async (
     deskTags.map((tag) => [tag.kind, tag.label, tag.href]),
     [
       ["job", fileNumber, `/jobs/${jobId}`],
+      // Customer service opens the job's money tab (Evans, 2026-11-03).
       [
         "invoice",
         "SYN/INV/" + deskTags[1].label.split("SYN/INV/")[1],
-        `/jobs/${jobId}`,
+        `/jobs/${jobId}/money`,
       ],
       ["user", "air-import@example.test", null],
     ],

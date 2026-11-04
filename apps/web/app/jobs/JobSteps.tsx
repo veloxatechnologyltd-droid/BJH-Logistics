@@ -128,24 +128,19 @@ export function JobSteps({
                   )}
                 </div>
                 {financeKeys.has(item.key) ? (
-                  <Link
-                    className={styles.textButton}
-                    href={
-                      item.key === "customer_payment_recorded" &&
-                      !recorded &&
-                      canEdit
-                        ? `/jobs/${job.id}/money?pay=1#invoices-title`
-                        : `/jobs/${job.id}/money#invoices-title`
-                    }
-                  >
-                    {recorded
-                      ? "View"
-                      : !canEdit
-                        ? "View invoices"
-                        : item.key === "customer_payment_recorded"
-                          ? "Record payment"
-                          : "Create invoice"}
-                  </Link>
+                  // Ticked by Finance's own records, never from here.
+                  recorded ? (
+                    <Link
+                      className={styles.textButton}
+                      href={`/jobs/${job.id}/money#invoices-title`}
+                    >
+                      View
+                    </Link>
+                  ) : (
+                    <small className={styles.muted}>
+                      Ticks when Finance records it
+                    </small>
+                  )
                 ) : recorded?.source === "system" ? (
                   // Filled from the waybill; it is changed on the Delivery tab.
                   <Link

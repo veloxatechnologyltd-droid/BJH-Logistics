@@ -39,3 +39,17 @@
 .dialog button:hover {
   background: var(--brand-primary-dark);
 }
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+.dialog button.report {
+  border: 1px solid var(--brand-border);
+  background: transparent;
+  color: var(--brand-ink);
+}
+.dialog button.report:hover {
+  background: var(--brand-border);
+}

@@ -174,7 +174,7 @@ test("customers see their own receipts in the portal, without staff references",
   assert.equal(notTheirs.status, 404);
 });
 
-test("finance sees receipts; the import rep and customer service do not", async () => {
+test("finance and customer service see receipts; the import rep does not", async () => {
   const desk = (await (
     await call("/api/v1/receipts", TEST_UNASSIGNED_TOKEN)
   ).json()) as Receipt[];
@@ -192,7 +192,7 @@ test("finance sees receipts; the import rep and customer service do not", async 
   };
   await refused("import rep");
 
-  // Customer service sees no money at all, receipts included (Evans, 2026-11-02).
+  // BJH has no finance person, so customer service sees receipts (Evans, 2026-11-03).
   const database = application.get(DatabasePort);
   await database.revokeStaffRole(
     TEST_MATCHING_USER_ID,
@@ -204,12 +204,17 @@ test("finance sees receipts; the import rep and customer service do not", async 
     "customer_service_rep",
     TEST_SUPER_ADMIN_ID,
   );
-  await refused("customer service");
+  assert.equal(
+    (await call("/api/v1/receipts", TEST_MATCHING_TOKEN)).status,
+    200,
+  );
+  assert.equal((await call(pdfPath, TEST_MATCHING_TOKEN)).status, 200);
 });
 
-test("finance emails a receipt and the PDF goes with it", async () => {
+test("finance and customer service email a receipt and the PDF goes with it", async () => {
   const path = `/api/v1/jobs/${jobId}/invoices/${invoiceId}/payments/${paymentId}/receipt/send`;
-  assert.equal((await post(path, TEST_MATCHING_TOKEN)).status, 403);
+  // TEST_MATCHING is customer service since the receipts test above.
+  assert.equal((await post(path, TEST_MATCHING_TOKEN)).status, 201);
   assert.equal((await post(path, TEST_CUSTOMER_A_TOKEN)).status, 403);
 
   const email = application.get<RecordingEmailProvider>(EMAIL_PROVIDER);
@@ -237,7 +242,18 @@ test("the job's message log leaves out invoice, payment and receipt messages for
 
   const finance = await events(TEST_UNASSIGNED_TOKEN);
   for (const event of money) assert.ok(finance.includes(event), event);
-  // TEST_MATCHING is customer service since the receipts test above.
-  const desk = await events(TEST_MATCHING_TOKEN);
-  for (const event of money) assert.equal(desk.includes(event), false, event);
+  // TEST_MATCHING goes back to being an import rep, who sees no money.
+  const database = application.get(DatabasePort);
+  await database.revokeStaffRole(
+    TEST_MATCHING_USER_ID,
+    "customer_service_rep",
+    TEST_SUPER_ADMIN_ID,
+  );
+  await database.assignStaffRole(
+    TEST_MATCHING_USER_ID,
+    "import_rep",
+    TEST_SUPER_ADMIN_ID,
+  );
+  const rep = await events(TEST_MATCHING_TOKEN);
+  for (const event of money) assert.equal(rep.includes(event), false, event);
 });

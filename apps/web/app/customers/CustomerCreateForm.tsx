@@ -8,11 +8,12 @@ import { createCustomer } from "./customerApi";
 import { listLeads, updateLead } from "./leadApi";
 import type { Lead } from "./leadApi";
 import { useStaffAccess } from "../auth/useStaffAccess";
+import { canWorkClientDesk } from "../auth/roleAccess";
 import styles from "./customerDirectory.module.css";
 import { ErrorPopup } from "../ErrorPopup";
 
 export function CustomerCreateForm() {
-  const { status, isSuperAdmin } = useStaffAccess();
+  const { status, roles } = useStaffAccess();
   const router = useRouter();
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -32,13 +33,13 @@ export function CustomerCreateForm() {
   if (status === "loading") {
     return <p role="status">Checking staff access…</p>;
   }
-  if (!isSuperAdmin) {
+  if (!canWorkClientDesk(roles)) {
     return (
       <section className={styles.customerForm}>
         <p role="status">
           {status === "unavailable"
             ? "Staff access could not be checked. Try again when the API is available."
-            : "Only the super admin can create customer profiles."}
+            : "Only customer service, sales or the super admin can create customer profiles."}
         </p>
         <Link className={styles.formCancel} href="/customers/directory">
           Back to customers

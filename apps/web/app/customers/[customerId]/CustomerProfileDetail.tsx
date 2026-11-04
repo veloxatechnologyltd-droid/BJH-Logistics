@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useStaffAccess } from "../../auth/useStaffAccess";
+import { canWorkFinance } from "../../auth/roleAccess";
+import { JobReport } from "./JobReport";
 import { customerActiveDays } from "@bjh/contracts";
 import {
   addContact,
@@ -44,7 +46,7 @@ export function CustomerProfileDetail() {
   // Account figures and jobs are staff-only; they simply stay hidden if unavailable.
   const [insight, setInsight] = useState<CustomerInsight | null>(null);
   const [jobs, setJobs] = useState<Job[] | null>(null);
-  const { isSuperAdmin } = useStaffAccess();
+  const { isSuperAdmin, roles } = useStaffAccess();
   const [contactError, setContactError] = useState("");
   const [newName, setNewName] = useState("");
   const [newEmail, setNewEmail] = useState("");
@@ -638,6 +640,10 @@ export function CustomerProfileDetail() {
               </details>
             )}
           </section>
+
+          {canWorkFinance(roles) && jobs && (
+            <JobReport customerId={customerId} jobs={jobs} />
+          )}
 
           <section
             className={styles.historySection}

@@ -447,12 +447,9 @@ test("access boundaries: other departments, customers and anonymous callers", as
       method,
       body: method === "GET" ? undefined : JSON.stringify(version()),
     });
-    // Reading is by service line (not found); writing needs the quote desk (refused).
-    assert.equal(
-      response.status,
-      method === "GET" ? 404 : 403,
-      `${method} ${path}`,
-    );
+    // Reps may work quotes (Evans, 2026-11-03), but only on their own
+    // service line: another line's quote is not found, for reads and writes.
+    assert.equal(response.status, 404, `${method} ${path}`);
   }
   for (const [method, path] of [
     ["POST", "/api/v1/quotes"],

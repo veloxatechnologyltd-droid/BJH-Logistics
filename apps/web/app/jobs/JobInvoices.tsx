@@ -44,13 +44,56 @@ const statusLabels: Record<Invoice["paymentStatus"], string> = {
   paid: "Paid",
 };
 
-type DraftLine = { description: string; amount: string; taxable: boolean };
+/** A line as typed: an amount, or a quantity and a unit price. */
+type DraftLine = {
+  description: string;
+  quantity: string;
+  unit: string;
+  amount: string;
+  taxable: boolean;
+};
+
+const blankLine = (): DraftLine => ({
+  description: "",
+  quantity: "",
+  unit: "",
+  amount: "",
+  taxable: true,
+});
+
+/** "1,250.5" as a number; NaN when it is not one. */
+const readQuantity = (text: string) => {
+  const cleaned = text.replace(/[,\s]/g, "");
+  return /^\d+(\.\d{1,3})?$/.test(cleaned) ? Number(cleaned) : Number.NaN;
+};
+
+/** The line's amount in minor units as typed, or null while it cannot be worked out. */
+const lineMinor = (line: DraftLine): number | null => {
+  if (line.quantity.trim() || line.unit.trim()) {
+    const quantity = readQuantity(line.quantity);
+    const unit = toMinor(line.unit);
+    if (Number.isNaN(quantity) || unit === undefined || Number.isNaN(unit)) {
+      return null;
+    }
+    return Math.round(quantity * unit);
+  }
+  const minor = toMinor(line.amount);
+  return minor === undefined || Number.isNaN(minor) ? null : minor;
+};
 
 const today = () => new Date().toISOString().slice(0, 10);
 
 const toDraftLines = (lines: InvoiceLine[]): DraftLine[] =>
   lines.map((line) => ({
     description: line.description,
+    quantity:
+      line.quantity != null && line.unitAmountMinor != null
+        ? String(line.quantity)
+        : "",
+    unit:
+      line.quantity != null && line.unitAmountMinor != null
+        ? (line.unitAmountMinor / 100).toFixed(2)
+        : "",
     amount: (line.amountMinor / 100).toFixed(2),
     taxable: line.taxable,
   }));
@@ -87,6 +130,8 @@ export function JobInvoices({
   const [invoiceNotes, setInvoiceNotes] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
   const [lines, setLines] = useState<DraftLine[]>([]);
+  // The currency of the draft being edited; it can still be changed.
+  const [draftCurrency, setDraftCurrency] = useState("");
   const [paying, setPaying] = useState<string | null>(null);
   const [amount, setAmount] = useState("");
   const [receivedOn, setReceivedOn] = useState(today());
@@ -98,11 +143,12 @@ export function JobInvoices({
   const [accepting, setAccepting] = useState<string | null>(null);
   const [signatory, setSignatory] = useState("");
   const { roles, isSuperAdmin } = useStaffAccess();
-  // Only finance (and the super admin) reach this tab on the staff side. The
-  // client accepts in the portal; on the staff side customer service records
-  // it from the job's Team card, so here only the super admin may.
+  // Finance, customer service (who does BJH's finance work) and the super
+  // admin reach this tab on the staff side. The client accepts in the portal;
+  // on the staff side customer service or the super admin records it.
   const finance = isStaff && canWorkFinance(roles);
-  const canRecordAcceptance = !isStaff || isSuperAdmin;
+  const canRecordAcceptance =
+    !isStaff || isSuperAdmin || roles.includes("customer_service_rep");
 
   const load = useCallback(async () => {
     try {
@@ -197,19 +243,34 @@ export function JobInvoices({
   const openReceipt = (invoiceId: string, paymentId: string) =>
     openBlob(() => fetchReceiptPdf(jobId, invoiceId, paymentId));
 
-  function draftInput() {
+  function draftInput(from: DraftLine[]) {
     const parsed: InvoiceLine[] = [];
-    for (const line of lines) {
-      const minor = toMinor(line.amount);
-      if (minor === undefined || Number.isNaN(minor)) {
-        setError("Amounts must be numbers such as 250 or 250.50");
+    for (const line of from) {
+      const priced = Boolean(line.quantity.trim() || line.unit.trim());
+      const minor = lineMinor(line);
+      if (minor === null) {
+        setError(
+          priced
+            ? `"${line.description || "A line"}" needs a quantity such as 2 or 1.5 and a unit price such as 250.50`
+            : "Amounts must be numbers such as 250 or 250.50",
+        );
         return null;
       }
-      parsed.push({
-        description: line.description.trim(),
-        amountMinor: minor,
-        taxable: line.taxable,
-      });
+      parsed.push(
+        priced
+          ? {
+              description: line.description.trim(),
+              quantity: readQuantity(line.quantity),
+              unitAmountMinor: toMinor(line.unit)!,
+              amountMinor: minor,
+              taxable: line.taxable,
+            }
+          : {
+              description: line.description.trim(),
+              amountMinor: minor,
+              taxable: line.taxable,
+            },
+      );
     }
     return parsed;
   }
@@ -225,7 +286,8 @@ export function JobInvoices({
           notes: invoiceNotes.trim() || undefined,
         });
         setEditing(created.id);
-        setLines([{ description: "", amount: "", taxable: true }]);
+        setDraftCurrency(created.currency);
+        setLines([blankLine()]);
         setAdding(false);
       },
       () => {
@@ -247,6 +309,7 @@ export function JobInvoices({
         notes: invoiceNotes.trim() || undefined,
       });
       setEditing(result.invoice.id);
+      setDraftCurrency(result.invoice.currency);
       setLines(toDraftLines(result.invoice.lines));
       setAdding(false);
       setNotice(
@@ -264,11 +327,14 @@ export function JobInvoices({
   }
 
   function saveDraft(invoice: Invoice, after?: () => Promise<unknown>) {
-    const parsed = draftInput();
+    // Only the draft open in the editor takes the typed lines and currency;
+    // issuing another draft keeps its own saved lines.
+    const open = editing === invoice.id;
+    const parsed = draftInput(open ? lines : toDraftLines(invoice.lines));
     if (!parsed) return;
     void run(async () => {
       await updateInvoice(jobId, invoice.id, {
-        currency: invoice.currency,
+        currency: open && draftCurrency ? draftCurrency : invoice.currency,
         lines: parsed,
         dueDate: invoice.dueDate ?? undefined,
         notes: invoice.notes ?? undefined,
@@ -372,7 +438,7 @@ export function JobInvoices({
                 {invoice.lines
                   .map(
                     (line) =>
-                      `${line.description} ${formatMoney(line.amountMinor, invoice.currency)}${line.taxable ? "" : " (no tax)"}`,
+                      `${line.description}${line.quantity != null && line.unitAmountMinor != null ? ` ${line.quantity} × ${formatMoney(line.unitAmountMinor, invoice.currency)} =` : ""} ${formatMoney(line.amountMinor, invoice.currency)}${line.taxable ? "" : " (no tax)"}`,
                   )
                   .join(" · ")}
                 {invoice.taxLines.length > 0
@@ -443,7 +509,7 @@ export function JobInvoices({
                             )}
                           </>
                         )}
-                        {finance && !payment.reversal && (
+                        {finance && canEdit && !payment.reversal && (
                           <>
                             {" "}
                             <button
@@ -484,6 +550,7 @@ export function JobInvoices({
                     className={styles.secondaryButton}
                     onClick={() => {
                       setEditing(editing === invoice.id ? null : invoice.id);
+                      setDraftCurrency(invoice.currency);
                       setLines(toDraftLines(invoice.lines));
                     }}
                     type="button"
@@ -518,12 +585,35 @@ export function JobInvoices({
                       saveDraft(invoice);
                     }}
                   >
+                    <label className={styles.field}>
+                      Invoice currency
+                      <select
+                        onChange={(event) =>
+                          setDraftCurrency(event.target.value)
+                        }
+                        value={draftCurrency || invoice.currency}
+                      >
+                        {[
+                          ...new Set([
+                            invoice.currency,
+                            ...(configuredCurrencies.length > 0
+                              ? configuredCurrencies
+                              : popularCurrencies),
+                          ]),
+                        ].map((code) => (
+                          <option key={code} value={code}>
+                            {code}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
                     {lines.map((line, index) => (
                       <div className={styles.actions} key={index}>
                         <label className={styles.field}>
                           Description
                           <input
                             list="invoice-charge-options"
+                            placeholder="Pick or type any charge"
                             maxLength={300}
                             onChange={(event) =>
                               setLines(
@@ -542,21 +632,68 @@ export function JobInvoices({
                           />
                         </label>
                         <label className={styles.field}>
-                          Amount ({invoice.currency})
+                          Qty
                           <input
                             inputMode="decimal"
                             onChange={(event) =>
                               setLines(
                                 lines.map((item, at) =>
                                   at === index
-                                    ? { ...item, amount: event.target.value }
+                                    ? { ...item, quantity: event.target.value }
                                     : item,
                                 ),
                               )
                             }
-                            required
-                            value={line.amount}
+                            placeholder="optional"
+                            size={6}
+                            value={line.quantity}
                           />
+                        </label>
+                        <label className={styles.field}>
+                          Unit price
+                          <input
+                            inputMode="decimal"
+                            onChange={(event) =>
+                              setLines(
+                                lines.map((item, at) =>
+                                  at === index
+                                    ? { ...item, unit: event.target.value }
+                                    : item,
+                                ),
+                              )
+                            }
+                            placeholder="optional"
+                            size={10}
+                            value={line.unit}
+                          />
+                        </label>
+                        <label className={styles.field}>
+                          Amount ({draftCurrency || invoice.currency})
+                          {line.quantity.trim() || line.unit.trim() ? (
+                            <output>
+                              {lineMinor(line) === null
+                                ? "—"
+                                : formatMoney(
+                                    lineMinor(line)!,
+                                    draftCurrency || invoice.currency,
+                                  )}
+                            </output>
+                          ) : (
+                            <input
+                              inputMode="decimal"
+                              onChange={(event) =>
+                                setLines(
+                                  lines.map((item, at) =>
+                                    at === index
+                                      ? { ...item, amount: event.target.value }
+                                      : item,
+                                  ),
+                                )
+                              }
+                              required
+                              value={line.amount}
+                            />
+                          )}
                         </label>
                         <label>
                           <input
@@ -589,12 +726,7 @@ export function JobInvoices({
                     <div className={styles.actions}>
                       <button
                         className={styles.secondaryButton}
-                        onClick={() =>
-                          setLines([
-                            ...lines,
-                            { description: "", amount: "", taxable: true },
-                          ])
-                        }
+                        onClick={() => setLines([...lines, blankLine()])}
                         type="button"
                       >
                         Add line
@@ -608,6 +740,7 @@ export function JobInvoices({
               {(invoice.status !== "draft" || !(finance && canEdit)) && (
                 <div className={styles.actions}>
                   {finance &&
+                    canEdit &&
                     invoice.status === "issued" &&
                     invoice.outstandingMinor > 0 && (
                       <button

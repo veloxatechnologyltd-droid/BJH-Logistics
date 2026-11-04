@@ -418,6 +418,9 @@ export const recordActual = (
 export type InvoiceLine = {
   description: string;
   amountMinor: number;
+  /** Set together when the amount is a quantity times a unit price. */
+  quantity?: number | null;
+  unitAmountMinor?: number | null;
   taxable: boolean;
 };
 
@@ -1072,20 +1075,97 @@ export async function fetchStatementPdf(
   return response.blob();
 }
 
+/** A customer's job report PDF: their jobs (all, or those chosen) in detail, with invoices and balances. */
+export async function fetchJobReportPdf(
+  companyId: string,
+  jobIds: string[],
+): Promise<Blob> {
+  const query = new URLSearchParams({ companyId });
+  if (jobIds.length > 0) query.set("jobIds", jobIds.join(","));
+  const response = await authenticatedFetch(
+    `${apiRoot}/finance/job-reports/pdf?${query.toString()}`,
+  );
+  if (!response.ok) throw new Error("The job report could not be created");
+  return response.blob();
+}
+
+/** Emails the job report PDF to the customer's contacts. */
+export const sendJobReport = (companyId: string, jobIds: string[]) =>
+  sendApi<{ queued: boolean }>("/finance/job-reports/send", "POST", {
+    companyId,
+    ...(jobIds.length > 0 ? { jobIds: jobIds.join(",") } : {}),
+  });
+
+/** Money a customer paid that is not set against an invoice: credit on their account. */
+export type CustomerCredit = {
+  id: string;
+  companyId: string;
+  companyName: string;
+  currency: string;
+  amountMinor: number;
+  appliedMinor: number;
+  availableMinor: number;
+  receivedOn: string;
+  method: PaymentMethod;
+  reference: string | null;
+  note: string | null;
+  receiptNumber: string;
+  reversal: { reason: string; reversedAt: string } | null;
+};
+
 export type PaymentBatch = {
   payments: InvoicePayment[];
+  /** What was left over, kept as credit on the account. */
+  credit: CustomerCredit | null;
   totalMinor: number;
   currency: string;
 };
 
-/** One customer payment applied across several of their invoices, saved all or nothing. */
+/**
+ * One customer payment of any amount, saved all or nothing: set against any of
+ * their invoices, with the rest (or all of it, with no invoice) kept as credit.
+ */
 export const recordPayments = (input: {
+  companyId?: string;
+  currency?: string;
+  totalMinor?: number;
   receivedOn: string;
   method: PaymentMethod;
   reference?: string;
   note?: string;
   allocations: Array<{ invoiceId: string; amountMinor: number }>;
 }) => sendApi<PaymentBatch>("/payments", "POST", input);
+
+export const listCredits = (companyId = "") =>
+  sendApi<CustomerCredit[]>(
+    `/credits${companyId ? `?companyId=${encodeURIComponent(companyId)}` : ""}`,
+    "GET",
+  );
+
+export const applyCredit = (
+  creditId: string,
+  allocations: Array<{ invoiceId: string; amountMinor: number }>,
+) =>
+  sendApi<CustomerCredit>(
+    `/credits/${encodeURIComponent(creditId)}/apply`,
+    "POST",
+    { allocations },
+  );
+
+export const reverseCredit = (creditId: string, reason: string) =>
+  sendApi<CustomerCredit>(
+    `/credits/${encodeURIComponent(creditId)}/reverse`,
+    "POST",
+    { reason },
+  );
+
+export async function fetchCreditReceiptPdf(creditId: string): Promise<Blob> {
+  const response = await authenticatedFetch(
+    `${apiRoot}/credits/${encodeURIComponent(creditId)}/receipt`,
+  );
+  if (!response.ok) throw new Error("The receipt could not be created");
+  return response.blob();
+}
 
 export const getOutstandingInvoices = (companyId: string) =>
   sendApi<{

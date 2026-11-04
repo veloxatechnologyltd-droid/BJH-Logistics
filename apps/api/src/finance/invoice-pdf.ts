@@ -156,21 +156,28 @@ export function renderInvoicePdf(
   doc.y = gridTop + cellHeight * 2 + 16;
 
   // Lines table.
+  // Description | Qty | Unit price | Amount; Qty and unit price are blank on
+  // a line given as one amount.
   const columns = [
-    { title: "Description", width: width * 0.72 },
-    { title: `Amount (${invoice.currency})`, width: width * 0.28 },
+    { title: "Description", width: width * 0.46 },
+    { title: "Qty", width: width * 0.1 },
+    { title: `Unit price (${invoice.currency})`, width: width * 0.2 },
+    { title: `Amount (${invoice.currency})`, width: width * 0.24 },
   ];
+  const columnLeft = (index: number) =>
+    left + columns.slice(0, index).reduce((sum, item) => sum + item.width, 0);
+  const cell = (index: number, text: string, y: number) =>
+    doc.text(text, columnLeft(index) + 6, y + 6, {
+      width: columns[index].width - 12,
+      align: index === 0 ? "left" : "right",
+    });
+  const quantityText = (value: number) =>
+    new Intl.NumberFormat("en-GH", { maximumFractionDigits: 3 }).format(value);
   const drawHeader = () => {
     const y = doc.y;
     doc.rect(left, y, width, 20).fillAndStroke(CANVAS, BORDER);
     doc.font("Helvetica-Bold").fontSize(8.5).fillColor(PRIMARY);
-    doc.text(columns[0].title, left + 6, y + 6, {
-      width: columns[0].width - 12,
-    });
-    doc.text(columns[1].title, left + columns[0].width + 6, y + 6, {
-      width: columns[1].width - 12,
-      align: "right",
-    });
+    columns.forEach((column, index) => cell(index, column.title, y));
     doc.y = y + 20;
   };
   drawHeader();
@@ -184,13 +191,16 @@ export function renderInvoicePdf(
       drawHeader();
     }
     const y = doc.y;
-    doc.fillColor(INK).text(line.description, left + 6, y + 6, {
-      width: columns[0].width - 12,
-    });
-    doc.text(money(line.amountMinor), left + columns[0].width + 6, y + 6, {
-      width: columns[1].width - 12,
-      align: "right",
-    });
+    doc.fillColor(INK);
+    cell(0, line.description, y);
+    const priced =
+      line.quantity !== null &&
+      line.quantity !== undefined &&
+      line.unitAmountMinor !== null &&
+      line.unitAmountMinor !== undefined;
+    cell(1, priced ? quantityText(line.quantity!) : "", y);
+    cell(2, priced ? money(line.unitAmountMinor!) : "", y);
+    cell(3, money(line.amountMinor), y);
     doc
       .moveTo(left, y + rowHeight)
       .lineTo(left + width, y + rowHeight)
@@ -230,8 +240,8 @@ export function renderInvoicePdf(
     doc.font(strong ? "Helvetica-Bold" : "Helvetica").fontSize(9.5);
     doc.fillColor(strong ? PRIMARY : INK);
     doc.text(label, labelX, y, { width: width * 0.27, lineBreak: false });
-    doc.text(value, left + columns[0].width + 6, y, {
-      width: columns[1].width - 12,
+    doc.text(value, columnLeft(3) + 6, y, {
+      width: columns[3].width - 12,
       align: "right",
       lineBreak: false,
     });

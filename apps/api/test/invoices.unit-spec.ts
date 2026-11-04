@@ -257,6 +257,7 @@ const payment = (
   id: "payment",
   invoiceId: "invoice",
   receiptNumber: "SYN/RCT/2026/0001",
+  creditId: null,
   amountMinor: 100000,
   receivedOn: "2026-09-25",
   method: "bank_transfer",

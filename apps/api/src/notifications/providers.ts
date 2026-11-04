@@ -5,6 +5,8 @@ import type { Transporter } from "nodemailer";
 export const EMAIL_PROVIDER = Symbol("EMAIL_PROVIDER");
 /** Sends replies to inquiries, from the inquiries mailbox. */
 export const INQUIRY_EMAIL_PROVIDER = Symbol("INQUIRY_EMAIL_PROVIDER");
+/** Sends replies to customers' emails from Henry's mailbox, when it is set up. */
+export const REPLY_EMAIL_PROVIDER = Symbol("REPLY_EMAIL_PROVIDER");
 export const SMS_PROVIDER = Symbol("SMS_PROVIDER");
 
 export interface SendResult {
@@ -18,6 +20,12 @@ export interface EmailProvider {
     to: string;
     subject: string;
     text: string;
+    /** An HTML version of the same text (customer replies use a template). */
+    html?: string;
+    /** Where the customer's answer should go, when not the sender address. */
+    replyTo?: string;
+    /** The customer's Message-ID, so their mail app shows the reply in the same thread. */
+    inReplyTo?: string;
     attachments?: Array<{ filename: string; content: Buffer }>;
   }): Promise<SendResult>;
 }
@@ -38,6 +46,12 @@ export class RecordingEmailProvider implements EmailProvider {
     to: string;
     subject: string;
     text: string;
+    /** An HTML version of the same text (customer replies use a template). */
+    html?: string;
+    /** Where the customer's answer should go, when not the sender address. */
+    replyTo?: string;
+    /** The customer's Message-ID, so their mail app shows the reply in the same thread. */
+    inReplyTo?: string;
     attachments?: Array<{ filename: string; content: Buffer }>;
   }> = [];
   /** Recipients whose send should fail, for testing retries. */
@@ -48,6 +62,12 @@ export class RecordingEmailProvider implements EmailProvider {
     to: string;
     subject: string;
     text: string;
+    /** An HTML version of the same text (customer replies use a template). */
+    html?: string;
+    /** Where the customer's answer should go, when not the sender address. */
+    replyTo?: string;
+    /** The customer's Message-ID, so their mail app shows the reply in the same thread. */
+    inReplyTo?: string;
     attachments?: Array<{ filename: string; content: Buffer }>;
   }) {
     if (this.failFor.has(message.to)) throw new Error("Stub email failure");
@@ -101,13 +121,23 @@ export class SmtpEmailProvider implements EmailProvider {
     to: string;
     subject: string;
     text: string;
+    /** An HTML version of the same text (customer replies use a template). */
+    html?: string;
+    /** Where the customer's answer should go, when not the sender address. */
+    replyTo?: string;
+    /** The customer's Message-ID, so their mail app shows the reply in the same thread. */
+    inReplyTo?: string;
     attachments?: Array<{ filename: string; content: Buffer }>;
   }) {
     const info = await this.transport.sendMail({
       from: this.from,
       to: message.to,
+      replyTo: message.replyTo,
+      inReplyTo: message.inReplyTo,
+      references: message.inReplyTo,
       subject: message.subject,
       text: message.text,
+      html: message.html,
       attachments: message.attachments,
     });
     return { providerMessageId: info.messageId ?? null };
@@ -210,6 +240,45 @@ export function createInquiryEmailProvider(
     password: environment.EMAIL_INQUIRY_SMTP_PASSWORD ?? null,
     from,
   });
+}
+
+/** The sender for customer replies, and where each mailbox's answers go back to. */
+export interface ReplySender {
+  email: EmailProvider;
+  /** The mailbox the platform reads, so the customer's answer comes back in. */
+  replyTo: { quotes: string | null; inquiries: string | null };
+}
+
+/**
+ * Replies to customers' emails (the assistant's and staff's) go out from
+ * Henry's mailbox: `EMAIL_REPLY_FROM` (for example
+ * "Henry Yaw Somuah <henry@bjhlogistics.com>") with its own
+ * `EMAIL_REPLY_SMTP_USER` / `_PASSWORD`, on the same mail server. Reply-To is
+ * the mailbox the request came in on, which the platform reads. Without
+ * `EMAIL_REPLY_FROM` (or without mail) replies keep their old senders: null.
+ */
+export function createReplySender(
+  environment: NodeJS.ProcessEnv,
+): ReplySender | null {
+  const main = createEmailProvider(environment);
+  const from = environment.EMAIL_REPLY_FROM?.trim();
+  if (main.name !== "smtp" || !from) return null;
+  return {
+    email: new SmtpEmailProvider({
+      host: environment.EMAIL_SMTP_HOST!.trim(),
+      port: Number(environment.EMAIL_SMTP_PORT ?? 587),
+      user: environment.EMAIL_REPLY_SMTP_USER?.trim() || null,
+      password: environment.EMAIL_REPLY_SMTP_PASSWORD ?? null,
+      from,
+    }),
+    replyTo: {
+      quotes: environment.INBOUND_IMAP_USER?.trim() || null,
+      inquiries:
+        environment.INBOUND_INQUIRY_IMAP_USER?.trim() ||
+        environment.EMAIL_INQUIRY_FROM?.trim() ||
+        null,
+    },
+  };
 }
 
 export function createSmsProvider(environment: NodeJS.ProcessEnv): SmsProvider {

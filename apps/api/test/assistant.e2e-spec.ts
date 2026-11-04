@@ -280,12 +280,13 @@ const confirm = (token: string, body: Record<string, unknown>) =>
   post("/api/v1/assistant/confirm", token, body);
 
 test("confirming runs the action under the person's own rules", async () => {
-  // No invoice has been accepted, so customer service is refused, as on screen.
-  const refused = await confirm(TEST_UNASSIGNED_TOKEN, {
+  // Customer service assigns as soon as the job is open (client walkthrough,
+  // 2026-11-03); no accepted invoice is needed any more.
+  const assigned = await confirm(TEST_UNASSIGNED_TOKEN, {
     conversationId,
     proposalId: "toolu_assign",
   });
-  assert.equal(refused.status, 409);
+  assert.equal(assigned.status, 201, await assigned.clone().text());
 
   const task = await propose(TEST_MATCHING_TOKEN, "create_task", {
     jobId,
@@ -307,12 +308,14 @@ test("confirming runs the action under the person's own rules", async () => {
     body: "Hello",
   });
   assert.equal((await confirm(TEST_MATCHING_TOKEN, message)).status, 403);
-  // Receipts are finance work; customer service cannot send one through the helper.
+  // Customer service also does finance work (Evans, 2026-11-03), so the
+  // receipt passes the role check and fails only because the synthetic
+  // payment does not exist.
   const receipt = await confirm(TEST_UNASSIGNED_TOKEN, {
     conversationId,
     proposalId: "toolu_receipt",
   });
-  assert.equal(receipt.status, 403);
+  assert.equal(receipt.status, 404);
 });
 
 test("only what the helper proposed runs, exactly as proposed, and once", async () => {
@@ -446,7 +449,7 @@ test("conversations are kept, continued and private to their owner", async () =>
   );
   assert.match(
     String(sent.messages.at(-1)?.content),
-    /^\(Now: .*\. Confirmed since my last message: Create the task "Call the client".*\)\n\nThanks$/s,
+    /^\(Now: .*\. Confirmed since my last message: (Assign .* as lead on .*; )?Create the task "Call the client".*\)\n\nThanks$/s,
   );
   // Earlier thinking blocks are only valid while the system prompt stays the
   // same, so it carries no time and is identical on every turn.
@@ -472,7 +475,8 @@ test("conversations are kept, continued and private to their owner", async () =>
   ).json()) as { lines: Array<{ kind: string; text: string }> };
   assert.deepEqual(
     opened.lines.map((line) => line.kind),
-    ["you", "helper", "done", "you", "helper"],
+    // Two confirmed actions: the assignment (now allowed at once) and the task.
+    ["you", "helper", "done", "done", "you", "helper"],
   );
 
   // Another staff member can neither see, continue, record into nor delete it.

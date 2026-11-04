@@ -153,6 +153,20 @@ textarea {
   margin-bottom: 9px;
 }
 
+.sidebar-support {
+  margin-top: auto;
+  padding-top: 16px;
+}
+
+.support-link {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
 .settings-nav {
   display: grid;
   gap: 5px;

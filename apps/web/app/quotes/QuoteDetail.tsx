@@ -430,7 +430,8 @@ export function QuoteDetail({ quoteId }: { quoteId: string }) {
           )}
           {quote.jobId && (
             <Link className={styles.primaryLink} href={`/jobs/${quote.jobId}`}>
-              Open job{openedJob ? ` ${openedJob.fileNumber}` : ""}
+              Open job{openedJob ? ` ${openedJob.fileNumber}` : ""} and assign a
+              rep
             </Link>
           )}
         </div>

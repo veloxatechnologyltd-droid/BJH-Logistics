@@ -1400,13 +1400,53 @@ export const driverInputSchema = z.object(
 );
 export type DriverInput = z.infer<typeof driverInputSchema>;
 
-export const vehicleInputSchema = z.object(
-  {
-    registration: requiredText("registration", 40),
-    description: optionalText("description", 200),
-  },
-  objectError("A vehicle object is required"),
-);
+/** A calendar date (YYYY-MM-DD), or empty for none. A declaration, so usable above isoDate. */
+function optionalDay(field: string) {
+  return z
+    .string({ error: `${field} must be a date (YYYY-MM-DD)` })
+    .transform((value) => value.trim())
+    .refine(
+      (value) =>
+        value === "" ||
+        (/^\d{4}-\d{2}-\d{2}$/.test(value) &&
+          !Number.isNaN(Date.parse(value)) &&
+          new Date(value).toISOString().slice(0, 10) === value),
+      { error: `${field} must be a date (YYYY-MM-DD)` },
+    )
+    .nullish()
+    .transform((value) => value || null);
+}
+
+export const vehicleInputSchema = z
+  .object(
+    {
+      registration: requiredText("registration", 40),
+      description: optionalText("description", 200),
+      insuranceStartOn: optionalDay("insuranceStartOn"),
+      insuranceEndOn: optionalDay("insuranceEndOn"),
+      /** DVLA roadworthy certificate expiry. */
+      dvlaExpiresOn: optionalDay("dvlaExpiresOn"),
+      /** Serviced every this many months, counted from the last service. */
+      serviceEveryMonths: z
+        .number({
+          error: "serviceEveryMonths must be a whole number of months",
+        })
+        .int({ error: "serviceEveryMonths must be a whole number of months" })
+        .min(1, { error: "serviceEveryMonths must be 1 to 60" })
+        .max(60, { error: "serviceEveryMonths must be 1 to 60" })
+        .nullish()
+        .transform((value) => value ?? null),
+      lastServicedOn: optionalDay("lastServicedOn"),
+    },
+    objectError("A vehicle object is required"),
+  )
+  .refine(
+    (value) =>
+      !value.insuranceStartOn ||
+      !value.insuranceEndOn ||
+      value.insuranceEndOn >= value.insuranceStartOn,
+    { error: "The insurance end date must be on or after its start date" },
+  );
 export type VehicleInput = z.infer<typeof vehicleInputSchema>;
 
 export const activeInputSchema = z.object(
@@ -1414,29 +1454,53 @@ export const activeInputSchema = z.object(
   objectError("An active flag is required"),
 );
 
-export const deliveryInputSchema = z.object(
-  {
-    driverId: uuidField("driverId"),
-    vehicleId: uuidField("vehicleId"),
-    cargoDescription: requiredText("cargoDescription", 500),
-    packages: z
-      .number({ error: "packages must be a whole number" })
-      .int({ error: "packages must be a whole number" })
-      .min(1, { error: "packages must be 1 to 1000000" })
-      .max(1_000_000, { error: "packages must be 1 to 1000000" })
-      .nullish()
-      .transform((value) => value ?? null),
-    grossWeightKg: z
-      .number({ error: "grossWeightKg must be a number" })
-      .min(0, { error: "grossWeightKg must be 0 to 100000000" })
-      .max(100_000_000, { error: "grossWeightKg must be 0 to 100000000" })
-      .nullish()
-      .transform((value) => value ?? null),
-    pickupLocation: optionalText("pickupLocation", 300),
-    deliveryAddress: requiredText("deliveryAddress", 500),
-  },
-  objectError("A delivery object is required"),
-);
+export const deliveryInputSchema = z
+  .object(
+    {
+      /** An internal driver; or leave it out and type an outside driver's name and phone. */
+      driverId: uuidField("driverId")
+        .nullish()
+        .transform((value) => value ?? null),
+      driverName: optionalText("driverName", 160),
+      driverPhone: optionalText("driverPhone", 40),
+      /** An internal vehicle; or leave it out and type an outside vehicle's registration. */
+      vehicleId: uuidField("vehicleId")
+        .nullish()
+        .transform((value) => value ?? null),
+      vehicleRegistration: optionalText("vehicleRegistration", 40),
+      cargoDescription: requiredText("cargoDescription", 500),
+      packages: z
+        .number({ error: "packages must be a whole number" })
+        .int({ error: "packages must be a whole number" })
+        .min(1, { error: "packages must be 1 to 1000000" })
+        .max(1_000_000, { error: "packages must be 1 to 1000000" })
+        .nullish()
+        .transform((value) => value ?? null),
+      grossWeightKg: z
+        .number({ error: "grossWeightKg must be a number" })
+        .min(0, { error: "grossWeightKg must be 0 to 100000000" })
+        .max(100_000_000, { error: "grossWeightKg must be 0 to 100000000" })
+        .nullish()
+        .transform((value) => value ?? null),
+      pickupLocation: optionalText("pickupLocation", 300),
+      deliveryAddress: requiredText("deliveryAddress", 500),
+    },
+    objectError("A delivery object is required"),
+  )
+  .superRefine((value, context) => {
+    if (!value.driverId && !(value.driverName && value.driverPhone)) {
+      context.addIssue({
+        code: "custom",
+        message: "Choose a driver, or type the outside driver's name and phone",
+      });
+    }
+    if (!value.vehicleId && !value.vehicleRegistration) {
+      context.addIssue({
+        code: "custom",
+        message: "Choose a vehicle, or type the outside vehicle's registration",
+      });
+    }
+  });
 export type DeliveryInput = z.infer<typeof deliveryInputSchema>;
 
 /** The proof of delivery: who received the goods, when, and any damage. */
@@ -1472,21 +1536,73 @@ const isoDate = (field: string) =>
       { error: `${field} must be a date (YYYY-MM-DD)` },
     );
 
-export const invoiceLineSchema = z.object(
-  {
-    description: requiredText("description", 300),
-    amountMinor: z
-      .number({ error: "amountMinor must be a whole number of minor units" })
-      .int({ error: "amountMinor must be a whole number of minor units" })
-      .min(0, { error: "amountMinor cannot be negative" })
-      .max(MAX_MINOR_AMOUNT, { error: "amountMinor is too large" }),
-    taxable: z
-      .boolean({ error: "taxable must be true or false" })
-      .nullish()
-      .transform((value) => value ?? true),
-  },
-  objectError("An invoice line object is required"),
-);
+/**
+ * An invoice line: a description and an amount, or a quantity times a unit
+ * price (then the amount is worked out from them, rounded to the minor unit).
+ */
+export const invoiceLineSchema = z
+  .object(
+    {
+      description: requiredText("description", 300),
+      amountMinor: z
+        .number({ error: "amountMinor must be a whole number of minor units" })
+        .int({ error: "amountMinor must be a whole number of minor units" })
+        .min(0, { error: "amountMinor cannot be negative" })
+        .max(MAX_MINOR_AMOUNT, { error: "amountMinor is too large" })
+        .nullish(),
+      quantity: z
+        .number({ error: "quantity must be a number" })
+        .positive({ error: "quantity must be more than zero" })
+        .max(1_000_000, { error: "quantity is too large" })
+        .refine((value) => Math.round(value * 1000) === value * 1000, {
+          error: "quantity can have at most three decimal places",
+        })
+        .nullish()
+        .transform((value) => value ?? null),
+      unitAmountMinor: z
+        .number({
+          error: "unitAmountMinor must be a whole number of minor units",
+        })
+        .int({ error: "unitAmountMinor must be a whole number of minor units" })
+        .min(0, { error: "unitAmountMinor cannot be negative" })
+        .max(MAX_MINOR_AMOUNT, { error: "unitAmountMinor is too large" })
+        .nullish()
+        .transform((value) => value ?? null),
+      taxable: z
+        .boolean({ error: "taxable must be true or false" })
+        .nullish()
+        .transform((value) => value ?? true),
+    },
+    objectError("An invoice line object is required"),
+  )
+  .superRefine((line, context) => {
+    if ((line.quantity === null) !== (line.unitAmountMinor === null)) {
+      context.addIssue({
+        code: "custom",
+        message: "Give both a quantity and a unit price, or neither",
+      });
+    } else if (line.quantity === null && line.amountMinor == null) {
+      context.addIssue({
+        code: "custom",
+        message: "Each line needs an amount, or a quantity and a unit price",
+      });
+    } else if (
+      line.quantity !== null &&
+      Math.round(line.quantity * line.unitAmountMinor!) > MAX_MINOR_AMOUNT
+    ) {
+      context.addIssue({ code: "custom", message: "amountMinor is too large" });
+    }
+  })
+  .transform((line) => ({
+    description: line.description,
+    amountMinor:
+      line.quantity !== null
+        ? Math.round(line.quantity * line.unitAmountMinor!)
+        : line.amountMinor!,
+    quantity: line.quantity,
+    unitAmountMinor: line.unitAmountMinor,
+    taxable: line.taxable,
+  }));
 export type InvoiceLineInput = z.infer<typeof invoiceLineSchema>;
 
 export const invoiceInputSchema = z.object(
@@ -1660,45 +1776,99 @@ export const paymentInputSchema = z.object(
 );
 export type PaymentInput = z.infer<typeof paymentInputSchema>;
 
-/** One customer payment applied across several of their invoices in one step; each invoice gets its own payment and receipt. */
-export const paymentBatchInputSchema = z.object(
-  {
-    receivedOn: isoDate("receivedOn"),
-    method: z.enum(paymentMethodKeys, {
-      error: `method must be one of ${paymentMethodKeys.join(", ")}`,
-    }),
-    reference: optionalText("reference", 200),
-    note: optionalText("note", 2000),
-    allocations: z
-      .array(
-        z.object(
-          {
-            invoiceId: uuidField("invoiceId"),
-            amountMinor: z
-              .number({
-                error: "amountMinor must be a whole number of minor units",
-              })
-              .int({
-                error: "amountMinor must be a whole number of minor units",
-              })
-              .min(1, { error: "amountMinor must be more than zero" })
-              .max(MAX_MINOR_AMOUNT, { error: "amountMinor is too large" }),
-          },
-          objectError("Each allocation needs an invoiceId and an amountMinor"),
-        ),
-        { error: "allocations must be a list of invoices" },
-      )
-      .min(1, { error: "Choose at least one invoice" })
-      .max(50, { error: "At most 50 invoices can be paid at once" })
-      .refine(
-        (items) =>
-          new Set(items.map((item) => item.invoiceId)).size === items.length,
-        { error: "Each invoice can appear only once" },
-      ),
-  },
-  objectError("A payment object is required"),
-);
+const positiveMinor = (field: string) =>
+  z
+    .number({ error: `${field} must be a whole number of minor units` })
+    .int({ error: `${field} must be a whole number of minor units` })
+    .min(1, { error: `${field} must be more than zero` })
+    .max(MAX_MINOR_AMOUNT, { error: `${field} is too large` });
+
+/** Amounts set against invoices, each invoice once. */
+const allocationsField = z
+  .array(
+    z.object(
+      {
+        invoiceId: uuidField("invoiceId"),
+        amountMinor: positiveMinor("amountMinor"),
+      },
+      objectError("Each allocation needs an invoiceId and an amountMinor"),
+    ),
+    { error: "allocations must be a list of invoices" },
+  )
+  .max(50, { error: "At most 50 invoices can be paid at once" })
+  .refine(
+    (items) =>
+      new Set(items.map((item) => item.invoiceId)).size === items.length,
+    { error: "Each invoice can appear only once" },
+  );
+
+/**
+ * One customer payment of any amount, in one step: set against any of their
+ * issued invoices (each invoice gets its own payment and receipt), with
+ * whatever is left over, or the whole amount when no invoice is chosen, kept
+ * as credit on the customer's account with its own receipt.
+ */
+export const paymentBatchInputSchema = z
+  .object(
+    {
+      /** The customer; needed when no invoice is chosen. */
+      companyId: uuidField("companyId")
+        .nullish()
+        .transform((value) => value ?? null),
+      /** The payment's currency; needed when no invoice is chosen. */
+      currency: z
+        .string({ error: "currency must be a three-letter code" })
+        .regex(/^[A-Z]{3}$/, { error: "currency must be a three-letter code" })
+        .nullish()
+        .transform((value) => value ?? null),
+      /** What the customer paid; defaults to the sum of the allocations. */
+      totalMinor: positiveMinor("totalMinor")
+        .nullish()
+        .transform((value) => value ?? null),
+      receivedOn: isoDate("receivedOn"),
+      method: z.enum(paymentMethodKeys, {
+        error: `method must be one of ${paymentMethodKeys.join(", ")}`,
+      }),
+      reference: optionalText("reference", 200),
+      note: optionalText("note", 2000),
+      allocations: allocationsField.default([]),
+    },
+    objectError("A payment object is required"),
+  )
+  .superRefine((value, context) => {
+    const allocated = value.allocations.reduce(
+      (sum, item) => sum + item.amountMinor,
+      0,
+    );
+    if (value.allocations.length === 0) {
+      if (!value.companyId || !value.currency || !value.totalMinor) {
+        context.addIssue({
+          code: "custom",
+          message:
+            "Enter the amount, customer and currency, or choose an invoice",
+        });
+      }
+    } else if (value.totalMinor !== null && value.totalMinor < allocated) {
+      context.addIssue({
+        code: "custom",
+        message: "The amounts set against invoices are more than the payment",
+      });
+    }
+  });
 export type PaymentBatchInput = z.infer<typeof paymentBatchInputSchema>;
+
+/** Credit on a customer's account set against their invoices. */
+export const creditApplicationInputSchema = z.object(
+  {
+    allocations: allocationsField.refine((items) => items.length > 0, {
+      error: "Choose at least one invoice",
+    }),
+  },
+  objectError("A credit application object is required"),
+);
+export type CreditApplicationInput = z.infer<
+  typeof creditApplicationInputSchema
+>;
 
 /** Which customer and period a statement of account covers; no dates means everything. */
 export const statementQuerySchema = z
@@ -1718,6 +1888,44 @@ export const statementQuerySchema = z
     error: "from must not be after to",
   });
 export type StatementQuery = z.infer<typeof statementQuerySchema>;
+
+/**
+ * A customer's job report: their jobs (all, or the ones listed in `jobIds`,
+ * comma separated), optionally only those opened between `from` and `to`.
+ */
+export const jobReportQuerySchema = z
+  .object(
+    {
+      companyId: uuidField("companyId"),
+      jobIds: z
+        .string({ error: "jobIds must be a comma-separated list of IDs" })
+        .transform((value) =>
+          value
+            .split(",")
+            .map((item) => item.trim())
+            .filter(Boolean),
+        )
+        .refine((ids) => ids.every(isUuid), {
+          error: "jobIds must be a comma-separated list of IDs",
+        })
+        .refine((ids) => ids.length <= 100, {
+          error: "A report can cover at most 100 jobs",
+        })
+        .nullish()
+        .transform((value) => (value && value.length > 0 ? value : null)),
+      from: isoDate("from")
+        .nullish()
+        .transform((value) => value ?? null),
+      to: isoDate("to")
+        .nullish()
+        .transform((value) => value ?? null),
+    },
+    objectError("A job report query is required"),
+  )
+  .refine((value) => !value.from || !value.to || value.from <= value.to, {
+    error: "from must not be after to",
+  });
+export type JobReportQuery = z.infer<typeof jobReportQuerySchema>;
 
 /** The super admin creates a customer account directly and links it to one company. */
 export const customerAccountCreateInputSchema = z.object(
@@ -2211,4 +2419,31 @@ export const leadActivityInputSchema = z.object(
       .transform((value) => value ?? null),
   },
   objectError("An activity object is required"),
+);
+
+/** Support requests (Evans, 2026-11-03): a problem, a feature wish or a question. */
+export const supportRequestKinds = ["problem", "feature", "question"] as const;
+export const supportRequestStatuses = ["new", "in_progress", "done"] as const;
+
+export const supportRequestInputSchema = z.object(
+  {
+    kind: z.enum(supportRequestKinds, {
+      error: "kind must be problem, feature or question",
+    }),
+    description: requiredText("description", 4000),
+    pagePath: optionalText("pagePath", 500),
+    userAgent: optionalText("userAgent", 500),
+    lastError: optionalText("lastError", 1000),
+  },
+  objectError("A support request object is required"),
+);
+export type SupportRequestInput = z.infer<typeof supportRequestInputSchema>;
+
+export const supportRequestStatusSchema = z.object(
+  {
+    status: z.enum(supportRequestStatuses, {
+      error: "status must be new, in_progress or done",
+    }),
+  },
+  objectError("A status object is required"),
 );

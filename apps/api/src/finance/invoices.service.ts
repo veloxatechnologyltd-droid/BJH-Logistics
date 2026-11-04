@@ -13,17 +13,20 @@ import {
   invoiceReasonInputSchema,
   isUuid,
   parseContract,
+  creditApplicationInputSchema,
   paymentBatchInputSchema,
   paymentInputSchema,
 } from "@bjh/contracts";
 import {
   DatabasePort,
+  CustomerCreditRecord,
   InvoiceAcceptanceRecord,
   InvoiceLineRecord,
   InvoicePaymentRecord,
   InvoiceRecord,
   JobRecord,
   JobScope,
+  PaymentBatchResult,
   StaffRoleKey,
 } from "../database/database.port";
 import { JobsService } from "../jobs/jobs.service";
@@ -32,13 +35,14 @@ import { JobChargesService, JobChargeView } from "./job-charges.service";
 import { computeInvoiceTotals } from "./invoice-totals";
 import {
   invoiceIssuedMessage,
+  creditReceivedMessage,
   paymentReceivedMessage,
   receiptSentMessage,
   paymentsReceivedMessage,
 } from "../notifications/notification-messages";
 import { NotificationsService } from "../notifications/notifications.service";
 import { renderInvoicePdf } from "./invoice-pdf";
-import { renderReceiptPdf } from "./receipt-pdf";
+import { renderCreditReceiptPdf, renderReceiptPdf } from "./receipt-pdf";
 
 export interface InvoiceView extends InvoiceRecord {
   /** Payments still standing (not reversed). */
@@ -244,9 +248,16 @@ export class InvoicesService {
           currency: billing.currency,
         });
       } else {
+        // Billed at the quoted price: keep its quantity and unit price.
+        const quoted =
+          charge.quotedTotalMinor !== null &&
+          charge.unitQuotedMinor !== null &&
+          billing.amountMinor === charge.quotedTotalMinor;
         lines.push({
           description: charge.description,
           amountMinor: billing.amountMinor,
+          quantity: quoted ? charge.quantity : null,
+          unitAmountMinor: quoted ? charge.unitQuotedMinor : null,
           taxable: true,
         });
       }
@@ -484,6 +495,7 @@ export class InvoicesService {
     scope: JobScope,
   ): Promise<{
     payments: InvoicePaymentRecord[];
+    credit: CustomerCreditRecord | null;
     totalMinor: number;
     currency: string;
   }> {
@@ -496,73 +508,206 @@ export class InvoicesService {
     ) {
       throw new BadRequestException("receivedOn cannot be in the future");
     }
+    if (parsed.data.currency) {
+      await this.requireConfiguredCurrency(parsed.data.currency);
+    }
     const result = await this.database.recordPaymentBatch(
       parsed.data,
       recordedBy,
       new Date().getUTCFullYear(),
       scope,
     );
-    if ("failed" in result) {
-      switch (result.failed) {
-        case "not_found":
-          throw new NotFoundException("Invoice was not found");
-        case "not_issued":
-          throw new ConflictException(
-            "Payments can only be recorded against an issued invoice",
-          );
-        case "mixed_customers":
-          throw new BadRequestException(
-            "All the invoices must belong to the same customer",
-          );
-        case "mixed_currencies":
-          throw new BadRequestException(
-            "All the invoices must be in the same currency",
-          );
-        case "exceeds_balance":
-          throw new ConflictException(
-            `The payment is more than the outstanding balance of ${result.invoiceNumber ?? "an invoice"}`,
-          );
-      }
-    }
-    const lines = result.recorded;
-    const jobIds = new Set(lines.map((line) => line.jobId));
-    const [only] = lines;
-    await this.notifications.notify({
-      companyId: result.companyId,
-      jobId: jobIds.size === 1 ? only.jobId : null,
-      event: "payment_received",
-      dedupeKey: `payment:${only.payment.id}`,
-      message: (sender) =>
-        lines.length === 1
-          ? paymentReceivedMessage(
-              sender,
-              only.payment.receiptNumber,
-              only.invoiceNumber,
-              only.payment.amountMinor,
-              only.balanceMinor,
-              result.currency,
-            )
-          : paymentsReceivedMessage(
-              sender,
-              result.currency,
-              lines.map((line) => ({
-                invoiceNumber: line.invoiceNumber,
-                receiptNumber: line.payment.receiptNumber,
-                amountMinor: line.payment.amountMinor,
-                balanceMinor: line.balanceMinor,
-              })),
-            ),
-      linkPath: jobIds.size === 1 ? `/jobs/${only.jobId}` : "/invoices",
-      createdBy: recordedBy,
-    });
+    if ("failed" in result) this.paymentFailure(result);
+    await this.tellCustomer(result, recordedBy);
     return {
-      payments: lines.map((line) => line.payment),
-      totalMinor: lines.reduce(
-        (sum, line) => sum + line.payment.amountMinor,
-        0,
-      ),
+      payments: result.recorded.map((line) => line.payment),
+      credit: result.credit,
+      totalMinor:
+        result.recorded.reduce(
+          (sum, line) => sum + line.payment.amountMinor,
+          0,
+        ) + (result.credit?.amountMinor ?? 0),
       currency: result.currency,
     };
+  }
+
+  /** Credits on customers' accounts, with what is left to apply. */
+  listCredits(companyId: string | null, scope: JobScope) {
+    if (companyId !== null && !isUuid(companyId)) {
+      throw new BadRequestException("companyId must be a valid ID");
+    }
+    return this.database.listCustomerCredits(companyId, scope);
+  }
+
+  /** Sets credit on a customer's account against their issued invoices. No new receipt: no new money. */
+  /** The receipt for money held on account, numbered when it was recorded. */
+  async creditReceiptPdf(
+    creditId: string,
+    scope: JobScope,
+  ): Promise<{ file: Buffer; filename: string }> {
+    const credit = isUuid(creditId)
+      ? (await this.database.listCustomerCredits(null, scope)).find(
+          (item) => item.id === creditId,
+        )
+      : undefined;
+    if (!credit) throw new NotFoundException("Credit was not found");
+    const settings = await this.database.getBusinessSettings();
+    const file = await renderCreditReceiptPdf({
+      credit,
+      settings: settings?.settings ?? null,
+    });
+    return {
+      file,
+      filename: `${credit.receiptNumber.replace(/[^A-Za-z0-9-]+/g, "-")}.pdf`,
+    };
+  }
+
+  async applyCredit(
+    creditId: string,
+    input: unknown,
+    appliedBy: string,
+    scope: JobScope,
+  ): Promise<CustomerCreditRecord> {
+    const parsed = parseContract(creditApplicationInputSchema, input);
+    if (!parsed.success) throw new BadRequestException(parsed.message);
+    if (!isUuid(creditId)) throw new NotFoundException("Credit was not found");
+    const result = await this.database.applyCustomerCredit(
+      creditId,
+      parsed.data.allocations,
+      appliedBy,
+      new Date().toISOString().slice(0, 10),
+      scope,
+    );
+    if ("failed" in result) {
+      if (result.failed === "not_found" && result.invoiceNumber === null) {
+        throw new NotFoundException("Credit or invoice was not found");
+      }
+      this.paymentFailure(result);
+    }
+    return result.credit!;
+  }
+
+  async reverseCredit(
+    creditId: string,
+    input: unknown,
+    reversedBy: string,
+    scope: JobScope,
+  ): Promise<CustomerCreditRecord> {
+    const parsed = parseContract(invoiceReasonInputSchema, input);
+    if (!parsed.success) throw new BadRequestException(parsed.message);
+    const result = isUuid(creditId)
+      ? await this.database.reverseCustomerCredit(
+          creditId,
+          parsed.data.reason,
+          reversedBy,
+          scope,
+        )
+      : "not_found";
+    if (result === "not_found") {
+      throw new NotFoundException("Credit was not found");
+    }
+    if (result === "already_reversed") {
+      throw new ConflictException("The credit is already reversed");
+    }
+    if (result === "applied") {
+      throw new ConflictException(
+        "Part of this credit is set against invoices: reverse those payments first",
+      );
+    }
+    return result;
+  }
+
+  private paymentFailure(
+    result: Extract<PaymentBatchResult, { failed: unknown }>,
+  ): never {
+    switch (result.failed) {
+      case "not_found":
+        throw new NotFoundException("Invoice was not found");
+      case "not_issued":
+        throw new ConflictException(
+          "Payments can only be recorded against an issued invoice",
+        );
+      case "mixed_customers":
+        throw new BadRequestException(
+          "All the invoices must belong to the same customer",
+        );
+      case "company_mismatch":
+        throw new BadRequestException(
+          "The invoices do not belong to this customer",
+        );
+      case "mixed_currencies":
+        throw new BadRequestException(
+          "All the invoices must be in the same currency",
+        );
+      case "currency_mismatch":
+        throw new BadRequestException(
+          "The invoices are not in the payment's currency",
+        );
+      case "exceeds_balance":
+        throw new ConflictException(
+          `The payment is more than the outstanding balance of ${result.invoiceNumber ?? "an invoice"}`,
+        );
+      case "exceeds_credit":
+        throw new ConflictException("That is more than is left of this credit");
+    }
+  }
+
+  /** One message for the invoices paid, and one for any credit kept. */
+  private async tellCustomer(
+    result: Extract<PaymentBatchResult, { recorded: unknown }>,
+    recordedBy: string,
+  ) {
+    const lines = result.recorded;
+    if (lines.length > 0) {
+      const jobIds = new Set(lines.map((line) => line.jobId));
+      const [only] = lines;
+      await this.notifications.notify({
+        companyId: result.companyId,
+        jobId: jobIds.size === 1 ? only.jobId : null,
+        event: "payment_received",
+        dedupeKey: `payment:${only.payment.id}`,
+        message: (sender) =>
+          lines.length === 1
+            ? paymentReceivedMessage(
+                sender,
+                only.payment.receiptNumber,
+                only.invoiceNumber,
+                only.payment.amountMinor,
+                only.balanceMinor,
+                result.currency,
+              )
+            : paymentsReceivedMessage(
+                sender,
+                result.currency,
+                lines.map((line) => ({
+                  invoiceNumber: line.invoiceNumber,
+                  receiptNumber: line.payment.receiptNumber,
+                  amountMinor: line.payment.amountMinor,
+                  balanceMinor: line.balanceMinor,
+                })),
+              ),
+        linkPath: jobIds.size === 1 ? `/jobs/${only.jobId}` : "/invoices",
+        createdBy: recordedBy,
+      });
+    }
+    const credit = result.credit;
+    if (credit) {
+      await this.notifications.notify({
+        companyId: result.companyId,
+        jobId: null,
+        event: "payment_received",
+        dedupeKey: `credit:${credit.id}`,
+        message: (sender) =>
+          creditReceivedMessage(
+            sender,
+            credit.receiptNumber,
+            credit.amountMinor,
+            credit.currency,
+          ),
+        linkPath: "/invoices",
+        createdBy: recordedBy,
+      });
+    }
   }
 
   async reversePayment(

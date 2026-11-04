@@ -528,7 +528,7 @@ export function FinanceOverview({ view }: { view: "dashboard" | "jobs" }) {
                           label: (
                             <Link
                               className={styles.link}
-                              href={`/jobs/${row.jobId}/money`}
+                              href={`/finance/jobs/${row.jobId}`}
                             >
                               {row.fileNumber}
                             </Link>
@@ -576,7 +576,7 @@ export function FinanceOverview({ view }: { view: "dashboard" | "jobs" }) {
                           <td className={chart.jobCell}>
                             <Link
                               className={styles.link}
-                              href={`/jobs/${row.jobId}/money`}
+                              href={`/finance/jobs/${row.jobId}`}
                             >
                               {row.fileNumber}
                             </Link>

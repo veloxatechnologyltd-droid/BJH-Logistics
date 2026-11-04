@@ -169,7 +169,7 @@ test("old roles can no longer be assigned through staff management", async () =>
   assert.equal(refused.status, 400);
 });
 
-test("finance work belongs to finance; customer service sees no money either", async () => {
+test("finance work belongs to finance and customer service; the import rep sees no money", async () => {
   const opened = await post("/api/v1/jobs", TEST_SUPER_ADMIN_TOKEN, {
     customerCompanyId: companyId,
     serviceLine: "sea_import",
@@ -191,51 +191,44 @@ test("finance work belongs to finance; customer service sees no money either", a
     403,
   );
 
-  // Evans, 2026-11-02: customer service does not see finances, invoices and
-  // receipts included.
-  await actAs("customer_service_rep");
-  for (const path of [
-    `/api/v1/jobs/${jobId}/invoices`,
-    `/api/v1/jobs/${jobId}/charges`,
-    "/api/v1/receipts",
-    "/api/v1/invoices/outstanding",
-    "/api/v1/finance/statements",
-  ]) {
-    assert.equal((await call(path, TEST_UNASSIGNED_TOKEN)).status, 403, path);
+  // Evans, 2026-11-03: BJH has no finance person, so customer service does
+  // the finance work (reverses the 2026-11-02 "no finances" rule).
+  for (const role of ["finance_rep", "customer_service_rep"] as const) {
+    await actAs(role);
+    for (const path of [
+      `/api/v1/jobs/${jobId}/invoices`,
+      `/api/v1/jobs/${jobId}/charges`,
+      "/api/v1/receipts",
+      "/api/v1/invoices/outstanding",
+      "/api/v1/finance/summary",
+    ]) {
+      assert.equal(
+        (await call(path, TEST_UNASSIGNED_TOKEN)).status,
+        200,
+        `${role} ${path}`,
+      );
+    }
+    assert.equal(
+      (
+        await post(
+          `/api/v1/jobs/${jobId}/invoices`,
+          TEST_UNASSIGNED_TOKEN,
+          invoice,
+        )
+      ).status,
+      201,
+      role,
+    );
   }
-  assert.equal(
-    (
-      await post(
-        `/api/v1/jobs/${jobId}/invoices`,
-        TEST_UNASSIGNED_TOKEN,
-        invoice,
-      )
-    ).status,
-    403,
-  );
+  // Sales sees no money.
+  await actAs("sales_rep");
   assert.equal(
     (await call("/api/v1/finance/summary", TEST_UNASSIGNED_TOKEN)).status,
     403,
-  );
-
-  await actAs("finance_rep");
-  assert.equal(
-    (
-      await post(
-        `/api/v1/jobs/${jobId}/invoices`,
-        TEST_UNASSIGNED_TOKEN,
-        invoice,
-      )
-    ).status,
-    201,
-  );
-  assert.equal(
-    (await call("/api/v1/finance/summary", TEST_UNASSIGNED_TOKEN)).status,
-    200,
   );
 });
 
-test("customer service and sales prepare quotes; import, export and finance do not", async () => {
+test("customer service, sales and the import/export reps prepare quotes; finance does not", async () => {
   const quote = {
     customerCompanyId: companyId,
     serviceLine: "sea_import",
@@ -259,8 +252,33 @@ test("customer service and sales prepare quotes; import, export and finance do n
     (await post("/api/v1/quotes", TEST_UNASSIGNED_TOKEN, quote)).status,
     403,
   );
+  // Evans, 2026-11-03: the import rep quotes for its own lines only.
   assert.equal(
     (await post("/api/v1/quotes", TEST_MATCHING_TOKEN, quote)).status,
+    201,
+  );
+  assert.equal(
+    (
+      await post("/api/v1/quotes", TEST_MATCHING_TOKEN, {
+        ...quote,
+        serviceLine: "sea_export",
+      })
+    ).status,
+    403,
+  );
+  // And the export rep for its own.
+  await actAs("export_rep");
+  assert.equal(
+    (
+      await post("/api/v1/quotes", TEST_UNASSIGNED_TOKEN, {
+        ...quote,
+        serviceLine: "air_export",
+      })
+    ).status,
+    201,
+  );
+  assert.equal(
+    (await post("/api/v1/quotes", TEST_UNASSIGNED_TOKEN, quote)).status,
     403,
   );
 });

@@ -315,3 +315,69 @@ export class PaymentsController {
     );
   }
 }
+
+/** Credit on customers' accounts (money not set against an invoice): finance only. */
+@Controller("api/v1/credits")
+@UseGuards(
+  SupabaseIdentityGuard,
+  DepartmentStaffGuard,
+  JobScopeGuard,
+  StaffRolesGuard(financeRoles),
+)
+export class CreditsController {
+  constructor(
+    @Inject(InvoicesService) private readonly invoices: InvoicesService,
+  ) {}
+
+  @Get()
+  list(
+    @Query("companyId") companyId: string | undefined,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.invoices.listCredits(companyId || null, scopeOf(request));
+  }
+
+  @Get(":id/receipt")
+  async receipt(
+    @Param("id") id: string,
+    @Req() request: AuthenticatedRequest,
+    @Res() response: BinaryResponse,
+  ): Promise<void> {
+    const { file, filename } = await this.invoices.creditReceiptPdf(
+      id,
+      scopeOf(request),
+    );
+    response.setHeader("content-type", "application/pdf");
+    response.setHeader("content-disposition", `inline; filename="${filename}"`);
+    response.setHeader("content-length", String(file.length));
+    response.end(file);
+  }
+
+  @Post(":id/apply")
+  apply(
+    @Param("id") id: string,
+    @Body() body: unknown,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.invoices.applyCredit(
+      id,
+      body,
+      request.authUser!.userId,
+      scopeOf(request),
+    );
+  }
+
+  @Post(":id/reverse")
+  reverse(
+    @Param("id") id: string,
+    @Body() body: unknown,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.invoices.reverseCredit(
+      id,
+      body,
+      request.authUser!.userId,
+      scopeOf(request),
+    );
+  }
+}

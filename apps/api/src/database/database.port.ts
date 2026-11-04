@@ -1,4 +1,5 @@
 import type {
+  JobReportQuery,
   TeamKey,
   TeamTagKind,
   BusinessSettings,
@@ -18,6 +19,7 @@ import type {
   LeadSource,
   LeadStage,
   RequestDetails,
+  VehicleInput,
 } from "@bjh/contracts";
 
 export interface DatabaseHealth {
@@ -392,17 +394,37 @@ export interface VehicleRecord {
   id: string;
   registration: string;
   description: string | null;
+  insuranceStartOn: string | null;
+  insuranceEndOn: string | null;
+  dvlaExpiresOn: string | null;
+  serviceEveryMonths: number | null;
+  lastServicedOn: string | null;
+  /** The last service plus the interval; null without both. */
+  nextServiceOn: string | null;
   createdAt: string;
   deactivatedAt: string | null;
 }
 
 /** A numbered waybill; driver, vehicle and cargo are frozen at dispatch. */
+/** A reply sent to an emailed request's sender, as it went through the outbox. */
+export interface SentReplyRecord {
+  id: string;
+  subject: string;
+  body: string;
+  /** Null: the assistant sent it by itself. */
+  sentBy: string | null;
+  sentByEmail: string | null;
+  createdAt: string;
+  status: "pending" | "sent" | "failed" | "skipped" | null;
+}
+
 export interface DeliveryRecord {
   id: string;
   jobId: string;
   waybillNumber: string;
-  driverId: string;
-  vehicleId: string;
+  /** Null for an outside (hired) driver or vehicle. */
+  driverId: string | null;
+  vehicleId: string | null;
   driverName: string;
   driverPhone: string;
   vehicleRegistration: string;
@@ -426,6 +448,9 @@ export interface DeliveryRecord {
 export interface InvoiceLineRecord {
   description: string;
   amountMinor: number;
+  /** Set together, when the amount is a quantity times a unit price; absent on older lines. */
+  quantity?: number | null;
+  unitAmountMinor?: number | null;
   taxable: boolean;
 }
 
@@ -550,6 +575,24 @@ export interface AssistantLine {
   proposalId?: string;
 }
 
+/** A problem, feature wish or question sent from inside the app. */
+export interface SupportRequestRecord {
+  id: string;
+  reporterUserId: string;
+  reporterEmail: string | null;
+  reporterKind: "staff" | "customer";
+  companyId: string | null;
+  companyName: string | null;
+  kind: "problem" | "feature" | "question";
+  description: string;
+  pagePath: string | null;
+  userAgent: string | null;
+  lastError: string | null;
+  status: "new" | "in_progress" | "done";
+  createdAt: string;
+  updatedAt: string;
+}
+
 /** A staff member's conversation with the helper, private to them. */
 export interface AssistantConversationRecord {
   id: string;
@@ -564,8 +607,9 @@ export interface AssistantConversationRecord {
 export interface StaffNotificationRecord {
   id: string;
   userId: string;
-  kind: "request_overdue" | "inquiry_overdue" | "reminder";
+  kind: "request_overdue" | "inquiry_overdue" | "reminder" | "vehicle_due";
   quoteRequestId: string | null;
+  vehicleId: string | null;
   title: string;
   note: string | null;
   /** When it shows (and, for a reminder, pops up). */
@@ -602,8 +646,10 @@ export interface JobAssignmentRecord {
 export interface InvoicePaymentRecord {
   id: string;
   invoiceId: string;
-  /** Null only for payments recorded before receipts existed. */
+  /** Null for payments recorded before receipts existed, and for payments made from credit. */
   receiptNumber: string | null;
+  /** Set when the payment was made from credit on the customer's account. */
+  creditId: string | null;
   amountMinor: number;
   /** YYYY-MM-DD */
   receivedOn: string;
@@ -625,15 +671,48 @@ export interface PaymentBatchLine {
   balanceMinor: number;
 }
 
+/** Money a customer paid that is not set against an invoice: credit on their account. */
+export interface CustomerCreditRecord {
+  id: string;
+  companyId: string;
+  companyName: string;
+  currency: string;
+  amountMinor: number;
+  /** Already set against invoices (payments from this credit not reversed). */
+  appliedMinor: number;
+  /** What is left to apply; zero once reversed. */
+  availableMinor: number;
+  /** YYYY-MM-DD */
+  receivedOn: string;
+  method: InvoicePaymentRecord["method"];
+  reference: string | null;
+  note: string | null;
+  receiptNumber: string;
+  recordedBy: string;
+  recordedAt: string;
+  reversal: { reason: string; reversedBy: string; reversedAt: string } | null;
+}
+
 export type PaymentBatchResult =
-  | { recorded: PaymentBatchLine[]; companyId: string; currency: string }
+  | {
+      recorded: PaymentBatchLine[];
+      /** What was left over, kept as credit on the account; null when none. */
+      credit: CustomerCreditRecord | null;
+      companyId: string;
+      currency: string;
+    }
   | {
       failed:
         | "not_found"
         | "not_issued"
         | "mixed_customers"
         | "mixed_currencies"
-        | "exceeds_balance";
+        | "exceeds_balance"
+        /** The chosen customer or currency is not the invoices'. */
+        | "company_mismatch"
+        | "currency_mismatch"
+        /** Applying credit: more than is left on it, or it is reversed. */
+        | "exceeds_credit";
       /** The invoice the failure is about, when there is one. */
       invoiceNumber: string | null;
     };
@@ -755,6 +834,8 @@ export interface DueDelivery {
   body: string;
   smsText: string;
   linkUrl: string | null;
+  /** The job report to attach, when the email carries one. */
+  jobReportQuery: JobReportQuery | null;
 }
 
 export interface NotificationLogRow extends NotificationDeliveryRecord {
@@ -976,6 +1057,8 @@ export interface StatementEntryRecord {
   receiptNumber: string | null;
   method: InvoicePaymentRecord["method"] | null;
   reference: string | null;
+  /** A payment kept as credit on the account, not for one invoice. */
+  onAccount: boolean;
 }
 
 export interface ActivityEntry {
@@ -1135,6 +1218,8 @@ export abstract class DatabasePort {
   abstract findQuoteRequestByMessageId(
     messageId: string,
   ): Promise<QuoteRequestRecord | null>;
+  /** The Message-ID of the email a request came from; null for the website form or a made-up ID. */
+  abstract findRequestEmailMessageId(requestId: string): Promise<string | null>;
   /** Records what the AI read (or why it could not), and fills the request's details. */
   abstract completeEmailReading(
     requestId: string,
@@ -1190,6 +1275,8 @@ export abstract class DatabasePort {
     id: string,
     reviewedBy: string,
   ): Promise<KnowledgeEntryRecord | null>;
+  /** Every reply sent to an emailed request's sender (its outbox messages), oldest first. */
+  abstract listRequestReplies(requestId: string): Promise<SentReplyRecord[]>;
   /** Records that the reply went out, with the message that carried it. */
   abstract markRequestReplySent(
     requestId: string,
@@ -1512,9 +1599,20 @@ export abstract class DatabasePort {
     active: boolean,
   ): Promise<DriverRecord | null>;
   abstract createVehicle(
-    vehicle: { registration: string; description: string | null },
+    vehicle: VehicleInput,
     createdBy: string,
   ): Promise<VehicleRecord | "duplicate_registration">;
+  /** Replaces a vehicle's details and papers. */
+  abstract updateVehicle(
+    id: string,
+    vehicle: VehicleInput,
+  ): Promise<VehicleRecord | "not_found" | "duplicate_registration">;
+  /**
+   * Notices for the super admin: a vehicle's insurance end, DVLA expiry or
+   * next service is within `daysBefore` days, or has come. Each is raised
+   * once per date and stage. Returns how many were raised.
+   */
+  abstract raiseVehicleNotices(daysBefore: number): Promise<number>;
   abstract listVehicles(): Promise<VehicleRecord[]>;
   abstract setVehicleActive(
     id: string,
@@ -1523,8 +1621,11 @@ export abstract class DatabasePort {
   abstract createDelivery(
     delivery: {
       jobId: string;
-      driverId: string;
-      vehicleId: string;
+      driverId: string | null;
+      driverName: string | null;
+      driverPhone: string | null;
+      vehicleId: string | null;
+      vehicleRegistration: string | null;
       cargoDescription: string;
       packages: number | null;
       grossWeightKg: number | null;
@@ -1700,6 +1801,22 @@ export abstract class DatabasePort {
   abstract findCompanyByCustomerNumber(
     customerNumber: string,
   ): Promise<string | null>;
+  /** Saves a support request sent from the app. */
+  abstract createSupportRequest(
+    request: Omit<
+      SupportRequestRecord,
+      "id" | "companyName" | "status" | "createdAt" | "updatedAt"
+    >,
+  ): Promise<SupportRequestRecord>;
+  /** Every support request, newest first; only the person's own with `reporterUserId`. */
+  abstract listSupportRequests(
+    reporterUserId?: string,
+  ): Promise<SupportRequestRecord[]>;
+  /** Sets a request's status; null when there is no such request. */
+  abstract setSupportRequestStatus(
+    id: string,
+    status: SupportRequestRecord["status"],
+  ): Promise<SupportRequestRecord | null>;
   /** The person's helper conversations, most recent first, without their contents. */
   abstract listAssistantConversations(
     userId: string,
@@ -1797,6 +1914,9 @@ export abstract class DatabasePort {
    */
   abstract recordPaymentBatch(
     batch: {
+      companyId: string | null;
+      currency: string | null;
+      totalMinor: number | null;
       receivedOn: string;
       method: InvoicePaymentRecord["method"];
       reference: string | null;
@@ -1807,6 +1927,28 @@ export abstract class DatabasePort {
     year: number,
     scope: JobScope,
   ): Promise<PaymentBatchResult>;
+  /** Credits on customers' accounts within the scope, newest first; one customer's when given. */
+  abstract listCustomerCredits(
+    companyId: string | null,
+    scope: JobScope,
+  ): Promise<CustomerCreditRecord[]>;
+  /** Sets credit against issued invoices of the same customer and currency, all or nothing. */
+  abstract applyCustomerCredit(
+    creditId: string,
+    allocations: Array<{ invoiceId: string; amountMinor: number }>,
+    appliedBy: string,
+    appliedOn: string,
+    scope: JobScope,
+  ): Promise<PaymentBatchResult>;
+  /** Takes back a credit recorded by mistake; refused once any of it is applied. */
+  abstract reverseCustomerCredit(
+    creditId: string,
+    reason: string,
+    reversedBy: string,
+    scope: JobScope,
+  ): Promise<
+    CustomerCreditRecord | "not_found" | "already_reversed" | "applied"
+  >;
   abstract reverseInvoicePayment(
     jobId: string,
     invoiceId: string,
@@ -1872,6 +2014,8 @@ export abstract class DatabasePort {
     smsText: string;
     linkUrl: string | null;
     createdBy: string | null;
+    /** The job report to attach, when the email carries one. */
+    jobReportQuery?: JobReportQuery | null;
     deliveries: Array<{
       contactId: string | null;
       channel: "email" | "sms";

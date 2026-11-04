@@ -106,7 +106,7 @@ export function ReceiptList() {
                   <td>
                     <Link
                       className={styles.link}
-                      href={`/jobs/${receipt.jobId}/money`}
+                      href={`/finance/jobs/${receipt.jobId}`}
                     >
                       {receipt.fileNumber}
                     </Link>

@@ -156,6 +156,29 @@ export class QuoteRequestsController {
     );
   }
 
+  /** Every reply sent to the request's sender, the assistant's and staff's. */
+  @Get(":id/replies")
+  @UseGuards(DepartmentStaffGuard)
+  listReplies(@Param("id") id: string) {
+    return this.assistant.listReplies(id);
+  }
+
+  /** Another reply to the sender, as often as needed, also after the assistant replied. */
+  @Post(":id/replies")
+  @UseGuards(DepartmentStaffGuard)
+  sendAnotherReply(
+    @Param("id") id: string,
+    @Body() body: unknown,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.assistant.sendAnotherReply(
+      id,
+      body,
+      request.authUser!.userId,
+      request.staffRoles ?? [],
+    );
+  }
+
   /** A starting draft for the request's quote, from the most similar past issued quote; nothing is saved. */
   @Get(":id/quote-suggestion")
   @UseGuards(DepartmentStaffGuard, JobScopeGuard)

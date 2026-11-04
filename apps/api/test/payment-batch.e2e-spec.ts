@@ -42,7 +42,21 @@ const message = async (response: Response) =>
   ((await response.json()) as { message: string }).message;
 
 type Payment = { id: string; amountMinor: number; receiptNumber: string };
-type Batch = { payments: Payment[]; totalMinor: number; currency: string };
+type Credit = {
+  id: string;
+  companyId: string;
+  currency: string;
+  amountMinor: number;
+  appliedMinor: number;
+  availableMinor: number;
+  receiptNumber: string;
+};
+type Batch = {
+  payments: Payment[];
+  credit: Credit | null;
+  totalMinor: number;
+  currency: string;
+};
 type Owing = {
   invoices: Array<{ invoiceNumber: string; outstandingMinor: number }>;
 };
@@ -312,7 +326,7 @@ test("a batch cannot mix currencies or customers, repeat an invoice, or use unis
       409,
       "Payments can only be recorded against an issued invoice",
     ],
-    [[], 400, "Choose at least one invoice"],
+    [[], 400, "Enter the amount, customer and currency, or choose an invoice"],
     [
       [{ invoiceId: randomUUID(), amountMinor: 100 }],
       404,
@@ -366,6 +380,128 @@ test("finance pays invoices on every service line; other staff are refused and n
   const none = await pay([allocation("extra", 100)], {}, TEST_UNASSIGNED_TOKEN);
   assert.equal(none.status, 403);
   assert.deepEqual(await owing(companyA), after);
+});
+
+test("any amount: the part beyond the chosen invoices, or a payment with no invoice, becomes credit", async () => {
+  // A payment with no invoice at all: all of it is credit, with a receipt.
+  const onAccount = await pay([], {
+    companyId: companyA,
+    currency: "GHS",
+    totalMinor: 25_000,
+  });
+  assert.equal(onAccount.status, 201, await onAccount.clone().text());
+  const alone = await json<Batch>(onAccount);
+  assert.deepEqual(alone.payments, []);
+  assert.equal(alone.credit?.amountMinor, 25_000);
+  assert.equal(alone.credit?.availableMinor, 25_000);
+  assert.match(alone.credit?.receiptNumber ?? "", /\/RCT\/\d{4}\/\d{4}$/);
+  assert.equal(alone.totalMinor, 25_000);
+
+  // More than the chosen invoice owes: the invoice is paid, the rest is credit.
+  await invoice("credit-one", await openJob(companyA, "sea_import"), 30_000);
+  const over = await json<Batch>(
+    await pay([allocation("credit-one", 30_000)], { totalMinor: 40_000 }),
+  );
+  assert.equal(over.payments.length, 1);
+  assert.equal(over.credit?.amountMinor, 10_000);
+  assert.equal((await owing(companyA))[numbers["credit-one"]], undefined);
+
+  // Refused: the invoices worth more than the payment, a missing customer,
+  // a customer that is not the invoices', and a currency they are not in.
+  for (const [allocations, over, status, expected] of [
+    [
+      [allocation("extra", 500)],
+      { totalMinor: 400 },
+      400,
+      "The amounts set against invoices are more than the payment",
+    ],
+    [
+      [],
+      { currency: "GHS", totalMinor: 100 },
+      400,
+      "Enter the amount, customer and currency, or choose an invoice",
+    ],
+    [
+      [allocation("extra", 100)],
+      { companyId: companyB },
+      400,
+      "The invoices do not belong to this customer",
+    ],
+    [
+      [allocation("extra", 100)],
+      { currency: "USD" },
+      400,
+      "The invoices are not in the payment's currency",
+    ],
+  ] as const) {
+    const response = await pay([...allocations], over);
+    assert.equal(response.status, status, expected);
+    assert.equal(await message(response), expected);
+  }
+
+  // The statement shows the credit once; applying it later adds no second payment.
+  const statement = async () =>
+    json<{ sections: Array<{ currency: string; closingMinor: number }> }>(
+      await get(
+        `/api/v1/finance/statements?companyId=${companyA}`,
+        TEST_SUPER_ADMIN_TOKEN,
+      ),
+    );
+  const closing = async () =>
+    (await statement()).sections.find((section) => section.currency === "GHS")
+      ?.closingMinor;
+  const beforeApply = await closing();
+
+  await invoice("credit-two", await openJob(companyA, "sea_import"), 20_000);
+  const credits = await json<Credit[]>(
+    await get(`/api/v1/credits?companyId=${companyA}`, TEST_SUPER_ADMIN_TOKEN),
+  );
+  assert.deepEqual(
+    credits.map((credit) => credit.availableMinor).sort((a, b) => a - b),
+    [10_000, 25_000],
+  );
+  const applyPath = `/api/v1/credits/${alone.credit!.id}/apply`;
+  const tooMuch = await post(applyPath, TEST_SUPER_ADMIN_TOKEN, {
+    allocations: [allocation("credit-two", 20_000), allocation("extra", 6_000)],
+  });
+  assert.equal(tooMuch.status, 409);
+  assert.equal(
+    await message(tooMuch),
+    "That is more than is left of this credit",
+  );
+
+  const applied = await post(applyPath, TEST_SUPER_ADMIN_TOKEN, {
+    allocations: [allocation("credit-two", 20_000)],
+  });
+  assert.equal(applied.status, 201, await applied.clone().text());
+  const after = await json<Credit>(applied);
+  assert.equal(after.appliedMinor, 20_000);
+  assert.equal(after.availableMinor, 5_000);
+  assert.equal((await owing(companyA))[numbers["credit-two"]], undefined);
+  // The new invoice adds 20,000 and its payment from credit is not counted again.
+  assert.equal(await closing(), (beforeApply ?? 0) + 20_000 - 0);
+
+  // A credit partly applied cannot be reversed; an unused one can.
+  const refused = await post(
+    `/api/v1/credits/${alone.credit!.id}/reverse`,
+    TEST_SUPER_ADMIN_TOKEN,
+    { reason: "Recorded twice" },
+  );
+  assert.equal(refused.status, 409);
+  const reversed = await post(
+    `/api/v1/credits/${over.credit!.id}/reverse`,
+    TEST_SUPER_ADMIN_TOKEN,
+    { reason: "Recorded twice" },
+  );
+  assert.equal(reversed.status, 201);
+  assert.equal((await json<Credit>(reversed)).availableMinor, 0);
+
+  // Customers cannot see or use credit.
+  assert.equal(
+    (await get(`/api/v1/credits?companyId=${companyA}`, TEST_CUSTOMER_A_TOKEN))
+      .status,
+    403,
+  );
 });
 
 test("customers and anonymous callers cannot record payments", async () => {

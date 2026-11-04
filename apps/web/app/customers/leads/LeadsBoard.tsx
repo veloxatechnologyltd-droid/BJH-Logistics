@@ -20,6 +20,8 @@ import folded from "./leadActivities.module.css";
 import ui from "../../jobs/jobs.module.css";
 import styles from "../customerDirectory.module.css";
 import { ErrorPopup } from "../../ErrorPopup";
+import { useStaffAccess } from "../../auth/useStaffAccess";
+import { canWorkClientDesk } from "../../auth/roleAccess";
 
 type Filter = "open" | "won" | "lost" | "all";
 
@@ -48,6 +50,8 @@ const emptyForm = {
 
 /** Prospects from first contact to customer. Stages are few; nothing moves on its own. */
 export function LeadsBoard() {
+  const { roles } = useStaffAccess();
+  const canConvert = canWorkClientDesk(roles);
   const [leads, setLeads] = useState<Lead[] | null>(null);
   const [summary, setSummary] = useState<SalesSummary | null>(null);
   const [customers, setCustomers] = useState<CustomerCompany[]>([]);
@@ -450,6 +454,16 @@ export function LeadsBoard() {
                           Lost: {lead.lostReason}
                         </span>
                       )}
+                      {lead.stage !== "won" &&
+                        lead.stage !== "lost" &&
+                        canConvert && (
+                          <Link
+                            className={ui.textButton}
+                            href={`/customers/new?fromLead=${encodeURIComponent(lead.id)}`}
+                          >
+                            Convert to customer
+                          </Link>
+                        )}
                       {lead.stage === "won" && lead.customerCompanyName && (
                         <span className={styles.tradingName}>
                           Customer: {lead.customerCompanyName}
