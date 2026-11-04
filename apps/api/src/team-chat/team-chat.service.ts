@@ -17,7 +17,10 @@ import {
 } from "@bjh/contracts";
 import type { TeamKey } from "@bjh/contracts";
 import { financeRoles } from "../auth/auth.guards";
-import { STAFF_AUTH_DIRECTORY } from "../auth/staff-admin.port";
+import {
+  STAFF_AUTH_DIRECTORY,
+  staffDisplayName,
+} from "../auth/staff-admin.port";
 import type { StaffAuthDirectory } from "../auth/staff-admin.port";
 import {
   DatabasePort,
@@ -69,8 +72,8 @@ export interface ShownTag {
 export interface ShownMessage {
   id: string;
   authorUserId: string | null;
-  /** The author's email; null for a message the system posted. */
-  authorEmail: string | null;
+  /** The author's name; null for a message the system posted. */
+  authorName: string | null;
   /** Written by the person reading it. */
   mine: boolean;
   body: string;
@@ -79,6 +82,9 @@ export interface ShownMessage {
 }
 
 const PAGE = 100;
+
+/** Seen this recently counts as online: the menu badge asks every 30 seconds. */
+const ONLINE_WITHIN_MS = 75_000;
 
 /**
  * Internal team chat (Evans, 2026-11-02): direct messages, groups and one
@@ -91,6 +97,12 @@ const PAGE = 100;
 @Injectable()
 export class TeamChatService implements OnModuleInit {
   private readonly logger = new Logger(TeamChatService.name);
+  /**
+   * When each person last had BJH open (Evans, 2026-11-04). Kept in memory:
+   * no migration, and a restart only clears "last seen" until people's next
+   * request. With more than one API instance each would know only its own.
+   */
+  private readonly lastSeen = new Map<string, number>();
 
   constructor(
     @Inject(DatabasePort) private readonly database: DatabasePort,
@@ -103,18 +115,32 @@ export class TeamChatService implements OnModuleInit {
   }
 
   /** Everyone with a staff role: who can be messaged, added or mentioned. */
-  async people(): Promise<
-    Array<{ userId: string; email: string | null; teams: TeamKey[] }>
+  async people(viewerId: string): Promise<
+    Array<{
+      userId: string;
+      name: string;
+      teams: TeamKey[];
+      you: boolean;
+      online: boolean;
+      lastSeen: string | null;
+    }>
   > {
+    this.lastSeen.set(viewerId, Date.now());
+    const now = Date.now();
     const rolesByUser = await this.staffRoles();
-    const emails = await this.emails([...rolesByUser.keys()]);
+    const names = await this.names([...rolesByUser.keys()]);
     return [...rolesByUser.entries()]
       .map(([userId, roles]) => ({
         userId,
-        email: emails.get(userId) ?? null,
+        name: names.get(userId) ?? "Staff member",
         teams: teamsFor(roles),
+        you: userId === viewerId,
+        online: now - (this.lastSeen.get(userId) ?? 0) <= ONLINE_WITHIN_MS,
+        lastSeen: this.lastSeen.has(userId)
+          ? new Date(this.lastSeen.get(userId)!).toISOString()
+          : null,
       }))
-      .sort((a, b) => (a.email ?? "").localeCompare(b.email ?? ""));
+      .sort((a, b) => a.name.localeCompare(b.name));
   }
 
   async conversations(actor: TeamActor) {
@@ -122,7 +148,7 @@ export class TeamChatService implements OnModuleInit {
       actor.userId,
       teamsFor(actor.roles),
     );
-    const emails = await this.emails(
+    const names = await this.names(
       rows.flatMap((row) => [
         ...row.memberIds,
         ...(row.lastMessage?.authorUserId
@@ -134,13 +160,18 @@ export class TeamChatService implements OnModuleInit {
       id: row.id,
       kind: row.kind,
       teamKey: row.teamKey,
-      title: this.title(row, actor.userId, emails),
+      title: this.title(row, actor.userId, names),
+      /** The other person in a direct chat; null otherwise. */
+      personId:
+        row.kind === "direct"
+          ? (row.memberIds.find((id) => id !== actor.userId) ?? null)
+          : null,
       memberCount: row.memberIds.length,
       lastMessage: row.lastMessage
         ? {
             body: row.lastMessage.body,
-            authorEmail: row.lastMessage.authorUserId
-              ? (emails.get(row.lastMessage.authorUserId) ?? null)
+            authorName: row.lastMessage.authorUserId
+              ? (names.get(row.lastMessage.authorUserId) ?? null)
               : null,
             mine: row.lastMessage.authorUserId === actor.userId,
             createdAt: row.lastMessage.createdAt,
@@ -152,6 +183,7 @@ export class TeamChatService implements OnModuleInit {
 
   /** Total unread across everything the person is in, for the menu badge. */
   async unread(actor: TeamActor): Promise<{ unread: number }> {
+    this.lastSeen.set(actor.userId, Date.now());
     const rows = await this.database.listTeamConversations(
       actor.userId,
       teamsFor(actor.roles),
@@ -179,15 +211,15 @@ export class TeamChatService implements OnModuleInit {
         actor.userId,
       );
     }
-    const emails = await this.emails(conversation.memberIds);
+    const names = await this.names(conversation.memberIds);
     return {
       id: conversation.id,
       kind: conversation.kind,
       teamKey: conversation.teamKey,
-      title: this.title(conversation, actor.userId, emails),
+      title: this.title(conversation, actor.userId, names),
       members: conversation.memberIds.map((userId) => ({
         userId,
-        email: emails.get(userId) ?? null,
+        name: names.get(userId) ?? "Staff member",
       })),
       messages: await this.show(messages, actor),
       hasEarlier: messages.length === PAGE,
@@ -325,11 +357,11 @@ export class TeamChatService implements OnModuleInit {
   private title(
     conversation: TeamConversationRecord,
     viewerId: string,
-    emails: Map<string, string | null>,
+    names: Map<string, string>,
   ): string {
     if (conversation.kind !== "direct") return conversation.title ?? "Group";
     const other = conversation.memberIds.find((id) => id !== viewerId);
-    return (other && emails.get(other)) || "Staff member";
+    return (other && names.get(other)) || "Staff member";
   }
 
   /** A sender may tag only people on the staff and things they can open themselves. */
@@ -351,7 +383,7 @@ export class TeamChatService implements OnModuleInit {
     }
   }
 
-  /** Messages with author emails and their tags as this reader may see them. */
+  /** Messages with author names and their tags as this reader may see them. */
   private async show(
     messages: TeamMessageRecord[],
     actor: TeamActor,
@@ -361,7 +393,7 @@ export class TeamChatService implements OnModuleInit {
       this.byKind(tags),
       actor.scope,
     );
-    const emails = await this.emails([
+    const names = await this.names([
       ...messages.flatMap((message) =>
         message.authorUserId ? [message.authorUserId] : [],
       ),
@@ -382,8 +414,8 @@ export class TeamChatService implements OnModuleInit {
     return messages.map((message) => ({
       id: message.id,
       authorUserId: message.authorUserId,
-      authorEmail: message.authorUserId
-        ? (emails.get(message.authorUserId) ?? null)
+      authorName: message.authorUserId
+        ? (names.get(message.authorUserId) ?? null)
         : null,
       mine: message.authorUserId === actor.userId,
       body: message.body,
@@ -393,7 +425,7 @@ export class TeamChatService implements OnModuleInit {
           (tag.kind === "user"
             ? {
                 ...tag,
-                label: emails.get(tag.id) ?? hidden.user,
+                label: names.get(tag.id) ?? hidden.user,
                 href: null,
               }
             : { ...tag, label: hidden[tag.kind], href: null }),
@@ -423,7 +455,7 @@ export class TeamChatService implements OnModuleInit {
             ? `${invoice.invoiceNumber} (void)`
             : invoice.invoiceNumber,
         href: finance
-          ? `/jobs/${invoice.jobId}/money`
+          ? `/finance/jobs/${invoice.jobId}`
           : `/jobs/${invoice.jobId}`,
       })),
       ...targets.documents.map((document) => ({
@@ -478,11 +510,14 @@ export class TeamChatService implements OnModuleInit {
     }
   }
 
-  private async emails(userIds: string[]): Promise<Map<string, string | null>> {
+  /** Display names (never emails) for staff accounts that still exist. */
+  private async names(userIds: string[]): Promise<Map<string, string>> {
     const unique = [...new Set(userIds)];
     const users = await Promise.all(unique.map((id) => this.auth.getUser(id)));
     return new Map(
-      unique.map((id, index) => [id, users[index]?.email ?? null]),
+      unique.flatMap((id, index) =>
+        users[index] ? [[id, staffDisplayName(users[index])] as const] : [],
+      ),
     );
   }
 }

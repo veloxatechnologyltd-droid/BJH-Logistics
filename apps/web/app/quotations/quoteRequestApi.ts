@@ -272,7 +272,7 @@ export type SentReply = {
   subject: string;
   body: string;
   sentBy: string | null;
-  sentByEmail: string | null;
+  sentByName: string | null;
   createdAt: string;
   status: "pending" | "sent" | "failed" | "skipped" | null;
 };

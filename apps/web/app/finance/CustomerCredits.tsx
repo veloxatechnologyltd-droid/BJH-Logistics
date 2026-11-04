@@ -17,6 +17,20 @@ import cards from "./finance.module.css";
 
 const amountText = (minor: number) => (minor / 100).toFixed(2);
 
+/** What is left across credits, per currency: "GHS 40.00 · USD 250.00". */
+function perCurrency(credits: CustomerCredit[]) {
+  const totals = new Map<string, number>();
+  for (const credit of credits) {
+    totals.set(
+      credit.currency,
+      (totals.get(credit.currency) ?? 0) + credit.availableMinor,
+    );
+  }
+  return [...totals]
+    .map(([currency, minor]) => formatMoney(minor, currency))
+    .join(" · ");
+}
+
 /**
  * Money customers paid that is not yet set against an invoice. Finance sets
  * it against the customer's unpaid invoices in the same currency (oldest
@@ -143,8 +157,15 @@ export function CustomerCredits({
   }
 
   return (
-    <section aria-labelledby="credits-title" className={styles.card}>
-      <h2 id="credits-title">Credit on customers&apos; accounts</h2>
+    <details className={`${styles.card} ${cards.credits}`}>
+      <summary className={cards.creditsSummary}>
+        <h2>Credit on customers&apos; accounts</h2>
+        <span className={cards.creditsTotal}>
+          {open.length} {open.length === 1 ? "credit" : "credits"} ·{" "}
+          {perCurrency(open)} left
+        </span>
+        <span className={cards.creditsToggle} />
+      </summary>
       <p className={styles.muted}>
         Money received that is not yet set against an invoice.
       </p>
@@ -153,7 +174,7 @@ export function CustomerCredits({
           {error}
         </p>
       )}
-      <ul className={styles.itemList}>
+      <ul className={`${styles.itemList} ${cards.creditList}`}>
         {open.map((credit) => (
           <li key={credit.id}>
             <div>
@@ -308,6 +329,6 @@ export function CustomerCredits({
           </li>
         ))}
       </ul>
-    </section>
+    </details>
   );
 }

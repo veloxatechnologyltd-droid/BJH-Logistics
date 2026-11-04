@@ -11,6 +11,7 @@ import { formatMoney } from "../quotes/quoteApi";
 import { ReceiptList } from "../finance/ReceiptList";
 import { RecordPayment } from "../finance/RecordPayment";
 import { CustomerCredits } from "../finance/CustomerCredits";
+import { InvoiceRegister } from "../finance/InvoiceRegister";
 import { FinanceTabs } from "./FinanceTabs";
 import styles from "../jobs/jobs.module.css";
 import cards from "../finance/finance.module.css";
@@ -22,8 +23,16 @@ type Totals = Array<{
   overdueMinor: number;
 }>;
 
-/** Unpaid invoices across jobs: staff see every customer, a customer sees their own. */
+/** Staff get Finance's invoice list; a customer sees what they still owe. */
 export function Receivables() {
+  const { roles, status } = useStaffAccess();
+  if (roles.length > 0) return <InvoiceRegister />;
+  if (status === "loading") return <p role="status">Loading…</p>;
+  return <OwedInvoices />;
+}
+
+/** Unpaid invoices across jobs: staff see every customer, a customer sees their own. */
+function OwedInvoices() {
   const { roles } = useStaffAccess();
   const isStaff = roles.length > 0;
   const [rows, setRows] = useState<OutstandingInvoice[] | null>(null);

@@ -351,6 +351,7 @@ export const staffCreateInputSchema = z.object(
     email: z.string().catch(""),
     password: z.string().catch(""),
     roleKey: staffRoleField,
+    name: z.string().trim().max(80).catch(""),
   },
   objectError("Email, password and roleKey are required"),
 );
@@ -2438,6 +2439,12 @@ export const supportRequestInputSchema = z.object(
   objectError("A support request object is required"),
 );
 export type SupportRequestInput = z.infer<typeof supportRequestInputSchema>;
+
+/** A reply on a support ticket, from the super admin or the person who sent it. */
+export const supportReplyInputSchema = z.object(
+  { body: requiredText("body", 4000) },
+  objectError("A reply object is required"),
+);
 
 export const supportRequestStatusSchema = z.object(
   {

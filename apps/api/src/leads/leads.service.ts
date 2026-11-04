@@ -194,6 +194,52 @@ export class LeadsService {
     };
   }
 
+  /**
+   * Makes the lead a customer company so a quote can be prepared for it. The
+   * company and its primary contact come from the lead; the lead stays open and
+   * is linked to the company (won only when a quote is accepted). A lead that
+   * is already linked returns its company.
+   */
+  async toCustomer(id: string) {
+    const lead = await this.find(id);
+    if (lead.customerCompanyId) {
+      return { customerCompanyId: lead.customerCompanyId };
+    }
+    if (!openStages.includes(lead.stage)) {
+      throw new ConflictException("Only an open lead can be quoted");
+    }
+    if (!lead.email) {
+      throw new BadRequestException(
+        "Add the lead's email first: the quote is sent there",
+      );
+    }
+    const createdAt = new Date().toISOString();
+    const customer = await this.database.createCustomer({
+      id: randomUUID(),
+      companyName: lead.companyName,
+      phone: lead.phone,
+      createdAt,
+      contacts: [
+        {
+          id: randomUUID(),
+          name: lead.contactName ?? lead.companyName,
+          role: null,
+          email: lead.email,
+          phone: lead.phone,
+          notify: true,
+          isPrimary: true,
+          createdAt,
+        },
+      ],
+    });
+    const saved = await this.database.saveLead({
+      ...lead,
+      customerCompanyId: customer.id,
+    });
+    if (!saved) throw new NotFoundException("Lead was not found");
+    return { customerCompanyId: customer.id };
+  }
+
   private async find(id: string) {
     const lead = isUuid(id) ? await this.database.findLead(id) : null;
     if (!lead) throw new NotFoundException("Lead was not found");

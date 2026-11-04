@@ -25,7 +25,10 @@ import { JobDetailsService } from "../jobs/job-details.service";
 import { JobsService } from "../jobs/jobs.service";
 import { LeadsService } from "../leads/leads.service";
 import { StaffNotificationsService } from "../notifications/staff-notifications.service";
-import { STAFF_AUTH_DIRECTORY } from "../auth/staff-admin.port";
+import {
+  STAFF_AUTH_DIRECTORY,
+  staffDisplayName,
+} from "../auth/staff-admin.port";
 import type { StaffAuthDirectory } from "../auth/staff-admin.port";
 import { financeRoles } from "../auth/auth.guards";
 import type { ClaudeSetup } from "../ai/claude";
@@ -684,7 +687,7 @@ export class AssistantService {
           service: job.serviceLine,
           status: job.status,
           eta: job.currentEtaAt,
-          lead: job.leadEmail ?? null,
+          lead: job.leadName ?? null,
         }));
       }
       case "get_job": {
@@ -697,7 +700,7 @@ export class AssistantService {
           ...job,
           currentEta: eta.current?.etaAt ?? null,
           team: team.team.map((member) => ({
-            email: member.email,
+            name: member.name,
             kind: member.kind,
           })),
           invoiceAccepted: team.invoiceAccepted,
@@ -829,7 +832,7 @@ export class AssistantService {
           isUuid(str("userId")) && (await found())
             ? await this.auth.getUser(str("userId"))
             : null;
-        return `${str("kind") === "assistant" ? "Add" : "Assign"} ${person?.email ?? "an unknown person"} ${str("kind") === "assistant" ? "as an assistant on" : "as lead on"} ${await job()}`;
+        return `${str("kind") === "assistant" ? "Add" : "Assign"} ${person ? staffDisplayName(person) : "an unknown person"} ${str("kind") === "assistant" ? "as an assistant on" : "as lead on"} ${await job()}`;
       }
       case "set_reminder":
         return `Remind you on ${new Date(str("remindAt")).toUTCString()} about a request${str("note") ? `: ${str("note")}` : ""}`;

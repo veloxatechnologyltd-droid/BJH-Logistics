@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useState } from "react";
 import type { FormEvent } from "react";
+import { canWorkFinance } from "../auth/roleAccess";
+import { useStaffAccess } from "../auth/useStaffAccess";
 import { recordMilestone } from "./jobApi";
 import type { Job, MilestoneEvent, Timeline } from "./jobApi";
 import { formatDate } from "./jobFormat";
@@ -26,6 +28,14 @@ export function JobSteps({
   canEdit: boolean;
   run: (action: () => Promise<unknown>, after?: () => void) => Promise<void>;
 }) {
+  const { roles } = useStaffAccess();
+  // Billing lives in Finance; customers see their invoices on the job.
+  const billingHref =
+    roles.length === 0
+      ? `/jobs/${job.id}/money`
+      : canWorkFinance(roles)
+        ? `/finance/jobs/${job.id}`
+        : null;
   const [entry, setEntry] = useState<{
     milestoneKey: string;
     correctionOf?: string;
@@ -130,12 +140,11 @@ export function JobSteps({
                 {financeKeys.has(item.key) ? (
                   // Ticked by Finance's own records, never from here.
                   recorded ? (
-                    <Link
-                      className={styles.textButton}
-                      href={`/jobs/${job.id}/money#invoices-title`}
-                    >
-                      View
-                    </Link>
+                    billingHref && (
+                      <Link className={styles.textButton} href={billingHref}>
+                        View
+                      </Link>
+                    )
                   ) : (
                     <small className={styles.muted}>
                       Ticks when Finance records it

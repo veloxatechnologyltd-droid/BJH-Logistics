@@ -118,6 +118,7 @@ test("user actions are logged with actor, route, entity and outcome", async () =
   assert.equal(milestone.actorUserId, TEST_MATCHING_USER_ID);
   assert.equal(milestone.entityId, jobId);
   assert.equal(milestone.actorEmail, "air-import@example.test");
+  assert.equal(milestone.actorName, "Air Import");
   assert.ok(
     entries.every((entry) => entry.actorUserId === TEST_MATCHING_USER_ID),
   );

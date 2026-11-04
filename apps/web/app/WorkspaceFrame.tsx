@@ -53,9 +53,13 @@ const staffNav: NavGroup[] = [
   {
     items: [
       { href: "/", label: "Overview", icon: "overview", exact: true },
-      { href: "/reports", label: "Reports", icon: "reports" },
       { href: "/team-chat", label: "Team chat", icon: "team" },
-      { href: "/assistant", label: "Bra Evans", icon: "helper" },
+      {
+        href: "/assistant",
+        label: "Bra Evans",
+        icon: "helper",
+        roles: ["super_admin", "customer_service_rep"],
+      },
     ],
   },
   {
@@ -104,6 +108,10 @@ const staffNav: NavGroup[] = [
         roles: ["super_admin", "finance_rep", "customer_service_rep"],
       },
     ],
+  },
+  {
+    heading: "REPORTS",
+    items: [{ href: "/reports", label: "Reports", icon: "reports" }],
   },
 ];
 

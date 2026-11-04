@@ -8,7 +8,10 @@ import {
   invoiceDraftReason,
   renderInvoicePdf,
 } from "../src/finance/invoice-pdf";
-import { renderReceiptPdf } from "../src/finance/receipt-pdf";
+import {
+  renderBatchReceiptPdf,
+  renderReceiptPdf,
+} from "../src/finance/receipt-pdf";
 import type { InvoiceView } from "../src/finance/invoices.service";
 import type { InvoicePaymentRecord } from "../src/database/database.port";
 
@@ -258,6 +261,7 @@ const payment = (
   invoiceId: "invoice",
   receiptNumber: "SYN/RCT/2026/0001",
   creditId: null,
+  batchId: null,
   amountMinor: 100000,
   receivedOn: "2026-09-25",
   method: "bank_transfer",
@@ -318,4 +322,64 @@ test("a reversed payment's receipt is stamped with the reason", async () => {
     ),
   );
   assert.ok(text.includes("REVERSED - CHEQUE BOUNCED"));
+});
+
+test("one payment across several invoices gets one receipt listing them all", async () => {
+  const line = (
+    invoiceNumber: string,
+    amountMinor: number,
+    outstanding: number,
+    over: Partial<InvoicePaymentRecord> = {},
+  ) => ({
+    payment: payment({ amountMinor, batchId: "batch", ...over }),
+    invoiceNumber,
+    jobId: "job",
+    fileNumber: "SYN/SI/2026/0001",
+    customerCompanyId: "company",
+    customerCompanyName: "Harbor Demo Ltd",
+    currency: "GHS",
+    invoiceTotalMinor: 100000,
+    invoiceOutstandingMinor: outstanding,
+  });
+  const lines = [
+    line("SYN/INV/2026/0001", 100000, 0),
+    line("SYN/INV/2026/0002", 40000, 60000),
+  ];
+  const text = pdfText(
+    await renderBatchReceiptPdf({ lines, settings }, { compress: false }),
+  );
+  for (const expected of [
+    "SYN/RCT/2026/0001",
+    "GHS 1,400.00",
+    "Harbor Demo Ltd",
+    "SYN/INV/2026/0001",
+    "SYN/INV/2026/0002",
+    "GHS 400.00",
+    "GHS 600.00",
+    "TXN-42",
+  ]) {
+    assert.ok(text.includes(expected), `missing: ${expected}`);
+  }
+  assert.ok(!text.includes("REVERSED"));
+
+  // One invoice's payment reversed: that line says so, the receipt stands.
+  const reversal = {
+    reason: "Wrong invoice",
+    reversedBy: "user",
+    reversedAt: "2026-09-27T09:00:00.000Z",
+  };
+  const partly = pdfText(
+    await renderBatchReceiptPdf(
+      {
+        lines: [
+          lines[0],
+          line("SYN/INV/2026/0002", 40000, 100000, { reversal }),
+        ],
+        settings,
+      },
+      { compress: false },
+    ),
+  );
+  assert.ok(partly.includes("(reversed)"));
+  assert.ok(!partly.includes("REVERSED - "));
 });

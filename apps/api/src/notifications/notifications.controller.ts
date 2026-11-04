@@ -34,7 +34,13 @@ import {
 } from "./providers";
 
 const statuses = ["pending", "sent", "failed", "skipped"] as const;
-const financeEvents = ["invoice_issued", "payment_received", "receipt_sent"];
+const financeEvents = [
+  "invoice_issued",
+  "payment_received",
+  "receipt_sent",
+  "invoice_summary_sent",
+  "payment_summary_sent",
+];
 
 /** For the super admin: how messages are configured and what happened to them. */
 @Controller("api/v1/admin/notifications")
@@ -110,6 +116,8 @@ const feedEvents = [
   "invoice_issued",
   "payment_received",
   "receipt_sent",
+  "invoice_summary_sent",
+  "payment_summary_sent",
   "chat_message",
   "delivery_dispatched",
   "delivery_delivered",

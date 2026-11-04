@@ -1,17 +1,7 @@
-import { ReceiptList } from "../ReceiptList";
-import { FinanceTabs } from "../../invoices/FinanceTabs";
-import styles from "../../jobs/jobs.module.css";
+import { Payments } from "../Payments";
 
-export const metadata = { title: "Receipts | BJH Logistics" };
+export const metadata = { title: "Payments | BJH Logistics" };
 
-export default function ReceiptsPage() {
-  return (
-    <main className={styles.page}>
-      <header className={styles.header}>
-        <h1 className={styles.title}>Receipts</h1>
-      </header>
-      <FinanceTabs active="/finance/receipts" />
-      <ReceiptList />
-    </main>
-  );
+export default function PaymentsPage() {
+  return <Payments />;
 }

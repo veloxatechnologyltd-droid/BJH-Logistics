@@ -6,6 +6,8 @@ import { after, before, test } from "node:test";
 import {
   TEST_CUSTOMER_A_ID,
   TEST_CUSTOMER_A_TOKEN,
+  TEST_CUSTOMER_B_ID,
+  TEST_CUSTOMER_B_TOKEN,
   TEST_MATCHING_TOKEN,
   TEST_MATCHING_USER_ID,
   TEST_SUPER_ADMIN_ID,
@@ -14,6 +16,11 @@ import {
   createTestApplication,
 } from "./test-application";
 import { DatabasePort } from "../src/database/database.port";
+import { NotificationDispatcher } from "../src/notifications/notification-dispatcher.service";
+import {
+  EMAIL_PROVIDER,
+  RecordingEmailProvider,
+} from "../src/notifications/providers";
 import { beginTestDatabase, endTestDatabase } from "./postgres-test-database";
 
 let application: INestApplication;
@@ -23,6 +30,7 @@ let companyB: string;
 const ids: Record<string, string> = {};
 const numbers: Record<string, string> = {};
 const jobs: Record<string, string> = {};
+let batchPayments: Payment[] = [];
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -195,7 +203,7 @@ after(async () => {
   await endTestDatabase();
 });
 
-test("one payment settles several invoices, each with its own receipt, and the customer gets one message", async () => {
+test("one payment settles several invoices under one receipt, and the customer gets one message", async () => {
   const response = await pay([
     allocation("one", 100_000),
     allocation("two", 50_000),
@@ -206,8 +214,10 @@ test("one payment settles several invoices, each with its own receipt, and the c
   assert.equal(result.payments.length, 3);
   assert.equal(result.totalMinor, 170_000);
   assert.equal(result.currency, "GHS");
-  assert.equal(new Set(result.payments.map((p) => p.receiptNumber)).size, 3);
+  // One payment, one receipt: every invoice it settled carries the same number.
+  assert.equal(new Set(result.payments.map((p) => p.receiptNumber)).size, 1);
   assert.ok(result.payments.every((p) => /^SYN\/RCT\//.test(p.receiptNumber)));
+  batchPayments = result.payments;
 
   // Two are cleared; the third is part paid.
   const left = await owing(companyA);
@@ -230,6 +240,75 @@ test("one payment settles several invoices, each with its own receipt, and the c
   for (const key of ["one", "two", "three"]) {
     assert.match(sent.messages[0].body, new RegExp(numbers[key]));
   }
+  assert.equal(
+    sent.messages[0].body.split(batchPayments[0].receiptNumber).length - 1,
+    1,
+    "the shared receipt is named once",
+  );
+});
+
+test("the shared receipt lists every invoice, for staff and the paying customer only", async () => {
+  type Row = {
+    paymentId: string;
+    invoiceId: string;
+    jobId: string;
+    receiptNumber: string;
+    batchId: string | null;
+  };
+  const receipts = await json<Row[]>(
+    await get("/api/v1/receipts", TEST_SUPER_ADMIN_TOKEN),
+  );
+  const rows = receipts.filter((row) =>
+    batchPayments.some((p) => p.id === row.paymentId),
+  );
+  assert.equal(rows.length, 3);
+  assert.equal(new Set(rows.map((row) => row.batchId)).size, 1);
+  assert.ok(rows[0].batchId);
+
+  const receiptNumber = batchPayments[0].receiptNumber;
+  const filename = `${receiptNumber.replace(/[^A-Za-z0-9-]+/g, "-")}.pdf`;
+  const pathOf = (row: Row) =>
+    `/api/v1/jobs/${row.jobId}/invoices/${row.invoiceId}/payments/${row.paymentId}/receipt`;
+  // Any invoice of the payment opens the same receipt.
+  for (const row of rows) {
+    const pdf = await get(pathOf(row), TEST_SUPER_ADMIN_TOKEN);
+    assert.equal(pdf.status, 200);
+    assert.equal(pdf.headers.get("content-type"), "application/pdf");
+    assert.match(
+      pdf.headers.get("content-disposition") ?? "",
+      new RegExp(filename),
+    );
+  }
+  const mine = await json<Row[]>(
+    await get("/api/v1/receipts", TEST_CUSTOMER_A_TOKEN),
+  );
+  assert.equal(mine.filter((row) => row.batchId === rows[0].batchId).length, 3);
+  assert.equal((await get(pathOf(rows[0]), TEST_CUSTOMER_A_TOKEN)).status, 200);
+  // Another customer neither lists nor opens it.
+  await application
+    .get(DatabasePort)
+    .grantCustomerMembership(companyB, TEST_CUSTOMER_B_ID, TEST_SUPER_ADMIN_ID);
+  const theirs = await json<Row[]>(
+    await get("/api/v1/receipts", TEST_CUSTOMER_B_TOKEN),
+  );
+  assert.ok(theirs.every((row) => row.batchId !== rows[0].batchId));
+  assert.equal((await get(pathOf(rows[0]), TEST_CUSTOMER_B_TOKEN)).status, 404);
+
+  // Emailing it sends one receipt naming every invoice, the PDF attached.
+  const email = application.get<RecordingEmailProvider>(EMAIL_PROVIDER);
+  const before = email.sent.length;
+  const sent = await post(`${pathOf(rows[1])}/send`, TEST_SUPER_ADMIN_TOKEN);
+  assert.equal(sent.status, 201, await sent.clone().text());
+  await application.get(NotificationDispatcher).dispatchDue();
+  const mail = email.sent
+    .slice(before)
+    .find((item) => item.subject === `Receipt ${receiptNumber} for 3 invoices`);
+  assert.ok(mail, "the receipt email was sent");
+  for (const key of ["one", "two", "three"]) {
+    assert.match(mail.text, new RegExp(numbers[key]));
+  }
+  assert.equal(mail.attachments?.length, 1);
+  assert.equal(mail.attachments![0].filename, filename);
 });
 
 test("a single invoice in the batch behaves like a normal payment, with the usual message", async () => {
@@ -239,6 +318,17 @@ test("a single invoice in the batch behaves like a normal payment, with the usua
   assert.equal(response.status, 201);
   const result = await json<Batch>(response);
   assert.equal(result.payments.length, 1);
+  // A payment on one invoice keeps its own receipt number, outside any batch.
+  assert.notEqual(
+    result.payments[0].receiptNumber,
+    batchPayments[0].receiptNumber,
+  );
+  const listed = (
+    await json<Array<{ paymentId: string; batchId: string | null }>>(
+      await get("/api/v1/receipts", TEST_SUPER_ADMIN_TOKEN),
+    )
+  ).find((row) => row.paymentId === result.payments[0].id);
+  assert.equal(listed?.batchId, null);
   const sent = await json<{
     messages: Array<{ subject: string; jobId: string | null }>;
   }>(
@@ -519,4 +609,236 @@ test("customers and anonymous callers cannot record payments", async () => {
   });
   assert.equal(anonymous.status, 401);
   assert.deepEqual(await owing(companyA), before);
+});
+
+test("a customer's payment summary is one PDF for staff and that customer only", async () => {
+  const summary = (query: string, token: string) =>
+    get(`/api/v1/receipts/summary?${query}`, token);
+  const listed = await json<Array<{ customerCompanyId: string }>>(
+    await get("/api/v1/receipts", TEST_SUPER_ADMIN_TOKEN),
+  );
+  assert.ok(listed.some((row) => row.customerCompanyId === companyA));
+
+  const pdf = await summary(`companyId=${companyA}`, TEST_SUPER_ADMIN_TOKEN);
+  assert.equal(pdf.status, 200, await pdf.clone().text());
+  assert.equal(pdf.headers.get("content-type"), "application/pdf");
+  assert.match(pdf.headers.get("content-disposition") ?? "", /Payments-/);
+  assert.equal(
+    (
+      await summary(
+        `companyId=${companyA}&from=${today()}&to=${today()}&method=bank_transfer`,
+        TEST_SUPER_ADMIN_TOKEN,
+      )
+    ).status,
+    200,
+  );
+  // The paying customer gets theirs; another customer is refused it.
+  assert.equal(
+    (await summary(`companyId=${companyA}`, TEST_CUSTOMER_A_TOKEN)).status,
+    200,
+  );
+  assert.equal(
+    (await summary(`companyId=${companyA}`, TEST_CUSTOMER_B_TOKEN)).status,
+    404,
+  );
+  // Nothing in the period, or bad input, is not a PDF.
+  assert.equal(
+    (
+      await summary(
+        `companyId=${companyA}&to=2001-01-01`,
+        TEST_SUPER_ADMIN_TOKEN,
+      )
+    ).status,
+    404,
+  );
+  for (const query of [
+    "companyId=nope",
+    `companyId=${companyA}&from=yesterday`,
+    `companyId=${companyA}&method=gold`,
+  ]) {
+    assert.equal((await summary(query, TEST_SUPER_ADMIN_TOKEN)).status, 400);
+  }
+  assert.equal(
+    (await fetch(`${baseUrl}/api/v1/receipts/summary?companyId=${companyA}`))
+      .status,
+    401,
+  );
+});
+
+test("a client's invoice summary is one PDF of their invoices, for finance staff only", async () => {
+  const summary = (query: string, token = TEST_SUPER_ADMIN_TOKEN) =>
+    get(`/api/v1/invoices/summary?${query}`, token);
+  const pages = async (response: Response) =>
+    (
+      Buffer.from(await response.arrayBuffer())
+        .toString("latin1")
+        .match(/\/Type \/Page\b/g) ?? []
+    ).length;
+
+  // A summary page, then each invoice asked for: an issued one and a draft.
+  // Another client's invoice id is left out, not added.
+  const pdf = await summary(
+    `companyId=${companyA}&invoiceIds=${ids.one},${ids.draft},${ids.other}`,
+  );
+  assert.equal(pdf.status, 200, await pdf.clone().text());
+  assert.equal(pdf.headers.get("content-type"), "application/pdf");
+  assert.match(pdf.headers.get("content-disposition") ?? "", /invoices-/);
+  assert.equal(await pages(pdf), 3);
+  // Without a list: every invoice of the client that is not void.
+  const all = await summary(`companyId=${companyA}`);
+  assert.equal(all.status, 200);
+  assert.ok((await pages(all)) >= 8);
+
+  // Only another client's invoice: nothing to show.
+  assert.equal(
+    (await summary(`companyId=${companyA}&invoiceIds=${ids.other}`)).status,
+    404,
+  );
+  assert.equal((await summary("companyId=nope")).status, 400);
+  // Drafts are in it, so customers are refused, even for their own company.
+  for (const token of [TEST_CUSTOMER_A_TOKEN, TEST_CUSTOMER_B_TOKEN]) {
+    assert.equal((await summary(`companyId=${companyA}`, token)).status, 403);
+  }
+  assert.equal(
+    (await fetch(`${baseUrl}/api/v1/invoices/summary?companyId=${companyA}`))
+      .status,
+    401,
+  );
+});
+
+test("Issue all issues a client's drafts together, checks them all first, and sends one message", async () => {
+  const jobOne = await openJob(companyA, "sea_import");
+  const jobTwo = await openJob(companyA, "air_import");
+  await invoice("batchDraftOne", jobOne, 8_000, "GHS", "draft");
+  await invoice("batchDraftTwo", jobTwo, 9_000, "USD", "draft");
+  await invoice(
+    "batchDraftB",
+    await openJob(companyB, "sea_import"),
+    1_000,
+    "GHS",
+    "draft",
+  );
+  const issueAll = (body: unknown, token = TEST_SUPER_ADMIN_TOKEN) =>
+    post("/api/v1/invoices/issue", token, body);
+  const messages = async () =>
+    (
+      await json<{ messages: Array<{ subject: string; body: string }> }>(
+        await get(
+          `/api/v1/messages?event=invoice_issued&companyId=${companyA}`,
+          TEST_SUPER_ADMIN_TOKEN,
+        ),
+      )
+    ).messages;
+  const status = async (key: string) =>
+    (
+      await json<
+        Array<{ id: string; status: string; invoiceNumber: string | null }>
+      >(await get(`/api/v1/jobs/${jobs[key]}/invoices`, TEST_SUPER_ADMIN_TOKEN))
+    ).find((row) => row.id === ids[key]);
+  const before = (await messages()).length;
+  const drafts = [ids.batchDraftOne, ids.batchDraftTwo];
+
+  // Refused as a whole: nothing is issued when one invoice cannot be.
+  assert.equal(
+    (
+      await issueAll({
+        companyId: companyA,
+        invoiceIds: [...drafts, ids.batchDraftB],
+      })
+    ).status,
+    404,
+  );
+  assert.equal(
+    (await issueAll({ companyId: companyA, invoiceIds: [...drafts, ids.one] }))
+      .status,
+    409,
+  );
+  assert.equal(
+    (await issueAll({ companyId: companyA, invoiceIds: [] })).status,
+    400,
+  );
+  assert.equal(
+    (
+      await issueAll(
+        { companyId: companyA, invoiceIds: drafts },
+        TEST_CUSTOMER_A_TOKEN,
+      )
+    ).status,
+    403,
+  );
+  assert.equal((await status("batchDraftOne"))?.status, "draft");
+  assert.equal((await status("batchDraftTwo"))?.status, "draft");
+
+  const response = await issueAll({ companyId: companyA, invoiceIds: drafts });
+  assert.equal(response.status, 201, await response.clone().text());
+  const issued =
+    await json<Array<{ invoiceNumber: string; status: string }>>(response);
+  assert.equal(issued.length, 2);
+  assert.ok(
+    issued.every((row) => row.status === "issued" && row.invoiceNumber),
+  );
+  assert.notEqual(issued[0].invoiceNumber, issued[1].invoiceNumber);
+  // Another client's draft is untouched.
+  assert.equal((await status("batchDraftB"))?.status, "draft");
+
+  const after = await messages();
+  assert.equal(after.length, before + 1);
+  const message = after.find((row) => row.subject === "2 invoices issued");
+  assert.ok(message, "one message lists both invoices");
+  for (const row of issued)
+    assert.match(message.body, new RegExp(row.invoiceNumber));
+});
+
+test("Send emails the client their invoices still owing or their payments, PDF attached, finance only", async () => {
+  const email = application.get<RecordingEmailProvider>(EMAIL_PROVIDER);
+  const before = email.sent.length;
+  const invoices = await post(
+    `/api/v1/invoices/summary/send?companyId=${companyA}`,
+    TEST_SUPER_ADMIN_TOKEN,
+  );
+  assert.equal(invoices.status, 201, await invoices.clone().text());
+  const payments = await post(
+    `/api/v1/receipts/summary/send?companyId=${companyA}&method=bank_transfer`,
+    TEST_SUPER_ADMIN_TOKEN,
+  );
+  assert.equal(payments.status, 201, await payments.clone().text());
+  await application.get(NotificationDispatcher).dispatchDue();
+  const sent = email.sent.slice(before);
+  const invoiceMail = sent.find((item) =>
+    item.subject.startsWith("Your invoices from"),
+  );
+  assert.ok(invoiceMail, "the invoice summary email was sent");
+  assert.match(invoiceMail.attachments?.[0].filename ?? "", /^invoices-/);
+  assert.doesNotMatch(invoiceMail.text, /Draft/);
+  const paymentMail = sent.find((item) =>
+    item.subject.startsWith("Summary of your payments"),
+  );
+  assert.ok(paymentMail, "the payment summary email was sent");
+  assert.match(paymentMail.attachments?.[0].filename ?? "", /^Payments-/);
+
+  // Customers cannot send; bad input and nothing to send are refused.
+  for (const path of [
+    `/api/v1/invoices/summary/send?companyId=${companyA}`,
+    `/api/v1/receipts/summary/send?companyId=${companyA}`,
+  ]) {
+    assert.equal((await post(path, TEST_CUSTOMER_A_TOKEN)).status, 403);
+  }
+  assert.equal(
+    (
+      await post(
+        "/api/v1/invoices/summary/send?companyId=nope",
+        TEST_SUPER_ADMIN_TOKEN,
+      )
+    ).status,
+    400,
+  );
+  assert.equal(
+    (
+      await post(
+        `/api/v1/receipts/summary/send?companyId=${companyA}&to=2001-01-01`,
+        TEST_SUPER_ADMIN_TOKEN,
+      )
+    ).status,
+    404,
+  );
 });

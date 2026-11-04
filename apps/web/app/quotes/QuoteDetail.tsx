@@ -224,7 +224,14 @@ function VersionView({ version }: { version: QuoteVersion }) {
   );
 }
 
-export function QuoteDetail({ quoteId }: { quoteId: string }) {
+export function QuoteDetail({
+  quoteId,
+  startEditing = false,
+}: {
+  quoteId: string;
+  /** Opened from the list's Edit link: show the editor straight away. */
+  startEditing?: boolean;
+}) {
   const { roles } = useStaffAccess();
   const isStaff = roles.length > 0;
   // Customer service and sales prepare, issue and decide quotes; others read them.
@@ -232,7 +239,7 @@ export function QuoteDetail({ quoteId }: { quoteId: string }) {
   const [quote, setQuote] = useState<Quote | null>(null);
   const [loadError, setLoadError] = useState("");
   const [error, setError] = useState("");
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(startEditing);
   const [deciding, setDeciding] = useState(false);
   const [decision, setDecision] = useState<"accepted" | "rejected">("accepted");
   const [signatory, setSignatory] = useState("");

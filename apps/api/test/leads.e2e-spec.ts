@@ -43,7 +43,7 @@ type Lead = {
   companyName: string;
   stage: string;
   ownerId: string | null;
-  ownerEmail: string | null;
+  ownerName: string | null;
   nextFollowUp: string | null;
   lostReason: string | null;
   customerCompanyId: string | null;
@@ -93,7 +93,7 @@ test("a lead starts new, owned by whoever added it, and is listed", async () => 
   assert.equal(lead.companyName, "Prospect Synthetic Ltd");
   assert.equal(lead.stage, "new");
   assert.equal(lead.ownerId, TEST_SUPER_ADMIN_ID);
-  assert.ok(lead.ownerEmail);
+  assert.ok(lead.ownerName);
   assert.equal(lead.followUpOverdue, false);
 
   const list = await json<Lead[]>(

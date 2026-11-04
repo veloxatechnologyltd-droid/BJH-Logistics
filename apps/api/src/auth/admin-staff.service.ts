@@ -75,9 +75,29 @@ export class AdminStaffService {
       throw new BadRequestException("A valid email address is required");
     }
     this.validatePassword(input.password);
-    const user = await this.auth.createUser(email, input.password);
+    const user = await this.auth.createUser(
+      email,
+      input.password,
+      input.name || undefined,
+    );
     const assignment = await this.assignRole(user, input.roleKey, actor.userId);
     return { user, assignment };
+  }
+
+  async setName(userId: string, body: unknown) {
+    const user = await this.auth.getUser(userId);
+    if (!user) throw new NotFoundException("Staff account was not found");
+    const name =
+      body &&
+      typeof body === "object" &&
+      typeof (body as Record<string, unknown>).name === "string"
+        ? (body as Record<string, string>).name.trim()
+        : "";
+    if (name.length > 80) {
+      throw new BadRequestException("Name must be 80 characters or fewer");
+    }
+    await this.auth.setName(userId, name);
+    return { user: { ...user, name: name || null } };
   }
 
   async setPassword(userId: string, body: unknown) {

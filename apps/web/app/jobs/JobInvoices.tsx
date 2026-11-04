@@ -1,24 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { FormEvent } from "react";
-import { paymentMethodKeys } from "@bjh/contracts";
 import { ChargeOptions } from "../ChargeOptions";
 import type { PaymentMethod } from "@bjh/contracts";
-import { formatMoney, getQuote, toMinor } from "../quotes/quoteApi";
+import { formatMoney, toMinor } from "../quotes/quoteApi";
 import { popularCurrencies } from "../settings/business/BusinessSettingsForm";
 import { getSettings } from "../settings/business/settingsApi";
 import { canWorkFinance } from "../auth/roleAccess";
 import { useStaffAccess } from "../auth/useStaffAccess";
 import {
   acceptInvoice,
-  createInvoice,
-  createInvoiceFromCharges,
   fetchInvoicePdf,
   fetchReceiptPdf,
   issueInvoice,
   listInvoices,
-  recordInvoicePayment,
   reverseInvoicePayment,
   sendReceipt,
   updateInvoice,
@@ -27,6 +22,7 @@ import {
 import type { Invoice, InvoiceLine, JobDocument } from "./jobApi";
 import styles from "./jobs.module.css";
 import { ErrorPopup } from "../ErrorPopup";
+import Link from "next/link";
 
 export const methodLabels: Record<PaymentMethod, string> = {
   cash: "Cash",
@@ -36,7 +32,7 @@ export const methodLabels: Record<PaymentMethod, string> = {
   other: "Other",
 };
 
-const statusLabels: Record<Invoice["paymentStatus"], string> = {
+export const invoiceStatusLabels: Record<Invoice["paymentStatus"], string> = {
   draft: "Draft",
   void: "Void",
   unpaid: "Unpaid",
@@ -81,8 +77,6 @@ const lineMinor = (line: DraftLine): number | null => {
   return minor === undefined || Number.isNaN(minor) ? null : minor;
 };
 
-const today = () => new Date().toISOString().slice(0, 10);
-
 const toDraftLines = (lines: InvoiceLine[]): DraftLine[] =>
   lines.map((line) => ({
     description: line.description,
@@ -108,7 +102,8 @@ export function JobInvoices({
   documents,
   isStaff,
   canEdit,
-  quoteId,
+  invoiceId,
+  onLoaded,
 }: {
   jobId: string;
   documents: JobDocument[];
@@ -116,30 +111,21 @@ export function JobInvoices({
   isStaff: boolean;
   /** Preparing, issuing and voiding invoices needs an open job. */
   canEdit: boolean;
-  /** The quote the job was opened from; its accepted currency is the default. */
-  quoteId: string | null;
+  /** Finance's invoice page: show only this invoice, its draft editor open. */
+  invoiceId?: string;
+  /** Told the job's invoices each time they are (re)loaded. */
+  onLoaded?: (invoices: Invoice[]) => void;
 }) {
   const [invoices, setInvoices] = useState<Invoice[] | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [currency, setCurrency] = useState("");
   const [configuredCurrencies, setConfiguredCurrencies] = useState<string[]>(
     [],
   );
-  const [dueDate, setDueDate] = useState("");
-  const [invoiceNotes, setInvoiceNotes] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
   const [lines, setLines] = useState<DraftLine[]>([]);
   // The currency of the draft being edited; it can still be changed.
   const [draftCurrency, setDraftCurrency] = useState("");
-  const [paying, setPaying] = useState<string | null>(null);
-  const [amount, setAmount] = useState("");
-  const [receivedOn, setReceivedOn] = useState(today());
-  const [method, setMethod] = useState<PaymentMethod>("bank_transfer");
-  const [reference, setReference] = useState("");
-  const [evidence, setEvidence] = useState("");
-  const [paymentNote, setPaymentNote] = useState("");
-  const [adding, setAdding] = useState(false);
   const [accepting, setAccepting] = useState<string | null>(null);
   const [signatory, setSignatory] = useState("");
   const { roles, isSuperAdmin } = useStaffAccess();
@@ -152,55 +138,34 @@ export function JobInvoices({
 
   const load = useCallback(async () => {
     try {
-      setInvoices(await listInvoices(jobId));
+      const found = await listInvoices(jobId);
+      setInvoices(found);
+      onLoaded?.(found);
     } catch (cause) {
       setError(
         cause instanceof Error ? cause.message : "Invoices could not be loaded",
       );
     }
-  }, [jobId]);
+  }, [jobId, onLoaded]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  // "Record payment" on the job progress list arrives with ?pay=1.
-  const [payLinkHandled, setPayLinkHandled] = useState(false);
+  // Finance's invoice page opens a draft with its editor ready.
+  const [linkHandled, setLinkHandled] = useState(false);
   useEffect(() => {
-    if (!invoices || payLinkHandled) return;
-    setPayLinkHandled(true);
-    if (window.location.hash === "#invoices-title")
-      document
-        .getElementById("invoices-title")
-        ?.scrollIntoView({ block: "start" });
-    if (
-      !finance ||
-      new URLSearchParams(window.location.search).get("pay") !== "1"
-    )
-      return;
-    const owing = invoices.find(
-      (invoice) => invoice.status === "issued" && invoice.outstandingMinor > 0,
-    );
-    if (!owing) return;
-    setPaying(owing.id);
-    setAmount((owing.outstandingMinor / 100).toFixed(2));
-  }, [invoices, finance, payLinkHandled]);
-
-  // A new invoice starts in the currency of the accepted quote version.
-  useEffect(() => {
-    if (!isStaff || !quoteId) return;
-    getQuote(quoteId)
-      .then((quote) => {
-        const accepted = quote.decisions.find(
-          (decision) => decision.decision === "accepted",
-        );
-        const version = quote.versions.find(
-          (item) => item.versionNumber === accepted?.versionNumber,
-        );
-        if (version) setCurrency((current) => current || version.currency);
-      })
-      .catch(() => undefined);
-  }, [isStaff, quoteId]);
+    if (!invoices || linkHandled) return;
+    setLinkHandled(true);
+    const linked = invoices.find((invoice) => invoice.id === invoiceId);
+    if (finance && canEdit && linked?.status === "draft") {
+      setEditing(linked.id);
+      setDraftCurrency(linked.currency);
+      setLines(
+        linked.lines.length > 0 ? toDraftLines(linked.lines) : [blankLine()],
+      );
+    }
+  }, [invoices, finance, canEdit, linkHandled, invoiceId]);
 
   useEffect(() => {
     if (!isStaff) return;
@@ -275,57 +240,6 @@ export function JobInvoices({
     return parsed;
   }
 
-  function submitNew(event: FormEvent) {
-    event.preventDefault();
-    void run(
-      async () => {
-        const created = await createInvoice(jobId, {
-          currency: currency.trim(),
-          lines: [],
-          dueDate: dueDate || undefined,
-          notes: invoiceNotes.trim() || undefined,
-        });
-        setEditing(created.id);
-        setDraftCurrency(created.currency);
-        setLines([blankLine()]);
-        setAdding(false);
-      },
-      () => {
-        setDueDate("");
-        setInvoiceNotes("");
-      },
-    );
-  }
-
-  function startFromCharges() {
-    if (!currency) {
-      setError("Choose the invoice currency first");
-      return;
-    }
-    void run(async () => {
-      const result = await createInvoiceFromCharges(jobId, {
-        currency: currency.trim(),
-        dueDate: dueDate || undefined,
-        notes: invoiceNotes.trim() || undefined,
-      });
-      setEditing(result.invoice.id);
-      setDraftCurrency(result.invoice.currency);
-      setLines(toDraftLines(result.invoice.lines));
-      setAdding(false);
-      setNotice(
-        result.leftOut.length > 0
-          ? `Left out: ${result.leftOut
-              .map((item) =>
-                item.reason === "no_amount"
-                  ? `${item.description} (no amount recorded yet)`
-                  : `${item.description} (goes on the ${item.currency} invoice)`,
-              )
-              .join("; ")}.`
-          : "",
-      );
-    });
-  }
-
   function saveDraft(invoice: Invoice, after?: () => Promise<unknown>) {
     // Only the draft open in the editor takes the typed lines and currency;
     // issuing another draft keeps its own saved lines.
@@ -344,33 +258,6 @@ export function JobInvoices({
     });
   }
 
-  function submitPayment(event: FormEvent, invoice: Invoice) {
-    event.preventDefault();
-    const minor = toMinor(amount);
-    if (minor === undefined || Number.isNaN(minor)) {
-      setError("Enter the amount as a number such as 250 or 250.50");
-      return;
-    }
-    void run(
-      () =>
-        recordInvoicePayment(jobId, invoice.id, {
-          amountMinor: minor,
-          receivedOn,
-          method,
-          reference: reference.trim() || undefined,
-          evidenceDocumentId: evidence || undefined,
-          note: paymentNote.trim() || undefined,
-        }),
-      () => {
-        setPaying(null);
-        setAmount("");
-        setReference("");
-        setEvidence("");
-        setPaymentNote("");
-      },
-    );
-  }
-
   function askReason(action: (why: string) => Promise<unknown>) {
     const why = window.prompt("Reason")?.trim();
     if (!why) return;
@@ -382,34 +269,32 @@ export function JobInvoices({
     "document";
 
   if (!isStaff && (!invoices || invoices.length === 0)) return null;
+  const shown = invoiceId
+    ? (invoices ?? []).filter((invoice) => invoice.id === invoiceId)
+    : invoices;
 
   return (
-    <section className={styles.card} aria-labelledby="invoices-title">
-      <div className={styles.stepsHeading}>
-        <h2 id="invoices-title">Invoices and payments</h2>
-        {finance && canEdit && !adding && (
-          <button
-            className={styles.secondaryButton}
-            onClick={() => setAdding(true)}
-            type="button"
-          >
-            New invoice
-          </button>
-        )}
-      </div>
+    <section
+      className={styles.card}
+      aria-label={invoiceId ? "Invoice" : "Invoices and payments"}
+    >
+      {/* Finance's invoice page has its own title. */}
+      {!invoiceId && <h2>Invoices and payments</h2>}
       <ErrorPopup message={error} />
       {notice && <p className={styles.notice}>{notice}</p>}
-      {invoices && invoices.length === 0 && (
-        <p className={styles.muted}>No invoices yet.</p>
+      {shown && shown.length === 0 && (
+        <p className={styles.muted}>
+          {invoiceId ? "This invoice was not found." : "No invoices yet."}
+        </p>
       )}
-      {invoices && invoices.length > 0 && (
+      {shown && shown.length > 0 && (
         <ul className={styles.invoiceList}>
-          {invoices.map((invoice) => (
+          {shown.map((invoice) => (
             <li key={invoice.id}>
               <div>
                 <strong>{invoice.invoiceNumber ?? "Draft invoice"}</strong>{" "}
                 <span className={styles.badge}>
-                  {statusLabels[invoice.paymentStatus]}
+                  {invoiceStatusLabels[invoice.paymentStatus]}
                 </span>{" "}
                 {formatMoney(invoice.totalMinor, invoice.currency)}
                 {invoice.status === "issued" && (
@@ -434,22 +319,25 @@ export function JobInvoices({
                     : " (recorded by staff)"}
                 </span>
               )}
-              <span className={styles.muted}>
-                {invoice.lines
-                  .map(
-                    (line) =>
-                      `${line.description}${line.quantity != null && line.unitAmountMinor != null ? ` ${line.quantity} × ${formatMoney(line.unitAmountMinor, invoice.currency)} =` : ""} ${formatMoney(line.amountMinor, invoice.currency)}${line.taxable ? "" : " (no tax)"}`,
-                  )
-                  .join(" · ")}
-                {invoice.taxLines.length > 0
-                  ? ` · ${invoice.taxLines
-                      .map(
-                        (tax) =>
-                          `${tax.name} ${tax.rateBasisPoints / 100}% ${formatMoney(tax.amountMinor, invoice.currency)}`,
-                      )
-                      .join(" · ")}`
-                  : ""}
-              </span>
+              {/* While the lines are open for editing, the editor shows them. */}
+              {editing !== invoice.id && (
+                <span className={styles.muted}>
+                  {invoice.lines
+                    .map(
+                      (line) =>
+                        `${line.description}${line.quantity != null && line.unitAmountMinor != null ? ` ${line.quantity} × ${formatMoney(line.unitAmountMinor, invoice.currency)} =` : ""} ${formatMoney(line.amountMinor, invoice.currency)}${line.taxable ? "" : " (no tax)"}`,
+                    )
+                    .join(" · ")}
+                  {invoice.taxLines.length > 0
+                    ? ` · ${invoice.taxLines
+                        .map(
+                          (tax) =>
+                            `${tax.name} ${tax.rateBasisPoints / 100}% ${formatMoney(tax.amountMinor, invoice.currency)}`,
+                        )
+                        .join(" · ")}`
+                    : ""}
+                </span>
+              )}
               {isStaff && invoice.payments && invoice.payments.length > 0 && (
                 <details>
                   <summary className={styles.disclosureSummary}>
@@ -644,7 +532,6 @@ export function JobInvoices({
                                 ),
                               )
                             }
-                            placeholder="optional"
                             size={6}
                             value={line.quantity}
                           />
@@ -662,7 +549,6 @@ export function JobInvoices({
                                 ),
                               )
                             }
-                            placeholder="optional"
                             size={10}
                             value={line.unit}
                           />
@@ -743,18 +629,12 @@ export function JobInvoices({
                     canEdit &&
                     invoice.status === "issued" &&
                     invoice.outstandingMinor > 0 && (
-                      <button
+                      <Link
                         className={styles.secondaryButton}
-                        onClick={() => {
-                          setPaying(paying === invoice.id ? null : invoice.id);
-                          setAmount(
-                            (invoice.outstandingMinor / 100).toFixed(2),
-                          );
-                        }}
-                        type="button"
+                        href={`/finance/receipts?invoice=${invoice.id}`}
                       >
                         Record payment
-                      </button>
+                      </Link>
                     )}
                   {canRecordAcceptance &&
                     invoice.status === "issued" &&
@@ -838,149 +718,9 @@ export function JobInvoices({
                   </div>
                 </form>
               )}
-
-              {finance && paying === invoice.id && (
-                <form
-                  className={styles.form}
-                  onSubmit={(event) => submitPayment(event, invoice)}
-                >
-                  <label className={styles.field}>
-                    Amount received ({invoice.currency})
-                    <input
-                      inputMode="decimal"
-                      onChange={(event) => setAmount(event.target.value)}
-                      required
-                      value={amount}
-                    />
-                  </label>
-                  <label className={styles.field}>
-                    Date received
-                    <input
-                      max={today()}
-                      onChange={(event) => setReceivedOn(event.target.value)}
-                      required
-                      type="date"
-                      value={receivedOn}
-                    />
-                  </label>
-                  <label className={styles.field}>
-                    Method
-                    <select
-                      onChange={(event) =>
-                        setMethod(event.target.value as PaymentMethod)
-                      }
-                      value={method}
-                    >
-                      {paymentMethodKeys.map((key) => (
-                        <option key={key} value={key}>
-                          {methodLabels[key]}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className={styles.field}>
-                    Reference (optional)
-                    <input
-                      maxLength={200}
-                      onChange={(event) => setReference(event.target.value)}
-                      value={reference}
-                    />
-                  </label>
-                  <label className={styles.field}>
-                    Evidence document (optional)
-                    <select
-                      onChange={(event) => setEvidence(event.target.value)}
-                      value={evidence}
-                    >
-                      <option value="">None</option>
-                      {documents.map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.versions.at(-1)?.filename ?? item.documentType}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className={styles.field}>
-                    Note (optional)
-                    <input
-                      maxLength={2000}
-                      onChange={(event) => setPaymentNote(event.target.value)}
-                      value={paymentNote}
-                    />
-                  </label>
-                  <button className={styles.button} type="submit">
-                    Save payment
-                  </button>
-                </form>
-              )}
             </li>
           ))}
         </ul>
-      )}
-      {finance && (
-        <>
-          {canEdit && adding && (
-            <form
-              className={`${styles.form} ${styles.quickUpdateForm}`}
-              onSubmit={submitNew}
-            >
-              <label className={styles.field}>
-                Currency
-                <select
-                  onChange={(event) => setCurrency(event.target.value)}
-                  required
-                  value={currency}
-                >
-                  <option value="">Choose a currency</option>
-                  {(configuredCurrencies.length > 0
-                    ? configuredCurrencies
-                    : popularCurrencies
-                  ).map((code) => (
-                    <option key={code} value={code}>
-                      {code}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className={styles.field}>
-                Due date (optional; the settings&apos; payment terms apply
-                otherwise)
-                <input
-                  onChange={(event) => setDueDate(event.target.value)}
-                  type="date"
-                  value={dueDate}
-                />
-              </label>
-              <label className={styles.field}>
-                Notes (optional)
-                <input
-                  maxLength={2000}
-                  onChange={(event) => setInvoiceNotes(event.target.value)}
-                  value={invoiceNotes}
-                />
-              </label>
-              <div className={styles.formActions}>
-                <button
-                  className={styles.button}
-                  onClick={startFromCharges}
-                  type="button"
-                >
-                  Start from job charges
-                </button>
-                <button className={styles.secondaryButton} type="submit">
-                  Start blank draft
-                </button>
-                <button
-                  className={styles.secondaryButton}
-                  onClick={() => setAdding(false)}
-                  type="button"
-                >
-                  Cancel
-                </button>
-              </div>
-            </form>
-          )}
-        </>
       )}
     </section>
   );

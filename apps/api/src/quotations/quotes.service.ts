@@ -148,6 +148,7 @@ export class QuotesService {
       );
     }
     const issued = await this.get(quote.id, scope);
+    await this.database.markLeadsQuoted(issued.customerCompanyId);
     const version = issued.versions
       .filter((item) => item.status === "issued")
       .at(-1);

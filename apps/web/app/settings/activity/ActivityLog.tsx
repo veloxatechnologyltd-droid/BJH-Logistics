@@ -15,7 +15,7 @@ type ActivityEntry = {
   id: string;
   occurredAt: string;
   actorUserId: string;
-  actorEmail: string | null;
+  actorName: string | null;
   method: string;
   route: string;
   entityId: string | null;
@@ -138,7 +138,7 @@ export function ActivityLog() {
                 <tr key={entry.id}>
                   <td>{formatDate(entry.occurredAt)}</td>
                   <td title={entry.actorUserId}>
-                    {entry.actorEmail ?? entry.actorUserId}
+                    {entry.actorName ?? entry.actorUserId}
                   </td>
                   <td>
                     {entry.method} {entry.route}

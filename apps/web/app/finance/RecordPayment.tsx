@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { paymentMethodKeys } from "@bjh/contracts";
 import type { PaymentMethod } from "@bjh/contracts";
@@ -35,8 +35,32 @@ const oldestFirst = (a: OutstandingInvoice, b: OutstandingInvoice) =>
  * unpaid invoices, oldest first (change the ticks and amounts as needed), and
  * whatever is left over, or all of it when nothing is owing, is kept as
  * credit on their account with its own receipt. Saved all or nothing.
+ * Opened from one invoice, it starts with that customer, currency and
+ * invoice filled in; opened for one customer, with that customer.
  */
-export function RecordPayment({ onRecorded }: { onRecorded: () => void }) {
+export function RecordPayment({
+  onRecorded,
+  invoiceId,
+  companyId,
+  label = "Record payment",
+  compact = false,
+  startOpen = false,
+  payAll = false,
+}: {
+  onRecorded: () => void;
+  /** Start with this unpaid invoice ticked for what it still owes. */
+  invoiceId?: string;
+  /** Start with this customer chosen. */
+  companyId?: string;
+  label?: string;
+  /** A small text button, for use on a list row. */
+  compact?: boolean;
+  /** Open the form straight away (a job's "Record payment" link). */
+  startOpen?: boolean;
+  /** With companyId: tick everything they owe and fill in the total (one currency only). */
+  payAll?: boolean;
+}) {
+  const titleId = useId();
   const [open, setOpen] = useState(false);
   const [invoices, setInvoices] = useState<OutstandingInvoice[] | null>(null);
   const [customers, setCustomers] = useState<Array<[string, string]>>([]);
@@ -130,6 +154,29 @@ export function RecordPayment({ onRecorded }: { onRecorded: () => void }) {
     });
   }
 
+  const allTicked = shown.length > 0 && ticked.length === shown.length;
+
+  /** Ticks every shown invoice at what it owes, or clears them all. */
+  function toggleAll() {
+    setAmounts(
+      allTicked
+        ? {}
+        : Object.fromEntries(
+            shown.map((row) => [
+              row.invoiceId,
+              amountText(row.outstandingMinor),
+            ]),
+          ),
+    );
+  }
+
+  const opened = useRef(false);
+  useEffect(() => {
+    if (!startOpen || opened.current) return;
+    opened.current = true;
+    start();
+  });
+
   function start() {
     setNotice("");
     setError("");
@@ -164,6 +211,35 @@ export function RecordPayment({ onRecorded }: { onRecorded: () => void }) {
                 a[1].localeCompare(b[1]),
             ),
         );
+        const row = invoiceId
+          ? result.invoices.find((item) => item.invoiceId === invoiceId)
+          : undefined;
+        if (row) {
+          setCustomerId(row.customerCompanyId);
+          setCurrency(row.currency);
+          setReceived(amountText(row.outstandingMinor));
+          setAmounts({ [row.invoiceId]: amountText(row.outstandingMinor) });
+        } else if (companyId) {
+          chooseCustomer(companyId, result.invoices);
+          const mine = result.invoices.filter(
+            (item) => item.customerCompanyId === companyId,
+          );
+          if (payAll && new Set(mine.map((item) => item.currency)).size === 1) {
+            setReceived(
+              amountText(
+                mine.reduce((sum, item) => sum + item.outstandingMinor, 0),
+              ),
+            );
+            setAmounts(
+              Object.fromEntries(
+                mine.map((item) => [
+                  item.invoiceId,
+                  amountText(item.outstandingMinor),
+                ]),
+              ),
+            );
+          }
+        }
       })
       .catch((cause) =>
         setError(
@@ -243,8 +319,12 @@ export function RecordPayment({ onRecorded }: { onRecorded: () => void }) {
 
   return (
     <div>
-      <button className={styles.button} onClick={start} type="button">
-        Record payment
+      <button
+        className={compact ? styles.textButton : styles.button}
+        onClick={start}
+        type="button"
+      >
+        {label}
       </button>
       {notice && (
         <p className={styles.notice} role="status">
@@ -252,202 +332,219 @@ export function RecordPayment({ onRecorded }: { onRecorded: () => void }) {
         </p>
       )}
       <dialog
-        aria-labelledby="record-payment-title"
+        aria-labelledby={titleId}
         className={styles.dialog}
         onCancel={() => setOpen(false)}
         ref={dialog}
         style={{ width: "min(94vw, 560px)" }}
       >
-        <form className={styles.form} onSubmit={submit}>
-          <h2 id="record-payment-title">Record payment received</h2>
-          {!invoices && !error && <p className={styles.muted}>Loading…</p>}
-          {invoices && (
-            <>
-              <label className={styles.field}>
-                Customer
-                <select
-                  onChange={(event) =>
-                    chooseCustomer(event.target.value, invoices)
-                  }
-                  required
-                  value={customerId}
-                >
-                  <option value="">Choose a customer</option>
-                  {customers.map(([id, name]) => (
-                    <option key={id} value={id}>
-                      {name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {customerId && (
+        {open && (
+          <form className={styles.form} onSubmit={submit}>
+            <h2 id={titleId}>Record payment received</h2>
+            {!invoices && !error && <p className={styles.muted}>Loading…</p>}
+            {invoices && (
+              <>
                 <label className={styles.field}>
-                  Currency
+                  Customer
                   <select
                     onChange={(event) =>
-                      chooseCurrency(event.target.value, theirs)
+                      chooseCustomer(event.target.value, invoices)
                     }
                     required
-                    value={currency}
+                    value={customerId}
                   >
-                    <option value="">Choose a currency</option>
-                    {currencyChoices.map((code) => (
-                      <option key={code} value={code}>
-                        {code}
-                        {owedCurrencies.includes(code) ? " (owing)" : ""}
+                    <option value="">Choose a customer</option>
+                    {customers.map(([id, name]) => (
+                      <option key={id} value={id}>
+                        {name}
                       </option>
                     ))}
                   </select>
                 </label>
-              )}
-              {customerId && currency && (
+                {customerId && (
+                  <label className={styles.field}>
+                    Currency
+                    <select
+                      onChange={(event) =>
+                        chooseCurrency(event.target.value, theirs)
+                      }
+                      required
+                      value={currency}
+                    >
+                      <option value="">Choose a currency</option>
+                      {currencyChoices.map((code) => (
+                        <option key={code} value={code}>
+                          {code}
+                          {owedCurrencies.includes(code) ? " (owing)" : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+                {customerId && currency && (
+                  <label className={styles.field}>
+                    Amount received ({currency})
+                    <input
+                      inputMode="decimal"
+                      onChange={(event) => {
+                        setReceived(event.target.value);
+                        spread(event.target.value, shown);
+                      }}
+                      placeholder="Any amount, for example 1500 or 1500.50"
+                      required
+                      value={received}
+                    />
+                  </label>
+                )}
+                {customerId && currency && shown.length === 0 && (
+                  <p className={styles.muted}>
+                    Nothing is owing in {currency}: the whole amount is kept as
+                    credit on the customer&apos;s account.
+                  </p>
+                )}
+                {shown.length > 0 && (
+                  <fieldset className={cards.allocations}>
+                    <legend>Set against invoices (oldest first)</legend>
+                    <label className={cards.selectAll}>
+                      <input
+                        checked={allTicked}
+                        onChange={toggleAll}
+                        ref={(box) => {
+                          if (box)
+                            box.indeterminate = ticked.length > 0 && !allTicked;
+                        }}
+                        type="checkbox"
+                      />
+                      All invoices ({shown.length})
+                    </label>
+                    <ul className={cards.allocationList}>
+                      {shown.map((row) => (
+                        <li key={row.invoiceId}>
+                          <label className={cards.allocationRow}>
+                            <input
+                              checked={row.invoiceId in amounts}
+                              onChange={() => toggle(row)}
+                              type="checkbox"
+                            />
+                            <span>
+                              {row.invoiceNumber}
+                              <small>
+                                {row.fileNumber} · owing{" "}
+                                {formatMoney(
+                                  row.outstandingMinor,
+                                  row.currency,
+                                )}
+                                {row.overdue ? " · overdue" : ""}
+                              </small>
+                            </span>
+                          </label>
+                          <input
+                            aria-label={`Amount for ${row.invoiceNumber}`}
+                            className={cards.allocationAmount}
+                            disabled={!(row.invoiceId in amounts)}
+                            inputMode="decimal"
+                            onChange={(event) =>
+                              setAmounts((current) => ({
+                                ...current,
+                                [row.invoiceId]: event.target.value,
+                              }))
+                            }
+                            value={amounts[row.invoiceId] ?? ""}
+                          />
+                        </li>
+                      ))}
+                    </ul>
+                    <p className={cards.allocationTotal}>
+                      {formatMoney(allocated, currency)} on {ticked.length}{" "}
+                      {ticked.length === 1 ? "invoice" : "invoices"}
+                    </p>
+                  </fieldset>
+                )}
+                {leftover !== null && leftover > 0 && (
+                  <p className={styles.notice}>
+                    {formatMoney(leftover, currency)} will be kept as credit on
+                    the customer&apos;s account, with its own receipt.
+                  </p>
+                )}
+                {leftover !== null && leftover < 0 && (
+                  <p className={styles.error}>
+                    The invoices add up to more than the amount received.
+                  </p>
+                )}
                 <label className={styles.field}>
-                  Amount received ({currency})
+                  Date received
                   <input
-                    inputMode="decimal"
-                    onChange={(event) => {
-                      setReceived(event.target.value);
-                      spread(event.target.value, shown);
-                    }}
-                    placeholder="Any amount, for example 1500 or 1500.50"
+                    max={today()}
+                    onChange={(event) => setReceivedOn(event.target.value)}
                     required
-                    value={received}
+                    type="date"
+                    value={receivedOn}
                   />
                 </label>
-              )}
-              {customerId && currency && shown.length === 0 && (
-                <p className={styles.muted}>
-                  Nothing is owing in {currency}: the whole amount is kept as
-                  credit on the customer&apos;s account.
-                </p>
-              )}
-              {shown.length > 0 && (
-                <fieldset className={cards.allocations}>
-                  <legend>Set against invoices (oldest first)</legend>
-                  <ul className={cards.allocationList}>
-                    {shown.map((row) => (
-                      <li key={row.invoiceId}>
-                        <label className={cards.allocationRow}>
-                          <input
-                            checked={row.invoiceId in amounts}
-                            onChange={() => toggle(row)}
-                            type="checkbox"
-                          />
-                          <span>
-                            {row.invoiceNumber}
-                            <small>
-                              {row.fileNumber} · owing{" "}
-                              {formatMoney(row.outstandingMinor, row.currency)}
-                              {row.overdue ? " · overdue" : ""}
-                            </small>
-                          </span>
-                        </label>
-                        <input
-                          aria-label={`Amount for ${row.invoiceNumber}`}
-                          className={cards.allocationAmount}
-                          disabled={!(row.invoiceId in amounts)}
-                          inputMode="decimal"
-                          onChange={(event) =>
-                            setAmounts((current) => ({
-                              ...current,
-                              [row.invoiceId]: event.target.value,
-                            }))
-                          }
-                          value={amounts[row.invoiceId] ?? ""}
-                        />
-                      </li>
+                <label className={styles.field}>
+                  Method
+                  <select
+                    onChange={(event) =>
+                      setMethod(event.target.value as PaymentMethod)
+                    }
+                    value={method}
+                  >
+                    {paymentMethodKeys.map((key) => (
+                      <option key={key} value={key}>
+                        {methodLabels[key]}
+                      </option>
                     ))}
-                  </ul>
-                  <p className={cards.allocationTotal}>
-                    {formatMoney(allocated, currency)} on {ticked.length}{" "}
-                    {ticked.length === 1 ? "invoice" : "invoices"}
-                  </p>
-                </fieldset>
-              )}
-              {leftover !== null && leftover > 0 && (
-                <p className={styles.notice}>
-                  {formatMoney(leftover, currency)} will be kept as credit on
-                  the customer&apos;s account, with its own receipt.
-                </p>
-              )}
-              {leftover !== null && leftover < 0 && (
-                <p className={styles.error}>
-                  The invoices add up to more than the amount received.
-                </p>
-              )}
-              <label className={styles.field}>
-                Date received
-                <input
-                  max={today()}
-                  onChange={(event) => setReceivedOn(event.target.value)}
-                  required
-                  type="date"
-                  value={receivedOn}
-                />
-              </label>
-              <label className={styles.field}>
-                Method
-                <select
-                  onChange={(event) =>
-                    setMethod(event.target.value as PaymentMethod)
-                  }
-                  value={method}
-                >
-                  {paymentMethodKeys.map((key) => (
-                    <option key={key} value={key}>
-                      {methodLabels[key]}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className={styles.field}>
-                Reference (optional)
-                <input
-                  maxLength={200}
-                  onChange={(event) => setReference(event.target.value)}
-                  value={reference}
-                />
-              </label>
-              <label className={styles.field}>
-                Note (optional)
-                <input
-                  maxLength={2000}
-                  onChange={(event) => setNote(event.target.value)}
-                  value={note}
-                />
-              </label>
-            </>
-          )}
-          {error && (
-            <p className={styles.error} role="alert">
-              {error}
-            </p>
-          )}
-          <div className={styles.actions}>
-            {invoices && (
-              <button
-                className={styles.button}
-                disabled={
-                  saving ||
-                  !customerId ||
-                  !currency ||
-                  receivedMinor === null ||
-                  (leftover !== null && leftover < 0)
-                }
-                type="submit"
-              >
-                Save payment
-              </button>
+                  </select>
+                </label>
+                <label className={styles.field}>
+                  Reference (optional)
+                  <input
+                    maxLength={200}
+                    onChange={(event) => setReference(event.target.value)}
+                    value={reference}
+                  />
+                </label>
+                <label className={styles.field}>
+                  Note (optional)
+                  <input
+                    maxLength={2000}
+                    onChange={(event) => setNote(event.target.value)}
+                    value={note}
+                  />
+                </label>
+              </>
             )}
-            <button
-              className={styles.secondaryButton}
-              onClick={() => setOpen(false)}
-              type="button"
-            >
-              Cancel
-            </button>
-          </div>
-        </form>
+            {error && (
+              <p className={styles.error} role="alert">
+                {error}
+              </p>
+            )}
+            <div className={styles.actions}>
+              {invoices && (
+                <button
+                  className={styles.button}
+                  disabled={
+                    saving ||
+                    !customerId ||
+                    !currency ||
+                    receivedMinor === null ||
+                    (leftover !== null && leftover < 0)
+                  }
+                  type="submit"
+                >
+                  Save payment
+                </button>
+              )}
+              <button
+                className={styles.secondaryButton}
+                onClick={() => setOpen(false)}
+                type="button"
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        )}
       </dialog>
     </div>
   );

@@ -124,7 +124,7 @@ export function JobTeam({
         <ul className={styles.nextTasks}>
           {view.team.map((member) => (
             <li key={member.id}>
-              <strong>{member.email ?? "Staff member"}</strong>
+              <strong>{member.name ?? "Staff member"}</strong>
               <span>
                 {kindLabels[member.kind]}
                 {member.overrideReason
@@ -217,7 +217,7 @@ export function JobTeam({
               <option value="">Choose a rep</option>
               {choices.map((item) => (
                 <option key={item.userId} value={item.userId}>
-                  {item.email ?? item.userId}
+                  {item.name ?? item.userId}
                 </option>
               ))}
             </select>
@@ -244,7 +244,7 @@ export function JobTeam({
               .filter((member) => member.removedAt)
               .map((member) => (
                 <li key={member.id}>
-                  {member.email ?? "Staff member"} · {kindLabels[member.kind]}{" "}
+                  {member.name ?? "Staff member"} · {kindLabels[member.kind]}{" "}
                   until {new Date(member.removedAt!).toLocaleDateString()}
                 </li>
               ))}

@@ -21,6 +21,7 @@ import type {
   VehicleInput,
 } from "@bjh/contracts";
 import { parseContract, requestDetailsSchema } from "@bjh/contracts";
+import { staffDisplayName } from "../auth/staff-admin.port";
 import {
   ActiveCustomerMembershipRecord,
   ActivityEntry,
@@ -54,9 +55,11 @@ import {
   JobFinanceRecord,
   ReportInvoiceRecord,
   ReportPaymentRecord,
+  BatchReceiptLine,
   ReportStockMovementRecord,
   LeadRecord,
   OutstandingInvoiceRecord,
+  InvoiceRegisterRecord,
   ShippingDocumentRecord,
   StatementEntryRecord,
   TransportDocumentRecord,
@@ -82,6 +85,7 @@ import {
   SalesPeriodRecord,
   SalesServiceReportRecord,
   AssistantConversationRecord,
+  SupportMessageRecord,
   SupportRequestRecord,
   AssistantLine,
   ChatThreadRecord,
@@ -271,7 +275,7 @@ const customerSelect = `
   LEFT JOIN app.customer_contact AS contact ON contact.company_id = company.company_id`;
 
 /** A payment with its reversal (if any) and the receipt date as plain text. */
-const PAYMENT_COLUMNS = `p.payment_id, p.invoice_id, p.receipt_number, p.credit_id, p.amount_minor,
+const PAYMENT_COLUMNS = `p.payment_id, p.invoice_id, p.receipt_number, p.credit_id, p.batch_id, p.amount_minor,
   to_char(p.received_on, 'YYYY-MM-DD') AS received_on_text, p.method,
   p.reference, p.evidence_document_id, p.note, p.recorded_by, p.recorded_at,
   r.reason AS reversal_reason, r.reversed_by, r.reversed_at`;
@@ -681,6 +685,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       `SELECT notification.notification_id, notification.subject,
               notification.body, notification.created_by,
               notification.created_at, author.email AS author_email,
+              NULLIF(btrim(author.raw_user_meta_data->>'full_name'), '') AS author_name,
               delivery.status
        FROM app.notification
        LEFT JOIN auth.users AS author ON author.id = notification.created_by
@@ -697,7 +702,12 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       subject: String(row.subject),
       body: String(row.body),
       sentBy: row.created_by ? String(row.created_by) : null,
-      sentByEmail: row.author_email ? String(row.author_email) : null,
+      sentByName: row.author_email
+        ? staffDisplayName({
+            name: row.author_name ? String(row.author_name) : null,
+            email: String(row.author_email),
+          })
+        : null,
       createdAt: this.toIsoString(row.created_at),
       status: (row.status ?? null) as SentReplyRecord["status"],
     }));
@@ -3216,6 +3226,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     }
     const result = await this.pool.query(
       `SELECT ${PAYMENT_COLUMNS}, job.job_id, job.file_number,
+              job.customer_company_id,
               company.company_name AS customer_company_name,
               i.currency, i.invoice_number
        FROM app.invoice_payment p
@@ -3232,6 +3243,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     return result.rows.map((row) => ({
       jobId: String(row.job_id),
       fileNumber: String(row.file_number),
+      customerCompanyId: String(row.customer_company_id),
       customerCompanyName: String(row.customer_company_name),
       currency: String(row.currency),
       invoiceNumber: String(row.invoice_number),
@@ -3594,7 +3606,8 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
 
   async listLeadActivities(leadId: string): Promise<LeadActivityRecord[]> {
     const result = await this.pool.query(
-      `SELECT activity.*, author.email AS created_by_email
+      `SELECT activity.*, author.email AS created_by_email,
+              NULLIF(btrim(author.raw_user_meta_data->>'full_name'), '') AS created_by_name
        FROM app.lead_activity AS activity
        LEFT JOIN auth.users AS author ON author.id = activity.created_by
        WHERE activity.lead_id = $1::uuid
@@ -3618,7 +3631,8 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
          FROM app.lead WHERE lead_id = $1::uuid
          RETURNING *
        )
-       SELECT added.*, author.email AS created_by_email
+       SELECT added.*, author.email AS created_by_email,
+              NULLIF(btrim(author.raw_user_meta_data->>'full_name'), '') AS created_by_name
        FROM added LEFT JOIN auth.users AS author ON author.id = added.created_by`,
       [
         activity.leadId,
@@ -3646,6 +3660,18 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
          AND (customer_company_id = $1::uuid
            OR ($2::uuid IS NOT NULL AND quote_request_id = $2::uuid))`,
       [companyId, quoteRequestId],
+    );
+    return result.rowCount ?? 0;
+  }
+
+  async markLeadsQuoted(companyId: string): Promise<number> {
+    const result = await this.pool.query(
+      `UPDATE app.lead
+       SET stage = 'quoted',
+           stage_changed_at = clock_timestamp(),
+           updated_at = clock_timestamp()
+       WHERE stage IN ('new', 'contacted') AND customer_company_id = $1::uuid`,
+      [companyId],
     );
     return result.rowCount ?? 0;
   }
@@ -3774,8 +3800,11 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       note: String(row.note),
       occurredAt: this.toIsoString(row.occurred_at),
       createdBy: String(row.created_by),
-      createdByEmail: row.created_by_email
-        ? String(row.created_by_email)
+      createdByName: row.created_by_email
+        ? staffDisplayName({
+            name: row.created_by_name ? String(row.created_by_name) : null,
+            email: String(row.created_by_email),
+          })
         : null,
     };
   }
@@ -3810,8 +3839,18 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
 
   async listChatMessages(companyId: string): Promise<ChatMessageRecord[]> {
     const result = await this.pool.query(
-      `SELECT * FROM app.chat_message WHERE company_id = $1::uuid
-       ORDER BY created_at, message_id`,
+      `SELECT message.*,
+              COALESCE(
+                NULLIF(btrim(author.raw_user_meta_data->>'full_name'), ''),
+                (SELECT contact.contact_name FROM app.customer_contact contact
+                  WHERE contact.company_id = message.company_id
+                    AND lower(contact.email) = lower(author.email)
+                  ORDER BY contact.created_at LIMIT 1)
+              ) AS resolved_name
+       FROM app.chat_message message
+       LEFT JOIN auth.users author ON author.id = message.author_user_id
+       WHERE message.company_id = $1::uuid
+       ORDER BY message.created_at, message.message_id`,
       [companyId],
     );
     return result.rows.map((row) => this.mapChatMessage(row));
@@ -4244,6 +4283,11 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     return result.rows[0] ? String(result.rows[0].company_id) : null;
   }
 
+  /** Messages saved before names existed carry an email: show it as a tidy name. */
+  private chatAuthorName(name: string | null): string | null {
+    return name?.includes("@") ? staffDisplayName({ email: name }) : name;
+  }
+
   private mapChatMessage(row: Record<string, unknown>): ChatMessageRecord {
     const optional = (value: unknown) => (value ? String(value) : null);
     return {
@@ -4253,7 +4297,9 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       channel: row.channel as ChatMessageRecord["channel"],
       body: String(row.body),
       authorUserId: optional(row.author_user_id),
-      authorName: optional(row.author_name),
+      authorName: this.chatAuthorName(
+        optional(row.resolved_name) ?? optional(row.author_name),
+      ),
       emailFrom: optional(row.email_from),
       jobId: optional(row.job_id),
       createdAt: this.toIsoString(row.created_at),
@@ -4264,7 +4310,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
   async createSupportRequest(
     request: Omit<
       SupportRequestRecord,
-      "id" | "companyName" | "status" | "createdAt" | "updatedAt"
+      "id" | "companyName" | "status" | "messages" | "createdAt" | "updatedAt"
     >,
   ): Promise<SupportRequestRecord> {
     const result = await this.pool.query(
@@ -4294,15 +4340,91 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     reporterUserId?: string,
   ): Promise<SupportRequestRecord[]> {
     const result = await this.pool.query(
-      `SELECT request.*, company.company_name
+      `SELECT request.*, company.company_name,
+              NULLIF(btrim(reporter.raw_user_meta_data->>'full_name'), '') AS reporter_name
        FROM app.support_request request
        LEFT JOIN app.customer_company company USING (company_id)
+       LEFT JOIN auth.users reporter ON reporter.id = request.reporter_user_id
        WHERE $1::uuid IS NULL OR request.reporter_user_id = $1::uuid
        ORDER BY request.created_at DESC, request.support_request_id
        LIMIT 500`,
       [reporterUserId ?? null],
     );
-    return result.rows.map((row) => this.mapSupportRequest(row));
+    const messages = await this.supportMessages(
+      result.rows.map((row) => String(row.support_request_id)),
+    );
+    return result.rows.map((row) =>
+      this.mapSupportRequest(
+        row,
+        messages.get(String(row.support_request_id)) ?? [],
+      ),
+    );
+  }
+
+  async addSupportMessage(
+    id: string,
+    message: {
+      authorUserId: string;
+      authorRole: SupportMessageRecord["authorRole"];
+      body: string;
+    },
+  ): Promise<SupportRequestRecord | null> {
+    // One statement, so a reply and the status change it causes never part.
+    const result = await this.pool.query(
+      `WITH inserted AS (
+         INSERT INTO app.support_message
+           (support_request_id, author_user_id, author_role, body)
+         SELECT support_request_id, $2::uuid, $3::text, $4
+         FROM app.support_request
+         WHERE support_request_id = $1::uuid
+         RETURNING support_request_id
+       )
+       UPDATE app.support_request request
+       SET status = CASE
+             WHEN $3::text = 'support' AND request.status = 'new' THEN 'in_progress'
+             WHEN $3::text = 'reporter' AND request.status = 'done' THEN 'new'
+             ELSE request.status
+           END,
+           updated_at = clock_timestamp()
+       FROM inserted
+       WHERE request.support_request_id = inserted.support_request_id`,
+      [id, message.authorUserId, message.authorRole, message.body],
+    );
+    return (result.rowCount ?? 0) > 0 ? this.findSupportRequest(id) : null;
+  }
+
+  private async supportMessages(
+    requestIds: string[],
+  ): Promise<Map<string, SupportMessageRecord[]>> {
+    const byRequest = new Map<string, SupportMessageRecord[]>();
+    if (requestIds.length === 0) return byRequest;
+    const result = await this.pool.query(
+      `SELECT message.*, author.email AS author_email,
+              NULLIF(btrim(author.raw_user_meta_data->>'full_name'), '') AS author_name
+       FROM app.support_message message
+       LEFT JOIN auth.users author ON author.id = message.author_user_id
+       WHERE message.support_request_id = ANY($1::uuid[])
+       ORDER BY message.created_at, message.support_message_id`,
+      [requestIds],
+    );
+    for (const row of result.rows) {
+      const requestId = String(row.support_request_id);
+      const list = byRequest.get(requestId) ?? [];
+      list.push({
+        id: String(row.support_message_id),
+        authorRole: row.author_role as SupportMessageRecord["authorRole"],
+        authorName: row.author_email
+          ? staffDisplayName({
+              name: row.author_name ? String(row.author_name) : null,
+              email: String(row.author_email),
+            })
+          : null,
+        body: String(row.body),
+        createdAt: this.toIsoString(row.created_at),
+      });
+      byRequest.set(requestId, list);
+    }
+    return byRequest;
   }
 
   async setSupportRequestStatus(
@@ -4318,27 +4440,36 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     return (result.rowCount ?? 0) > 0 ? this.findSupportRequest(id) : null;
   }
 
-  private async findSupportRequest(
-    id: string,
-  ): Promise<SupportRequestRecord | null> {
+  async findSupportRequest(id: string): Promise<SupportRequestRecord | null> {
     const result = await this.pool.query(
-      `SELECT request.*, company.company_name
+      `SELECT request.*, company.company_name,
+              NULLIF(btrim(reporter.raw_user_meta_data->>'full_name'), '') AS reporter_name
        FROM app.support_request request
        LEFT JOIN app.customer_company company USING (company_id)
+       LEFT JOIN auth.users reporter ON reporter.id = request.reporter_user_id
        WHERE request.support_request_id = $1::uuid`,
       [id],
     );
-    return result.rows[0] ? this.mapSupportRequest(result.rows[0]) : null;
+    if (!result.rows[0]) return null;
+    const messages = await this.supportMessages([id]);
+    return this.mapSupportRequest(result.rows[0], messages.get(id) ?? []);
   }
 
   private mapSupportRequest(
     row: Record<string, unknown>,
+    messages: SupportMessageRecord[],
   ): SupportRequestRecord {
     const optional = (value: unknown) => (value ? String(value) : null);
     return {
       id: String(row.support_request_id),
       reporterUserId: String(row.reporter_user_id),
       reporterEmail: optional(row.reporter_email),
+      reporterName: row.reporter_email
+        ? staffDisplayName({
+            name: optional(row.reporter_name),
+            email: String(row.reporter_email),
+          })
+        : null,
       reporterKind: row.reporter_kind as SupportRequestRecord["reporterKind"],
       companyId: optional(row.company_id),
       companyName: optional(row.company_name),
@@ -4348,6 +4479,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       userAgent: optional(row.user_agent),
       lastError: optional(row.last_error),
       status: row.status as SupportRequestRecord["status"],
+      messages,
       createdAt: this.toIsoString(row.created_at),
       updatedAt: this.toIsoString(row.updated_at),
     };
@@ -4669,6 +4801,44 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     }
   }
 
+  async listBatchReceipt(
+    batchId: string,
+    companyIds?: string[],
+  ): Promise<BatchReceiptLine[]> {
+    const result = await this.pool.query(
+      `SELECT ${PAYMENT_COLUMNS}, i.invoice_number, i.currency, i.total_minor,
+              i.total_minor - COALESCE((
+                SELECT sum(s.amount_minor) FROM app.invoice_payment s
+                WHERE s.invoice_id = i.invoice_id
+                  AND NOT EXISTS (
+                    SELECT 1 FROM app.invoice_payment_reversal sr
+                    WHERE sr.payment_id = s.payment_id)
+              ), 0) AS outstanding_minor,
+              job.job_id, job.file_number, job.customer_company_id,
+              company.company_name AS customer_company_name
+       FROM app.invoice_payment p
+       JOIN app.invoice i ON i.invoice_id = p.invoice_id
+       JOIN app.job job ON job.job_id = i.job_id
+       JOIN app.customer_company company ON company.company_id = job.customer_company_id
+       LEFT JOIN app.invoice_payment_reversal r ON r.payment_id = p.payment_id
+       WHERE p.batch_id = $1::uuid
+         AND ($2::uuid[] IS NULL OR job.customer_company_id = ANY($2::uuid[]))
+       ORDER BY i.invoice_number, p.payment_id`,
+      [batchId, companyIds ?? null],
+    );
+    return result.rows.map((row) => ({
+      payment: this.mapPayment(row),
+      invoiceNumber: String(row.invoice_number),
+      jobId: String(row.job_id),
+      fileNumber: String(row.file_number),
+      customerCompanyId: String(row.customer_company_id),
+      customerCompanyName: String(row.customer_company_name),
+      currency: String(row.currency),
+      invoiceTotalMinor: Number(row.total_minor),
+      invoiceOutstandingMinor: Number(row.outstanding_minor),
+    }));
+  }
+
   async recordPaymentBatch(
     batch: {
       companyId: string | null;
@@ -4936,7 +5106,8 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
   /**
    * Inside the caller's transaction: sets amounts against issued invoices of
    * one customer and currency, each within what it still owes. New money gets
-   * a receipt per invoice; a payment from credit gets none.
+   * one receipt: on one invoice its own, across several a batch whose receipt
+   * lists them all. A payment from credit gets none.
    */
   private async allocateToInvoices(
     client: PostgresClient,
@@ -5013,16 +5184,28 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       }
     }
     const recorded: PaymentBatchLine[] = [];
+    let batchId: string | null = null;
+    let batchReceipt: string | null = null;
+    if (!payment.creditId && allocations.length > 1) {
+      batchReceipt = await this.allocateReceiptNumber(client, payment.year);
+      const batch = await client.query(
+        `INSERT INTO app.payment_batch (receipt_number) VALUES ($1)
+         RETURNING batch_id`,
+        [batchReceipt],
+      );
+      batchId = String(batch.rows[0].batch_id);
+    }
     for (const allocation of allocations) {
       const row = byId.get(allocation.invoiceId)!;
       const receipt = payment.creditId
         ? null
-        : await this.allocateReceiptNumber(client, payment.year);
+        : (batchReceipt ??
+          (await this.allocateReceiptNumber(client, payment.year)));
       const inserted = await client.query(
         `INSERT INTO app.invoice_payment
           (invoice_id, receipt_number, amount_minor, received_on, method,
-           reference, evidence_document_id, note, recorded_by, credit_id)
-         VALUES ($1::uuid, $2, $3, $4::date, $5, $6, NULL, $7, $8::uuid, $9::uuid)
+           reference, evidence_document_id, note, recorded_by, credit_id, batch_id)
+         VALUES ($1::uuid, $2, $3, $4::date, $5, $6, NULL, $7, $8::uuid, $9::uuid, $10::uuid)
          RETURNING payment_id`,
         [
           allocation.invoiceId,
@@ -5034,6 +5217,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
           payment.note,
           recordedBy,
           payment.creditId,
+          batchId,
         ],
       );
       recorded.push({
@@ -6264,6 +6448,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     SELECT lead.lead_id, lead.company_name, lead.contact_name, lead.email,
            lead.phone, lead.source, lead.stage, lead.owner_id,
            owner.email AS owner_email,
+           NULLIF(btrim(owner.raw_user_meta_data->>'full_name'), '') AS owner_name,
            to_char(lead.next_follow_up, 'YYYY-MM-DD') AS next_follow_up_text,
            lead.notes, lead.lost_reason, lead.quote_request_id,
            lead.customer_company_id, company.company_name AS customer_company_name,
@@ -6285,7 +6470,12 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       source: String(row.source) as LeadSource,
       stage: String(row.stage) as LeadStage,
       ownerId: optional(row.owner_id),
-      ownerEmail: optional(row.owner_email),
+      ownerName: row.owner_email
+        ? staffDisplayName({
+            name: optional(row.owner_name),
+            email: String(row.owner_email),
+          })
+        : null,
       nextFollowUp: optional(row.next_follow_up_text),
       notes: optional(row.notes),
       lostReason: optional(row.lost_reason),
@@ -6433,6 +6623,52 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       outstandingMinor: Number(row.outstanding_minor),
       dueDate: row.due_date_text ? String(row.due_date_text) : null,
       issuedAt: this.toIsoString(row.issued_at),
+    }));
+  }
+
+  async listInvoiceRegister(filter: {
+    companyId: string | null;
+    scope: JobScope;
+  }): Promise<InvoiceRegisterRecord[]> {
+    const { scope } = filter;
+    if (scope.companyIds?.length === 0 || scope.serviceLines?.length === 0) {
+      return [];
+    }
+    const result = await this.pool.query(
+      `SELECT i.invoice_id, i.invoice_number, i.status, i.currency, i.total_minor,
+              to_char(i.due_date, 'YYYY-MM-DD') AS due_date_text, i.created_at, i.issued_at,
+              job.job_id, job.file_number, job.customer_company_id,
+              company.company_name,
+              COALESCE((
+                SELECT sum(p.amount_minor) FROM app.invoice_payment p
+                WHERE p.invoice_id = i.invoice_id
+                  AND NOT EXISTS (
+                    SELECT 1 FROM app.invoice_payment_reversal r
+                    WHERE r.payment_id = p.payment_id)
+              ), 0) AS paid_minor
+       FROM app.invoice i
+       JOIN app.job job ON job.job_id = i.job_id
+       JOIN app.customer_company company ON company.company_id = job.customer_company_id
+       WHERE ($1::uuid IS NULL OR job.customer_company_id = $1::uuid)
+         AND ($2::uuid[] IS NULL OR job.customer_company_id = ANY($2::uuid[]))
+         AND ($3::text[] IS NULL OR job.service_line = ANY($3::text[]))
+       ORDER BY COALESCE(i.issued_at, i.created_at) DESC, i.invoice_id`,
+      [filter.companyId, scope.companyIds ?? null, scope.serviceLines ?? null],
+    );
+    return result.rows.map((row) => ({
+      invoiceId: String(row.invoice_id),
+      invoiceNumber: row.invoice_number ? String(row.invoice_number) : null,
+      status: row.status as InvoiceRegisterRecord["status"],
+      jobId: String(row.job_id),
+      fileNumber: String(row.file_number),
+      customerCompanyId: String(row.customer_company_id),
+      customerCompanyName: String(row.company_name),
+      currency: String(row.currency),
+      totalMinor: Number(row.total_minor),
+      paidMinor: Number(row.paid_minor),
+      dueDate: row.due_date_text ? String(row.due_date_text) : null,
+      createdAt: this.toIsoString(row.created_at),
+      issuedAt: row.issued_at ? this.toIsoString(row.issued_at) : null,
     }));
   }
 
@@ -6592,6 +6828,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       invoiceId: String(row.invoice_id),
       receiptNumber: optional(row.receipt_number),
       creditId: optional(row.credit_id),
+      batchId: optional(row.batch_id),
       amountMinor: Number(row.amount_minor),
       receivedOn: String(row.received_on_text),
       method: row.method as InvoicePaymentRecord["method"],
@@ -6661,12 +6898,15 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
 
   async listActivity(filter: ActivityFilter): Promise<ActivityRecord[]> {
     const result = await this.pool.query(
-      `SELECT * FROM app.activity_log
-       WHERE ($1::uuid IS NULL OR actor_user_id = $1::uuid)
-         AND ($2::uuid IS NULL OR entity_id = $2::uuid)
-         AND ($3::timestamptz IS NULL OR occurred_at >= $3::timestamptz)
-         AND ($4::timestamptz IS NULL OR occurred_at <= $4::timestamptz)
-       ORDER BY occurred_at DESC, activity_id DESC
+      `SELECT entry.*,
+              NULLIF(btrim(actor.raw_user_meta_data->>'full_name'), '') AS actor_name
+       FROM app.activity_log entry
+       LEFT JOIN auth.users actor ON actor.id = entry.actor_user_id
+       WHERE ($1::uuid IS NULL OR entry.actor_user_id = $1::uuid)
+         AND ($2::uuid IS NULL OR entry.entity_id = $2::uuid)
+         AND ($3::timestamptz IS NULL OR entry.occurred_at >= $3::timestamptz)
+         AND ($4::timestamptz IS NULL OR entry.occurred_at <= $4::timestamptz)
+       ORDER BY entry.occurred_at DESC, entry.activity_id DESC
        LIMIT $5 OFFSET $6`,
       [
         filter.actorUserId ?? null,
@@ -6682,6 +6922,12 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       occurredAt: this.toIsoString(row.occurred_at),
       actorUserId: String(row.actor_user_id),
       actorEmail: row.actor_email ? String(row.actor_email) : null,
+      actorName: row.actor_email
+        ? staffDisplayName({
+            name: row.actor_name ? String(row.actor_name) : null,
+            email: String(row.actor_email),
+          })
+        : null,
       method: String(row.method),
       route: String(row.route),
       entityId: row.entity_id ? String(row.entity_id) : null,

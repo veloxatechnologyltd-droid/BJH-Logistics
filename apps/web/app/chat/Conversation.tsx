@@ -69,7 +69,7 @@ export function Conversation({
             <p className={styles.meta}>
               {message.direction === mine
                 ? "You"
-                : message.authorName || message.emailFrom || theirName}
+                : message.authorName || theirName}
               {" · "}
               {when(message.createdAt)}
               {message.channel === "email" ? " · by email" : ""}

@@ -413,7 +413,7 @@ export interface SentReplyRecord {
   body: string;
   /** Null: the assistant sent it by itself. */
   sentBy: string | null;
-  sentByEmail: string | null;
+  sentByName: string | null;
   createdAt: string;
   status: "pending" | "sent" | "failed" | "skipped" | null;
 }
@@ -575,11 +575,23 @@ export interface AssistantLine {
   proposalId?: string;
 }
 
+/** One reply on a support ticket; the request's own description is the first message. */
+export interface SupportMessageRecord {
+  id: string;
+  /** The super admin answering ("support"), or the person who sent the request. */
+  authorRole: "support" | "reporter";
+  authorName: string | null;
+  body: string;
+  createdAt: string;
+}
+
 /** A problem, feature wish or question sent from inside the app. */
 export interface SupportRequestRecord {
   id: string;
   reporterUserId: string;
   reporterEmail: string | null;
+  /** The reporter's name as others see it; email stays for the developer's reply. */
+  reporterName: string | null;
   reporterKind: "staff" | "customer";
   companyId: string | null;
   companyName: string | null;
@@ -589,6 +601,8 @@ export interface SupportRequestRecord {
   userAgent: string | null;
   lastError: string | null;
   status: "new" | "in_progress" | "done";
+  /** The replies, oldest first. */
+  messages: SupportMessageRecord[];
   createdAt: string;
   updatedAt: string;
 }
@@ -650,6 +664,8 @@ export interface InvoicePaymentRecord {
   receiptNumber: string | null;
   /** Set when the payment was made from credit on the customer's account. */
   creditId: string | null;
+  /** Set when one payment settled several invoices; they share one receipt. */
+  batchId: string | null;
   amountMinor: number;
   /** YYYY-MM-DD */
   receivedOn: string;
@@ -669,6 +685,20 @@ export interface PaymentBatchLine {
   jobId: string;
   /** What the invoice still owes after this payment. */
   balanceMinor: number;
+}
+
+/** One invoice settled by a multi-invoice payment, as its shared receipt lists it. */
+export interface BatchReceiptLine {
+  payment: InvoicePaymentRecord;
+  invoiceNumber: string;
+  jobId: string;
+  fileNumber: string;
+  customerCompanyId: string;
+  customerCompanyName: string;
+  currency: string;
+  invoiceTotalMinor: number;
+  /** What the invoice owes now, after every standing payment. */
+  invoiceOutstandingMinor: number;
 }
 
 /** Money a customer paid that is not set against an invoice: credit on their account. */
@@ -764,6 +794,7 @@ export interface ReportInvoiceRecord {
 export interface ReportPaymentRecord {
   jobId: string;
   fileNumber: string;
+  customerCompanyId: string;
   customerCompanyName: string;
   currency: string;
   invoiceNumber: string;
@@ -964,7 +995,7 @@ export interface LeadRecord {
   source: LeadSource;
   stage: LeadStage;
   ownerId: string | null;
-  ownerEmail: string | null;
+  ownerName: string | null;
   /** YYYY-MM-DD */
   nextFollowUp: string | null;
   notes: string | null;
@@ -984,7 +1015,7 @@ export interface LeadActivityRecord {
   note: string;
   occurredAt: string;
   createdBy: string;
-  createdByEmail: string | null;
+  createdByName: string | null;
 }
 
 /** Sales figures for a period: leads logged and clients converted (first accepted quote). */
@@ -1037,6 +1068,25 @@ export interface OutstandingInvoiceRecord {
   issuedAt: string;
 }
 
+/** One invoice of any status, with its customer and what has been paid, for Finance's invoice list. */
+export interface InvoiceRegisterRecord {
+  invoiceId: string;
+  /** Null while it is a draft. */
+  invoiceNumber: string | null;
+  status: "draft" | "issued" | "void";
+  jobId: string;
+  fileNumber: string;
+  customerCompanyId: string;
+  customerCompanyName: string;
+  currency: string;
+  totalMinor: number;
+  paidMinor: number;
+  /** YYYY-MM-DD */
+  dueDate: string | null;
+  createdAt: string;
+  issuedAt: string | null;
+}
+
 /**
  * One line of a customer's account: an issued invoice (money owed) or a
  * payment still standing against one (money received). Reversed payments and
@@ -1074,6 +1124,8 @@ export interface ActivityEntry {
 export interface ActivityRecord extends ActivityEntry {
   id: string;
   occurredAt: string;
+  /** The actor's name as others see it (the stored email stays for the audit). */
+  actorName: string | null;
 }
 
 export interface ActivityFilter {
@@ -1721,6 +1773,8 @@ export abstract class DatabasePort {
     companyId: string,
     quoteRequestId: string | null,
   ): Promise<number>;
+  /** A quote was issued to the company: its new or contacted leads become quoted. */
+  abstract markLeadsQuoted(companyId: string): Promise<number>;
   /** Leads logged and clients converted from `from` (inclusive) to `to` (exclusive), YYYY-MM-DD. */
   abstract salesPeriod(from: string, to: string): Promise<SalesPeriodRecord>;
   /** Report figures from `from` to `to`, both inclusive (YYYY-MM-DD). */
@@ -1805,9 +1859,30 @@ export abstract class DatabasePort {
   abstract createSupportRequest(
     request: Omit<
       SupportRequestRecord,
-      "id" | "companyName" | "status" | "createdAt" | "updatedAt"
+      | "id"
+      | "companyName"
+      | "reporterName"
+      | "status"
+      | "messages"
+      | "createdAt"
+      | "updatedAt"
     >,
   ): Promise<SupportRequestRecord>;
+  /** One support request with its replies; null when there is none. */
+  abstract findSupportRequest(id: string): Promise<SupportRequestRecord | null>;
+  /**
+   * Adds a reply and returns the request. A first answer from support moves a
+   * "new" request to "in_progress"; the reporter writing again on a "done"
+   * request reopens it as "new". Null when there is no such request.
+   */
+  abstract addSupportMessage(
+    id: string,
+    message: {
+      authorUserId: string;
+      authorRole: SupportMessageRecord["authorRole"];
+      body: string;
+    },
+  ): Promise<SupportRequestRecord | null>;
   /** Every support request, newest first; only the person's own with `reporterUserId`. */
   abstract listSupportRequests(
     reporterUserId?: string,
@@ -1912,6 +1987,12 @@ export abstract class DatabasePort {
    * invoice must be issued, in scope, the same customer's and the same
    * currency, and no invoice may be paid beyond its balance.
    */
+  /** The invoices one multi-invoice payment settled (within companyIds when given). */
+  abstract listBatchReceipt(
+    batchId: string,
+    companyIds?: string[],
+  ): Promise<BatchReceiptLine[]>;
+
   abstract recordPaymentBatch(
     batch: {
       companyId: string | null;
@@ -2120,6 +2201,11 @@ export abstract class DatabasePort {
     companyId: string | null;
     scope: JobScope;
   }): Promise<OutstandingInvoiceRecord[]>;
+  /** Every invoice, drafts and void ones included, within the caller's scope, newest first. */
+  abstract listInvoiceRegister(filter: {
+    companyId: string | null;
+    scope: JobScope;
+  }): Promise<InvoiceRegisterRecord[]>;
   /** Every issued invoice and standing payment of one customer company, any currency, oldest first. */
   abstract listStatementEntries(
     companyId: string,
@@ -2149,7 +2235,7 @@ export abstract class DatabasePort {
   abstract createLead(
     input: Omit<
       LeadRecord,
-      | "ownerEmail"
+      | "ownerName"
       | "customerCompanyName"
       | "updatedAt"
       | "stageChangedAt"

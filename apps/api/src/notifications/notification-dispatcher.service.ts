@@ -18,8 +18,11 @@ import {
 import { replyEvents, replyHtml, replyText } from "./reply-template";
 import { etaReminderMessage } from "./notification-messages";
 import { NotificationsService } from "./notifications.service";
-import { invoiceView } from "../finance/invoices.service";
-import { renderReceiptPdf } from "../finance/receipt-pdf";
+import { InvoicesService, invoiceView } from "../finance/invoices.service";
+import {
+  renderBatchReceiptPdf,
+  renderReceiptPdf,
+} from "../finance/receipt-pdf";
 import { renderQuotePdf } from "../quotations/quote-pdf";
 import { JobReportService } from "../finance/job-report.service";
 import {
@@ -61,6 +64,7 @@ export class NotificationDispatcher implements OnModuleInit, OnModuleDestroy {
     @Inject(NotificationsService)
     private readonly notifications: NotificationsService,
     @Inject(JobReportService) private readonly jobReports: JobReportService,
+    @Inject(InvoicesService) private readonly invoices: InvoicesService,
   ) {}
 
   onModuleInit(): void {
@@ -135,6 +139,7 @@ export class NotificationDispatcher implements OnModuleInit, OnModuleDestroy {
               attachments:
                 (await this.quoteAttachment(delivery)) ??
                 (await this.receiptAttachment(delivery)) ??
+                (await this.summaryAttachment(delivery)) ??
                 (await this.jobReportAttachment(delivery)),
             })
           : await this.sms.send({
@@ -213,6 +218,37 @@ export class NotificationDispatcher implements OnModuleInit, OnModuleDestroy {
     return [{ filename, content: file }];
   }
 
+  /** The invoice or payment summary, made when the email goes out. */
+  private async summaryAttachment(delivery: DueDelivery) {
+    const invoices = /^invoice-summary-sent:([0-9a-f-]{36}):/.exec(
+      delivery.dedupeKey,
+    );
+    const payments =
+      /^payment-summary-sent:([0-9a-f-]{36}):([\d-]*):([\d-]*):(\w*):/.exec(
+        delivery.dedupeKey,
+      );
+    const companyId = invoices?.[1] ?? payments?.[1];
+    if (!companyId) return undefined;
+    if (companyId !== delivery.companyId) {
+      throw new Error("Summary was not found for this customer");
+    }
+    const { file, filename } = invoices
+      ? await this.invoices.invoiceSummaryPdf(
+          { companyId, owingOnly: true },
+          {},
+        )
+      : await this.invoices.paymentSummaryPdf(
+          {
+            companyId,
+            from: payments?.[2],
+            to: payments?.[3],
+            method: payments?.[4],
+          },
+          {},
+        );
+    return [{ filename, content: file }];
+  }
+
   private async receiptAttachment(delivery: DueDelivery) {
     if (delivery.event !== "receipt_sent") return undefined;
     const paymentId = /^receipt-sent:([0-9a-f-]{36}):/.exec(
@@ -238,16 +274,23 @@ export class NotificationDispatcher implements OnModuleInit, OnModuleDestroy {
     if (!payment?.receiptNumber || !invoice) {
       throw new Error("Receipt was not found");
     }
-    const content = await renderReceiptPdf({
-      payment,
-      invoice: invoiceView(
-        invoice,
-        payments.filter((item) => item.invoiceId === invoice.id),
-        false,
-      ),
-      job,
-      settings: settings?.settings ?? null,
-    });
+    const content = payment.batchId
+      ? await renderBatchReceiptPdf({
+          lines: await this.database.listBatchReceipt(payment.batchId, [
+            job.customerCompanyId,
+          ]),
+          settings: settings?.settings ?? null,
+        })
+      : await renderReceiptPdf({
+          payment,
+          invoice: invoiceView(
+            invoice,
+            payments.filter((item) => item.invoiceId === invoice.id),
+            false,
+          ),
+          job,
+          settings: settings?.settings ?? null,
+        });
     const filename = `${payment.receiptNumber.replace(/[^A-Za-z0-9-]+/g, "-")}.pdf`;
     return [{ filename, content }];
   }

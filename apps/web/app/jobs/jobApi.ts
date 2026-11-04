@@ -33,10 +33,10 @@ export type Job = {
   vessel: string | null;
   portOfLoading: string | null;
   portOfDischarge: string | null;
-  /** On the jobs list: the newest ETA and, for staff, the lead's email. */
+  /** On the jobs list: the newest ETA and, for staff, the lead's name. */
   currentEtaAt?: string | null;
   leadUserId?: string | null;
-  leadEmail?: string | null;
+  leadName?: string | null;
 };
 
 /** Jobs list and board filters; each is optional and they combine. */
@@ -472,7 +472,7 @@ export type InvoiceAcceptance = {
 export type JobTeamMember = {
   id: string;
   userId: string;
-  email: string | null;
+  name: string | null;
   kind: "lead" | "assistant";
   assignedAt: string;
   overrideReason: string | null;
@@ -494,7 +494,7 @@ export type JobTeam = {
       via: "staff" | "portal";
     } | null;
   }>;
-  candidates: Array<{ userId: string; email: string | null }>;
+  candidates: Array<{ userId: string; name: string | null }>;
 };
 
 export const getJobTeam = (id: string) =>
@@ -1180,14 +1180,44 @@ export const getOutstandingInvoices = (companyId: string) =>
     "GET",
   );
 
+/** One invoice of any status on Finance's invoice list. */
+export type InvoiceRegisterRow = {
+  invoiceId: string;
+  invoiceNumber: string | null;
+  status: "draft" | "issued" | "void";
+  paymentStatus: Invoice["paymentStatus"];
+  jobId: string;
+  fileNumber: string;
+  customerCompanyId: string;
+  customerCompanyName: string;
+  currency: string;
+  totalMinor: number;
+  paidMinor: number;
+  outstandingMinor: number;
+  dueDate: string | null;
+  overdue: boolean;
+  createdAt: string;
+  issuedAt: string | null;
+};
+
+/** Every invoice, drafts to paid: finance staff only. */
+export const listAllInvoices = (companyId: string) =>
+  sendApi<InvoiceRegisterRow[]>(
+    `/invoices${companyId ? `?companyId=${encodeURIComponent(companyId)}` : ""}`,
+    "GET",
+  );
+
 export type Receipt = {
   paymentId: string;
   invoiceId: string;
   jobId: string;
   fileNumber: string;
+  customerCompanyId: string;
   customerCompanyName: string;
   invoiceNumber: string;
   receiptNumber: string;
+  /** Shared by the invoices one payment settled: they share one receipt. */
+  batchId: string | null;
   currency: string;
   amountMinor: number;
   receivedOn: string;
@@ -1198,6 +1228,64 @@ export type Receipt = {
 };
 
 export const listReceipts = () => sendApi<Receipt[]>("/receipts", "GET");
+
+/** One PDF adding up a customer's payments; each keeps its own receipt. */
+export async function fetchPaymentSummaryPdf(query: {
+  companyId: string;
+  from: string;
+  to: string;
+  method: string;
+}): Promise<Blob> {
+  const params = new URLSearchParams(
+    Object.entries(query).filter(([, value]) => value !== ""),
+  );
+  const response = await authenticatedFetch(
+    `${apiRoot}/receipts/summary?${params}`,
+  );
+  if (!response.ok) throw new Error("The payment summary could not be created");
+  return response.blob();
+}
+
+/** Issues several drafts of one client together; the client gets one message. */
+export const issueInvoices = (companyId: string, invoiceIds: string[]) =>
+  sendApi<Invoice[]>("/invoices/issue", "POST", { companyId, invoiceIds });
+
+/** Emails the client their issued invoices still owing, in one PDF. */
+export const sendInvoiceSummary = (companyId: string) =>
+  sendApi<{ queued: boolean }>(
+    `/invoices/summary/send?companyId=${encodeURIComponent(companyId)}`,
+    "POST",
+  );
+
+/** Emails the customer their payment summary, with the page's filters. */
+export const sendPaymentSummary = (query: {
+  companyId: string;
+  from: string;
+  to: string;
+  method: string;
+}) =>
+  sendApi<{ queued: boolean }>(
+    `/receipts/summary/send?${new URLSearchParams(
+      Object.entries(query).filter(([, value]) => value !== ""),
+    )}`,
+    "POST",
+  );
+
+/** A client's invoices in one PDF: a summary, then each invoice in full. */
+export async function fetchInvoiceSummaryPdf(
+  companyId: string,
+  invoiceIds: string[],
+): Promise<Blob> {
+  const params = new URLSearchParams({
+    companyId,
+    invoiceIds: invoiceIds.join(","),
+  });
+  const response = await authenticatedFetch(
+    `${apiRoot}/invoices/summary?${params}`,
+  );
+  if (!response.ok) throw new Error("The invoice summary could not be created");
+  return response.blob();
+}
 
 /** Emails the receipt, PDF attached, to the client's contacts. */
 export const sendReceipt = (id: string, invoiceId: string, paymentId: string) =>

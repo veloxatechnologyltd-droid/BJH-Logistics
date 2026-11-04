@@ -496,7 +496,7 @@ export function LeadsBoard() {
                     </td>
                     <td>{sourceLabels[lead.source]}</td>
                     <td>
-                      {lead.ownerEmail ?? "Unassigned"}{" "}
+                      {lead.ownerName ?? "Unassigned"}{" "}
                       <button
                         className={ui.textButton}
                         onClick={() =>

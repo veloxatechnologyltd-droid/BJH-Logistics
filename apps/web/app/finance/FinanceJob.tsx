@@ -5,29 +5,30 @@ import { useEffect, useState } from "react";
 import { canWorkFinance } from "../auth/roleAccess";
 import { useStaffAccess } from "../auth/useStaffAccess";
 import { FinanceTabs } from "../invoices/FinanceTabs";
-import { JobCharges } from "../jobs/JobCharges";
-import { JobInvoices } from "../jobs/JobInvoices";
-import { getTimeline, listDocuments } from "../jobs/jobApi";
-import type { Job, JobDocument } from "../jobs/jobApi";
+import { invoiceStatusLabels } from "../jobs/JobInvoices";
+import { getTimeline, listInvoices } from "../jobs/jobApi";
+import type { Invoice, Job } from "../jobs/jobApi";
+import { formatMoney } from "../quotes/quoteApi";
 import styles from "../jobs/jobs.module.css";
 import { ErrorPopup } from "../ErrorPopup";
 
 /**
- * A job's billing, worked from Finance only (client walkthrough, 2026-11-03):
- * its costs and charges, invoices, and payments. The job's own page shows
- * them read-only.
+ * A job in Finance, kept simple for a non-technical team (Evans,
+ * 2026-11-04): buttons to create an invoice or record a payment, the job's
+ * invoices as links to their own pages. What BJH paid suppliers is recorded
+ * on Finance → Costs, linked from here.
  */
 export function FinanceJob({ jobId }: { jobId: string }) {
   const { status, roles } = useStaffAccess();
   const [job, setJob] = useState<Job | null>(null);
-  const [documents, setDocuments] = useState<JobDocument[]>([]);
+  const [invoices, setInvoices] = useState<Invoice[] | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    Promise.all([getTimeline(jobId), listDocuments(jobId)])
-      .then(([timeline, docs]) => {
+    Promise.all([getTimeline(jobId), listInvoices(jobId)])
+      .then(([timeline, found]) => {
         setJob(timeline.job);
-        setDocuments(docs);
+        setInvoices(found);
       })
       .catch((cause) =>
         setError(
@@ -69,25 +70,60 @@ export function FinanceJob({ jobId }: { jobId: string }) {
             </p>
           )}
         </div>
+        {job && (
+          <div className={styles.toolbar}>
+            {!closedJob && (
+              <Link
+                className={styles.primaryLink}
+                href={`/finance/invoices/new?client=${job.customerCompanyId}&job=${job.id}`}
+              >
+                Create invoice
+              </Link>
+            )}
+            <Link
+              className={styles.secondaryButton}
+              href={`/finance/receipts?pay=${job.customerCompanyId}`}
+            >
+              Record payment
+            </Link>
+            <Link
+              className={styles.secondaryButton}
+              href={`/finance/costs?job=${job.id}${closedJob ? "" : "&record=1"}`}
+            >
+              {closedJob ? "View costs" : "Record a cost"}
+            </Link>
+          </div>
+        )}
       </header>
       <FinanceTabs active="/finance/jobs" />
       <ErrorPopup message={error} />
-      {job && (
-        <>
-          <JobCharges
-            canEdit={!closedJob}
-            documents={documents}
-            jobId={job.id}
-            quoteId={job.quoteId}
-          />
-          <JobInvoices
-            canEdit={!closedJob}
-            documents={documents}
-            isStaff
-            jobId={job.id}
-            quoteId={job.quoteId}
-          />
-        </>
+      {job && invoices && (
+        <section className={styles.card} aria-labelledby="job-invoices-title">
+          <h2 id="job-invoices-title">Invoices</h2>
+          {invoices.length === 0 ? (
+            <p className={styles.muted}>No invoices yet.</p>
+          ) : (
+            <ul className={styles.list}>
+              {invoices.map((invoice) => (
+                <li key={invoice.id}>
+                  <Link
+                    className={styles.link}
+                    href={`/finance/jobs/${job.id}/invoices/${invoice.id}`}
+                  >
+                    {invoice.invoiceNumber ?? "Draft invoice"}
+                  </Link>{" "}
+                  <span className={styles.badge}>
+                    {invoiceStatusLabels[invoice.paymentStatus]}
+                  </span>{" "}
+                  {formatMoney(invoice.totalMinor, invoice.currency)}
+                  {invoice.status === "issued" &&
+                    invoice.outstandingMinor > 0 &&
+                    ` · owing ${formatMoney(invoice.outstandingMinor, invoice.currency)}`}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
       )}
     </main>
   );

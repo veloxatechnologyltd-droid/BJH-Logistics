@@ -13,6 +13,7 @@ import {
   TEST_UNASSIGNED_USER_ID,
   createTestApplication,
 } from "./test-application";
+import { staffDisplayName } from "../src/auth/staff-admin.port";
 import { DatabasePort } from "../src/database/database.port";
 import { beginTestDatabase, endTestDatabase } from "./postgres-test-database";
 
@@ -121,14 +122,14 @@ test("sales logs a lead and its follow-ups, newest first", async () => {
   }
   const activities = (await (
     await call(`/api/v1/leads/${leadId}/activities`, TEST_UNASSIGNED_TOKEN)
-  ).json()) as Array<{ kind: string; createdByEmail: string }>;
+  ).json()) as Array<{ kind: string; createdByName: string }>;
   assert.deepEqual(
     activities.map((item) => item.kind),
     ["visit", "call"],
   );
   assert.equal(
-    activities[0].createdByEmail,
-    `${TEST_UNASSIGNED_USER_ID}@example.test`,
+    activities[0].createdByName,
+    staffDisplayName({ email: `${TEST_UNASSIGNED_USER_ID}@example.test` }),
   );
 
   const bad = await send(
@@ -245,4 +246,100 @@ test("reports show the sales and customer service picture for the period", async
   assert.equal(report.sales.converted, 1);
   assert.equal(report.service.quotesIssued, 1);
   assert.equal(report.service.quotesAccepted, 1);
+});
+
+test("a quote can be prepared for a lead: it becomes a customer, then quoted on issue", async () => {
+  const create = (body: unknown) =>
+    send("POST", "/api/v1/leads", TEST_UNASSIGNED_TOKEN, body);
+  const noEmail = (await (
+    await create({ companyName: "No Email Synthetic Ltd" })
+  ).json()) as Lead;
+  assert.equal(
+    (
+      await send(
+        "POST",
+        `/api/v1/leads/${noEmail.id}/customer`,
+        TEST_UNASSIGNED_TOKEN,
+      )
+    ).status,
+    400,
+  );
+
+  const lead = (await (
+    await create({
+      companyName: "Lead Quote Synthetic Ltd",
+      contactName: "Lena Lead",
+      email: "lena@leadquote.test",
+    })
+  ).json()) as Lead;
+  // Customers cannot turn leads into customers.
+  assert.equal(
+    (
+      await send(
+        "POST",
+        `/api/v1/leads/${lead.id}/customer`,
+        TEST_CUSTOMER_A_TOKEN,
+      )
+    ).status,
+    403,
+  );
+  const converted = await send(
+    "POST",
+    `/api/v1/leads/${lead.id}/customer`,
+    TEST_UNASSIGNED_TOKEN,
+  );
+  assert.equal(converted.status, 201, await converted.clone().text());
+  const { customerCompanyId } = (await converted.json()) as {
+    customerCompanyId: string;
+  };
+  // Asking again gives the same company, not a second one.
+  const again = (await (
+    await send(
+      "POST",
+      `/api/v1/leads/${lead.id}/customer`,
+      TEST_UNASSIGNED_TOKEN,
+    )
+  ).json()) as { customerCompanyId: string };
+  assert.equal(again.customerCompanyId, customerCompanyId);
+
+  const customer = (await (
+    await call(`/api/v1/customers/${customerCompanyId}`, TEST_SUPER_ADMIN_TOKEN)
+  ).json()) as {
+    companyName: string;
+    contacts: { name: string; email: string; notify: boolean }[];
+  };
+  assert.equal(customer.companyName, "Lead Quote Synthetic Ltd");
+  assert.equal(customer.contacts[0]?.email, "lena@leadquote.test");
+  assert.equal(customer.contacts[0]?.notify, true);
+
+  const quote = await send("POST", "/api/v1/quotes", TEST_UNASSIGNED_TOKEN, {
+    customerCompanyId,
+    serviceLine: "sea_import",
+    version: {
+      currency: "USD",
+      title: "Synthetic lead quotation",
+      sizeLabels: [],
+      lines: [{ description: "Clearance", basis: "fixed", amountMinor: 50000 }],
+    },
+  });
+  assert.equal(quote.status, 201, await quote.clone().text());
+  const quoteId = ((await quote.json()) as { id: string }).id;
+  const leadNow = async () =>
+    (
+      (await (
+        await call("/api/v1/leads", TEST_UNASSIGNED_TOKEN)
+      ).json()) as Lead[]
+    ).find((row) => row.id === lead.id)?.stage;
+  assert.equal(await leadNow(), "new");
+  assert.equal(
+    (
+      await send(
+        "POST",
+        `/api/v1/quotes/${quoteId}/issue`,
+        TEST_UNASSIGNED_TOKEN,
+      )
+    ).status,
+    201,
+  );
+  assert.equal(await leadNow(), "quoted");
 });

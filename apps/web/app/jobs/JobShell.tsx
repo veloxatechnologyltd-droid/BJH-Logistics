@@ -61,7 +61,7 @@ const tabs: Tab[] = [
   { slug: "shipment", label: "Shipment details" },
   { slug: "documents", label: "Documents" },
   { slug: "delivery", label: "Delivery" },
-  { slug: "money", label: "Costs & invoices" },
+  { slug: "money", label: "Invoices" },
   { slug: "tasks", label: "Tasks", staffOnly: true },
   { slug: "messages", label: "Messages", staffOnly: true },
 ];
@@ -158,14 +158,11 @@ export function JobShell({
   const { job } = data.timeline;
   const closedJob = job.status === "closed" || job.status === "cancelled";
   const base = `/jobs/${jobId}`;
-  // Finance and customer service see costs and invoices; customers see their
-  // invoices; other staff see no money.
+  // Customers see their invoices here. Staff work billing in Finance only
+  // (Evans, 2026-11-04), so the job has no money tab for staff.
   const visibleTabs = tabs
     .filter((tab) => isStaff || !tab.staffOnly)
-    .filter((tab) => tab.slug !== "money" || !isStaff || canWorkFinance(roles))
-    .map((tab) =>
-      tab.slug === "money" && !isStaff ? { ...tab, label: "Invoices" } : tab,
-    );
+    .filter((tab) => tab.slug !== "money" || !isStaff);
 
   return (
     <JobContext.Provider
@@ -192,7 +189,28 @@ export function JobShell({
               {job.customerCompanyName} · opened {formatDate(job.openedAt)}
             </p>
           </div>
-          <span className={styles.badge}>{statusLabels[job.status]}</span>
+          <div className={styles.toolbar}>
+            {/* Billing is done in Finance; these take finance staff there. */}
+            {canWorkFinance(roles) && (
+              <>
+                {job.status !== "closed" && job.status !== "cancelled" && (
+                  <Link
+                    className={styles.secondaryButton}
+                    href={`/finance/invoices/new?client=${job.customerCompanyId}&job=${job.id}`}
+                  >
+                    Create invoice
+                  </Link>
+                )}
+                <Link
+                  className={styles.secondaryButton}
+                  href={`/finance/receipts?pay=${job.customerCompanyId}`}
+                >
+                  Record payment
+                </Link>
+              </>
+            )}
+            <span className={styles.badge}>{statusLabels[job.status]}</span>
+          </div>
         </header>
 
         <nav className={styles.tabs} aria-label="Job sections">

@@ -23,7 +23,11 @@ import {
   EMAIL_PROVIDER,
   RecordingEmailProvider,
 } from "../src/notifications/providers";
-import { beginTestDatabase, endTestDatabase } from "./postgres-test-database";
+import {
+  beginTestDatabase,
+  endTestDatabase,
+  testPostgresPool,
+} from "./postgres-test-database";
 
 let application: INestApplication;
 let baseUrl: string;
@@ -36,6 +40,7 @@ type Thread = {
     direction: string;
     channel: string;
     body: string;
+    authorName: string | null;
     readAt: string | null;
   }>;
 };
@@ -314,4 +319,44 @@ test("quoted history is cut from emailed replies", () => {
   );
   assert.equal(replyText("Fine\n> earlier"), "Fine");
   assert.equal(replyText("Just this"), "Just this");
+});
+
+test("messages carry a person's name, never an email: staff name, client contact name", async () => {
+  await testPostgresPool.query(
+    `UPDATE auth.users SET email = $2 WHERE id = $1::uuid`,
+    [TEST_CUSTOMER_A_ID, "ama@chat-north.test"],
+  );
+  await testPostgresPool.query(
+    `UPDATE auth.users
+     SET raw_user_meta_data = jsonb_build_object('full_name', $2::text)
+     WHERE id = $1::uuid`,
+    [TEST_UNASSIGNED_USER_ID, "Efua Owusu"],
+  );
+  assert.equal(
+    (
+      await post("/api/v1/chat/mine", TEST_CUSTOMER_A_TOKEN, {
+        body: "Names check from the client.",
+      })
+    ).status,
+    201,
+  );
+  assert.equal(
+    (
+      await post(`/api/v1/chat/threads/${companyA}`, TEST_UNASSIGNED_TOKEN, {
+        body: "Names check from staff.",
+      })
+    ).status,
+    201,
+  );
+  const thread = (await (
+    await call(`/api/v1/chat/threads/${companyA}`, TEST_UNASSIGNED_TOKEN)
+  ).json()) as Thread;
+  const author = (body: string) =>
+    thread.messages.find((message) => message.body === body)?.authorName;
+  assert.equal(author("Names check from the client."), "Ama Synthetic");
+  assert.equal(author("Names check from staff."), "Efua Owusu");
+  assert.ok(
+    thread.messages.every((message) => !message.authorName?.includes("@")),
+    "older messages saved with an email show a tidy name instead",
+  );
 });

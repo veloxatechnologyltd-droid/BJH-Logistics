@@ -86,7 +86,7 @@ export function ReplyThread({
         <article className={styles.replyBlock} key={reply.id}>
           <p className={styles.emailStatus}>
             {reply.sentBy
-              ? `By ${reply.sentByEmail ?? "staff"}`
+              ? `By ${reply.sentByName ?? "staff"}`
               : "By the assistant"}{" "}
             · {formatDate(reply.createdAt)}
             {reply.status ? ` · ${statusLabels[reply.status]}` : ""}
