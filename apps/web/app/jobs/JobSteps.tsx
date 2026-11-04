@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useState } from "react";
 import type { FormEvent } from "react";
+import { canWorkFinance } from "../auth/roleAccess";
+import { useStaffAccess } from "../auth/useStaffAccess";
 import { recordMilestone } from "./jobApi";
 import type { Job, MilestoneEvent, Timeline } from "./jobApi";
 import { formatDate } from "./jobFormat";
@@ -26,6 +28,14 @@ export function JobSteps({
   canEdit: boolean;
   run: (action: () => Promise<unknown>, after?: () => void) => Promise<void>;
 }) {
+  const { roles } = useStaffAccess();
+  // Billing lives in Finance; customers see their invoices on the job.
+  const billingHref =
+    roles.length === 0
+      ? `/jobs/${job.id}/money`
+      : canWorkFinance(roles)
+        ? `/finance/jobs/${job.id}`
+        : null;
   const [entry, setEntry] = useState<{
     milestoneKey: string;
     correctionOf?: string;
@@ -128,24 +138,18 @@ export function JobSteps({
                   )}
                 </div>
                 {financeKeys.has(item.key) ? (
-                  <Link
-                    className={styles.textButton}
-                    href={
-                      item.key === "customer_payment_recorded" &&
-                      !recorded &&
-                      canEdit
-                        ? `/jobs/${job.id}/money?pay=1#invoices-title`
-                        : `/jobs/${job.id}/money#invoices-title`
-                    }
-                  >
-                    {recorded
-                      ? "View"
-                      : !canEdit
-                        ? "View invoices"
-                        : item.key === "customer_payment_recorded"
-                          ? "Record payment"
-                          : "Create invoice"}
-                  </Link>
+                  // Ticked by Finance's own records, never from here.
+                  recorded ? (
+                    billingHref && (
+                      <Link className={styles.textButton} href={billingHref}>
+                        View
+                      </Link>
+                    )
+                  ) : (
+                    <small className={styles.muted}>
+                      Ticks when Finance records it
+                    </small>
+                  )
                 ) : recorded?.source === "system" ? (
                   // Filled from the waybill; it is changed on the Delivery tab.
                   <Link

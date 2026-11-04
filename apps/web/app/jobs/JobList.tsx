@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import type { JobStatus, ServiceLine } from "@bjh/contracts";
 import { listJobs, serviceLineLabels, statusLabels } from "./jobApi";
 import type { Job, JobFilters } from "./jobApi";
@@ -10,6 +10,7 @@ import { listCustomers } from "../customers/customerApi";
 import type { CustomerCompany } from "../customers/customerApi";
 import { useStaffAccess } from "../auth/useStaffAccess";
 import styles from "./jobs.module.css";
+import cards from "../finance/finance.module.css";
 import { ErrorPopup } from "../ErrorPopup";
 
 const activeStatuses: JobStatus[] = [
@@ -82,6 +83,7 @@ export function JobList() {
   const [reps, setReps] = useState<Map<string, string>>(new Map());
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
   const [error, setError] = useState("");
+  const [opened, setOpened] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (!isStaff) return;
@@ -118,7 +120,7 @@ export function JobList() {
           const next = new Map(current);
           for (const job of result) {
             if (job.leadUserId)
-              next.set(job.leadUserId, job.leadEmail ?? "Staff member");
+              next.set(job.leadUserId, job.leadName ?? "Staff member");
           }
           return next.size === current.size ? current : next;
         });
@@ -139,6 +141,26 @@ export function JobList() {
 
   const set = (key: keyof typeof empty) => (value: string) =>
     setFilters((current) => ({ ...current, [key]: value }));
+  // One row per client, in the API's order (newest job first); its jobs show when opened.
+  const groups = useMemo(() => {
+    const byClient = new Map<string, Job[]>();
+    for (const job of jobs) {
+      byClient.set(job.customerCompanyId, [
+        ...(byClient.get(job.customerCompanyId) ?? []),
+        job,
+      ]);
+    }
+    return [...byClient.values()];
+  }, [jobs]);
+  // Searching, or a single client, shows the jobs straight away.
+  const openAll = groups.length === 1 || search.trim() !== "";
+  const toggleClient = (id: string) =>
+    setOpened((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   const filtered =
     search.trim() !== "" ||
     Object.values(filters).some((value) => value !== "");
@@ -234,9 +256,9 @@ export function JobList() {
               >
                 <option value="">Anyone</option>
                 <option value="me">My jobs</option>
-                {[...reps].map(([id, email]) => (
+                {[...reps].map(([id, name]) => (
                   <option key={id} value={id}>
-                    {email}
+                    {name}
                   </option>
                 ))}
               </select>
@@ -335,7 +357,6 @@ export function JobList() {
               <thead>
                 <tr>
                   <th scope="col">File number</th>
-                  <th scope="col">Customer</th>
                   <th scope="col">Service</th>
                   <th scope="col">Status</th>
                   {isStaff && <th scope="col">Lead</th>}
@@ -344,29 +365,70 @@ export function JobList() {
                 </tr>
               </thead>
               <tbody>
-                {jobs.map((job) => (
-                  <tr key={job.id}>
-                    <th scope="row">
-                      <Link className={styles.link} href={`/jobs/${job.id}`}>
-                        {job.fileNumber}
-                      </Link>
-                    </th>
-                    <td>{job.customerCompanyName}</td>
-                    <td>{serviceLineLabels[job.serviceLine]}</td>
-                    <td>
-                      <span className={styles.badge}>
-                        {statusLabels[job.status]}
-                      </span>
-                    </td>
-                    {isStaff && <td>{job.leadEmail ?? "—"}</td>}
-                    <td>
-                      {job.currentEtaAt
-                        ? formatShortDate(job.currentEtaAt)
-                        : "—"}
-                    </td>
-                    <td>{formatShortDate(job.openedAt)}</td>
-                  </tr>
-                ))}
+                {groups.map((group) => {
+                  const id = group[0].customerCompanyId;
+                  const open = openAll || opened.has(id);
+                  const active = group.filter((job) =>
+                    activeStatuses.includes(job.status),
+                  ).length;
+                  return (
+                    <Fragment key={id}>
+                      <tr className={cards.clientRow}>
+                        <td className={cards.jobCell}>
+                          <button
+                            aria-expanded={open}
+                            className={cards.clientToggle}
+                            onClick={() => toggleClient(id)}
+                            type="button"
+                          >
+                            <span aria-hidden="true">{open ? "▾" : "▸"}</span>{" "}
+                            {group[0].customerCompanyName}
+                          </button>
+                          <span className={cards.customerName}>
+                            {group.length} {group.length === 1 ? "job" : "jobs"}
+                          </span>
+                        </td>
+                        <td />
+                        <td>
+                          {active > 0 && (
+                            <span className={styles.badge}>
+                              {active} active
+                            </span>
+                          )}
+                        </td>
+                        {isStaff && <td />}
+                        <td />
+                        <td />
+                      </tr>
+                      {open &&
+                        group.map((job) => (
+                          <tr className={cards.invoiceRow} key={job.id}>
+                            <th className={cards.jobCell} scope="row">
+                              <Link
+                                className={styles.link}
+                                href={`/jobs/${job.id}`}
+                              >
+                                {job.fileNumber}
+                              </Link>
+                            </th>
+                            <td>{serviceLineLabels[job.serviceLine]}</td>
+                            <td>
+                              <span className={styles.badge}>
+                                {statusLabels[job.status]}
+                              </span>
+                            </td>
+                            {isStaff && <td>{job.leadName ?? "—"}</td>}
+                            <td>
+                              {job.currentEtaAt
+                                ? formatShortDate(job.currentEtaAt)
+                                : "—"}
+                            </td>
+                            <td>{formatShortDate(job.openedAt)}</td>
+                          </tr>
+                        ))}
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>

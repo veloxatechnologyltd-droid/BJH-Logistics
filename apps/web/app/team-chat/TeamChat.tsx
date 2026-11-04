@@ -59,6 +59,23 @@ const shortWhen = (iso: string) =>
         month: "short",
       });
 
+const teamLabels: Record<string, string> = {
+  sales: "Sales",
+  customer_service: "Customer Service",
+  operations: "Operations",
+  finance: "Finance",
+};
+
+/** Online now, or when the person was last seen (kept by the API since it last started). */
+const presence = (person?: TeamPerson) =>
+  !person
+    ? ""
+    : person.online
+      ? "Online"
+      : person.lastSeen
+        ? `Last seen ${shortWhen(person.lastSeen)}`
+        : "Offline";
+
 /** `@ama` or `#BJH/SI` being typed at the end of the message, if any. */
 function trigger(text: string) {
   const match = /(^|\s)([@#])([^\s@#]{0,40})$/.exec(text);
@@ -117,14 +134,22 @@ export function TeamChat() {
     }
   }, []);
 
-  useEffect(() => {
-    void loadList();
+  const loadPeople = useCallback(() => {
     listTeamPeople()
       .then(setPeople)
       .catch((cause: unknown) => fail(cause, "Staff list unavailable"));
-    const timer = window.setInterval(() => void loadList(), listEveryMs);
+  }, []);
+
+  useEffect(() => {
+    void loadList();
+    loadPeople();
+    // The people list also carries who is online, so it refreshes with the list.
+    const timer = window.setInterval(() => {
+      void loadList();
+      loadPeople();
+    }, listEveryMs);
     return () => window.clearInterval(timer);
-  }, [loadList]);
+  }, [loadList, loadPeople]);
 
   useEffect(() => {
     if (!selected) return;
@@ -154,12 +179,12 @@ export function TeamChat() {
       const term = typing.term.toLowerCase();
       setSuggestions(
         people
-          .filter((person) => (person.email ?? "").toLowerCase().includes(term))
+          .filter((person) => person.name.toLowerCase().includes(term))
           .slice(0, 8)
           .map((person) => ({
             kind: "user",
             id: person.userId,
-            label: person.email ?? "Staff member",
+            label: person.name,
             note: kindNotes.user,
           })),
       );
@@ -353,6 +378,25 @@ export function TeamChat() {
     item.title.toLowerCase().includes(filter.trim().toLowerCase()),
   );
   const members = new Set(open?.members.map((member) => member.userId) ?? []);
+  const personById = new Map(people.map((person) => [person.userId, person]));
+  // Colleagues with no direct chat yet, listed by name under the conversations.
+  const talkedTo = new Set(
+    (conversations ?? []).flatMap((item) =>
+      item.personId ? [item.personId] : [],
+    ),
+  );
+  const others = people.filter(
+    (person) =>
+      !person.you &&
+      !talkedTo.has(person.userId) &&
+      person.name.toLowerCase().includes(filter.trim().toLowerCase()),
+  );
+  const openPerson =
+    open?.kind === "direct"
+      ? personById.get(
+          conversations?.find((item) => item.id === open.id)?.personId ?? "",
+        )
+      : undefined;
 
   return (
     <main className={`${jobStyles.page} ${jobStyles.pageWide}`}>
@@ -393,7 +437,7 @@ export function TeamChat() {
                       onClick={() => void chatWith(person.userId)}
                       type="button"
                     >
-                      {person.email ?? "Staff member"}
+                      {person.name}
                     </button>
                   </li>
                 ))}
@@ -431,7 +475,7 @@ export function TeamChat() {
                         }
                         type="checkbox"
                       />
-                      {person.email ?? "Staff member"}
+                      {person.name}
                     </label>
                   </li>
                 ))}
@@ -482,6 +526,10 @@ export function TeamChat() {
                       }`}
                     >
                       {item.title.slice(0, 1)}
+                      {item.personId &&
+                        personById.get(item.personId)?.online && (
+                          <span className={styles.online} />
+                        )}
                     </span>
                     <span className={styles.itemText}>
                       <span className={styles.itemTitle}>{item.title}</span>
@@ -491,13 +539,15 @@ export function TeamChat() {
                               item.lastMessage.mine
                                 ? "You: "
                                 : item.kind !== "direct" &&
-                                    item.lastMessage.authorEmail
-                                  ? `${item.lastMessage.authorEmail.split("@")[0]}: `
+                                    item.lastMessage.authorName
+                                  ? `${item.lastMessage.authorName}: `
                                   : ""
                             }${item.lastMessage.body}`
                           : item.kind === "team"
                             ? "Team channel"
-                            : "No messages yet"}
+                            : item.personId
+                              ? presence(personById.get(item.personId))
+                              : "No messages yet"}
                       </span>
                     </span>
                     <span className={styles.itemMeta}>
@@ -512,6 +562,31 @@ export function TeamChat() {
                         </span>
                       )}
                     </span>
+                  </button>
+                </li>
+              ))}
+              {others.map((person) => (
+                <li key={person.userId}>
+                  <button
+                    className={styles.item}
+                    onClick={() => void chatWith(person.userId)}
+                    type="button"
+                  >
+                    <span aria-hidden="true" className={styles.avatar}>
+                      {person.name.slice(0, 1)}
+                      {person.online && <span className={styles.online} />}
+                    </span>
+                    <span className={styles.itemText}>
+                      <span className={styles.itemTitle}>{person.name}</span>
+                      <span className={styles.itemPreview}>
+                        {presence(person)}
+                        {person.teams.length > 0 &&
+                          ` · ${person.teams
+                            .map((team) => teamLabels[team] ?? team)
+                            .join(", ")}`}
+                      </span>
+                    </span>
+                    <span className={styles.itemMeta} />
                   </button>
                 </li>
               ))}
@@ -546,7 +621,7 @@ export function TeamChat() {
                       ? "Team channel: everyone in this team"
                       : open.kind === "group"
                         ? `${open.members.length} members`
-                        : "Direct message"}
+                        : presence(openPerson) || "Direct message"}
                   </span>
                 </div>
                 {open.kind === "group" && (
@@ -562,7 +637,7 @@ export function TeamChat() {
                           .filter((person) => !members.has(person.userId))
                           .map((person) => (
                             <option key={person.userId} value={person.userId}>
-                              {person.email ?? "Staff member"}
+                              {person.name}
                             </option>
                           ))}
                       </select>{" "}
@@ -734,7 +809,7 @@ function MessageView({
         >
           {showAuthor && !message.mine && (
             <p className={styles.author}>
-              {message.authorEmail ?? "Staff member"}
+              {message.authorName ?? "Staff member"}
             </p>
           )}
           <p className={styles.body}>{message.body}</p>

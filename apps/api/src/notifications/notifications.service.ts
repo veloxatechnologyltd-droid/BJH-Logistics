@@ -5,6 +5,7 @@ import {
   correspondenceInputSchema,
   jobMessageInputSchema,
   parseContract,
+  type JobReportQuery,
   type NotificationChannelMode,
 } from "@bjh/contracts";
 import { BadRequestException } from "@nestjs/common";
@@ -27,6 +28,8 @@ export interface NotifyInput {
   /** A path in the web app, added to the message as a link. */
   linkPath?: string | null;
   createdBy?: string | null;
+  /** The job report to attach to the email. */
+  jobReportQuery?: JobReportQuery | null;
 }
 
 /** The base address of the web app, used to build the links in messages. */
@@ -106,6 +109,7 @@ export class NotificationsService {
       smsText: linkUrl ? `${message.smsText} ${linkUrl}` : message.smsText,
       linkUrl,
       createdBy: input.createdBy ?? null,
+      jobReportQuery: input.jobReportQuery ?? null,
       deliveries,
     });
   }

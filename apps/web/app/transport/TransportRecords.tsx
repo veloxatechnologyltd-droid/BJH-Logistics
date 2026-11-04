@@ -10,9 +10,35 @@ import {
   listVehicles,
   setDriverActive,
   setVehicleActive,
+  updateVehicle,
 } from "./transportApi";
 import type { Driver, Vehicle } from "./transportApi";
 import { ErrorPopup } from "../ErrorPopup";
+import { VehicleForm } from "./VehicleForm";
+
+const shortDate = (day: string) =>
+  new Intl.DateTimeFormat("en-GH", {
+    dateStyle: "medium",
+    timeZone: "UTC",
+  }).format(new Date(`${day}T00:00:00Z`));
+
+const todayUtc = () => new Date().toISOString().slice(0, 10);
+
+/** "Insurance ends 3 Dec 2026", flagged when within 14 days or past. */
+function PaperDate({ label, day }: { label: string; day: string | null }) {
+  if (!day) return null;
+  const daysLeft = Math.round(
+    (Date.parse(day) - Date.parse(todayUtc())) / 86_400_000,
+  );
+  const flag =
+    daysLeft < 0 ? " (overdue)" : daysLeft <= 14 ? " (due soon)" : "";
+  return (
+    <small>
+      {label} {shortDate(day)}
+      {flag && <strong>{flag}</strong>}
+    </small>
+  );
+}
 
 /** Drivers and vehicles are records staff assign; drivers do not sign in. */
 export function TransportRecords() {
@@ -21,9 +47,8 @@ export function TransportRecords() {
   const [error, setError] = useState("");
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
-  const [registration, setRegistration] = useState("");
-  const [description, setDescription] = useState("");
   const [adding, setAdding] = useState<"" | "driver" | "vehicle">("");
+  const [editing, setEditing] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -172,83 +197,107 @@ export function TransportRecords() {
           <ul className={styles.itemList}>
             {vehicles.map((vehicle) => (
               <li key={vehicle.id}>
-                <div>
-                  <strong>{vehicle.registration}</strong>
-                  {(vehicle.description || vehicle.deactivatedAt) && (
-                    <small>
-                      {vehicle.description ?? ""}
-                      {vehicle.description && vehicle.deactivatedAt
-                        ? " · "
-                        : ""}
-                      {vehicle.deactivatedAt ? "out of service" : ""}
-                    </small>
-                  )}
-                </div>
-                <button
-                  className={styles.textButton}
-                  onClick={() =>
-                    void run(() =>
-                      setVehicleActive(
-                        vehicle.id,
-                        vehicle.deactivatedAt !== null,
-                      ),
-                    )
-                  }
-                  type="button"
-                >
-                  {vehicle.deactivatedAt ? "Return to service" : "Take out"}
-                </button>
+                {editing === vehicle.id ? (
+                  <VehicleForm
+                    onCancel={() => setEditing(null)}
+                    onSave={(input) =>
+                      void run(
+                        () => updateVehicle(vehicle.id, input),
+                        () => setEditing(null),
+                      )
+                    }
+                    vehicle={vehicle}
+                  />
+                ) : (
+                  <>
+                    <div>
+                      <strong>{vehicle.registration}</strong>
+                      {(vehicle.description || vehicle.deactivatedAt) && (
+                        <small>
+                          {vehicle.description ?? ""}
+                          {vehicle.description && vehicle.deactivatedAt
+                            ? " · "
+                            : ""}
+                          {vehicle.deactivatedAt ? "out of service" : ""}
+                        </small>
+                      )}
+                      <PaperDate
+                        day={vehicle.insuranceEndOn}
+                        label="Insurance ends"
+                      />
+                      <PaperDate
+                        day={vehicle.dvlaExpiresOn}
+                        label="DVLA expires"
+                      />
+                      <PaperDate
+                        day={vehicle.nextServiceOn}
+                        label="Next service"
+                      />
+                      {vehicle.serviceEveryMonths &&
+                        !vehicle.lastServicedOn && (
+                          <small>
+                            Serviced every {vehicle.serviceEveryMonths} months;
+                            add the last service date
+                          </small>
+                        )}
+                    </div>
+                    <button
+                      className={styles.textButton}
+                      onClick={() => setEditing(vehicle.id)}
+                      type="button"
+                    >
+                      Edit
+                    </button>
+                    {vehicle.serviceEveryMonths && (
+                      <button
+                        className={styles.textButton}
+                        onClick={() =>
+                          void run(() =>
+                            updateVehicle(vehicle.id, {
+                              registration: vehicle.registration,
+                              description: vehicle.description ?? "",
+                              insuranceStartOn: vehicle.insuranceStartOn ?? "",
+                              insuranceEndOn: vehicle.insuranceEndOn ?? "",
+                              dvlaExpiresOn: vehicle.dvlaExpiresOn ?? "",
+                              serviceEveryMonths: vehicle.serviceEveryMonths,
+                              lastServicedOn: todayUtc(),
+                            }),
+                          )
+                        }
+                        type="button"
+                      >
+                        Serviced today
+                      </button>
+                    )}
+                    <button
+                      className={styles.textButton}
+                      onClick={() =>
+                        void run(() =>
+                          setVehicleActive(
+                            vehicle.id,
+                            vehicle.deactivatedAt !== null,
+                          ),
+                        )
+                      }
+                      type="button"
+                    >
+                      {vehicle.deactivatedAt ? "Return to service" : "Take out"}
+                    </button>
+                  </>
+                )}
               </li>
             ))}
           </ul>
           {adding === "vehicle" && (
-            <form
-              className={styles.form}
-              onSubmit={(event: FormEvent) => {
-                event.preventDefault();
+            <VehicleForm
+              onCancel={() => setAdding("")}
+              onSave={(input) =>
                 void run(
-                  () =>
-                    addVehicle({
-                      registration: registration.trim(),
-                      description: description.trim() || undefined,
-                    }),
-                  () => {
-                    setRegistration("");
-                    setDescription("");
-                    setAdding("");
-                  },
-                );
-              }}
-            >
-              <label className={styles.field}>
-                Registration
-                <input
-                  autoFocus
-                  onChange={(event) => setRegistration(event.target.value)}
-                  required
-                  value={registration}
-                />
-              </label>
-              <label className={styles.field}>
-                Description (optional)
-                <input
-                  onChange={(event) => setDescription(event.target.value)}
-                  value={description}
-                />
-              </label>
-              <div className={styles.formActions}>
-                <button className={styles.button} type="submit">
-                  Save
-                </button>
-                <button
-                  className={styles.secondaryButton}
-                  onClick={() => setAdding("")}
-                  type="button"
-                >
-                  Cancel
-                </button>
-              </div>
-            </form>
+                  () => addVehicle(input),
+                  () => setAdding(""),
+                )
+              }
+            />
           )}
         </section>
       </div>

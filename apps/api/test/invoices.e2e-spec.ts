@@ -924,3 +924,80 @@ test("each payment gets a numbered receipt; staff and the client's own accounts 
     404,
   );
 });
+
+test("a line can be a quantity times a unit price; the amount is worked out", async () => {
+  const created = await post(
+    `/api/v1/jobs/${jobA}/invoices`,
+    TEST_MATCHING_TOKEN,
+    {
+      currency: "GHS",
+      lines: [
+        {
+          description: "Handling",
+          quantity: 3,
+          unitAmountMinor: 12_550,
+          taxable: false,
+        },
+        {
+          description: "Storage days",
+          quantity: 2.5,
+          unitAmountMinor: 1_001,
+          taxable: false,
+        },
+        { description: "Flat fee", amountMinor: 5_000, taxable: false },
+      ],
+    },
+  );
+  assert.equal(created.status, 201, await created.clone().text());
+  const draft = (await created.json()) as {
+    lines: Array<{
+      amountMinor: number;
+      quantity?: number | null;
+      unitAmountMinor?: number | null;
+    }>;
+    subtotalMinor: number;
+  };
+  assert.deepEqual(
+    draft.lines.map((line) => [
+      line.quantity,
+      line.unitAmountMinor,
+      line.amountMinor,
+    ]),
+    [
+      [3, 12_550, 37_650],
+      [2.5, 1_001, 2_503],
+      [null, null, 5_000],
+    ],
+  );
+  assert.equal(draft.subtotalMinor, 45_153);
+
+  for (const [line, expected] of [
+    [
+      { description: "x", quantity: 2 },
+      "Give both a quantity and a unit price, or neither",
+    ],
+    [
+      { description: "x" },
+      "Each line needs an amount, or a quantity and a unit price",
+    ],
+    [
+      { description: "x", quantity: 0, unitAmountMinor: 1 },
+      "quantity must be more than zero",
+    ],
+    [
+      { description: "x", quantity: 1.2345, unitAmountMinor: 1 },
+      "quantity can have at most three decimal places",
+    ],
+  ] as const) {
+    const refused = await post(
+      `/api/v1/jobs/${jobA}/invoices`,
+      TEST_MATCHING_TOKEN,
+      {
+        currency: "GHS",
+        lines: [line],
+      },
+    );
+    assert.equal(refused.status, 400, expected);
+    assert.equal(await message(refused), expected);
+  }
+});

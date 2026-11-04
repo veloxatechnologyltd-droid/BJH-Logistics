@@ -228,13 +228,22 @@ export class JobScopeGuard implements CanActivate {
   }
 }
 
-/** Invoices, payments, receipts, costs and statements: finance and the boss. */
-export const financeRoles: StaffRoleKey[] = ["super_admin", "finance_rep"];
-/** Customer service prepares and issues quotes; sales may too. */
+/**
+ * Invoices, payments, receipts, costs and statements: finance and the boss.
+ * BJH has no finance person yet, so customer service does this work too.
+ */
+export const financeRoles: StaffRoleKey[] = [
+  "super_admin",
+  "finance_rep",
+  "customer_service_rep",
+];
+/** Customer service prepares and issues quotes; sales and the import/export reps may too. */
 export const quoteDeskRoles: StaffRoleKey[] = [
   "super_admin",
   "customer_service_rep",
   "sales_rep",
+  "import_rep",
+  "export_rep",
 ];
 
 /**

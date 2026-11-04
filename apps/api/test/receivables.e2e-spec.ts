@@ -312,3 +312,69 @@ test("a payment that clears an invoice, or a reversal that reopens it, changes t
     ),
   );
 });
+
+type RegisterRow = {
+  invoiceNumber: string | null;
+  status: "draft" | "issued" | "void";
+  paymentStatus: "draft" | "void" | "unpaid" | "partial" | "paid";
+  customerCompanyName: string;
+  totalMinor: number;
+  paidMinor: number;
+  outstandingMinor: number;
+};
+const register = async (token: string, query = "") =>
+  json<RegisterRow[]>(await get(`/api/v1/invoices${query}`, token));
+
+test("Finance's invoice list shows every invoice, drafts to paid, with what is owing", async () => {
+  const jobs = await json<Array<{ id: string; customerCompanyId: string }>>(
+    await get("/api/v1/jobs", TEST_SUPER_ADMIN_TOKEN),
+  );
+  const jobB = jobs.find((item) => item.customerCompanyId === companyB)!;
+  await post(`/api/v1/jobs/${jobB.id}/invoices`, TEST_SUPER_ADMIN_TOKEN, {
+    currency: "GHS",
+    lines: [{ description: "draft", amountMinor: 500, taxable: false }],
+  });
+  const rows = await register(TEST_SUPER_ADMIN_TOKEN, `?companyId=${companyB}`);
+  const byNumber = (key: string) =>
+    rows.find((row) => row.invoiceNumber === numbers[key])!;
+  assert.equal(byNumber("paid").paymentStatus, "paid");
+  assert.equal(byNumber("paid").outstandingMinor, 0);
+  assert.equal(byNumber("nodue").paymentStatus, "unpaid");
+  assert.equal(byNumber("nodue").outstandingMinor, 20000);
+  assert.equal(byNumber("voided").paymentStatus, "void");
+  assert.equal(byNumber("voided").outstandingMinor, 0);
+  const draft = rows.find((row) => row.status === "draft")!;
+  assert.equal(draft.invoiceNumber, null);
+  assert.equal(draft.paymentStatus, "draft");
+  assert.equal(draft.totalMinor, 500);
+  // Only this company's invoices.
+  assert.ok(
+    rows.every((row) => row.customerCompanyName === "Southwind Synthetic Ltd"),
+  );
+
+  const all = await register(TEST_SUPER_ADMIN_TOKEN);
+  const late = all.find((row) => row.invoiceNumber === numbers.late)!;
+  assert.equal(late.paymentStatus, "partial");
+  assert.equal(late.paidMinor, 40000);
+  assert.equal(late.outstandingMinor, 60000);
+});
+
+test("the invoice list is for finance: other staff and customers are refused", async () => {
+  assert.equal(
+    (await register(TEST_MATCHING_TOKEN)).length,
+    (await register(TEST_SUPER_ADMIN_TOKEN)).length,
+  );
+  assert.equal(
+    (await get("/api/v1/invoices", TEST_UNASSIGNED_TOKEN)).status,
+    403,
+  );
+  assert.equal(
+    (await get("/api/v1/invoices", TEST_CUSTOMER_A_TOKEN)).status,
+    403,
+  );
+  assert.equal(
+    (await get("/api/v1/invoices?companyId=nope", TEST_SUPER_ADMIN_TOKEN))
+      .status,
+    400,
+  );
+});

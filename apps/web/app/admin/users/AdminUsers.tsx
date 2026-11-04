@@ -26,6 +26,7 @@ type Assignment = {
 type StaffUser = {
   id: string;
   email: string | null;
+  name?: string | null;
   createdAt: string;
   invitedAt: string | null;
   suspended: boolean;
@@ -60,6 +61,7 @@ export function AdminUsers() {
   const [users, setUsers] = useState<StaffUser[]>([]);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [roleKey, setRoleKey] = useState<RoleKey>("import_rep");
@@ -105,9 +107,10 @@ export function AdminUsers() {
         await authenticatedFetch(staffUrl, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ email, password, roleKey }),
+          body: JSON.stringify({ name, email, password, roleKey }),
         }),
       );
+      setName("");
       setEmail("");
       setPassword("");
       setCreating(false);
@@ -143,6 +146,28 @@ export function AdminUsers() {
       setError(
         cause instanceof Error ? cause.message : "Password change failed",
       );
+    }
+  }
+
+  async function changeName(user: StaffUser, form: HTMLFormElement) {
+    const nextName = String(new FormData(form).get("name") ?? "").trim();
+    setError("");
+    setNotice("");
+    try {
+      await readResponse(
+        await authenticatedFetch(
+          `${staffUrl}/${encodeURIComponent(user.id)}/name`,
+          {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ name: nextName }),
+          },
+        ),
+      );
+      setNotice(`Name saved for ${user.email ?? user.id}.`);
+      await loadPage(page);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Name was not saved");
     }
   }
 
@@ -239,9 +264,19 @@ export function AdminUsers() {
             </div>
             <form className={styles.inviteForm} onSubmit={createAccount}>
               <label>
+                Full name
+                <input
+                  autoComplete="name"
+                  autoFocus
+                  maxLength={80}
+                  onChange={(event) => setName(event.target.value)}
+                  placeholder="Shown to everyone in chat and on jobs"
+                  value={name}
+                />
+              </label>
+              <label>
                 Email address
                 <input
-                  autoFocus
                   autoComplete="email"
                   onChange={(event) => setEmail(event.target.value)}
                   required
@@ -319,9 +354,10 @@ export function AdminUsers() {
                   <article className={styles.userCard} key={user.id}>
                     <div className={styles.userHeading}>
                       <div>
-                        <h3>{user.email ?? "Email unavailable"}</h3>
+                        <h3>{user.name || "No name set"}</h3>
                         <p>
-                          Created {formatDate(user.createdAt)}
+                          {user.email ?? "Email unavailable"} · Created{" "}
+                          {formatDate(user.createdAt)}
                           {user.invitedAt
                             ? ` · Invited ${formatDate(user.invitedAt)}`
                             : ""}
@@ -374,6 +410,24 @@ export function AdminUsers() {
                         account. Activity remains tied to this account and will
                         not identify who used it.
                       </p>
+                      <form
+                        className={styles.passwordForm}
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          void changeName(user, event.currentTarget);
+                        }}
+                      >
+                        <label>
+                          Name shown to others
+                          <input
+                            defaultValue={user.name ?? ""}
+                            maxLength={80}
+                            name="name"
+                            placeholder="Full name"
+                          />
+                        </label>
+                        <button type="submit">Save name</button>
+                      </form>
                       <form
                         className={styles.passwordForm}
                         onSubmit={(event) => {

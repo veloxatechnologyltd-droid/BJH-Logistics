@@ -35,7 +35,7 @@ export function DocumentLibrary() {
   const [reload, setReload] = useState(0);
 
   const [adding, setAdding] = useState(false);
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const [fileInputKey, setFileInputKey] = useState(0);
   const [docType, setDocType] = useState<DocumentType>("other");
   const [title, setTitle] = useState("");
@@ -102,18 +102,40 @@ export function DocumentLibrary() {
 
   function upload(event: FormEvent) {
     event.preventDefault();
-    if (!file) return;
+    if (files.length === 0) return;
     setSaving(true);
     setError("");
-    uploadLibraryDocument({
-      file,
-      documentType: docType,
-      title,
-      jobId: owner === "job" ? jobId : undefined,
-      companyId: owner === "company" ? companyId : undefined,
-    })
+    // One file at a time, all with the same type and owner; a title is used
+    // only for a single file. One bad file does not stop the others.
+    const upload = async () => {
+      const failed: string[] = [];
+      for (const file of files) {
+        try {
+          await uploadLibraryDocument({
+            file,
+            documentType: docType,
+            title: files.length === 1 ? title : "",
+            jobId: owner === "job" ? jobId : undefined,
+            companyId: owner === "company" ? companyId : undefined,
+          });
+        } catch (cause) {
+          failed.push(
+            `${file.name} (${cause instanceof Error ? cause.message : "failed"})`,
+          );
+        }
+      }
+      if (failed.length > 0) {
+        setFiles([]);
+        setFileInputKey((current) => current + 1);
+        setReload((current) => current + 1);
+        throw new Error(
+          `Uploaded ${files.length - failed.length} of ${files.length}. Not uploaded: ${failed.join("; ")}`,
+        );
+      }
+    };
+    upload()
       .then(() => {
-        setFile(null);
+        setFiles([]);
         setFileInputKey((current) => current + 1);
         setTitle("");
         setOwner("none");
@@ -148,11 +170,15 @@ export function DocumentLibrary() {
       {isStaff && adding && (
         <form className={styles.form} onSubmit={upload}>
           <label className={styles.field}>
-            File (PDF, PNG or JPEG, up to 25 MB)
+            Files (PDF, PNG or JPEG, up to 25 MB each; pick several at once if
+            needed)
             <input
               accept="application/pdf,image/png,image/jpeg"
               key={fileInputKey}
-              onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+              multiple
+              onChange={(event) =>
+                setFiles(Array.from(event.target.files ?? []))
+              }
               required
               type="file"
             />
@@ -172,14 +198,16 @@ export function DocumentLibrary() {
               ))}
             </select>
           </label>
-          <label className={styles.field}>
-            Title (optional)
-            <input
-              maxLength={200}
-              onChange={(event) => setTitle(event.target.value)}
-              value={title}
-            />
-          </label>
+          {files.length <= 1 && (
+            <label className={styles.field}>
+              Title (optional)
+              <input
+                maxLength={200}
+                onChange={(event) => setTitle(event.target.value)}
+                value={title}
+              />
+            </label>
+          )}
           <label className={styles.field}>
             Belongs to
             <select

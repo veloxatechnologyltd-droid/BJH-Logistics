@@ -100,12 +100,23 @@ export function useStaffAccess() {
 
     load();
     const supabase = getSupabaseBrowserClient();
-    const subscription = supabase?.auth.onAuthStateChange((event) => {
-      if (event === "SIGNED_IN" || event === "SIGNED_OUT") {
-        setAccess(initial);
-        // Deferred: the client is still finishing the sign-in when this fires.
-        setTimeout(load, 0);
+    // Supabase also fires SIGNED_IN when a tab becomes visible again. For the
+    // same person that must not reset access: pages would unmount their forms
+    // and lose what was typed. Only a different user (or a sign-out) resets.
+    let userId: string | null | undefined;
+    const subscription = supabase?.auth.onAuthStateChange((event, session) => {
+      const next = session?.user.id ?? null;
+      if (event === "INITIAL_SESSION") {
+        userId = next;
+        return;
       }
+      if (event !== "SIGNED_IN" && event !== "SIGNED_OUT") return;
+      const sameUser = event === "SIGNED_IN" && next === userId;
+      userId = event === "SIGNED_OUT" ? null : next;
+      if (sameUser) return;
+      setAccess(initial);
+      // Deferred: the client is still finishing the sign-in when this fires.
+      setTimeout(load, 0);
     });
 
     return () => {

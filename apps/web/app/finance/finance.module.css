@@ -145,6 +145,18 @@
   border: 1px solid var(--brand-border);
   border-radius: 10px;
 }
+.scrollBox {
+  /* Long registers scroll inside the card; the page around them stays put. */
+  max-height: 70vh;
+  overflow-y: auto;
+}
+.scrollBox thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  /* Rows scroll under the header; tables with their own header colour keep it. */
+  background: #fff;
+}
 .cardTable {
   width: 100%;
   border-collapse: collapse;
@@ -226,6 +238,9 @@
     overflow: visible;
     border: 0;
     background: transparent;
+  }
+  .tableWrap.scrollBox {
+    overflow-y: auto;
   }
   .cardTable,
   .cardTable tbody,
@@ -367,4 +382,93 @@
   .allocationList li {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+/* Finance invoices: two summary tiles, and the action at the end of each row. */
+.twoKpis {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+@container board (max-width: 620px) {
+  .twoKpis {
+    grid-template-columns: 1fr;
+  }
+}
+/* Invoices page: a client row, with its invoices indented under it when opened. */
+.clientRow td {
+  background: #f6f9fc;
+}
+.clientToggle {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--brand-primary);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: left;
+}
+.invoiceRow .jobCell {
+  padding-left: 32px;
+}
+/* Costs page: a client's jobs, indented under the client row the same way. */
+.jobRow .jobCell {
+  padding-left: 32px;
+}
+.rowActions {
+  text-align: right;
+  white-space: nowrap;
+}
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* Credit on customers' accounts: one line until opened, then a scrolling list. */
+.creditsSummary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  cursor: pointer;
+  list-style: none;
+}
+.creditsSummary::-webkit-details-marker {
+  display: none;
+}
+.creditsSummary h2 {
+  margin: 0;
+}
+.creditsTotal {
+  color: var(--brand-muted);
+  font-size: 0.85rem;
+}
+.creditsToggle {
+  margin-left: auto;
+  color: var(--brand-primary);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.creditsToggle::before {
+  content: "Show";
+}
+.credits[open] .creditsToggle::before {
+  content: "Hide";
+}
+.creditList {
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+/* The invoices one payment settled, opened from its row on the Payments list. */
+.paymentInvoices {
+  display: grid;
+  gap: 6px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.85rem;
 }

@@ -53,7 +53,7 @@ function describePayment(entry: StatementEntryRecord): string {
   return [
     entry.receiptNumber ? `Receipt ${entry.receiptNumber}` : "Payment",
     entry.reference ? `${method} (${entry.reference})` : method,
-    `for ${entry.invoiceNumber}`,
+    entry.onAccount ? "on account (credit)" : `for ${entry.invoiceNumber}`,
   ].join(" - ");
 }
 

@@ -22,7 +22,10 @@ import {
 } from "@bjh/contracts";
 import type { MilestoneDefinition } from "@bjh/contracts";
 import { serviceLinesForRoles } from "../auth/auth.guards";
-import { STAFF_AUTH_DIRECTORY } from "../auth/staff-admin.port";
+import {
+  STAFF_AUTH_DIRECTORY,
+  staffDisplayName,
+} from "../auth/staff-admin.port";
 import type { StaffAuthDirectory } from "../auth/staff-admin.port";
 import { milestoneMessage } from "../notifications/notification-messages";
 import { NotificationsService } from "../notifications/notifications.service";
@@ -92,7 +95,7 @@ export class JobsService {
     query: Record<string, unknown>,
     viewerId: string,
     scope: JobScope,
-  ): Promise<Array<JobListRecord & { leadEmail?: string | null }>> {
+  ): Promise<Array<JobListRecord & { leadName?: string | null }>> {
     const { search, ...filters } = query;
     if (search !== undefined && typeof search !== "string") {
       throw new BadRequestException("search must be a string");
@@ -132,12 +135,15 @@ export class JobsService {
       ),
     ];
     const leads = await Promise.all(leadIds.map((id) => this.auth.getUser(id)));
-    const emails = new Map(
-      leadIds.map((id, index) => [id, leads[index]?.email ?? null]),
+    const names = new Map(
+      leadIds.map((id, index) => [
+        id,
+        leads[index] ? staffDisplayName(leads[index]) : null,
+      ]),
     );
     return jobs.map((job) => ({
       ...job,
-      leadEmail: job.leadUserId ? (emails.get(job.leadUserId) ?? null) : null,
+      leadName: job.leadUserId ? (names.get(job.leadUserId) ?? null) : null,
     }));
   }
 

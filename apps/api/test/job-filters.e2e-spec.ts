@@ -29,7 +29,7 @@ type Listed = {
   fileNumber: string;
   currentEtaAt: string | null;
   leadUserId: string | null;
-  leadEmail?: string | null;
+  leadName?: string | null;
 };
 
 function call(path: string, token: string, init: RequestInit = {}) {
@@ -174,7 +174,7 @@ test("my jobs are the ones I lead or assist, and staff see the lead", async () =
   const mine = await list("assignedTo=me", TEST_MATCHING_TOKEN);
   assert.deepEqual(numbers(mine), [files.seaImport]);
   assert.equal(mine[0].leadUserId, TEST_MATCHING_USER_ID);
-  assert.equal(mine[0].leadEmail, "air-import@example.test");
+  assert.equal(mine[0].leadName, "Air Import");
   assert.deepEqual(numbers(await list(`assignedTo=${TEST_MATCHING_USER_ID}`)), [
     files.seaImport,
   ]);
@@ -188,7 +188,7 @@ test("my jobs are the ones I lead or assist, and staff see the lead", async () =
 test("customers keep to their own jobs and never see who works them", async () => {
   const own = await list("", TEST_CUSTOMER_A_TOKEN);
   assert.deepEqual(numbers(own), [files.oldClosed, files.seaImport]);
-  assert.ok(own.every((job) => job.leadUserId === null && !job.leadEmail));
+  assert.ok(own.every((job) => job.leadUserId === null && !job.leadName));
   assert.deepEqual(
     numbers(await list(`customerCompanyId=${companyB}`, TEST_CUSTOMER_A_TOKEN)),
     [],

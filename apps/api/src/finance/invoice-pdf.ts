@@ -58,10 +58,8 @@ export function renderInvoicePdf(
   input: InvoicePdfInput,
   options: { compress?: boolean } = {},
 ): Promise<Buffer> {
-  const { invoice, job, settings } = input;
-  const draftReason = invoiceDraftReason(input);
+  const { invoice, settings } = input;
   const issuerName = settings?.issuer.name ?? "Issuer details not configured";
-  const money = (minor: number) => formatInvoiceAmount(minor, invoice.currency);
 
   const doc = new PDFDocument({
     size: "A4",
@@ -73,13 +71,28 @@ export function renderInvoicePdf(
       Author: issuerName,
     },
   });
+  const done = collect(doc);
+  drawInvoice(doc, input);
+  const range = doc.bufferedPageRange();
+  markInvoicePages(doc, input, range.start, range.count, range.count);
+  doc.end();
+  return done;
+}
+
+function collect(doc: PDFKit.PDFDocument): Promise<Buffer> {
   const chunks: Buffer[] = [];
   doc.on("data", (chunk: Buffer) => chunks.push(chunk));
-  const done = new Promise<Buffer>((resolve, reject) => {
+  return new Promise<Buffer>((resolve, reject) => {
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", reject);
   });
+}
 
+/** Draws one invoice from the top of the current page (and onto new ones). */
+function drawInvoice(doc: PDFKit.PDFDocument, input: InvoicePdfInput): void {
+  const { invoice, job, settings } = input;
+  const issuerName = settings?.issuer.name ?? "Issuer details not configured";
+  const money = (minor: number) => formatInvoiceAmount(minor, invoice.currency);
   const left = PAGE_MARGIN;
   const width = doc.page.width - PAGE_MARGIN * 2;
   const bottom = () => doc.page.height - PAGE_MARGIN - 20;
@@ -156,21 +169,28 @@ export function renderInvoicePdf(
   doc.y = gridTop + cellHeight * 2 + 16;
 
   // Lines table.
+  // Description | Qty | Unit price | Amount; Qty and unit price are blank on
+  // a line given as one amount.
   const columns = [
-    { title: "Description", width: width * 0.72 },
-    { title: `Amount (${invoice.currency})`, width: width * 0.28 },
+    { title: "Description", width: width * 0.46 },
+    { title: "Qty", width: width * 0.1 },
+    { title: `Unit price (${invoice.currency})`, width: width * 0.2 },
+    { title: `Amount (${invoice.currency})`, width: width * 0.24 },
   ];
+  const columnLeft = (index: number) =>
+    left + columns.slice(0, index).reduce((sum, item) => sum + item.width, 0);
+  const cell = (index: number, text: string, y: number) =>
+    doc.text(text, columnLeft(index) + 6, y + 6, {
+      width: columns[index].width - 12,
+      align: index === 0 ? "left" : "right",
+    });
+  const quantityText = (value: number) =>
+    new Intl.NumberFormat("en-GH", { maximumFractionDigits: 3 }).format(value);
   const drawHeader = () => {
     const y = doc.y;
     doc.rect(left, y, width, 20).fillAndStroke(CANVAS, BORDER);
     doc.font("Helvetica-Bold").fontSize(8.5).fillColor(PRIMARY);
-    doc.text(columns[0].title, left + 6, y + 6, {
-      width: columns[0].width - 12,
-    });
-    doc.text(columns[1].title, left + columns[0].width + 6, y + 6, {
-      width: columns[1].width - 12,
-      align: "right",
-    });
+    columns.forEach((column, index) => cell(index, column.title, y));
     doc.y = y + 20;
   };
   drawHeader();
@@ -184,13 +204,16 @@ export function renderInvoicePdf(
       drawHeader();
     }
     const y = doc.y;
-    doc.fillColor(INK).text(line.description, left + 6, y + 6, {
-      width: columns[0].width - 12,
-    });
-    doc.text(money(line.amountMinor), left + columns[0].width + 6, y + 6, {
-      width: columns[1].width - 12,
-      align: "right",
-    });
+    doc.fillColor(INK);
+    cell(0, line.description, y);
+    const priced =
+      line.quantity !== null &&
+      line.quantity !== undefined &&
+      line.unitAmountMinor !== null &&
+      line.unitAmountMinor !== undefined;
+    cell(1, priced ? quantityText(line.quantity!) : "", y);
+    cell(2, priced ? money(line.unitAmountMinor!) : "", y);
+    cell(3, money(line.amountMinor), y);
     doc
       .moveTo(left, y + rowHeight)
       .lineTo(left + width, y + rowHeight)
@@ -230,8 +253,8 @@ export function renderInvoicePdf(
     doc.font(strong ? "Helvetica-Bold" : "Helvetica").fontSize(9.5);
     doc.fillColor(strong ? PRIMARY : INK);
     doc.text(label, labelX, y, { width: width * 0.27, lineBreak: false });
-    doc.text(value, left + columns[0].width + 6, y, {
-      width: columns[1].width - 12,
+    doc.text(value, columnLeft(3) + 6, y, {
+      width: columns[3].width - 12,
       align: "right",
       lineBreak: false,
     });
@@ -255,16 +278,31 @@ export function renderInvoicePdf(
     doc.font("Helvetica").fontSize(9.5).fillColor(INK);
     doc.text(invoice.notes, left, doc.y + 2, { width, lineGap: 2 });
   }
+}
 
-  // Footer plus DRAFT / VOID marks on every page.
-  const range = doc.bufferedPageRange();
-  for (let index = range.start; index < range.start + range.count; index += 1) {
+/**
+ * Footer plus DRAFT / VOID marks on the invoice's pages: `count` pages from
+ * `start`, numbered out of `total` pages in the whole file.
+ */
+function markInvoicePages(
+  doc: PDFKit.PDFDocument,
+  input: InvoicePdfInput,
+  start: number,
+  count: number,
+  total: number,
+): void {
+  const { invoice, settings } = input;
+  const draftReason = invoiceDraftReason(input);
+  const issuerName = settings?.issuer.name ?? "Issuer details not configured";
+  const left = PAGE_MARGIN;
+  const width = doc.page.width - PAGE_MARGIN * 2;
+  for (let index = start; index < start + count; index += 1) {
     doc.switchToPage(index);
     const { height, width: pageWidth } = doc.page;
     doc.page.margins.bottom = 0;
     doc.font("Helvetica").fontSize(7.5).fillColor(MUTED);
     doc.text(
-      `${issuerName}  |  ${invoice.invoiceNumber ?? "Draft invoice"}  |  Page ${index + 1} of ${range.count}`,
+      `${issuerName}  |  ${invoice.invoiceNumber ?? "Draft invoice"}  |  Page ${index + 1} of ${total}`,
       left,
       height - 34,
       { width, align: "center", lineBreak: false },
@@ -294,7 +332,205 @@ export function renderInvoicePdf(
       );
     }
   }
+}
 
+export interface InvoiceSummaryPdfInput {
+  companyName: string;
+  settings: BusinessSettings | null;
+  /** In the order they are listed; each gets its full invoice after the summary. */
+  invoices: Array<{ invoice: InvoiceView; job: JobRecord }>;
+}
+
+/**
+ * A client's invoices in one file (Evans, 2026-11-04): a summary table
+ * first, then each invoice in full on its own pages. The summary has no
+ * number of its own; each invoice keeps its number and status.
+ */
+export function renderInvoiceSummaryPdf(
+  input: InvoiceSummaryPdfInput,
+  options: { compress?: boolean } = {},
+): Promise<Buffer> {
+  const { settings, invoices } = input;
+  const issuerName = settings?.issuer.name ?? "Issuer details not configured";
+  const doc = new PDFDocument({
+    size: "A4",
+    margin: PAGE_MARGIN,
+    bufferPages: true,
+    compress: options.compress ?? true,
+    info: {
+      Title: `Invoice summary - ${input.companyName}`,
+      Author: issuerName,
+    },
+  });
+  const done = collect(doc);
+  const left = PAGE_MARGIN;
+  const width = doc.page.width - PAGE_MARGIN * 2;
+  const bottom = () => doc.page.height - PAGE_MARGIN - 20;
+
+  doc.font("Helvetica-Bold").fontSize(16).fillColor(PRIMARY);
+  doc.text(issuerName, left, PAGE_MARGIN, { width: width * 0.6 });
+  const brandBottom = doc.y;
+  doc.font("Helvetica-Bold").fontSize(8).fillColor(PRIMARY);
+  doc.text("INVOICE SUMMARY", left + width * 0.5, PAGE_MARGIN, {
+    width: width * 0.5,
+    align: "right",
+    characterSpacing: 1,
+  });
+  doc.font("Helvetica").fontSize(9).fillColor(MUTED);
+  doc.text(
+    formatDate(new Date().toISOString()),
+    left + width * 0.5,
+    PAGE_MARGIN + 13,
+    {
+      width: width * 0.5,
+      align: "right",
+    },
+  );
+  doc.y = Math.max(brandBottom, PAGE_MARGIN + 30) + 6;
+  doc
+    .moveTo(left, doc.y)
+    .lineTo(left + width, doc.y)
+    .lineWidth(2)
+    .strokeColor(PRIMARY)
+    .stroke();
+  doc.y += 12;
+  doc.font("Helvetica").fontSize(7.5).fillColor(MUTED);
+  doc.text("BILL TO", left, doc.y, { characterSpacing: 0.5 });
+  doc.font("Helvetica-Bold").fontSize(11).fillColor(INK);
+  doc.text(input.companyName, left, doc.y + 2, { width });
+  doc.y += 14;
+
+  const statusText = (invoice: InvoiceView) =>
+    invoice.status === "draft"
+      ? "Draft"
+      : invoice.status === "void"
+        ? "Void"
+        : invoice.outstandingMinor === 0
+          ? "Paid"
+          : invoice.paidMinor > 0
+            ? "Part paid"
+            : "Unpaid";
+  const columns = [
+    { title: "Invoice", width: width * 0.24 },
+    { title: "Job file", width: width * 0.2 },
+    { title: "Due", width: width * 0.13 },
+    { title: "Items", width: width * 0.08 },
+    { title: "Status", width: width * 0.1 },
+    { title: "Total", width: width * 0.25 },
+  ];
+  const columnLeft = (index: number) =>
+    left + columns.slice(0, index).reduce((sum, item) => sum + item.width, 0);
+  const cell = (index: number, text: string, y: number) =>
+    doc.text(text, columnLeft(index) + 6, y + 6, {
+      width: columns[index].width - 12,
+      align: index >= 3 && index !== 4 ? "right" : "left",
+    });
+  const drawHeader = () => {
+    const y = doc.y;
+    doc.rect(left, y, width, 20).fillAndStroke(CANVAS, BORDER);
+    doc.font("Helvetica-Bold").fontSize(8.5).fillColor(PRIMARY);
+    columns.forEach((column, index) => cell(index, column.title, y));
+    doc.y = y + 20;
+  };
+  drawHeader();
+  const totals = new Map<string, { total: number; owing: number }>();
+  for (const { invoice, job } of invoices) {
+    const rowHeight = 24;
+    if (doc.y + rowHeight > bottom()) {
+      doc.addPage();
+      drawHeader();
+    }
+    const y = doc.y;
+    doc.font("Helvetica").fontSize(9).fillColor(INK);
+    cell(0, invoice.invoiceNumber ?? "Draft (no number yet)", y);
+    cell(1, job.fileNumber, y);
+    cell(2, invoice.dueDate ?? "-", y);
+    cell(3, String(invoice.lines.length), y);
+    cell(4, statusText(invoice), y);
+    cell(5, formatInvoiceAmount(invoice.totalMinor, invoice.currency), y);
+    doc
+      .moveTo(left, y + rowHeight)
+      .lineTo(left + width, y + rowHeight)
+      .lineWidth(0.7)
+      .strokeColor(BORDER)
+      .stroke();
+    doc.y = y + rowHeight;
+    if (invoice.status !== "void") {
+      const sum = totals.get(invoice.currency) ?? { total: 0, owing: 0 };
+      sum.total += invoice.totalMinor;
+      sum.owing += invoice.status === "issued" ? invoice.outstandingMinor : 0;
+      totals.set(invoice.currency, sum);
+    }
+  }
+
+  const totalRows: Array<[string, string, boolean]> = [];
+  for (const [currency, sum] of totals) {
+    totalRows.push([
+      `Total ${currency}`,
+      formatInvoiceAmount(sum.total, currency),
+      true,
+    ]);
+    if (sum.owing > 0 && sum.owing !== sum.total) {
+      totalRows.push([
+        `Still owing ${currency}`,
+        formatInvoiceAmount(sum.owing, currency),
+        false,
+      ]);
+    }
+  }
+  if (doc.y + totalRows.length * 18 + 60 > bottom()) doc.addPage();
+  doc.y += 8;
+  for (const [label, value, strong] of totalRows) {
+    const y = doc.y;
+    doc.font(strong ? "Helvetica-Bold" : "Helvetica").fontSize(9.5);
+    doc.fillColor(strong ? PRIMARY : INK);
+    doc.text(label, left + width * 0.45, y, {
+      width: width * 0.3,
+      lineBreak: false,
+    });
+    doc.text(value, columnLeft(5) + 6, y, {
+      width: columns[5].width - 12,
+      align: "right",
+      lineBreak: false,
+    });
+    doc.y = y + 18;
+  }
+  doc.moveDown(0.6);
+  doc.font("Helvetica").fontSize(8).fillColor(MUTED);
+  doc.text(
+    "Void invoices are not counted in the totals. This summary has no number of its own: each invoice, in full on the pages that follow, is the record of what is owed." +
+      (invoices.some(({ invoice }) => invoice.status === "draft")
+        ? " Draft invoices are for review and are not yet issued."
+        : ""),
+    left,
+    doc.y,
+    { width, lineGap: 1.5 },
+  );
+  const summaryPages = doc.bufferedPageRange().count;
+
+  const spans: Array<[InvoicePdfInput, number, number]> = [];
+  for (const { invoice, job } of invoices) {
+    doc.addPage();
+    const start = doc.bufferedPageRange().count - 1;
+    const one = { invoice, job, settings };
+    drawInvoice(doc, one);
+    spans.push([one, start, doc.bufferedPageRange().count - start]);
+  }
+  const total = doc.bufferedPageRange().count;
+  for (let index = 0; index < summaryPages; index += 1) {
+    doc.switchToPage(index);
+    doc.page.margins.bottom = 0;
+    doc.font("Helvetica").fontSize(7.5).fillColor(MUTED);
+    doc.text(
+      `${issuerName}  |  Invoice summary  |  Page ${index + 1} of ${total}`,
+      left,
+      doc.page.height - 34,
+      { width, align: "center", lineBreak: false },
+    );
+  }
+  for (const [one, start, count] of spans) {
+    markInvoicePages(doc, one, start, count, total);
+  }
   doc.end();
   return done;
 }

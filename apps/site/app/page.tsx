@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import Image from "next/image";
 import {
@@ -15,8 +16,18 @@ import {
 } from "./content";
 import { Icon } from "./Icon";
 import { HeroShowcase } from "./HeroShowcase";
+import { JsonLd } from "./JsonLd";
+import { faqJsonLd, pageMetadata } from "./seo";
 import { CtaBand, SectionHeading } from "./Sections";
+import { serviceHref } from "./serviceDetails";
 import { ServiceTile } from "./ServiceTile";
+
+export const metadata: Metadata = pageMetadata({
+  title: "BJH Logistics | Freight Forwarding & Customs Clearance, Ghana",
+  description: `Freight forwarder in Tema, Ghana since ${FOUNDED}: sea, air and road freight, customs clearance at Tema Port, warehousing and project cargo. Request a quote.`,
+  path: "/",
+  absoluteTitle: true,
+});
 
 const yearsInBusiness = new Date().getFullYear() - FOUNDED;
 const partnerLogos: Record<string, string> = {
@@ -38,6 +49,7 @@ export default function HomePage() {
 
   return (
     <>
+      <JsonLd data={faqJsonLd(faqs)} />
       <section className="hero">
         <HeroShowcase />
         <div className="container hero-inner">
@@ -45,10 +57,11 @@ export default function HomePage() {
             <p className="eyebrow light">Since {FOUNDED} · Tema, Ghana</p>
             <h1>
               <span className="hero-heading-wide">
-                Freight, customs and logistics, <em>handled end to end.</em>
+                Freight forwarding and customs clearance in Ghana,{" "}
+                <em>handled end to end.</em>
               </span>
               <span className="hero-heading-small">
-                Freight, cleared and delivered.
+                Ghana freight, cleared and delivered.
               </span>
             </h1>
             <p className="lead hero-lead-wide">
@@ -151,6 +164,7 @@ export default function HomePage() {
               <ServiceTile
                 key={service.slug}
                 service={service}
+                href={serviceHref(service.slug)}
                 delay={(index % 3) * 110}
               />
             ))}

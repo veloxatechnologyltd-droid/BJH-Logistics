@@ -15,7 +15,7 @@ export type Lead = {
   source: LeadSource;
   stage: LeadStage;
   ownerId: string | null;
-  ownerEmail: string | null;
+  ownerName: string | null;
   /** YYYY-MM-DD */
   nextFollowUp: string | null;
   notes: string | null;
@@ -82,6 +82,18 @@ export async function createLead(
   );
 }
 
+/** Makes the lead a customer company (if not yet) so a quote can be prepared for it. */
+export async function leadToCustomer(
+  id: string,
+): Promise<{ customerCompanyId: string }> {
+  return readResponse<{ customerCompanyId: string }>(
+    await authenticatedFetch(
+      `${leadsUrl}/${encodeURIComponent(id)}/customer`,
+      jsonInit("POST", {}),
+    ),
+  );
+}
+
 export async function updateLead(
   id: string,
   update: LeadUpdateInput,
@@ -113,7 +125,7 @@ export type LeadActivity = {
   kind: "call" | "visit" | "email" | "meeting" | "note";
   note: string;
   occurredAt: string;
-  createdByEmail: string | null;
+  createdByName: string | null;
 };
 
 export const activityLabels: Record<LeadActivity["kind"], string> = {

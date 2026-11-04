@@ -1,6 +1,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { contact, featuredServices, FOUNDED } from "./content";
+import { serviceHref } from "./serviceDetails";
 
 export function SiteFooter() {
   return (
@@ -38,7 +39,7 @@ export function SiteFooter() {
           <ul>
             {featuredServices.map((service) => (
               <li key={service.slug}>
-                <Link href={`/services#${service.slug}`}>{service.title}</Link>
+                <Link href={serviceHref(service.slug)}>{service.title}</Link>
               </li>
             ))}
             <li>

@@ -17,9 +17,10 @@ export default function JobDocumentsPage() {
   const typeKeys = documentTypesFor(useStaffAccess().roles);
   const [docType, setDocType] = useState<DocumentType>("other");
   const [docTarget, setDocTarget] = useState("");
-  const [docFile, setDocFile] = useState<File | null>(null);
+  const [docFiles, setDocFiles] = useState<File[]>([]);
   const [fileInputKey, setFileInputKey] = useState(0);
   const [adding, setAdding] = useState(false);
+  const [uploadNote, setUploadNote] = useState("");
 
   function download(documentId: string, versionNumber: number) {
     void run(async () => {
@@ -104,22 +105,45 @@ export default function JobDocumentsPage() {
             className={`${styles.form} ${styles.quickUpdateForm}`}
             onSubmit={(event: FormEvent) => {
               event.preventDefault();
-              if (!docFile) return;
+              if (docFiles.length === 0) return;
               const existing = documents.find(
                 (document) => document.id === docTarget,
               );
+              const files = docFiles;
+              const clear = () => {
+                setDocFiles([]);
+                setDocTarget("");
+                setFileInputKey((current) => current + 1);
+              };
+              // One file at a time: each becomes its own document of the
+              // chosen type, and one bad file does not stop the others.
+              const failed: string[] = [];
+              setUploadNote("");
               void run(
-                () =>
-                  uploadDocument(job.id, {
-                    file: docFile,
-                    documentType: existing?.documentType ?? docType,
-                    documentId: existing?.id,
-                  }),
+                async () => {
+                  for (const file of files) {
+                    try {
+                      await uploadDocument(job.id, {
+                        file,
+                        documentType: existing?.documentType ?? docType,
+                        documentId: existing?.id,
+                      });
+                    } catch (cause) {
+                      failed.push(
+                        `${file.name} (${cause instanceof Error ? cause.message : "failed"})`,
+                      );
+                    }
+                  }
+                  clear();
+                },
                 () => {
-                  setDocFile(null);
-                  setDocTarget("");
-                  setFileInputKey((current) => current + 1);
-                  setAdding(false);
+                  if (failed.length === 0) {
+                    setAdding(false);
+                    return;
+                  }
+                  setUploadNote(
+                    `Uploaded ${files.length - failed.length} of ${files.length}. Not uploaded: ${failed.join("; ")}. Pick those files again to retry.`,
+                  );
                 },
               );
             }}
@@ -158,20 +182,30 @@ export default function JobDocumentsPage() {
               </label>
             )}
             <label className={styles.field}>
-              File (PDF, PNG or JPEG, up to 25 MB)
+              {docTarget
+                ? "File (PDF, PNG or JPEG, up to 25 MB)"
+                : "Files (PDF, PNG or JPEG, up to 25 MB each; pick several at once if needed)"}
               <input
                 accept="application/pdf,image/png,image/jpeg"
                 key={fileInputKey}
+                multiple={!docTarget}
                 onChange={(event) =>
-                  setDocFile(event.target.files?.[0] ?? null)
+                  setDocFiles(Array.from(event.target.files ?? []))
                 }
                 required
                 type="file"
               />
             </label>
+            {uploadNote && (
+              <p className={styles.muted} role="alert">
+                {uploadNote}
+              </p>
+            )}
             <div className={styles.formActions}>
               <button className={styles.button} type="submit">
-                Upload
+                {docFiles.length > 1
+                  ? `Upload ${docFiles.length} files`
+                  : "Upload"}
               </button>
               <button
                 className={styles.secondaryButton}

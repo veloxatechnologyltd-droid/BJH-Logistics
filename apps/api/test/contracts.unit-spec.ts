@@ -200,7 +200,7 @@ test("staff contracts reject unsupported roles and tolerate missing strings", ()
   });
   assert.deepEqual(created, {
     success: true,
-    data: { email: "", password: "", roleKey: "import_rep" },
+    data: { email: "", password: "", roleKey: "import_rep", name: "" },
   });
   assert.equal(
     message(staffCreateInputSchema, undefined),

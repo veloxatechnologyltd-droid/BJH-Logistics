@@ -5,10 +5,12 @@ import { ErrorPopup } from "../../ErrorPopup";
 import {
   kindLabels,
   listAllSupportRequests,
+  replyAsSupport,
   setSupportStatus,
   statusLabels,
 } from "../../support/supportApi";
 import type { SupportRequest, SupportStatus } from "../../support/supportApi";
+import { SupportThread } from "../../support/SupportThread";
 import styles from "./supportRequests.module.css";
 
 const formatDate = (value: string) =>
@@ -51,6 +53,13 @@ export function SupportRequests() {
     }
   }
 
+  async function reply(id: string, body: string) {
+    const updated = await replyAsSupport(id, body);
+    setRequests((current) =>
+      (current ?? []).map((item) => (item.id === id ? updated : item)),
+    );
+  }
+
   const shown = (requests ?? []).filter(
     (item) => filter === "all" || item.status !== "done",
   );
@@ -62,7 +71,8 @@ export function SupportRequests() {
           <h1 id="support-title">Support requests</h1>
           <p className="welcome-copy">
             Problems, feature requests and questions sent with Get help by staff
-            and customers.
+            and customers. Reply to answer; the person is emailed and sees your
+            reply under Get help.
           </p>
         </div>
       </section>
@@ -88,7 +98,7 @@ export function SupportRequests() {
               <div className={styles.head}>
                 <strong>{kindLabels[item.kind]}</strong>
                 <span className={styles.meta}>
-                  {item.reporterEmail ?? "Unknown"} ·{" "}
+                  {item.reporterName ?? "Unknown"} ·{" "}
                   {item.reporterKind === "customer"
                     ? `Customer${item.companyName ? `, ${item.companyName}` : ""}`
                     : "Staff"}{" "}
@@ -125,6 +135,16 @@ export function SupportRequests() {
                 <dt>Browser</dt>
                 <dd>{item.userAgent ?? "Not given"}</dd>
               </dl>
+              <SupportThread
+                messages={item.messages}
+                nameFor={(message) =>
+                  message.authorRole === "support"
+                    ? `${message.authorName ?? "Support"} (support)`
+                    : (item.reporterName ?? "Unknown")
+                }
+                onSend={(body) => reply(item.id, body)}
+                sendLabel="Send reply"
+              />
             </li>
           ))}
         </ul>

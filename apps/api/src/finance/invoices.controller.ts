@@ -251,6 +251,43 @@ export class ReceiptsController {
   list(@Req() request: AuthenticatedRequest) {
     return this.invoices.receipts(scopeOf(request));
   }
+
+  /** Emails the customer their payment summary; finance only. */
+  @Post("summary/send")
+  @UseGuards(DepartmentStaffGuard, StaffRolesGuard(financeRoles))
+  sendSummary(
+    @Query("companyId") companyId: string | undefined,
+    @Query("from") from: string | undefined,
+    @Query("to") to: string | undefined,
+    @Query("method") method: string | undefined,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.invoices.sendPaymentSummary(
+      { companyId, from, to, method },
+      request.authUser!.userId,
+      scopeOf(request),
+    );
+  }
+
+  /** One PDF adding up a customer's payments; each keeps its own receipt. */
+  @Get("summary")
+  async summary(
+    @Query("companyId") companyId: string | undefined,
+    @Query("from") from: string | undefined,
+    @Query("to") to: string | undefined,
+    @Query("method") method: string | undefined,
+    @Req() request: AuthenticatedRequest,
+    @Res() response: BinaryResponse,
+  ): Promise<void> {
+    const { file, filename } = await this.invoices.paymentSummaryPdf(
+      { companyId, from, to, method },
+      scopeOf(request),
+    );
+    response.setHeader("content-type", "application/pdf");
+    response.setHeader("content-disposition", `inline; filename="${filename}"`);
+    response.setHeader("content-length", String(file.length));
+    response.end(file);
+  }
 }
 
 /** Unpaid invoices across jobs: staff see their service lines, customers their own company. */
@@ -271,6 +308,69 @@ export class OutstandingInvoicesController {
     @Req() request: AuthenticatedRequest,
   ) {
     return this.invoices.outstanding(companyId, scopeOf(request));
+  }
+}
+
+/** Every invoice, drafts to paid, for Finance's invoice list: finance staff only. */
+@Controller("api/v1/invoices")
+@UseGuards(
+  SupabaseIdentityGuard,
+  DepartmentStaffGuard,
+  JobScopeGuard,
+  StaffRolesGuard(financeRoles),
+)
+export class InvoiceRegisterController {
+  constructor(
+    @Inject(InvoicesService) private readonly invoices: InvoicesService,
+  ) {}
+
+  @Get()
+  list(
+    @Query("companyId") companyId: string | undefined,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.invoices.register(companyId, scopeOf(request));
+  }
+
+  /** Issues several drafts of one client together; the client gets one message. */
+  @Post("issue")
+  issueMany(@Body() body: unknown, @Req() request: AuthenticatedRequest) {
+    return this.invoices.issueMany(
+      body,
+      request.authUser!.userId,
+      scopeOf(request),
+    );
+  }
+
+  /** Emails the client their issued invoices still owing, in one PDF. */
+  @Post("summary/send")
+  sendSummary(
+    @Query("companyId") companyId: string | undefined,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.invoices.sendInvoiceSummary(
+      companyId,
+      request.authUser!.userId,
+      scopeOf(request),
+    );
+  }
+
+  /** A client's invoices in one PDF: a summary, then each invoice in full. */
+  @Get("summary")
+  async summary(
+    @Query("companyId") companyId: string | undefined,
+    @Query("invoiceIds") invoiceIds: string | undefined,
+    @Req() request: AuthenticatedRequest,
+    @Res() response: BinaryResponse,
+  ): Promise<void> {
+    const { file, filename } = await this.invoices.invoiceSummaryPdf(
+      { companyId, invoiceIds },
+      scopeOf(request),
+    );
+    response.setHeader("content-type", "application/pdf");
+    response.setHeader("content-disposition", `inline; filename="${filename}"`);
+    response.setHeader("content-length", String(file.length));
+    response.end(file);
   }
 }
 
@@ -309,6 +409,72 @@ export class PaymentsController {
   @Post()
   record(@Body() body: unknown, @Req() request: AuthenticatedRequest) {
     return this.invoices.recordPayments(
+      body,
+      request.authUser!.userId,
+      scopeOf(request),
+    );
+  }
+}
+
+/** Credit on customers' accounts (money not set against an invoice): finance only. */
+@Controller("api/v1/credits")
+@UseGuards(
+  SupabaseIdentityGuard,
+  DepartmentStaffGuard,
+  JobScopeGuard,
+  StaffRolesGuard(financeRoles),
+)
+export class CreditsController {
+  constructor(
+    @Inject(InvoicesService) private readonly invoices: InvoicesService,
+  ) {}
+
+  @Get()
+  list(
+    @Query("companyId") companyId: string | undefined,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.invoices.listCredits(companyId || null, scopeOf(request));
+  }
+
+  @Get(":id/receipt")
+  async receipt(
+    @Param("id") id: string,
+    @Req() request: AuthenticatedRequest,
+    @Res() response: BinaryResponse,
+  ): Promise<void> {
+    const { file, filename } = await this.invoices.creditReceiptPdf(
+      id,
+      scopeOf(request),
+    );
+    response.setHeader("content-type", "application/pdf");
+    response.setHeader("content-disposition", `inline; filename="${filename}"`);
+    response.setHeader("content-length", String(file.length));
+    response.end(file);
+  }
+
+  @Post(":id/apply")
+  apply(
+    @Param("id") id: string,
+    @Body() body: unknown,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.invoices.applyCredit(
+      id,
+      body,
+      request.authUser!.userId,
+      scopeOf(request),
+    );
+  }
+
+  @Post(":id/reverse")
+  reverse(
+    @Param("id") id: string,
+    @Body() body: unknown,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.invoices.reverseCredit(
+      id,
       body,
       request.authUser!.userId,
       scopeOf(request),

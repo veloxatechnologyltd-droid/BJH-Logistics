@@ -256,6 +256,10 @@ const testStaffDirectory: StaffAuthDirectory = {
     testPasswordWrites.push({ userId: user.id, temporary: true });
     return user;
   },
+  async setName(userId, name) {
+    const user = testUsers.get(userId);
+    if (user) testUsers.set(userId, { ...user, name: name || null });
+  },
   async setPassword(userId, _password, temporary) {
     testPasswordWrites.push({ userId, temporary });
   },

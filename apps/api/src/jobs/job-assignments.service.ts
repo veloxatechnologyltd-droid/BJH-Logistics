@@ -20,7 +20,10 @@ import {
   JobScope,
   StaffRoleKey,
 } from "../database/database.port";
-import { STAFF_AUTH_DIRECTORY } from "../auth/staff-admin.port";
+import {
+  STAFF_AUTH_DIRECTORY,
+  staffDisplayName,
+} from "../auth/staff-admin.port";
 import type { StaffAuthDirectory } from "../auth/staff-admin.port";
 import { JobsService } from "./jobs.service";
 
@@ -35,7 +38,7 @@ const operationalRoles: StaffRoleKey[] = [
 ];
 
 export interface JobAssignmentView extends JobAssignmentRecord {
-  email: string | null;
+  name: string | null;
 }
 
 export interface JobTeamView {
@@ -60,7 +63,7 @@ export interface JobTeamView {
     } | null;
   }>;
   /** Staff who may be assigned: the reps whose roles cover the job's line. */
-  candidates: Array<{ userId: string; email: string | null }>;
+  candidates: Array<{ userId: string; name: string | null }>;
 }
 
 /**
@@ -84,22 +87,22 @@ export class JobAssignmentsService {
       this.issuedInvoices(job.id),
       this.candidateIds(job),
     ]);
-    const emails = await this.emails([
+    const names = await this.names([
       ...assignments.map((item) => item.userId),
       ...candidateIds,
     ]);
-    const withEmail = (item: JobAssignmentRecord) => ({
+    const withName = (item: JobAssignmentRecord) => ({
       ...item,
-      email: emails.get(item.userId) ?? null,
+      name: names.get(item.userId) ?? null,
     });
     return {
-      team: assignments.filter((item) => !item.removedAt).map(withEmail),
-      history: assignments.map(withEmail),
+      team: assignments.filter((item) => !item.removedAt).map(withName),
+      history: assignments.map(withName),
       invoiceAccepted: invoices.some((invoice) => invoice.acceptance),
       invoices,
       candidates: candidateIds.map((userId) => ({
         userId,
-        email: emails.get(userId) ?? null,
+        name: names.get(userId) ?? null,
       })),
     };
   }
@@ -114,7 +117,7 @@ export class JobAssignmentsService {
     this.requireAssigner(roles);
     const parsed = parseContract(jobAssignmentInputSchema, input);
     if (!parsed.success) throw new BadRequestException(parsed.message);
-    const { userId, kind, overrideReason } = parsed.data;
+    const { userId, kind } = parsed.data;
     const job = await this.openJob(id, scope);
 
     if (!(await this.candidateIds(job)).includes(userId)) {
@@ -129,33 +132,21 @@ export class JobAssignmentsService {
       }
     }
 
-    let reason: string | null = null;
-    if (!(await this.invoiceAccepted(job.id))) {
-      if (!roles.includes("super_admin")) {
-        throw new ConflictException(
-          "The client has not accepted an invoice on this job yet",
-        );
-      }
-      if (!overrideReason) {
-        throw new ConflictException(
-          "The client has not accepted an invoice yet: give a reason to assign anyway",
-        );
-      }
-      reason = overrideReason;
-    }
-
+    // A job opens when the client accepts the quote (client walkthrough,
+    // 2026-11-03), so customer service assigns it straight away; an accepted
+    // invoice is no longer needed first.
     const result = await this.database.assignJob(job.id, {
       userId,
       kind,
       assignedBy: actorId,
-      overrideReason: reason,
+      overrideReason: null,
     });
     if (result === "already_on_job") {
       throw new ConflictException("This person is already on the job");
     }
     return {
       ...result,
-      email: (await this.auth.getUser(userId))?.email ?? null,
+      name: (await this.names([userId])).get(userId) ?? null,
     };
   }
 
@@ -191,12 +182,6 @@ export class JobAssignmentsService {
       throw new ConflictException("Reopen the job before changing it");
     }
     return job;
-  }
-
-  private async invoiceAccepted(jobId: string): Promise<boolean> {
-    return (await this.issuedInvoices(jobId)).some(
-      (invoice) => invoice.acceptance,
-    );
   }
 
   /** Issued invoices with their acceptance; a voided one no longer counts. */
@@ -248,11 +233,14 @@ export class JobAssignmentsService {
       .map(([userId]) => userId);
   }
 
-  private async emails(userIds: string[]): Promise<Map<string, string | null>> {
+  private async names(userIds: string[]): Promise<Map<string, string | null>> {
     const unique = [...new Set(userIds)];
     const users = await Promise.all(unique.map((id) => this.auth.getUser(id)));
     return new Map(
-      unique.map((id, index) => [id, users[index]?.email ?? null]),
+      unique.map((id, index) => [
+        id,
+        users[index] ? staffDisplayName(users[index]) : null,
+      ]),
     );
   }
 }

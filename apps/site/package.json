@@ -9,7 +9,7 @@
     "build": "next build",
     "start": "next start --hostname 127.0.0.1 --port 3003",
     "typecheck": "tsc --noEmit",
-    "test": "node --test app/**/*.test.ts"
+    "test": "node --test \"app/**/*.test.ts\""
   },
   "dependencies": {
     "next": "16.4.3",

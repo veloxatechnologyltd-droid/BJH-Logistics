@@ -11,7 +11,24 @@ export type Vehicle = {
   id: string;
   registration: string;
   description: string | null;
+  insuranceStartOn: string | null;
+  insuranceEndOn: string | null;
+  dvlaExpiresOn: string | null;
+  serviceEveryMonths: number | null;
+  lastServicedOn: string | null;
+  nextServiceOn: string | null;
   deactivatedAt: string | null;
+};
+
+/** What the vehicle form sends; empty text means no date. */
+export type VehicleInput = {
+  registration: string;
+  description?: string;
+  insuranceStartOn?: string;
+  insuranceEndOn?: string;
+  dvlaExpiresOn?: string;
+  serviceEveryMonths: number | null;
+  lastServicedOn?: string;
 };
 
 export type Delivery = {
@@ -79,10 +96,10 @@ export const setDriverActive = (id: string, active: boolean) =>
     active,
   });
 export const listVehicles = () => send<Vehicle[]>("/vehicles", "GET");
-export const addVehicle = (input: {
-  registration: string;
-  description?: string;
-}) => send<Vehicle>("/vehicles", "POST", input);
+export const addVehicle = (input: VehicleInput) =>
+  send<Vehicle>("/vehicles", "POST", input);
+export const updateVehicle = (id: string, input: VehicleInput) =>
+  send<Vehicle>(`/vehicles/${encodeURIComponent(id)}`, "PUT", input);
 export const setVehicleActive = (id: string, active: boolean) =>
   send<Vehicle>(`/vehicles/${encodeURIComponent(id)}/active`, "POST", {
     active,
@@ -93,8 +110,11 @@ export const listDeliveries = (jobId: string) =>
 export const dispatchDelivery = (
   jobId: string,
   input: {
-    driverId: string;
-    vehicleId: string;
+    driverId?: string;
+    driverName?: string;
+    driverPhone?: string;
+    vehicleId?: string;
+    vehicleRegistration?: string;
     cargoDescription: string;
     packages?: number;
     grossWeightKg?: number;

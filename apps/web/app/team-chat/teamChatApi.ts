@@ -19,7 +19,7 @@ export type TeamMessage = {
   id: string;
   authorUserId: string | null;
   /** Null for a message the system posted. */
-  authorEmail: string | null;
+  authorName: string | null;
   /** Written by the person reading it. */
   mine: boolean;
   body: string;
@@ -32,10 +32,11 @@ export type TeamConversationSummary = {
   kind: "direct" | "group" | "team";
   teamKey: string | null;
   title: string;
+  personId: string | null;
   memberCount: number;
   lastMessage: {
     body: string;
-    authorEmail: string | null;
+    authorName: string | null;
     mine: boolean;
     createdAt: string;
   } | null;
@@ -47,15 +48,19 @@ export type TeamConversation = {
   kind: TeamConversationSummary["kind"];
   teamKey: string | null;
   title: string;
-  members: Array<{ userId: string; email: string | null }>;
+  members: Array<{ userId: string; name: string }>;
   messages: TeamMessage[];
   hasEarlier: boolean;
 };
 
 export type TeamPerson = {
   userId: string;
-  email: string | null;
+  name: string;
   teams: string[];
+  you: boolean;
+  online: boolean;
+  /** Null when not seen since the API last started. */
+  lastSeen: string | null;
 };
 
 async function read<T>(response: Response): Promise<T> {

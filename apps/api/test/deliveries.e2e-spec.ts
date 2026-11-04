@@ -597,3 +597,52 @@ test("the waybill PDF is served within the same access boundary as the delivery"
     404,
   );
 });
+
+test("a waybill can name an outside driver and vehicle, typed in", async () => {
+  const response = await post(
+    `/api/v1/jobs/${jobA}/deliveries`,
+    TEST_MATCHING_TOKEN,
+    dispatchBody("", "", {
+      driverId: undefined,
+      vehicleId: undefined,
+      driverName: "Yaw Hired",
+      driverPhone: "024 000 0000",
+      vehicleRegistration: "GT 9999-25",
+      grossWeightKg: 1250.5,
+    }),
+  );
+  assert.equal(response.status, 201);
+  const outside = (await response.json()) as Delivery & {
+    driverId: string | null;
+    vehicleId: string | null;
+  };
+  assert.equal(outside.driverId, null);
+  assert.equal(outside.vehicleId, null);
+  assert.equal(outside.driverName, "Yaw Hired");
+  assert.equal(outside.driverPhone, "024 000 0000");
+  assert.equal(outside.vehicleRegistration, "GT 9999-25");
+  assert.equal(outside.grossWeightKg, 1250.5);
+
+  // Neither a record nor typed details: refused, nothing numbered.
+  for (const [over, message] of [
+    [
+      { driverId: undefined, driverName: "Yaw Hired" },
+      "Choose a driver, or type the outside driver's name and phone",
+    ],
+    [
+      { vehicleId: undefined },
+      "Choose a vehicle, or type the outside vehicle's registration",
+    ],
+  ] as const) {
+    const refused = await post(
+      `/api/v1/jobs/${jobA}/deliveries`,
+      TEST_MATCHING_TOKEN,
+      dispatchBody(driver.id, vehicle.id, over),
+    );
+    assert.equal(refused.status, 400, message);
+    assert.equal(
+      ((await refused.json()) as { message: string }).message,
+      message,
+    );
+  }
+});

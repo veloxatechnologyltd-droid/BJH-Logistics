@@ -3,13 +3,17 @@ import { Suspense } from "react";
 import { contact, quoteChecklist, telHref, whatsappHref } from "../content";
 import { Icon } from "../Icon";
 import { PageHero } from "../Sections";
+import { pageMetadata } from "../seo";
 import { QuoteForm } from "./QuoteForm";
 
-export const metadata: Metadata = {
-  title: "Request a quote",
+// The ?service= links from /services share this page; the canonical keeps
+// them from counting as separate pages.
+export const metadata: Metadata = pageMetadata({
+  title: "Request a Freight Quote in Ghana",
   description:
     "Send your shipment details to BJH Logistics and get a freight, customs or logistics quote.",
-};
+  path: "/request-a-quote",
+});
 
 export default function RequestQuotePage() {
   return (

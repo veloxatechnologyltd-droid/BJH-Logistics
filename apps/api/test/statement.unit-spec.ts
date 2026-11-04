@@ -16,6 +16,7 @@ const entry = (
   receiptNumber: null,
   method: null,
   reference: null,
+  onAccount: false,
   ...over,
 });
 
@@ -219,4 +220,26 @@ test("a payment line names its receipt, method, reference and the invoice it set
 
 test("no entries give no sections", () => {
   assert.deepEqual(buildStatement([], all), []);
+});
+
+test("a payment kept as credit takes from the balance and says it is on account", () => {
+  const [section] = buildStatement(
+    [
+      entry({ kind: "invoice", date: "2026-02-01", amountMinor: 50000 }),
+      entry({
+        kind: "payment",
+        date: "2026-02-02",
+        amountMinor: 80000,
+        invoiceNumber: "",
+        fileNumber: "",
+        receiptNumber: "SYN/RCT/2026/0009",
+        method: "cash",
+        onAccount: true,
+      }),
+    ],
+    all,
+  );
+  assert.equal(section.closingMinor, -30000);
+  assert.match(section.lines[1].reference, /on account \(credit\)/);
+  assert.match(section.lines[1].reference, /Receipt SYN\/RCT\/2026\/0009/);
 });

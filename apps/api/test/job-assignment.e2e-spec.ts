@@ -156,18 +156,9 @@ test("the import reps are the people who can lead an import job", async () => {
   assert.equal(customer.status, 403);
 });
 
-test("before the client accepts the invoice only the super admin can assign, with a reason", async () => {
+test("customer service assigns as soon as the quote is accepted, before any invoice is accepted; reps cannot", async () => {
   const lead = { userId: TEST_MATCHING_USER_ID, kind: "lead" };
-  const desk = await post(
-    `/api/v1/jobs/${jobId}/team`,
-    TEST_UNASSIGNED_TOKEN,
-    lead,
-  );
-  assert.equal(desk.status, 409);
-  assert.equal(
-    await message(desk),
-    "The client has not accepted an invoice on this job yet",
-  );
+  assert.equal((await team()).invoiceAccepted, false);
 
   const rep = await post(
     `/api/v1/jobs/${jobId}/team`,
@@ -176,28 +167,17 @@ test("before the client accepts the invoice only the super admin can assign, wit
   );
   assert.equal(rep.status, 403);
 
-  const noReason = await post(
+  const desk = await post(
     `/api/v1/jobs/${jobId}/team`,
-    TEST_SUPER_ADMIN_TOKEN,
+    TEST_UNASSIGNED_TOKEN,
     lead,
   );
-  assert.equal(noReason.status, 409);
-
-  const override = await post(
-    `/api/v1/jobs/${jobId}/team`,
-    TEST_SUPER_ADMIN_TOKEN,
-    {
-      ...lead,
-      overrideReason:
-        "Boss approved going ahead before payment terms are agreed",
-    },
-  );
-  assert.equal(override.status, 201);
-  const assigned = (await override.json()) as {
+  assert.equal(desk.status, 201, await desk.clone().text());
+  const assigned = (await desk.json()) as {
     id: string;
-    overrideReason: string;
+    overrideReason: string | null;
   };
-  assert.match(assigned.overrideReason, /Boss approved/);
+  assert.equal(assigned.overrideReason, null);
 
   const removed = await call(
     `/api/v1/jobs/${jobId}/team/${assigned.id}`,
@@ -315,7 +295,7 @@ test("once accepted, customer service assigns the lead and adds an assistant", a
   assert.equal(view.history.length, 4);
 });
 
-test("customer service records the client's acceptance from the team card, without seeing amounts; finance does not", async () => {
+test("customer service records the client's acceptance from the team card; finance does not", async () => {
   const secondInvoice = await issueInvoice();
   // The team view lists the issued invoice by number only (Evans, 2026-11-02).
   const listed = (await team()).invoices.find(
@@ -330,11 +310,11 @@ test("customer service records the client's acceptance from the team card, witho
     "invoiceNumber",
     "issuedAt",
   ]);
-  // Customer service still cannot read the invoices themselves.
+  // Customer service also reads the invoices themselves (Evans, 2026-11-03).
   assert.equal(
     (await call(`/api/v1/jobs/${jobId}/invoices`, TEST_UNASSIGNED_TOKEN))
       .status,
-    403,
+    200,
   );
 
   const recorded = await post(

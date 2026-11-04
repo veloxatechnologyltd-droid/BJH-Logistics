@@ -272,7 +272,7 @@ test("one company's figures can be read by ID; an unknown company is not found",
   );
 });
 
-test("money figures go only to finance roles; other staff see counts with no money", async () => {
+test("money figures go only to finance roles and customer service; other staff see counts with no money", async () => {
   const database = application.get(DatabasePort);
   const actAs = async (role: StaffRoleKey) => {
     for (const held of await database.getActiveStaffRoles(
@@ -301,19 +301,18 @@ test("money figures go only to finance roles; other staff see counts with no mon
     return [all.find((row) => row.companyId === busyCompany)!, one];
   };
 
-  for (const role of [
-    "customer_service_rep",
-    "sales_rep",
-    "import_rep",
-  ] as const) {
+  for (const role of ["sales_rep", "import_rep"] as const) {
     await actAs(role);
     for (const row of await busyFor()) {
       assert.deepEqual(row.money, [], `${role} must not see money`);
       assert.ok(row.totalJobs > 0, `${role} still sees job counts`);
     }
   }
-  await actAs("finance_rep");
-  for (const row of await busyFor()) assert.ok(row.money.length > 0);
+  // BJH has no finance person, so customer service sees money (Evans, 2026-11-03).
+  for (const role of ["finance_rep", "customer_service_rep"] as const) {
+    await actAs(role);
+    for (const row of await busyFor()) assert.ok(row.money.length > 0, role);
+  }
   const admin = await insights(TEST_SUPER_ADMIN_TOKEN);
   assert.ok(
     admin.find((row) => row.companyId === busyCompany)!.money.length > 0,

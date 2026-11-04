@@ -42,6 +42,8 @@ import { NotificationsService } from "./notifications/notifications.service";
 import {
   EMAIL_PROVIDER,
   INQUIRY_EMAIL_PROVIDER,
+  REPLY_EMAIL_PROVIDER,
+  createReplySender,
   SMS_PROVIDER,
   createEmailProvider,
   createInquiryEmailProvider,
@@ -78,7 +80,9 @@ import {
   InvoicesController,
   FinanceSummaryController,
   OutstandingInvoicesController,
+  InvoiceRegisterController,
   PaymentsController,
+  CreditsController,
   ReceiptsController,
 } from "./finance/invoices.controller";
 import { InvoicesService } from "./finance/invoices.service";
@@ -97,8 +101,12 @@ import {
   EMAIL_EXTRACTOR,
   createEmailExtractor,
 } from "./intake/email-extractor";
-import { StatementsController } from "./finance/statements.controller";
+import {
+  JobReportsController,
+  StatementsController,
+} from "./finance/statements.controller";
 import { StatementsService } from "./finance/statements.service";
+import { JobReportService } from "./finance/job-report.service";
 import {
   DeliveriesController,
   DriversController,
@@ -151,11 +159,14 @@ import { SupportService } from "./support/support.service";
     JobChargesController,
     InvoicesController,
     OutstandingInvoicesController,
+    InvoiceRegisterController,
     ReceiptsController,
     FinanceSummaryController,
     ReportsController,
     PaymentsController,
+    CreditsController,
     StatementsController,
+    JobReportsController,
     InboundEmailController,
     KnowledgeController,
     DriversController,
@@ -207,11 +218,16 @@ import { SupportService } from "./support/support.service";
       provide: INQUIRY_EMAIL_PROVIDER,
       useFactory: () => createInquiryEmailProvider(process.env),
     },
+    {
+      provide: REPLY_EMAIL_PROVIDER,
+      useFactory: () => createReplySender(process.env),
+    },
     { provide: SMS_PROVIDER, useFactory: () => createSmsProvider(process.env) },
     JobChargesService,
     InvoicesService,
     ReportsService,
     StatementsService,
+    JobReportService,
     InboundEmailService,
     { provide: EMAIL_EXTRACTOR, useFactory: () => createEmailExtractor() },
     EmailAssistantService,

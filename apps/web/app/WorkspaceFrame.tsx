@@ -46,15 +46,20 @@ const customerNav: NavGroup[] = [
 /**
  * The four teams BJH works in (client meeting, 2026-11-01), in the order work
  * flows: sales finds the client, customer service handles them, operations
- * runs the job, finance bills it. Finance is shown only to finance and the boss.
+ * runs the job, finance bills it. Finance is shown to finance, customer service
+ * (BJH has no finance person yet) and the boss.
  */
 const staffNav: NavGroup[] = [
   {
     items: [
       { href: "/", label: "Overview", icon: "overview", exact: true },
-      { href: "/reports", label: "Reports", icon: "reports" },
       { href: "/team-chat", label: "Team chat", icon: "team" },
-      { href: "/assistant", label: "Bra Evans", icon: "helper" },
+      {
+        href: "/assistant",
+        label: "Bra Evans",
+        icon: "helper",
+        roles: ["super_admin", "customer_service_rep"],
+      },
     ],
   },
   {
@@ -100,9 +105,13 @@ const staffNav: NavGroup[] = [
         href: "/finance",
         label: "Finance",
         icon: "invoices",
-        roles: ["super_admin", "finance_rep"],
+        roles: ["super_admin", "finance_rep", "customer_service_rep"],
       },
     ],
+  },
+  {
+    heading: "REPORTS",
+    items: [{ href: "/reports", label: "Reports", icon: "reports" }],
   },
 ];
 
@@ -320,8 +329,14 @@ function pageCrumb(
 export function WorkspaceFrame({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { isCustomer, roles, status, mustChangePassword, twoFactorRequired } =
-    useStaffAccess();
+  const {
+    isCustomer,
+    isSuperAdmin,
+    roles,
+    status,
+    mustChangePassword,
+    twoFactorRequired,
+  } = useStaffAccess();
   const [collapsed, setCollapsed] = useState(false);
   const newRequests = useNewRequestCount(
     status === "ready" && !isCustomer,
@@ -486,7 +501,7 @@ export function WorkspaceFrame({ children }: { children: ReactNode }) {
           ))}
         </nav>
 
-        {!resolving && !isCustomer && (
+        {!resolving && isSuperAdmin && (
           <SettingsSidebarSection active={settingsActive} />
         )}
 
@@ -532,7 +547,16 @@ export function WorkspaceFrame({ children }: { children: ReactNode }) {
             </button>
           </p>
         )}
-        {children}
+        {/* Settings, drivers and vehicles, and staff are the super admin's alone. */}
+        {settingsActive && !isSuperAdmin
+          ? !resolving && (
+              <main className="dashboard">
+                <p className="access-notice" role="alert">
+                  Settings are for the super admin only.
+                </p>
+              </main>
+            )
+          : children}
       </div>
     </div>
   );

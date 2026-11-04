@@ -49,10 +49,33 @@ export class SupportController {
     return this.support.mine(request.authUser!.userId);
   }
 
+  /** The person who sent a request writes again on it. */
+  @Post("mine/:id/replies")
+  @UseGuards(StaffCompanyReadGuard, UserThrottlerGuard)
+  @Throttle({ default: { ttl: 60_000, limit: 10 } })
+  replyAsReporter(
+    @Param("id") id: string,
+    @Body() body: unknown,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.support.replyAsReporter(request.authUser!.userId, id, body);
+  }
+
   @Get()
   @UseGuards(SuperAdminGuard)
   all() {
     return this.support.all();
+  }
+
+  /** The super admin answers a request; its sender is emailed. */
+  @Post(":id/replies")
+  @UseGuards(SuperAdminGuard)
+  replyAsSupport(
+    @Param("id") id: string,
+    @Body() body: unknown,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.support.replyAsSupport(request.authUser!.userId, id, body);
   }
 
   @Patch(":id")

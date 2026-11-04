@@ -10,6 +10,8 @@ import type { OutstandingInvoice } from "../jobs/jobApi";
 import { formatMoney } from "../quotes/quoteApi";
 import { ReceiptList } from "../finance/ReceiptList";
 import { RecordPayment } from "../finance/RecordPayment";
+import { CustomerCredits } from "../finance/CustomerCredits";
+import { InvoiceRegister } from "../finance/InvoiceRegister";
 import { FinanceTabs } from "./FinanceTabs";
 import styles from "../jobs/jobs.module.css";
 import cards from "../finance/finance.module.css";
@@ -21,8 +23,16 @@ type Totals = Array<{
   overdueMinor: number;
 }>;
 
-/** Unpaid invoices across jobs: staff see every customer, a customer sees their own. */
+/** Staff get Finance's invoice list; a customer sees what they still owe. */
 export function Receivables() {
+  const { roles, status } = useStaffAccess();
+  if (roles.length > 0) return <InvoiceRegister />;
+  if (status === "loading") return <p role="status">Loading…</p>;
+  return <OwedInvoices />;
+}
+
+/** Unpaid invoices across jobs: staff see every customer, a customer sees their own. */
+function OwedInvoices() {
   const { roles } = useStaffAccess();
   const isStaff = roles.length > 0;
   const [rows, setRows] = useState<OutstandingInvoice[] | null>(null);
@@ -30,6 +40,7 @@ export function Receivables() {
   const [customers, setCustomers] = useState<CustomerCompany[]>([]);
   const [companyId, setCompanyId] = useState("");
   const [error, setError] = useState("");
+  const [creditsKey, setCreditsKey] = useState(0);
 
   const load = useCallback(async () => {
     setError("");
@@ -64,10 +75,24 @@ export function Receivables() {
               {isStaff ? "Unpaid invoices" : "Invoices you still owe"}
             </h1>
           </div>
-          {isStaff && <RecordPayment onRecorded={() => void load()} />}
+          {isStaff && (
+            <RecordPayment
+              onRecorded={() => {
+                void load();
+                setCreditsKey((current) => current + 1);
+              }}
+            />
+          )}
         </header>
         {isStaff && <FinanceTabs active="/invoices" />}
         <ErrorPopup message={error} />
+        {isStaff && (
+          <CustomerCredits
+            companyId={companyId}
+            onChanged={() => void load()}
+            reloadKey={creditsKey}
+          />
+        )}
         <section className={styles.card} aria-labelledby="owing-title">
           <h2 id="owing-title">Balances</h2>
           {isStaff && (

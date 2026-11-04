@@ -83,6 +83,26 @@ export const invoiceIssuedMessage = (
   smsText: `${sender}: invoice ${invoiceNumber}, ${money(totalMinor, currency)}${dueDate ? `, due ${dueDate}` : ""}.`,
 });
 
+/** Several invoices issued together: one message listing them. */
+export const invoicesIssuedMessage = (
+  sender: string,
+  invoices: Array<{
+    invoiceNumber: string;
+    totalMinor: number;
+    currency: string;
+    dueDate: string | null;
+  }>,
+): Message => ({
+  subject: `${invoices.length} invoices issued`,
+  body: `These invoices have been issued. You can open and download them below.\n${invoices
+    .map(
+      (invoice) =>
+        `- ${invoice.invoiceNumber}: ${money(invoice.totalMinor, invoice.currency)}${invoice.dueDate ? `, due ${invoice.dueDate}` : ""}`,
+    )
+    .join("\n")}${sign(sender)}`,
+  smsText: `${sender}: ${invoices.length} invoices issued (${invoices.map((invoice) => invoice.invoiceNumber).join(", ")}).`,
+});
+
 export const paymentReceivedMessage = (
   sender: string,
   receiptNumber: string | null,
@@ -96,6 +116,18 @@ export const paymentReceivedMessage = (
   smsText: `${sender}: payment of ${money(amountMinor, currency)} received for ${invoiceNumber}. Balance ${money(balanceMinor, currency)}.`,
 });
 
+/** Money received with no invoice to set it against (or more than was owed): kept as credit. */
+export const creditReceivedMessage = (
+  sender: string,
+  receiptNumber: string,
+  amountMinor: number,
+  currency: string,
+): Message => ({
+  subject: `Payment received: ${money(amountMinor, currency)} on your account`,
+  body: `We have recorded your payment of ${money(amountMinor, currency)} (receipt ${receiptNumber}). It is held as credit on your account and will be set against your next invoices.${sign(sender)}`,
+  smsText: `${sender}: payment of ${money(amountMinor, currency)} received and held as credit on your account (receipt ${receiptNumber}).`,
+});
+
 /** Customer service writing in the client's conversation; the tag lets an emailed reply find its way back. */
 export const chatMessage = (
   sender: string,
@@ -105,6 +137,17 @@ export const chatMessage = (
   subject: `Message from ${sender}${tag ? ` ${tag}` : ""}`,
   body: `${body}\n\nYou can reply to this email or answer in your customer portal.${sign(sender)}`,
   smsText: `${sender}: you have a new message. ${body.length > 80 ? `${body.slice(0, 77)}...` : body}`,
+});
+
+/** A job report emailed by finance; the PDF is attached to the email. */
+export const jobReportSentMessage = (
+  sender: string,
+  companyName: string,
+  jobCount: number,
+): Message => ({
+  subject: `Job report for ${companyName}`,
+  body: `Please find attached the report on your ${jobCount === 1 ? "job" : `${jobCount} jobs`} with us, with each job's progress, deliveries and invoices.${sign(sender)}`,
+  smsText: `${sender}: your job report has been emailed to you.`,
 });
 
 /** A receipt sent on request by customer service or finance; the PDF is attached to the email. */
@@ -120,13 +163,43 @@ export const receiptSentMessage = (
   smsText: `${sender}: receipt ${receiptNumber} for ${money(amountMinor, currency)} (${invoiceNumber}) has been emailed to you.`,
 });
 
+/** The receipt of one payment that settled several invoices, sent on request; the PDF is attached. */
+export const batchReceiptSentMessage = (
+  sender: string,
+  receiptNumber: string,
+  invoiceNumbers: string[],
+  amountMinor: number,
+  currency: string,
+): Message => ({
+  subject: `Receipt ${receiptNumber} for ${invoiceNumbers.length} invoices`,
+  body: `Please find attached receipt ${receiptNumber} for your payment of ${money(amountMinor, currency)} against invoices ${invoiceNumbers.join(", ")}.${sign(sender)}`,
+  smsText: `${sender}: receipt ${receiptNumber} for ${money(amountMinor, currency)} (${invoiceNumbers.length} invoices) has been emailed to you.`,
+});
+
+/** A client's invoices still owing, in one PDF, sent on request (Evans, 2026-11-04). */
+export const invoiceSummarySentMessage = (
+  sender: string,
+  invoiceNumbers: string[],
+): Message => ({
+  subject: `Your invoices from ${sender}`,
+  body: `Please find attached a summary of your ${invoiceNumbers.length === 1 ? "invoice" : `${invoiceNumbers.length} invoices`} still to be paid (${invoiceNumbers.join(", ")}), with each invoice in full.${sign(sender)}`,
+  smsText: `${sender}: a summary of your ${invoiceNumbers.length === 1 ? "invoice" : `${invoiceNumbers.length} invoices`} still to be paid has been emailed to you.`,
+});
+
+/** A summary of a client's payments with their receipt numbers, sent on request. */
+export const paymentSummarySentMessage = (sender: string): Message => ({
+  subject: `Summary of your payments to ${sender}`,
+  body: `Please find attached a summary of the payments we have received from you, with the receipt number of each.${sign(sender)}`,
+  smsText: `${sender}: a summary of your payments has been emailed to you.`,
+});
+
 /** One payment that settled several invoices: a single message, not one per invoice. */
 export const paymentsReceivedMessage = (
   sender: string,
   currency: string,
+  receiptNumber: string | null,
   lines: Array<{
     invoiceNumber: string;
-    receiptNumber: string | null;
     amountMinor: number;
     balanceMinor: number;
   }>,
@@ -135,10 +208,10 @@ export const paymentsReceivedMessage = (
   const balance = lines.reduce((sum, line) => sum + line.balanceMinor, 0);
   return {
     subject: `Payment received for ${lines.length} invoices`,
-    body: `We have recorded your payment of ${money(total, currency)}, applied to these invoices:\n${lines
+    body: `We have recorded your payment of ${money(total, currency)}${receiptNumber ? ` (receipt ${receiptNumber})` : ""}, applied to these invoices:\n${lines
       .map(
         (line) =>
-          `- ${line.invoiceNumber}: ${money(line.amountMinor, currency)}${line.receiptNumber ? ` (receipt ${line.receiptNumber})` : ""}, balance ${money(line.balanceMinor, currency)}`,
+          `- ${line.invoiceNumber}: ${money(line.amountMinor, currency)}, balance ${money(line.balanceMinor, currency)}`,
       )
       .join(
         "\n",

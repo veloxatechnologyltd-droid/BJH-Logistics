@@ -13,6 +13,7 @@ import {
 } from "../../quoteRequestApi";
 import type { QuoteRequest } from "../../quoteRequestApi";
 import styles from "../../quotation.module.css";
+import { ReplyThread } from "./ReplyThread";
 
 const kindLabels: Record<RequestKind, string> = {
   quote: "Asks for a quote",
@@ -125,7 +126,8 @@ export function AssistantPanel({
         </p>
       )}
 
-      {intake.kind !== "other" && (
+      {/* A reply can be written for any email, including one the assistant sorted as needing none. */}
+      {(intake.kind !== "other" || canEdit || sent) && (
         <div className={styles.replyBlock}>
           <h3>Reply to {intake.fromEmail}</h3>
           {intake.escalation && !sent && (
@@ -142,17 +144,12 @@ export function AssistantPanel({
             </p>
           )}
           {sent ? (
-            <>
-              <p className={styles.emailStatus}>
-                {reply?.sentByAssistant
-                  ? "Sent automatically by the assistant"
-                  : "Sent"}{" "}
-                on {formatDate(sent)}. It is listed under Settings, Customer
-                messages.
-              </p>
-              <p className={styles.replySubject}>{reply?.subject}</p>
-              <p className={styles.replySent}>{reply?.body}</p>
-            </>
+            <ReplyThread
+              canEdit={canEdit}
+              canSend={Boolean(request.customerCompanyId)}
+              requestId={request.id}
+              subject={reply?.subject ?? intake.subject}
+            />
           ) : (
             <>
               <p className={styles.emailStatus}>

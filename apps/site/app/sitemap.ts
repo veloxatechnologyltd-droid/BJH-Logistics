@@ -1,13 +1,10 @@
 import type { MetadataRoute } from "next";
-import { SITE_URL } from "./content";
+import { CONTENT_UPDATED } from "./content.ts";
+import { absoluteUrl, sitePaths } from "./seo.ts";
 
 export default function sitemap(): MetadataRoute.Sitemap {
-  return [
-    "",
-    "/services",
-    "/projects",
-    "/about",
-    "/contact",
-    "/request-a-quote",
-  ].map((path) => ({ url: `${SITE_URL}${path}` }));
+  return sitePaths.map((path) => ({
+    url: absoluteUrl(path),
+    lastModified: CONTENT_UPDATED,
+  }));
 }
