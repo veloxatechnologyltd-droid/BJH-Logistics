@@ -130,7 +130,6 @@ import { QuotesController } from "./quotations/quotes.controller";
 import { QuotesService } from "./quotations/quotes.service";
 import { ReportsController } from "./reports/reports.controller";
 import { ReportPdfService } from "./reports/report-pdf.service";
-import { ReportsService } from "./reports/reports.service";
 import { SupportController } from "./support/support.controller";
 import { SupportService } from "./support/support.service";
 import { PushController } from "./push/push.controller";
@@ -234,7 +233,6 @@ import { PushService } from "./push/push.service";
     { provide: SMS_PROVIDER, useFactory: () => createSmsProvider(process.env) },
     JobChargesService,
     InvoicesService,
-    ReportsService,
     ReportPdfService,
     StatementsService,
     JobReportService,

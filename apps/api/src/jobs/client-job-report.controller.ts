@@ -30,8 +30,9 @@ interface BinaryResponse {
 
 /**
  * A customer's jobs as a status update for the client: `companyId` is
- * required; `jobIds` (comma separated), `from` and `to` (YYYY-MM-DD, by
- * opening date) narrow it. Staff only, within their own service lines, like
+ * required; `jobIds` (comma separated) picks jobs; otherwise `include`
+ * (ongoing, the default; completed; all) does. `from` and `to` (YYYY-MM-DD, by
+ * opening date) narrow either. Staff only, within their own service lines, like
  * the jobs list; it carries no money.
  */
 @Controller("api/v1/client-job-reports")

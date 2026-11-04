@@ -92,11 +92,12 @@ test("the report carries the sample's heading, columns, dates and footer", async
     }),
   );
   assert.equal(file.subarray(0, 5).toString("latin1"), "%PDF-");
+  // BJH's logo heads the page, as on the client's sample, in place of the name.
+  assert.match(file.toString("latin1"), /\/Subtype \/Image/);
   const text = pdfText(file);
   // A heading or name may wrap inside its column, as in the sample.
   const flat = (value: string) => value.replace(/\s+/g, " ");
   for (const expected of [
-    "Synthetic Forwarding Ltd",
     "Client Job Report",
     "Report Synthetic Ltd",
     "Generated on 03/11/2026",
@@ -143,7 +144,7 @@ test("a section with no jobs is left out, and an empty report says so", async ()
   assert.ok(!onlyCompleted.includes("Sea import"));
 });
 
-test("a missing value leaves its cell blank and no issuer still renders", async () => {
+test("a missing value leaves its cell blank and no issuer still renders with the logo", async () => {
   const file = await render(
     view({
       sections: [
@@ -164,8 +165,8 @@ test("a missing value leaves its cell blank and no issuer still renders", async 
     }),
     false,
   );
+  assert.match(file.toString("latin1"), /\/Subtype \/Image/);
   const text = pdfText(file);
-  assert.ok(text.includes("Issuer details not configured"));
   assert.ok(text.includes("Air export"));
   assert.ok(text.includes("BOE PROCESSING"));
   assert.ok(!text.includes("undefined") && !text.includes("null"));

@@ -21,6 +21,10 @@ export const canWorkFinance = (roles: string[]) =>
     ["super_admin", "finance_rep", "customer_service_rep"].includes(role),
   );
 
+/** Bra Evans, the staff helper: the boss and customer service, as in the API. */
+export const canUseAssistant = (roles: string[]) =>
+  roles.some((role) => ["super_admin", "customer_service_rep"].includes(role));
+
 /** Supplier invoices and disbursement proof are BJH's costs: finance only, as in the API. */
 const costEvidenceTypes: readonly DocumentType[] = [
   "supplier_invoice",

@@ -5,12 +5,17 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import {
+  clientJobReportIncludeSchema,
   jobReportQuerySchema,
   milestoneTemplates,
   parseContract,
   serviceLineKeys,
 } from "@bjh/contracts";
-import type { JobReportQuery, ServiceLine } from "@bjh/contracts";
+import type {
+  ClientJobReportInclude,
+  JobReportQuery,
+  ServiceLine,
+} from "@bjh/contracts";
 import { DatabasePort } from "../database/database.port";
 import type {
   JobListRecord,
@@ -149,17 +154,24 @@ export class ClientJobReportService {
     };
   }
 
-  private parse(query: unknown): JobReportQuery {
+  private parse(
+    query: unknown,
+  ): JobReportQuery & { include: ClientJobReportInclude } {
     const parsed = parseContract(jobReportQuerySchema, query);
     if (!parsed.success) throw new BadRequestException(parsed.message);
-    return parsed.data;
+    const include = parseContract(
+      clientJobReportIncludeSchema,
+      (query as Record<string, unknown>).include,
+    );
+    if (!include.success) throw new BadRequestException(include.message);
+    return { ...parsed.data, include: include.data };
   }
 
   private async build(
-    query: JobReportQuery,
+    query: JobReportQuery & { include: ClientJobReportInclude },
     scope: JobScope,
   ): Promise<ClientJobReportView> {
-    const { companyId, jobIds, from, to } = query;
+    const { companyId, jobIds, from, to, include } = query;
     const company = await this.database.findCustomer(companyId);
     if (!company) throw new NotFoundException("Customer was not found");
 
@@ -175,8 +187,15 @@ export class ClientJobReportService {
         "A chosen job was not found for this customer",
       );
     }
-    // A cancelled job is not an update the client needs.
-    const chosen = listedChosen.filter((job) => job.status !== "cancelled");
+    // A cancelled job is not an update the client needs. Ticked jobs are
+    // taken as they are; otherwise `include` picks ongoing or completed jobs.
+    const chosen = listedChosen.filter(
+      (job) =>
+        job.status !== "cancelled" &&
+        (wanted !== null ||
+          include === "all" ||
+          (include === "completed") === (job.status === "closed")),
+    );
     if (chosen.length > MAX_JOBS) {
       throw new BadRequestException(
         `A report covers at most ${MAX_JOBS} jobs: choose the jobs or a date range`,

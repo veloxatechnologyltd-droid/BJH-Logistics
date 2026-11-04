@@ -224,30 +224,6 @@ test("accepting the client's first quote converts them and wins the lead", async
   assert.equal(figures.openLeads, 0);
 });
 
-test("reports show the sales and customer service picture for the period", async () => {
-  const today = new Date().toISOString().slice(0, 10);
-  const report = (await (
-    await call(
-      `/api/v1/reports?from=${today}&to=${today}`,
-      TEST_UNASSIGNED_TOKEN,
-    )
-  ).json()) as {
-    sales: {
-      newLeads: number;
-      leadsBySource: Record<string, number>;
-      pipeline: Record<string, number>;
-      converted: number;
-    };
-    service: { quotesIssued: number; quotesAccepted: number };
-  };
-  assert.equal(report.sales.newLeads, 1);
-  assert.deepEqual(report.sales.leadsBySource, { walk_in: 1 });
-  assert.equal(report.sales.pipeline.won, 1);
-  assert.equal(report.sales.converted, 1);
-  assert.equal(report.service.quotesIssued, 1);
-  assert.equal(report.service.quotesAccepted, 1);
-});
-
 test("a quote can be prepared for a lead: it becomes a customer, then quoted on issue", async () => {
   const create = (body: unknown) =>
     send("POST", "/api/v1/leads", TEST_UNASSIGNED_TOKEN, body);

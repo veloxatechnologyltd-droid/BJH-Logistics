@@ -1054,13 +1054,23 @@ export async function fetchJobReportPdf(
   return response.blob();
 }
 
+/** Which jobs a client job report covers when none are ticked. */
+export type ClientJobReportInclude = "ongoing" | "completed" | "all";
+
 /** A customer's jobs, one line each, as a status update for the client (no money). */
 export async function fetchClientJobReportPdf(
   companyId: string,
-  jobIds: string[],
+  options: {
+    jobIds: string[];
+    include: ClientJobReportInclude;
+    from: string;
+    to: string;
+  },
 ): Promise<Blob> {
-  const query = new URLSearchParams({ companyId });
-  if (jobIds.length > 0) query.set("jobIds", jobIds.join(","));
+  const query = new URLSearchParams({ companyId, include: options.include });
+  if (options.jobIds.length > 0) query.set("jobIds", options.jobIds.join(","));
+  if (options.from) query.set("from", options.from);
+  if (options.to) query.set("to", options.to);
   const response = await authenticatedFetch(
     `${apiRoot}/client-job-reports/pdf?${query.toString()}`,
   );

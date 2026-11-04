@@ -298,7 +298,7 @@ test("report details refuse bad input, other lines, customers and finished jobs"
 });
 
 test("the report lists open jobs by service, then completed ones, one line each", async () => {
-  const response = await call(query(), TEST_SUPER_ADMIN_TOKEN);
+  const response = await call(query("&include=all"), TEST_SUPER_ADMIN_TOKEN);
   assert.equal(response.status, 200, await response.clone().text());
   const report = (await response.json()) as Report;
   assert.deepEqual(report.company, {
@@ -347,7 +347,7 @@ test("the report lists open jobs by service, then completed ones, one line each"
 
 test("status is the remark, else the latest step recorded, else the job's status", async () => {
   const report = (await (
-    await call(query(), TEST_SUPER_ADMIN_TOKEN)
+    await call(query("&include=all"), TEST_SUPER_ADMIN_TOKEN)
   ).json()) as Report;
   const byId = new Map(allRows(report).map((row) => [row.jobId, row]));
   // The invoice step was recorded last, but billing is not shipment progress.
@@ -364,6 +364,28 @@ test("status is the remark, else the latest step recorded, else the job's status
   // A completed job shows the day it closed, not the date once expected.
   assert.equal(byId.get(done1.id)?.status, "CARGO HAS ARRIVED");
   assert.equal(byId.get(done1.id)?.completionDate, today());
+});
+
+test("by default only ongoing jobs are reported; include picks completed or all", async () => {
+  const ids = async (extra: string) =>
+    allRows(
+      (await (
+        await call(query(extra), TEST_SUPER_ADMIN_TOKEN)
+      ).json()) as Report,
+    )
+      .map((row) => row.jobId)
+      .sort();
+  const ongoing = [imp1.id, imp2.id, imp3.id, exp1.id].sort();
+  assert.deepEqual(await ids(""), ongoing);
+  assert.deepEqual(await ids("&include=ongoing"), ongoing);
+  assert.deepEqual(await ids("&include=completed"), [done1.id]);
+  assert.deepEqual(await ids("&include=all"), [...ongoing, done1.id].sort());
+  // Ticked jobs are taken as they are, whatever include says.
+  assert.deepEqual(await ids(`&include=ongoing&jobIds=${done1.id}`), [
+    done1.id,
+  ]);
+  const bad = await call(query("&include=old"), TEST_SUPER_ADMIN_TOKEN);
+  assert.equal(bad.status, 400);
 });
 
 test("a report can be narrowed to chosen jobs; another customer's job is refused", async () => {
