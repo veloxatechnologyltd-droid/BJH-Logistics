@@ -38,6 +38,17 @@ All on the API service in Render; the service restarts after a change.
 - **Automatic email replies to quote requests:** set `ASSISTANT_AUTO_REPLY` to anything other than `on`.
 - **Reading the mailbox:** remove `INBOUND_IMAP_HOST` (or the user or password).
 - **Email and website-form intake:** remove `INBOUND_EMAIL_SECRET` (intake is off without it; the website quote form then reports an error to visitors).
+- **Notifications on staff devices (Web Push):** remove `VAPID_PRIVATE_KEY` (or the public key or subject). Nothing is sent and browsers are no longer offered them; subscriptions stay saved and work again when the same keys return.
+
+## Notifications that arrive with BJH closed (Web Push)
+
+Staff turn them on from the banner under the top bar (or Team chat), on each device. A subscription belongs to one person and one browser; signing out removes it. The API sends one push per event, per subscription: a Team chat message goes to everyone else in that conversation (a team channel goes to the holders of that team's roles and the super admin), a client's chat message to customer service and the super admin, a new emailed or portal quote request or inquiry to customer service, the super admin and (quote requests) sales, and support tickets to the super admin. The browser shows one notification per conversation and counts further messages. Customers are not offered it.
+
+- **First release, in this order:** (1) apply `20261104000200_push_subscription.sql` to production (`db:migrate:production`, which needs an explicit go); (2) on the API service in Render set `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` and `VAPID_SUBJECT` (see `.env.example`); (3) release the API, then the staff app. The migration must be live before the API that reads it.
+- **Check once after release:** sign in, accept the banner, send a Team chat message from another account with BJH closed, and look at the browser console for Content Security Policy messages. The staff app's policy names `worker-src 'self'` for `/sw.js`.
+- **It only reaches devices that are on.** A browser that is fully closed on a computer, or a phone with notifications off for the browser, will not show it until the device is back (messages wait up to a day at the push service). iPhones receive notifications only from the app added to the Home Screen.
+- **A person who stops getting them:** the browser or phone may have blocked the site, the subscription may have expired (the API deletes one the push service reports gone), or their roles may have been removed (suspended staff are never sent to). Turning them on again from the banner fixes the first two.
+- **Not covered yet:** reminders and overdue notices, vehicle expiry notices, job assignments, and customers.
 
 ## After a change to `render.yaml`
 

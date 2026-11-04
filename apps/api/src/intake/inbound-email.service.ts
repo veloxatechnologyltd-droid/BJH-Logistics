@@ -23,6 +23,8 @@ import {
 } from "../documents/document-storage.port";
 import type { DocumentStorage } from "../documents/document-storage.port";
 import { sanitizeFilename } from "../documents/file-signature";
+import { newRequestPush } from "../push/push-messages";
+import { PushService } from "../push/push.service";
 import { EMAIL_EXTRACTOR, ExtractionError } from "./email-extractor";
 import type { EmailExtractor, EmailForExtraction } from "./email-extractor";
 import { CLAUDE_FILE_TYPES } from "../ai/claude";
@@ -128,6 +130,7 @@ export class InboundEmailService {
     @Inject(DatabasePort) private readonly database: DatabasePort,
     @Inject(DOCUMENT_STORAGE) private readonly storage: DocumentStorage,
     @Inject(EMAIL_EXTRACTOR) private readonly extractor: EmailExtractor,
+    @Inject(PushService) private readonly push: PushService,
   ) {}
 
   async receive(
@@ -179,6 +182,11 @@ export class InboundEmailService {
         reading: created.request.intake?.extractionStatus ?? "pending",
       };
     }
+    const announce = newRequestPush(
+      email.mailbox,
+      email.fromName ?? email.fromEmail,
+    );
+    void this.push.notify(announce.recipients, announce.message);
     const reading = await this.read(created.request.id, {
       fromName: email.fromName,
       fromEmail: email.fromEmail,

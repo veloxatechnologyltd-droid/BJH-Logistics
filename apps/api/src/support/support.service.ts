@@ -17,6 +17,7 @@ import type { SupportRequestRecord } from "../database/database.port";
 import { publicWebUrl } from "../notifications/notifications.service";
 import { EMAIL_PROVIDER } from "../notifications/providers";
 import type { EmailProvider } from "../notifications/providers";
+import { PushService } from "../push/push.service";
 
 const kindLabels: Record<SupportRequestRecord["kind"], string> = {
   problem: "Problem",
@@ -47,6 +48,7 @@ export class SupportService {
   constructor(
     @Inject(DatabasePort) private readonly database: DatabasePort,
     @Inject(EMAIL_PROVIDER) private readonly email: EmailProvider,
+    @Inject(PushService) private readonly push: PushService,
   ) {}
 
   async create(
@@ -70,7 +72,32 @@ export class SupportService {
         }`,
       );
     });
+    void this.tellSupport(
+      saved,
+      `New ${kindLabels[saved.kind].toLowerCase()}`,
+      saved.description,
+      reporter.userId,
+    );
     return saved;
+  }
+
+  /** The super admin hears of a new ticket or a reply, with BJH closed (Evans, 2026-11-04). */
+  private tellSupport(
+    request: SupportRequestRecord,
+    title: string,
+    text: string,
+    writerUserId: string,
+  ) {
+    const preview = text.replace(/\s+/g, " ").trim();
+    return this.push.notify(
+      { roles: ["super_admin"], exceptUserId: writerUserId },
+      {
+        title,
+        body: preview.length > 100 ? `${preview.slice(0, 99)}…` : preview,
+        url: "/settings/support",
+        tag: `support:${request.id}`,
+      },
+    );
   }
 
   mine(userId: string): Promise<SupportRequestRecord[]> {
@@ -100,6 +127,17 @@ export class SupportService {
     body: unknown,
   ): Promise<SupportRequestRecord> {
     const updated = await this.saveReply(id, adminUserId, "support", body);
+    // Staff who sent it are told on their device too; a customer has no
+    // subscription, so only the email reaches them.
+    void this.push.notify(
+      { userIds: [updated.reporterUserId], exceptUserId: adminUserId },
+      {
+        title: "BJH support replied",
+        body: updated.messages[updated.messages.length - 1].body.slice(0, 100),
+        url: "/",
+        tag: `support:${updated.id}`,
+      },
+    );
     void this.notifyReporter(updated).catch((error: unknown) => {
       this.logger.error(
         `Reply on support request ${id} could not be emailed: ${
@@ -126,6 +164,12 @@ export class SupportService {
     }
     const updated = await this.saveReply(id, userId, "reporter", body);
     const latest = updated.messages[updated.messages.length - 1];
+    void this.tellSupport(
+      updated,
+      "Reply on a support request",
+      latest.body,
+      userId,
+    );
     void this.emailDeveloper(
       updated,
       `[BJH support] Reply from ${updated.reporterEmail ?? "a user"}`,

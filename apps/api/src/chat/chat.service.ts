@@ -15,6 +15,7 @@ import {
 } from "../database/database.port";
 import { chatMessage } from "../notifications/notification-messages";
 import { NotificationsService } from "../notifications/notifications.service";
+import { PushService } from "../push/push.service";
 import {
   emailAuthenticationPolicy,
   mayJoinChat,
@@ -62,6 +63,7 @@ export class ChatService {
     @Inject(DatabasePort) private readonly database: DatabasePort,
     @Inject(NotificationsService)
     private readonly notifications: NotificationsService,
+    @Inject(PushService) private readonly push: PushService,
   ) {}
 
   threads(): Promise<ChatThreadRecord[]> {
@@ -123,7 +125,7 @@ export class ChatService {
     const { body, jobId, companyId } = this.parse(input);
     const company = await this.ownCompany(companyIds, companyId ?? undefined);
     await this.checkJob(jobId, company.id);
-    return this.database.addChatMessage({
+    const message = await this.database.addChatMessage({
       companyId: company.id,
       direction: "from_client",
       channel: "portal",
@@ -133,6 +135,8 @@ export class ChatService {
       emailFrom: null,
       jobId,
     });
+    void this.pushFromClient(company, body);
+    return message;
   }
 
   /**
@@ -200,7 +204,26 @@ export class ChatService {
       },
       email.messageId ?? null,
     );
+    void this.pushFromClient(company, body);
     return true;
+  }
+
+  /**
+   * Customer service and the super admin are told when a client writes, even
+   * with BJH closed (Evans, 2026-11-04). One notification per client: further
+   * messages replace it and are counted.
+   */
+  private pushFromClient(company: CustomerCompanyRecord, body: string) {
+    const text = body.replace(/\s+/g, " ").trim();
+    return this.push.notify(
+      { roles: ["super_admin", "customer_service_rep"] },
+      {
+        title: company.companyName,
+        body: text.length > 100 ? `${text.slice(0, 99)}…` : text,
+        url: `/chat?company=${encodeURIComponent(company.id)}`,
+        tag: `client-chat:${company.id}`,
+      },
+    );
   }
 
   private parse(input: unknown) {

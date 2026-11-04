@@ -1220,6 +1220,15 @@ export interface ActiveCustomerMembershipRecord {
 /** A role as stored: a current role, or a legacy one not yet converted. */
 export type StaffRoleKey = HeldStaffRoleKey;
 
+/** A browser or phone that agreed to receive notifications (Evans, 2026-11-04). */
+export interface PushSubscriptionRecord {
+  id: string;
+  userId: string;
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+}
+
 export interface StaffRoleAssignmentRecord {
   id: string;
   userId: string;
@@ -2269,6 +2278,33 @@ export abstract class DatabasePort {
   ): Promise<boolean>;
   abstract hasActiveSuperAdmin(): Promise<boolean>;
   abstract claimInitialSuperAdmin(userId: string): Promise<boolean>;
+  /**
+   * Keeps a browser's push subscription for a person. A browser's address is
+   * unique, so signing in as someone else on it moves the subscription.
+   */
+  abstract savePushSubscription(input: {
+    userId: string;
+    endpoint: string;
+    p256dh: string;
+    auth: string;
+    userAgent: string | null;
+  }): Promise<void>;
+  /** Removes the person's own subscription for this browser; false when there was none. */
+  abstract deletePushSubscription(
+    userId: string,
+    endpoint: string,
+  ): Promise<boolean>;
+  /** Removes a subscription the push service says is gone (HTTP 404 or 410). */
+  abstract deleteExpiredPushSubscription(endpoint: string): Promise<void>;
+  /**
+   * The subscriptions of staff who still hold a role: those named in
+   * `userIds`, and/or those holding one of `roles`. A suspended or removed
+   * person has no active role, so is never returned.
+   */
+  abstract listPushSubscriptions(target: {
+    userIds?: string[];
+    roles?: StaffRoleKey[];
+  }): Promise<PushSubscriptionRecord[]>;
   abstract getActiveStaffRoles(userId: string): Promise<StaffRoleKey[]>;
   abstract listStaffRoleAssignments(): Promise<StaffRoleAssignmentRecord[]>;
   abstract assignStaffRole(

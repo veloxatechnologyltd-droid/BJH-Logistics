@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
+import { turnOffPush } from "../push/pushClient";
 import { getSupabaseBrowserClient } from "./supabaseBrowserClient";
 import styles from "./auth.module.css";
 
@@ -51,6 +52,9 @@ export function AuthStatus() {
 
   async function signOut() {
     const supabase = getSupabaseBrowserClient();
+    // While still signed in: a shared computer must stop showing this
+    // person's notifications (never blocks signing out).
+    await turnOffPush();
     if (supabase) {
       await supabase.auth.signOut();
     }

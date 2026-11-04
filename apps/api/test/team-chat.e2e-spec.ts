@@ -189,6 +189,22 @@ test("a direct conversation belongs to its two people only, and counts unread", 
   const before = (await list(EXPORT_REP)).find((item) => item.id === id)!;
   assert.equal(before.unread, 1);
   assert.equal(before.title, "Staff");
+  // The badge poll names the conversation holding the unread message, so the
+  // browser can announce it; the sender has nothing unread.
+  const waiting = (await (await call(`${chat}/unread`, EXPORT_REP)).json()) as {
+    unread: number;
+    conversations: Array<{
+      id: string;
+      unread: number;
+      lastMessageAt: string | null;
+    }>;
+  };
+  assert.equal(waiting.unread, 1);
+  assert.deepEqual(
+    waiting.conversations.map((item) => [item.id, item.unread]),
+    [[id, 1]],
+  );
+  assert.ok(Date.parse(waiting.conversations[0].lastMessageAt ?? ""));
   const seen = await open(id, EXPORT_REP);
   assert.equal(seen.messages[0].body, "Is the export booking confirmed?");
   assert.equal(seen.messages[0].authorName, "Staff");
@@ -198,6 +214,7 @@ test("a direct conversation belongs to its two people only, and counts unread", 
   );
   assert.deepEqual(await (await call(`${chat}/unread`, EXPORT_REP)).json(), {
     unread: 0,
+    conversations: [],
   });
 
   // Even the super admin cannot read two other people's direct messages.

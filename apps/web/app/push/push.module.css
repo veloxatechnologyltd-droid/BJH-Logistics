@@ -1,0 +1,72 @@
+/* The "get notified" banner under the top bar; one blue, like the rest of the app. */
+.banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 14px;
+  padding: 12px clamp(17px, 4vw, 54px);
+  border-bottom: 1px solid var(--brand-border);
+  background: #eaf1fb;
+  color: var(--brand-ink);
+}
+.mark {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 11px;
+  background: var(--brand-primary);
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+.text {
+  display: grid;
+  min-width: 200px;
+  flex: 1 1 200px;
+  gap: 2px;
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+.text span {
+  color: var(--brand-muted);
+}
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+.turnOn,
+.later {
+  min-height: 44px;
+  border-radius: 999px;
+  padding: 0 18px;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.turnOn {
+  border: 0;
+  background: var(--brand-primary);
+  color: #fff;
+}
+.turnOn:hover:not(:disabled) {
+  background: var(--brand-primary-dark);
+}
+.turnOn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.later {
+  border: 0;
+  background: none;
+  color: var(--brand-primary);
+}
+.later:hover {
+  text-decoration: underline;
+}

@@ -44,6 +44,17 @@ const nextConfig: NextConfig = {
           },
         ],
       },
+      {
+        // The notification service worker: always re-checked, so a fix reaches
+        // every browser the next time it opens BJH.
+        source: "/sw.js",
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "no-cache, no-store, must-revalidate",
+          },
+        ],
+      },
     ];
   },
 };

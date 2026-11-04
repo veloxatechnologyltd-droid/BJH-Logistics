@@ -84,7 +84,16 @@ const post = async <T>(path: string, body: unknown = {}) =>
     }),
   );
 
-export const getTeamUnread = () => get<{ unread: number }>("/unread");
+export const getTeamUnread = () =>
+  get<{
+    unread: number;
+    /** The conversations holding the unread messages. */
+    conversations: Array<{
+      id: string;
+      unread: number;
+      lastMessageAt: string | null;
+    }>;
+  }>("/unread");
 export const listTeamConversations = () =>
   get<TeamConversationSummary[]>("/conversations");
 export const listTeamPeople = () => get<TeamPerson[]>("/people");

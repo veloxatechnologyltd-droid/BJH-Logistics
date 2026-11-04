@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { AuthStatus } from "./auth/AuthStatus";
 import { useStaffAccess } from "./auth/useStaffAccess";
@@ -13,6 +13,9 @@ import { StaffNotices } from "./StaffNotices";
 import { SupportButton } from "./support/SupportButton";
 import { listChatThreads } from "./chat/chatApi";
 import { getTeamUnread } from "./team-chat/teamChatApi";
+import { PushPrompt } from "./push/PushPrompt";
+import { newPopupState, syncPopups } from "./team-chat/teamNotifications";
+import type { PopupState } from "./team-chat/teamNotifications";
 import { listQuoteRequests } from "./quotations/quoteRequestApi";
 import type { RequestMailbox } from "./quotations/quoteRequestApi";
 import { getFeed } from "./messages/messageApi";
@@ -208,16 +211,29 @@ function useChatUnread(enabled: boolean, pathname: string): number {
   return enabled ? count : 0;
 }
 
-/** Unread team chat messages for the menu badge; every 30 seconds. */
+/**
+ * Unread team chat messages for the menu badge; every 30 seconds. The same
+ * poll raises the browser pop-ups (Evans, 2026-11-04), which stay until read.
+ */
 function useTeamUnread(enabled: boolean, pathname: string): number {
   const [count, setCount] = useState(0);
+  const router = useRouter();
+  const popups = useRef<PopupState>(newPopupState());
   useEffect(() => {
     if (!enabled) return;
     let current = true;
     const load = () =>
       getTeamUnread()
         .then((result) => {
-          if (current) setCount(result.unread);
+          if (!current) return;
+          setCount(result.unread);
+          return syncPopups(popups.current, result.conversations, {
+            watching:
+              pathname.startsWith("/team-chat") &&
+              document.visibilityState === "visible" &&
+              document.hasFocus(),
+            open: (path) => router.push(path),
+          });
         })
         // The badge is a hint; the Team chat page shows any failure.
         .catch(() => undefined);
@@ -227,7 +243,7 @@ function useTeamUnread(enabled: boolean, pathname: string): number {
       current = false;
       window.clearInterval(timer);
     };
-  }, [enabled, pathname]);
+  }, [enabled, pathname, router]);
   return enabled ? count : 0;
 }
 
@@ -539,6 +555,7 @@ export function WorkspaceFrame({ children }: { children: ReactNode }) {
             <AuthStatus />
           </div>
         </header>
+        {status === "ready" && !isCustomer && <PushPrompt />}
         {status === "unavailable" && (
           <p className="access-notice" role="alert">
             Your access could not be checked, so some buttons may be missing.

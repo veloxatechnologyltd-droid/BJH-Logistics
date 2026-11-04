@@ -22,6 +22,8 @@ import {
 } from "../database/database.port";
 import { inChargeOf } from "../intake/inbound-email.service";
 import { RequestCopyService } from "../intake/request-copy.service";
+import { newRequestPush } from "../push/push-messages";
+import { PushService } from "../push/push.service";
 import { suggestQuote } from "./quote-suggestion";
 import type { PastQuote, QuoteSuggestion } from "./quote-suggestion";
 
@@ -52,6 +54,7 @@ export class QuoteRequestsService {
   constructor(
     @Inject(DatabasePort) private readonly database: DatabasePort,
     @Inject(RequestCopyService) private readonly copies: RequestCopyService,
+    @Inject(PushService) private readonly push: PushService,
   ) {}
 
   async create(input: unknown): Promise<QuoteRequestRecord> {
@@ -121,6 +124,8 @@ export class QuoteRequestsService {
       created.id,
       company.id,
     );
+    const announce = newRequestPush("quotes", company.companyName);
+    void this.push.notify(announce.recipients, announce.message);
     await this.copies.send({
       id: created.id,
       channel: "portal",

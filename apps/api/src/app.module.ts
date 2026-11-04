@@ -130,6 +130,9 @@ import { ReportsController } from "./reports/reports.controller";
 import { ReportsService } from "./reports/reports.service";
 import { SupportController } from "./support/support.controller";
 import { SupportService } from "./support/support.service";
+import { PushController } from "./push/push.controller";
+import { PUSH_PROVIDER, createPushProvider } from "./push/push-provider";
+import { PushService } from "./push/push.service";
 
 @Module({
   imports: [
@@ -183,6 +186,7 @@ import { SupportService } from "./support/support.service";
     ExtractionsController,
     ActivityController,
     SupportController,
+    PushController,
   ],
   providers: [
     QuoteRequestsService,
@@ -242,6 +246,11 @@ import { SupportService } from "./support/support.service";
     { provide: DOCUMENT_READER, useFactory: () => createDocumentReader() },
     { provide: DOCUMENT_STORAGE, useClass: SupabaseDocumentStorage },
     SupportService,
+    PushService,
+    {
+      provide: PUSH_PROVIDER,
+      useFactory: () => createPushProvider(process.env),
+    },
     ActivityLogMiddleware,
     { provide: APP_FILTER, useClass: RequestErrorFilter },
   ],
