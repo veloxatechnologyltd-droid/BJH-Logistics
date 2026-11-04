@@ -1928,6 +1928,33 @@ export const jobReportQuerySchema = z
   });
 export type JobReportQuery = z.infer<typeof jobReportQuerySchema>;
 
+/**
+ * What the client job report shows beyond the job's own fields: the goods, a
+ * status remark staff write by hand and the date the job should finish. Each
+ * is free text or a date; an empty value clears it.
+ */
+export const jobReportDetailsInputSchema = z.object(
+  {
+    goodsDescription: optionalText("goodsDescription", 500),
+    remarks: optionalText("remarks", 300),
+    expectedCompletionDate: z
+      .string({
+        error: "expectedCompletionDate must be a date (YYYY-MM-DD)",
+      })
+      .transform((value) => value.trim())
+      .refine(
+        (value) =>
+          value === "" ||
+          isoDate("expectedCompletionDate").safeParse(value).success,
+        { error: "expectedCompletionDate must be a date (YYYY-MM-DD)" },
+      )
+      .nullish()
+      .transform((value) => value || null),
+  },
+  objectError("A report details object is required"),
+);
+export type JobReportDetailsInput = z.infer<typeof jobReportDetailsInputSchema>;
+
 /** The super admin creates a customer account directly and links it to one company. */
 export const customerAccountCreateInputSchema = z.object(
   {

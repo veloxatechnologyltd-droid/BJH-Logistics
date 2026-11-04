@@ -12,6 +12,7 @@ import {
   isUuid,
   jobCreateInputSchema,
   jobListQuerySchema,
+  jobReportDetailsInputSchema,
   jobVoyageInputSchema,
   jobStatusChangeInputSchema,
   jobStatusReasonRequired,
@@ -160,6 +161,26 @@ export class JobsService {
     const parsed = parseContract(jobVoyageInputSchema, input);
     if (!parsed.success) throw new BadRequestException(parsed.message);
     const saved = await this.database.updateJobVoyage(job.id, parsed.data);
+    if (!saved) throw new NotFoundException("Job was not found");
+    return saved;
+  }
+
+  /** Staff on the job's line keep the goods, status remark and expected finish date for the client report. */
+  async updateReportDetails(
+    id: string,
+    input: unknown,
+    scope: JobScope,
+  ): Promise<JobRecord> {
+    const job = await this.get(id, scope);
+    if (job.status === "closed" || job.status === "cancelled") {
+      throw new ConflictException("Reopen the job before changing it");
+    }
+    const parsed = parseContract(jobReportDetailsInputSchema, input);
+    if (!parsed.success) throw new BadRequestException(parsed.message);
+    const saved = await this.database.updateJobReportDetails(
+      job.id,
+      parsed.data,
+    );
     if (!saved) throw new NotFoundException("Job was not found");
     return saved;
   }
