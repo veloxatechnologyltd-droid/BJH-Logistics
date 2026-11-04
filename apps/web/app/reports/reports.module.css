@@ -7,46 +7,9 @@
   border-radius: 14px;
   background: #fff;
 }
-.section[hidden] {
-  display: none;
-}
-.tabs {
-  display: flex;
-  gap: 4px;
-  margin-top: 20px;
-  border-bottom: 1px solid #dbe4ec;
-  overflow-x: auto;
-}
-.tab {
-  flex: 0 0 auto;
-  margin-bottom: -1px;
-  border: 0;
-  border-bottom: 3px solid transparent;
-  background: none;
-  color: #526b7d;
-  padding: 12px 16px;
-  font: inherit;
-  font-size: 0.95rem;
-  font-weight: 600;
-  white-space: nowrap;
-  cursor: pointer;
-}
-.tab:hover {
-  background: #f1f6fd;
-  color: var(--brand-primary);
-}
-.tab:focus-visible {
-  outline: 3px solid var(--brand-secondary);
-  outline-offset: 2px;
-}
-.tabActive {
-  border-bottom-color: var(--brand-primary);
-  color: var(--brand-primary);
-}
 .controls,
 .presets,
-.heading,
-.split {
+.heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -59,8 +22,7 @@
   justify-content: flex-start;
   flex-wrap: wrap;
 }
-.presets button,
-.heading button {
+.presets button {
   padding: 8px 12px;
   border: 1px solid #cbd8e4;
   border-radius: 8px;
@@ -76,66 +38,65 @@
 .heading {
   align-items: flex-start;
 }
-.heading h2,
-.heading h3 {
+.heading h2 {
   margin: 0;
   color: #233d55;
-}
-.heading p {
-  margin: 5px 0 0;
-  color: #617487;
-}
-.split {
-  align-items: flex-start;
-}
-.split > div {
-  min-width: 0;
-  flex: 1;
 }
 @media (max-width: 760px) {
   .section {
     padding: 15px;
   }
-  .split {
-    display: grid;
-  }
 }
 
-.chart {
-  flex: 1 1 320px;
-  min-width: 0;
-}
-.chart h3 {
-  margin: 0 0 10px;
-  color: var(--brand-ink);
-  font-size: 1rem;
-}
-.bars {
+.library {
   display: grid;
-  gap: 8px;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
-.bars li {
-  display: grid;
-  grid-template-columns: minmax(110px, 160px) minmax(0, 1fr) auto;
-  align-items: center;
+.libraryCard {
+  display: flex;
+  flex-direction: column;
   gap: 10px;
+  padding: 16px;
+  border: 1px solid #dbe4ec;
+  border-radius: 12px;
+  background: #f8fbfe;
+}
+.libraryCard h3 {
+  margin: 0;
+  color: var(--brand-ink);
+  font-size: 1rem;
+}
+.libraryCard p {
+  margin: 0;
+  color: #617487;
   font-size: 0.9rem;
 }
-.barLabel {
+.libraryFoot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: auto;
+}
+.libraryFoot small {
   color: var(--brand-muted);
 }
-.barTrack {
-  height: 12px;
-  border-radius: 999px;
-  background: #eef2f7;
-  overflow: hidden;
+.libraryFoot button {
+  padding: 8px 14px;
+  border: 1px solid #0b3fae;
+  border-radius: 8px;
+  background: #0b3fae;
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
 }
-.barFill {
-  display: block;
-  height: 100%;
-  border-radius: 999px;
-  background: var(--brand-primary);
+.libraryFoot button:disabled {
+  border-color: #cbd8e4;
+  background: #e8eef4;
+  color: #8195a6;
+  cursor: not-allowed;
 }

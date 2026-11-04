@@ -741,56 +741,6 @@ export const getStockReport = (asOf: string, companyId: string) => {
   );
 };
 
-export type ReportsData = {
-  jobs: Job[];
-  invoices: Array<{
-    jobId: string;
-    fileNumber: string;
-    customerCompanyName: string;
-    invoice: Invoice;
-  }>;
-  payments: Array<{
-    jobId: string;
-    fileNumber: string;
-    customerCompanyName: string;
-    currency: string;
-    invoiceNumber: string;
-    payment: InvoicePayment;
-  }>;
-  movements: Array<{
-    jobId: string;
-    fileNumber: string;
-    customerCompanyName: string;
-    movement: StockMovement;
-  }>;
-  asOf: string;
-  stockBalances: StockBalance[];
-  /** Money figures (invoices, payments) are only filled in for finance. */
-  finance: boolean;
-  sales: {
-    newLeads: number;
-    leadsBySource: Record<string, number>;
-    pipeline: Record<string, number>;
-    converted: number;
-    convertedCompanies: string[];
-  };
-  service: {
-    requestsBySource: Record<string, number>;
-    inquiries: number;
-    inquiriesAnswered: number;
-    quotesIssued: number;
-    quotesAccepted: number;
-    quotesRejected: number;
-    medianHoursToQuote: number | null;
-    waitingForQuote: number;
-  };
-};
-
-export const getReports = (from: string, to: string) => {
-  const query = new URLSearchParams({ from, to });
-  return sendApi<ReportsData>(`/reports?${query}`, "GET");
-};
-
 export type NotificationDelivery = {
   id: string;
   channel: "email" | "sms";
@@ -1086,6 +1036,24 @@ export async function fetchJobReportPdf(
     `${apiRoot}/finance/job-reports/pdf?${query.toString()}`,
   );
   if (!response.ok) throw new Error("The job report could not be created");
+  return response.blob();
+}
+
+/** One of the Reports page's PDF reports; the options only narrow the shipment update. */
+export async function fetchReportPdf(
+  type: string,
+  from: string,
+  to: string,
+  options: { serviceLine?: string; companyId?: string } = {},
+): Promise<Blob> {
+  const query = new URLSearchParams({ type, from, to });
+  if (options.serviceLine) query.set("serviceLine", options.serviceLine);
+  if (options.companyId) query.set("companyId", options.companyId);
+  const response = await authenticatedFetch(
+    `${apiRoot}/reports/pdf?${query.toString()}`,
+  );
+  // Throws the API's own reason, such as "This report is for finance staff".
+  if (!response.ok) await readResponse(response);
   return response.blob();
 }
 

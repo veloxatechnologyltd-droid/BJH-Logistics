@@ -808,6 +808,12 @@ export interface ReportStockMovementRecord {
   movement: StockMovementRecord;
 }
 
+export interface ReportDeliveryRecord {
+  fileNumber: string;
+  customerCompanyName: string;
+  delivery: DeliveryRecord;
+}
+
 export interface StockBalanceRecord {
   jobId: string;
   fileNumber: string;
@@ -2235,6 +2241,12 @@ export abstract class DatabasePort {
     to: string,
     scope: JobScope,
   ): Promise<ReportStockMovementRecord[]>;
+  /** Deliveries dispatched or completed in the period, plus every one still on the way. */
+  abstract listReportDeliveries(
+    from: string,
+    to: string,
+    scope: JobScope,
+  ): Promise<ReportDeliveryRecord[]>;
   abstract listCustomerInsights(
     companyId: string | null,
   ): Promise<CustomerInsightRecord[]>;
