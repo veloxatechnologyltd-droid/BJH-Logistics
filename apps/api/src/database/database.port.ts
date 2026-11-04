@@ -219,6 +219,11 @@ export interface JobRecord {
   vessel: string | null;
   portOfLoading: string | null;
   portOfDischarge: string | null;
+  /** For the client job report; also free text kept by staff. */
+  goodsDescription: string | null;
+  remarks: string | null;
+  /** YYYY-MM-DD: when the job is expected to finish. */
+  expectedCompletionDate: string | null;
 }
 
 export interface MilestoneEventRecord {
@@ -1419,6 +1424,14 @@ export abstract class DatabasePort {
       vessel: string | null;
       portOfLoading: string | null;
       portOfDischarge: string | null;
+    },
+  ): Promise<JobRecord | null>;
+  abstract updateJobReportDetails(
+    jobId: string,
+    details: {
+      goodsDescription: string | null;
+      remarks: string | null;
+      expectedCompletionDate: string | null;
     },
   ): Promise<JobRecord | null>;
   abstract findJob(id: string, scope: JobScope): Promise<JobRecord | null>;

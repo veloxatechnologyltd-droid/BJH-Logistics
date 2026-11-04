@@ -95,6 +95,16 @@ export class JobsController {
     return this.jobs.updateVoyage(id, body, scopeOf(request));
   }
 
+  @Put(":id/report-details")
+  @UseGuards(DepartmentStaffGuard, JobScopeGuard)
+  updateReportDetails(
+    @Param("id") id: string,
+    @Body() body: unknown,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.jobs.updateReportDetails(id, body, scopeOf(request));
+  }
+
   @Post(":id/status")
   @UseGuards(DepartmentStaffGuard, JobScopeGuard)
   changeStatus(

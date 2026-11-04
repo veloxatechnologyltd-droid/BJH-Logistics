@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useStaffAccess } from "../../auth/useStaffAccess";
 import { canWorkFinance } from "../../auth/roleAccess";
+import { ClientJobReport } from "./ClientJobReport";
 import { JobReport } from "./JobReport";
 import { customerActiveDays } from "@bjh/contracts";
 import {
@@ -640,6 +641,8 @@ export function CustomerProfileDetail() {
               </details>
             )}
           </section>
+
+          {jobs && <ClientJobReport customerId={customerId} jobs={jobs} />}
 
           {canWorkFinance(roles) && jobs && (
             <JobReport customerId={customerId} jobs={jobs} />

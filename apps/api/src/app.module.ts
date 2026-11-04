@@ -66,6 +66,8 @@ import { JobAssignmentsController } from "./jobs/job-assignments.controller";
 import { JobAssignmentsService } from "./jobs/job-assignments.service";
 import { JobsController } from "./jobs/jobs.controller";
 import { JobsService } from "./jobs/jobs.service";
+import { ClientJobReportsController } from "./jobs/client-job-report.controller";
+import { ClientJobReportService } from "./jobs/client-job-report.service";
 import { CustomersController } from "./customers/customers.controller";
 import { CustomersService } from "./customers/customers.service";
 import { LeadsController } from "./leads/leads.controller";
@@ -146,6 +148,7 @@ import { SupportService } from "./support/support.service";
     CustomersController,
     LeadsController,
     JobsController,
+    ClientJobReportsController,
     JobAssignmentsController,
     StaffNotificationsController,
     ChatController,
@@ -191,6 +194,7 @@ import { SupportService } from "./support/support.service";
     CustomersService,
     LeadsService,
     JobsService,
+    ClientJobReportService,
     JobAssignmentsService,
     StaffNotificationsService,
     ChatService,
