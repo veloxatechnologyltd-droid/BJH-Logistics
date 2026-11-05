@@ -155,7 +155,8 @@ test("a document starts from what the job already holds", async () => {
   const prefill = await json<Prefill>(
     await get(`${base()}/prefill?kind=house_bl`),
   );
-  assert.equal(prefill.documentNumber, "SYN-HBL-0001");
+  // A house B/L is numbered by the system, not from the job's House B/L reference.
+  assert.equal(prefill.documentNumber, null);
   assert.deepEqual(prefill.fields, {
     shipper: "Synthetic Shipper Ltd\nBolgatanga, Ghana",
     consignee: "Synthetic Consignee LLC\nDoral, USA",
@@ -203,6 +204,7 @@ test("a document starts from what the job already holds", async () => {
 });
 
 let draft: Doc;
+let draftNumber: string | null = null;
 
 test("a draft is edited, numbered and issued; an issued document is frozen", async () => {
   const prefill = await json<Prefill>(
@@ -236,24 +238,15 @@ test("a draft is edited, numbered and issued; an issued document is frozen", asy
   assert.equal(created.status, 201);
   draft = await json<Doc>(created);
   assert.equal(draft.status, "draft");
-  assert.equal(draft.documentNumber, null);
+  // The draft is numbered as soon as it is prepared, so its preview shows it.
+  assert.match(draft.documentNumber ?? "", /^BJH\/BL\/\d{4}\/\d{4}$/);
   assert.equal(
     draft.fields.shipper,
     "Synthetic Shipper Ltd\nBolgatanga, Ghana",
   );
 
-  const noNumber = await post(
-    `${base()}/${draft.id}/issue`,
-    TEST_MATCHING_TOKEN,
-  );
-  assert.equal(noNumber.status, 400);
-  assert.equal(
-    await message(noNumber),
-    "Enter the document number before issuing",
-  );
-
   const edited = await put(`${base()}/${draft.id}`, TEST_MATCHING_TOKEN, {
-    documentNumber: "  SYN-HBL-0001  ",
+    documentNumber: "  IGNORED-TYPED-NUMBER  ",
     fields: {
       ...prefill.fields,
       vessel: "IONIKOS",
@@ -264,7 +257,8 @@ test("a draft is edited, numbered and issued; an issued document is frozen", asy
   });
   assert.equal(edited.status, 200);
   const updated = await json<Doc>(edited);
-  assert.equal(updated.documentNumber, "SYN-HBL-0001");
+  // A number typed for a house B/L is ignored; editing does not change it.
+  assert.equal(updated.documentNumber, draft.documentNumber);
   assert.equal(updated.fields.vessel, "IONIKOS");
 
   const issued = await post(`${base()}/${draft.id}/issue`, TEST_MATCHING_TOKEN);
@@ -272,6 +266,9 @@ test("a draft is edited, numbered and issued; an issued document is frozen", asy
   const frozen = await json<Doc>(issued);
   assert.equal(frozen.status, "issued");
   assert.ok(frozen.issuedAt);
+  assert.match(frozen.documentNumber ?? "", /^BJH\/BL\/\d{4}\/\d{4}$/);
+  assert.equal(frozen.documentNumber, draft.documentNumber);
+  draftNumber = frozen.documentNumber;
 
   const edit = await put(`${base()}/${draft.id}`, TEST_MATCHING_TOKEN, {
     documentNumber: "OTHER",
@@ -298,17 +295,13 @@ test("a draft is edited, numbered and issued; an issued document is frozen", asy
   );
 });
 
-test("a number is used once; voiding frees it for the corrected document", async () => {
+test("voiding a house B/L does not reuse its number; the corrected one takes the next", async () => {
   const second = await json<Doc>(
     await post(base(), TEST_MATCHING_TOKEN, {
       kind: "house_bl",
-      documentNumber: "syn-hbl-0001",
       fields: { shipper: "Corrected Shipper" },
     }),
   );
-  const taken = await post(`${base()}/${second.id}/issue`, TEST_MATCHING_TOKEN);
-  assert.equal(taken.status, 409);
-  assert.match(await message(taken), /number syn-hbl-0001 is already issued/);
 
   const noReason = await post(
     `${base()}/${draft.id}/void`,
@@ -335,6 +328,9 @@ test("a number is used once; voiding frees it for the corrected document", async
     TEST_MATCHING_TOKEN,
   );
   assert.equal(corrected.status, 201);
+  const correctedNumber = (await json<Doc>(corrected)).documentNumber;
+  assert.match(correctedNumber ?? "", /^BJH\/BL\/\d{4}\/\d{4}$/);
+  assert.notEqual(correctedNumber, draftNumber);
   const all = await json<Doc[]>(await get(base()));
   assert.deepEqual(
     all.map((item) => item.status),
@@ -358,7 +354,7 @@ test("the PDF is served to staff, and customers reach only issued documents of t
   assert.equal(pdf.headers.get("content-type"), "application/pdf");
   assert.match(
     pdf.headers.get("content-disposition") ?? "",
-    /^inline; filename="house-bl-syn-hbl-0001\.pdf"$/,
+    /^inline; filename="house-bl-bjh-bl-\d{4}-\d{4}\.pdf"$/i,
   );
   assert.equal(
     Buffer.from(await pdf.arrayBuffer())
@@ -503,4 +499,45 @@ test("a closed job takes no new documents", async () => {
   );
   assert.equal(blocked.status, 409);
   assert.equal(await message(blocked), "Reopen the job before changing it");
+});
+
+test("a house B/L takes the next BJH/BL number when prepared; other kinds still need a typed one", async () => {
+  const year = new Date().getUTCFullYear();
+  const pattern = new RegExp(`^BJH/BL/${year}/(\\d{4})$`);
+  const prepare = async (body: Record<string, unknown> = {}) =>
+    json<Doc>(
+      await post(base(), TEST_MATCHING_TOKEN, {
+        kind: "house_bl",
+        fields: {},
+        ...body,
+      }),
+    );
+  const sequence = (doc: Doc) =>
+    Number(pattern.exec(doc.documentNumber ?? "")![1]);
+
+  const first = await prepare();
+  assert.match(first.documentNumber ?? "", pattern);
+  assert.equal(first.status, "draft");
+  const second = await prepare();
+  assert.equal(sequence(second), sequence(first) + 1);
+
+  // A typed number is ignored, and issuing keeps the number the draft already had.
+  const typed = await prepare({ documentNumber: "SYN-HBL-TYPED" });
+  assert.equal(sequence(typed), sequence(second) + 1);
+  const issued = await json<Doc>(
+    await post(`${base()}/${typed.id}/issue`, TEST_MATCHING_TOKEN),
+  );
+  assert.equal(issued.documentNumber, typed.documentNumber);
+
+  // Air documents are not auto-numbered: the airline's number is typed.
+  const air = `/api/v1/jobs/${airJob}/transport-documents`;
+  const awb = await json<Doc>(
+    await post(air, TEST_SUPER_ADMIN_TOKEN, { kind: "house_awb", fields: {} }),
+  );
+  const refused = await post(`${air}/${awb.id}/issue`, TEST_SUPER_ADMIN_TOKEN);
+  assert.equal(refused.status, 400);
+  assert.equal(
+    await message(refused),
+    "Enter the document number before issuing",
+  );
 });

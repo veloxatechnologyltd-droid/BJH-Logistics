@@ -6190,14 +6190,21 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     createdBy: string;
   }): Promise<TransportDocumentRecord> {
     const inserted = await this.pool.query(
+      // A house B/L takes the next BJH/BL number as soon as it is prepared, so
+      // the preview already shows it.
       `INSERT INTO app.transport_document (job_id, kind, document_number, fields, created_by)
-       VALUES ($1::uuid, $2, $3, $4::jsonb, $5::uuid) RETURNING *`,
+       VALUES ($1::uuid, $2,
+         CASE WHEN $2 = 'house_bl'
+           THEN app.allocate_house_bl_number($6::integer, 'BJH/BL')
+           ELSE $3 END,
+         $4::jsonb, $5::uuid) RETURNING *`,
       [
         document.jobId,
         document.kind,
         document.documentNumber,
         JSON.stringify(document.fields),
         document.createdBy,
+        new Date().getUTCFullYear(),
       ],
     );
     return this.mapTransportDocument(inserted.rows[0]);
@@ -6263,10 +6270,19 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
   ): Promise<TransportDocumentRecord | "not_found" | "not_draft"> {
     const updated = await this.pool.query(
       `UPDATE app.transport_document
-       SET document_number = $3, fields = $4::jsonb, updated_at = clock_timestamp()
+       SET document_number = COALESCE($3,
+             CASE WHEN kind = 'house_bl'
+               THEN app.allocate_house_bl_number($5::integer, 'BJH/BL') END),
+           fields = $4::jsonb, updated_at = clock_timestamp()
        WHERE document_id = $2::uuid AND job_id = $1::uuid AND status = 'draft'
        RETURNING *`,
-      [jobId, documentId, draft.documentNumber, JSON.stringify(draft.fields)],
+      [
+        jobId,
+        documentId,
+        draft.documentNumber,
+        JSON.stringify(draft.fields),
+        new Date().getUTCFullYear(),
+      ],
     );
     if (updated.rows[0]) return this.mapTransportDocument(updated.rows[0]);
     const exists = await this.pool.query(
@@ -6288,21 +6304,27 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     | "number_taken"
   > {
     const current = await this.pool.query(
-      `SELECT status, document_number FROM app.transport_document
+      `SELECT kind, status, document_number FROM app.transport_document
        WHERE document_id = $2::uuid AND job_id = $1::uuid`,
       [jobId, documentId],
     );
     if (current.rows.length === 0) return "not_found";
     if (current.rows[0].status !== "draft") return "not_draft";
-    if (!current.rows[0].document_number) return "no_number";
+    // A house B/L with no typed number takes the next one in the BJH/BL series.
+    const autoNumber =
+      !current.rows[0].document_number && current.rows[0].kind === "house_bl";
+    if (!current.rows[0].document_number && !autoNumber) return "no_number";
     try {
       const updated = await this.pool.query(
         `UPDATE app.transport_document
          SET status = 'issued', issued_by = $3::uuid, issued_at = clock_timestamp(),
-             updated_at = clock_timestamp()
+             updated_at = clock_timestamp(),
+             document_number = CASE WHEN $4::boolean
+               THEN app.allocate_house_bl_number($5::integer, 'BJH/BL')
+               ELSE document_number END
          WHERE document_id = $2::uuid AND job_id = $1::uuid AND status = 'draft'
          RETURNING *`,
-        [jobId, documentId, issuedBy],
+        [jobId, documentId, issuedBy, autoNumber, new Date().getUTCFullYear()],
       );
       return updated.rows[0]
         ? this.mapTransportDocument(updated.rows[0])

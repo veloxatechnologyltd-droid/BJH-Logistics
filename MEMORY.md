@@ -1504,3 +1504,24 @@ Read MEMORY.md at the start of every session before doing anything. Never contra
 **Why:** Staff send customers a statement per department.
 **What was rejected:** Showing on-account credit in a service statement (it cannot be placed in one service). Limiting the picker to the person's own service lines (statements stay readable by finance roles for the whole account, as before).
 **Open:** (a) No test fixture covers credit applied to a service's invoice; the SQL handles it but only the plain-payment path is tested. (b) Not released. (c) A unit test of the other session's PDF font work (`transport-documents.unit-spec.ts`, house AWB fits on one page) fails in the shared working tree; it has nothing to do with this change.
+
+## 2026-11-05, House B/L auto-numbering
+
+**What was decided:** Evans: "lets auto generate, BJH/BL/<year>/<0001>". A house B/L issued with no number takes the next one from a yearly series (`app.allocate_house_bl_number`, migration `20261105000000_house_bl_numbering.sql`), allocated at **issue**, so abandoned drafts use no numbers. A typed number, or one prefilled from a House B/L reference, is kept as before and the unique-number check still applies. The prefix `BJH/BL` is fixed (not in Settings → Numbering). House AWBs and manifests are not auto-numbered (airline numbers), so they still need a typed number.
+**Why:** Waybills already number themselves; staff did not know the B/L needed a typed number, and drafts showed "Not numbered".
+**What was rejected:** Numbering from the job file number (a job can hold more than one B/L). Allocating when the draft is created (leaves gaps). A Settings prefix field (would change the settings schema).
+**Open:** Migration applied to LOCAL Supabase only; not applied to production or released. Transport e2e (7) and unit (13) tests pass locally; the form label change was not seen in a browser.
+
+## 2026-11-05, House B/L: no typed number
+
+**What was decided:** Evans: "remove it". The house B/L form has no Document number field. The API ignores any number sent when a house B/L is created or edited (an existing draft keeps the number it already had), and the prefill no longer copies the job's House B/L reference into it. The number always comes from the `BJH/BL/<year>/<0001>` series at issue. House AWBs and manifests still take a typed number.
+**Why:** A typed number could collide with the series, and staff did not know the field existed.
+**What was rejected:** Keeping a typed override for numbers assigned elsewhere (Evans chose removal).
+**Open:** Local only; not released. Old issued B/Ls keep their typed numbers. The form change was not seen in a browser.
+
+## 2026-11-05, House B/L number is given when prepared (not at issue)
+
+**What was decided:** Evans: staff want to see the number on the preview. A house B/L now takes its `BJH/BL/<year>/<0001>` number when the draft is created (also when an older un-numbered draft is next saved); issuing keeps that number, and still allocates one for an old draft that has none. This replaces the "allocated at issue" part of the 2026-11-05 auto-numbering entry.
+**Why:** The preview PDF and the document list should already show the number; "Not yet numbered" confused staff.
+**What was rejected:** Allocating at issue (preview has no number). Showing a "next number" guess on the preview (not reliable).
+**Open:** A draft that is voided or abandoned keeps its number, so the series can have gaps (normal for B/L numbers). Local only; not released.

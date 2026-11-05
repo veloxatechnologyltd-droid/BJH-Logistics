@@ -165,11 +165,12 @@ test("one list holds the bill of lading, air waybill, manifest and road waybill 
   assert.deepEqual(
     summary(items)
       .map((line) => line.replace(/BJH\/WB\/\d{4}\/\d+/, "WAYBILL"))
+      .map((line) => line.replace(/BJH\/BL\/\d{4}\/\d+/, "BL-NUMBER"))
       .sort(),
     [
       "air_manifest:-:draft",
       "house_awb:SYN-HAWB-1:issued",
-      "house_bl:SYN-HBL-1:issued",
+      "house_bl:BL-NUMBER:issued",
       "waybill:WAYBILL:dispatched",
     ].sort(),
   );
@@ -203,7 +204,8 @@ test("a voided house document stays in the list with its status", async () => {
     (entry) => entry.id === id,
   )!;
   assert.equal(item.status, "void");
-  assert.equal(item.number, "SYN-HBL-2");
+  // A house B/L is numbered by the system, whatever number was typed.
+  assert.match(item.number ?? "", /^BJH\/BL\/\d{4}\/\d{4}$/);
 });
 
 test("a rep sees their own service lines and the shared road work, not other departments' bills", async () => {

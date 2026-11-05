@@ -227,16 +227,18 @@ export function JobTransportDocuments({
           }}
         >
           <h3>{transportDocumentTitles[editing.kind]}</h3>
-          <label className={styles.field}>
-            Document number (needed to issue; must be unused)
-            <input
-              maxLength={80}
-              onChange={(event) =>
-                setEditing({ ...editing, number: event.target.value })
-              }
-              value={editing.number}
-            />
-          </label>
+          {editing.kind !== "house_bl" && (
+            <label className={styles.field}>
+              Document number (needed to issue; must be unused)
+              <input
+                maxLength={80}
+                onChange={(event) =>
+                  setEditing({ ...editing, number: event.target.value })
+                }
+                value={editing.number}
+              />
+            </label>
+          )}
           {groups.map((group) => (
             <fieldset key={group}>
               <legend>{group}</legend>
