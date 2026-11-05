@@ -4,6 +4,12 @@ import {
   transportDocumentFields,
   transportDocumentTitles,
 } from "@bjh/contracts";
+import {
+  parseBlContainers,
+  parseTableRows,
+  sumBlContainerWeights,
+  sumTableColumn,
+} from "@bjh/contracts";
 import type { BusinessSettings } from "@bjh/contracts";
 import type {
   JobRecord,
@@ -26,6 +32,12 @@ const BODY = 11;
 const LABEL = 9;
 // Space kept above the bottom margin for the page footer.
 const FOOTER_SPACE = 24;
+// Space the signature block needs below the last row of fields.
+const SIGNATURE_SPACE = 56;
+// The air manifest's certification text sits above the signature block.
+const CERTIFICATION =
+  "We certify that this manifest accurately reflects the shipment particulars stated on the referenced Master and House Air Waybills. Cargo is declared as non-dangerous unless otherwise supported by the accompanying shipping documents.";
+const CERTIFICATION_SPACE = 52;
 
 /** Fields that get the full width of the page rather than half of it. */
 const fullWidth = new Set([
@@ -66,6 +78,8 @@ export function renderTransportDocumentPdf(
 
   const doc = new PDFDocument({
     size: "A4",
+    // BJH's air manifest sample is a landscape sheet; the others are portrait.
+    layout: document.kind === "air_manifest" ? "landscape" : "portrait",
     margin: PAGE_MARGIN,
     bufferPages: true,
     compress: options.compress ?? true,
@@ -183,6 +197,9 @@ export function renderTransportDocumentPdf(
     doc.text(value, x + 10, valueTop, { width: boxWidth - 20 });
   };
 
+  const certification = document.kind === "air_manifest";
+  const lastReserve =
+    SIGNATURE_SPACE + (certification ? CERTIFICATION_SPACE : 0);
   type Definition = (typeof definitions)[number];
   const drawRow = (row: Definition[]) => {
     const columns = row.length;
@@ -193,7 +210,12 @@ export function renderTransportDocumentPdf(
         boxHeight(row[index].label, value, columnWidth),
       ),
     );
-    if (doc.y + height > bottom()) doc.addPage();
+    // The last row keeps the signature block with it: if both do not fit,
+    // the row moves to the next page so a signature never stands alone.
+    const reserve = row.includes(definitions[definitions.length - 1])
+      ? lastReserve
+      : 0;
+    if (doc.y + height + reserve > bottom()) doc.addPage();
     const y = doc.y;
     row.forEach((field, index) => {
       drawBox(
@@ -206,6 +228,195 @@ export function renderTransportDocumentPdf(
       );
     });
     doc.y = y + height;
+  };
+
+  // A house B/L lists its containers as a table with the total weight.
+  const drawContainerTable = (rows: ReturnType<typeof parseBlContainers>) => {
+    const columns = [
+      { title: "Container no.", x: left + 10, w: width * 0.45, align: "left" },
+      {
+        title: "Seal no.",
+        x: left + width * 0.5,
+        w: width * 0.25,
+        align: "left",
+      },
+      {
+        title: "Weight (kg)",
+        x: left + width * 0.75,
+        w: width * 0.25 - 10,
+        align: "right",
+      },
+    ] as const;
+    const total = sumBlContainerWeights(rows);
+    // 12000.5 prints as 12,000.5; text that is not a number prints as typed.
+    const shown = (weight: string) => {
+      const value = Number(weight.replace(/,/g, ""));
+      return weight.trim() !== "" && Number.isFinite(value)
+        ? value.toLocaleString("en-US", { maximumFractionDigits: 3 })
+        : weight;
+    };
+    const rowHeight = 16;
+    const headerRow = () => {
+      // Text moves doc.y, so each row works from the y it started at.
+      const y = doc.y;
+      doc.rect(left, y, width, rowHeight).fillAndStroke("#eef4fb", BORDER);
+      doc.font("Helvetica-Bold").fontSize(LABEL).fillColor(MUTED);
+      for (const column of columns) {
+        doc.text(column.title.toUpperCase(), column.x, y + 4, {
+          width: column.w,
+          align: column.align,
+          characterSpacing: 0.4,
+          lineBreak: false,
+        });
+      }
+      doc.y = y + rowHeight;
+    };
+    const line = (cells: string[], bold = false) => {
+      if (doc.y + rowHeight > bottom()) {
+        doc.addPage();
+        headerRow();
+      }
+      const y = doc.y;
+      doc
+        .lineWidth(0.8)
+        .strokeColor(BORDER)
+        .rect(left, y, width, rowHeight)
+        .stroke();
+      doc
+        .font(bold ? "Helvetica-Bold" : "Helvetica")
+        .fontSize(BODY)
+        .fillColor(INK);
+      columns.forEach((column, index) => {
+        doc.text(cells[index], column.x, y + 3, {
+          width: column.w,
+          align: column.align,
+          lineBreak: false,
+        });
+      });
+      doc.y = y + rowHeight;
+    };
+    if (doc.y + rowHeight * 3 > bottom()) doc.addPage();
+    headerRow();
+    for (const row of rows) line([row.number, row.seal, shown(row.weightKg)]);
+    if (total !== null && rows.length > 1)
+      line(["Total", "", shown(total)], true);
+  };
+
+  // A manifest's shipment lines: numbered rows under a header, then a total row.
+  const drawColumnsTable = (field: Definition, reserveAfter: number) => {
+    const columns = field.columns ?? [];
+    const rows = parseTableRows(document.fields[field.key], columns);
+    if (rows.length === 0) {
+      drawRow([{ ...field, columns: undefined }]);
+      return;
+    }
+    const numbered = document.kind === "air_manifest";
+    const numberWidth = numbered ? 30 : 0;
+    const share =
+      (width - numberWidth) / columns.reduce((t, c) => t + c.width, 0);
+    const cells = [
+      ...(numbered
+        ? [{ title: "No.", w: numberWidth, align: "left" as const }]
+        : []),
+      ...columns.map((column) => ({
+        title: column.label,
+        w: column.width * share,
+        align: column.sum ? ("right" as const) : ("left" as const),
+      })),
+    ];
+    const pad = 6;
+    // 12000.5 prints as 12,000.5; text that is not a number prints as typed.
+    const shown = (value: string) => {
+      const number = Number(value.replace(/,/g, ""));
+      return value.trim() !== "" && Number.isFinite(number)
+        ? number.toLocaleString("en-US", { maximumFractionDigits: 3 })
+        : value;
+    };
+    const measure = (texts: string[], font: string, size: number) => {
+      doc.font(font).fontSize(size);
+      return Math.max(
+        ...texts.map((text, index) =>
+          doc.heightOfString(text || " ", { width: cells[index].w - pad * 2 }),
+        ),
+      );
+    };
+    const drawLine = (
+      texts: string[],
+      kind: "header" | "body" | "total",
+      reserve: number,
+    ) => {
+      const font = kind === "body" ? "Helvetica" : "Helvetica-Bold";
+      const size = kind === "header" ? LABEL : BODY;
+      const height = measure(texts, font, size) + 10;
+      if (doc.y + height + reserve > bottom()) {
+        doc.addPage();
+        if (kind !== "header") drawLine(headerTexts, "header", 0);
+      }
+      const y = doc.y;
+      doc
+        .lineWidth(0.8)
+        .rect(left, y, width, height)
+        .fillAndStroke(kind === "body" ? "#ffffff" : "#eef4fb", BORDER);
+      doc
+        .font(font)
+        .fontSize(size)
+        .fillColor(kind === "header" ? MUTED : INK);
+      let x = left;
+      texts.forEach((text, index) => {
+        doc.text(
+          kind === "header" ? text.toUpperCase() : text,
+          x + pad,
+          y + 5,
+          {
+            width: cells[index].w - pad * 2,
+            align: cells[index].align,
+            characterSpacing: kind === "header" ? 0.4 : 0,
+          },
+        );
+        x += cells[index].w;
+      });
+      doc.y = y + height;
+    };
+    const headerTexts = cells.map((cell) => cell.title);
+    const totals = columns.map((column) =>
+      column.sum ? sumTableColumn(rows, column.key) : null,
+    );
+    const hasTotal = totals.some((value) => value !== null);
+    const firstHeight = measure(headerTexts, "Helvetica-Bold", LABEL) + 10;
+    if (doc.y + firstHeight + 40 > bottom()) doc.addPage();
+    drawLine(headerTexts, "header", 0);
+    rows.forEach((row, index) => {
+      drawLine(
+        [
+          ...(numbered ? [String(index + 1)] : []),
+          ...columns.map((column) =>
+            column.sum ? shown(row[column.key] ?? "") : (row[column.key] ?? ""),
+          ),
+        ],
+        "body",
+        // The last line keeps the total row (and what must follow) with it.
+        index === rows.length - 1 ? (hasTotal ? 40 : 0) + reserveAfter : 0,
+      );
+    });
+    if (hasTotal) {
+      const label = numbered ? "Manifest total" : "Total";
+      const noun =
+        document.kind === "air_manifest"
+          ? `${rows.length} house air waybill${rows.length === 1 ? "" : "s"}`
+          : "";
+      const texts = [
+        ...(numbered ? [""] : []),
+        ...columns.map((column, index) => {
+          if (index === 0) return numbered ? "" : label;
+          const value = totals[index];
+          if (value !== null) return shown(value);
+          return index === columns.length - 1 ? noun : "";
+        }),
+      ];
+      // With a number column the label goes in the first real column.
+      if (numbered) texts[1] = label;
+      drawLine(texts, "total", reserveAfter);
+    }
   };
 
   for (const group of groups) {
@@ -223,12 +434,34 @@ export function renderTransportDocumentPdf(
       buffer = [];
     };
     for (const field of inGroup) {
-      if (fullWidth.has(field.key)) {
+      if (field.columns) {
+        flush();
+        drawColumnsTable(
+          field,
+          field === definitions[definitions.length - 1] ? lastReserve : 0,
+        );
+        continue;
+      }
+      if (
+        document.kind === "house_bl" &&
+        field.key === "containers" &&
+        document.fields.containers
+      ) {
+        flush();
+        drawContainerTable(parseBlContainers(document.fields.containers));
+        continue;
+      }
+      // On the landscape sheet the handling information is a third column.
+      const sideBySide =
+        field.key === "handlingInformation" && doc.page.width > doc.page.height;
+      if (fullWidth.has(field.key) && !sideBySide) {
         flush();
         drawRow([field]);
         continue;
       }
-      const capacity = field.multiline ? 2 : 3;
+      // A landscape sheet takes more boxes to a row.
+      const wide = doc.page.width > doc.page.height;
+      const capacity = field.multiline ? (wide ? 3 : 2) : wide ? 5 : 3;
       if (
         buffer.length > 0 &&
         (Boolean(buffer[0].multiline) !== Boolean(field.multiline) ||
@@ -239,6 +472,15 @@ export function renderTransportDocumentPdf(
       buffer.push(field);
     }
     flush();
+    doc.y += 6;
+  }
+
+  if (certification) {
+    if (doc.y + CERTIFICATION_SPACE + 50 > bottom()) doc.addPage();
+    doc.font("Helvetica-Bold").fontSize(BODY).fillColor(PRIMARY);
+    doc.text("CERTIFICATION", left, doc.y + 4, { characterSpacing: 0.8 });
+    doc.font("Helvetica").fontSize(LABEL).fillColor(MUTED);
+    doc.text(CERTIFICATION, left, doc.y + 4, { width });
     doc.y += 6;
   }
 

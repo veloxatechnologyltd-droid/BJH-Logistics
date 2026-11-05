@@ -2,9 +2,13 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   cleanTransportDocumentFields,
+  formatTableRows,
+  parseTableRows,
+  sumTableColumn,
   transportDocumentFields,
   transportDocumentKindsFor,
 } from "@bjh/contracts";
+import type { TableRow } from "@bjh/contracts";
 import type {
   JobRecord,
   TransportDocumentRecord,
@@ -105,8 +109,14 @@ function pdfText(file: Buffer): string {
 }
 
 test("each service line offers its own documents", () => {
-  assert.deepEqual(transportDocumentKindsFor("sea_import"), ["house_bl"]);
-  assert.deepEqual(transportDocumentKindsFor("sea_export"), ["house_bl"]);
+  assert.deepEqual(transportDocumentKindsFor("sea_import"), [
+    "house_bl",
+    "sea_manifest",
+  ]);
+  assert.deepEqual(transportDocumentKindsFor("sea_export"), [
+    "house_bl",
+    "sea_manifest",
+  ]);
   assert.deepEqual(transportDocumentKindsFor("air_import"), [
     "house_awb",
     "air_manifest",
@@ -168,7 +178,9 @@ test("an issued house B/L prints its number, parties, containers and goods", asy
     "Synthetic Shipper Ltd",
     "Doral, USA",
     "SYNBK00042",
-    "SYNU1234567, seal 002686",
+    "CONTAINER NO.",
+    "SYNU1234567",
+    "002686",
     "82 SACKS WOVEN BASKETS",
     "FREIGHT COLLECT",
     "MBL / BOOKING NO.",
@@ -236,7 +248,19 @@ test("an air manifest and a house air waybill print their own labels", async () 
       {
         document: document({
           kind: "air_manifest",
-          fields: { shipmentLines: "SYN-HAWB-1 | 259 CTNS | 2,347 KG" },
+          fields: {
+            shipmentLines: formatTableRows(
+              [
+                {
+                  hawb: "SYN-HAWB-1",
+                  packages: "259",
+                  grossWeight: "2347",
+                  commodity: "POLO SHIRTS",
+                },
+              ],
+              manifestColumns("shipmentLines", "air_manifest"),
+            ),
+          },
         }),
         job,
         settings,
@@ -245,7 +269,17 @@ test("an air manifest and a house air waybill print their own labels", async () 
     ),
   );
   assert.ok(manifest.includes("AIR CARGO MANIFEST"));
-  assert.ok(manifest.includes("SYN-HAWB-1 | 259 CTNS | 2,347 KG"));
+  for (const expected of [
+    "SYN-HAWB-1",
+    "259",
+    "2,347",
+    "POLO SHIRTS",
+    "Manifest total",
+    "house air",
+    "CERTIFICATION",
+  ]) {
+    assert.ok(manifest.includes(expected), `missing: ${expected}`);
+  }
 });
 
 /** The number of pages in an uncompressed pdfkit document. */
@@ -284,7 +318,7 @@ test("a typical house B/L, air waybill and manifest each fit on one page", async
       fields: {
         shipper: "S\nA",
         shipmentLines:
-          "BJH-16545CV | 259 CTNS | 2,347 KG | 20.04 CBM | POLO SHIRTS | GH",
+          "BJH-16545CV | 259 CTNS | 2,347 KG | 2,347 KG | 20.04 CBM | POLO SHIRTS | GH",
       },
     }),
   ]) {
@@ -292,6 +326,159 @@ test("a typical house B/L, air waybill and manifest each fit on one page", async
       { document: candidate, job, settings },
       { compress: false },
     );
-    assert.equal(pageCount(file), 1, candidate.kind);
+    // The landscape air manifest carries a certification and takes a second page.
+    assert.ok(
+      pageCount(file) === (candidate.kind === "air_manifest" ? 2 : 1),
+      `${candidate.kind}: ${pageCount(file)} pages`,
+    );
   }
+});
+
+test("several containers print as a table with their total weight", async () => {
+  const file = await renderTransportDocumentPdf(
+    {
+      document: document({
+        fields: {
+          ...document().fields,
+          containers:
+            "MSKU1234567 | Seal A100 | 12500 kg\nTGHU7654321 | Seal B200 | 9800.5 kg",
+        },
+      }),
+      job,
+      settings,
+    },
+    { compress: false },
+  );
+  const text = pdfText(file);
+  for (const expected of [
+    "MSKU1234567",
+    "TGHU7654321",
+    "A100",
+    "12,500",
+    "9,800.5",
+    "Total",
+    "22,300.5",
+  ]) {
+    assert.ok(text.includes(expected), `missing: ${expected}`);
+  }
+});
+
+test("the signature never stands alone on a page, however many containers", async () => {
+  for (const count of [1, 3, 4, 5, 6, 12]) {
+    const containers = Array.from(
+      { length: count },
+      (_, index) => `MSKU${1234560 + index} | Seal A${index} | 12000 kg`,
+    ).join("\n");
+    const file = await renderTransportDocumentPdf(
+      {
+        document: document({
+          fields: { ...document().fields, containers },
+        }),
+        job,
+        settings,
+      },
+      { compress: false },
+    );
+    // The last page must hold a row of the Terms boxes, not only the signature.
+    const pages = file.toString("latin1").split(/\/Type \/Page\b(?!s)/);
+    const lastPage = pages[pages.length - 1];
+    const text = pdfText(Buffer.from(lastPage, "latin1"));
+    assert.ok(text.includes("For Synthetic Forwarding Ltd"), `${count}`);
+    assert.ok(
+      pageCount(file) === 1 || text.includes("SIGNED FOR THE SHIPPER BY"),
+      `${count} containers: signature alone on the last page`,
+    );
+  }
+});
+
+const manifestColumns = (
+  key: string,
+  kind: "air_manifest" | "sea_manifest",
+) => {
+  const columns = transportDocumentFields[kind].find(
+    (field) => field.key === key,
+  )?.columns;
+  assert.ok(columns, `${kind} ${key} has columns`);
+  return columns;
+};
+
+test("table rows round-trip as JSON, older line text still loads, totals add up", () => {
+  const columns = manifestColumns("shipmentLines", "air_manifest");
+  const rows: TableRow[] = [
+    { hawb: "H1", packages: "2", grossWeight: "92", commodity: "BUBBLES\nGH" },
+    { hawb: "H2", packages: "259 CTNS", grossWeight: "2,347" },
+  ];
+  const stored = formatTableRows(rows, columns);
+  const back = parseTableRows(stored, columns);
+  assert.equal(back[0].commodity, "BUBBLES\nGH");
+  assert.equal(back[1].packages, "259 CTNS");
+  assert.equal(sumTableColumn(back, "packages"), "261");
+  assert.equal(sumTableColumn(back, "grossWeight"), "2439");
+  assert.equal(sumTableColumn(back, "volume"), null);
+  // A row with every cell empty is dropped; nothing at all is stored as empty text.
+  assert.equal(formatTableRows([{ hawb: " " }, {}], columns), "");
+  // Text from before tables: one row per line, cells in column order.
+  assert.deepEqual(
+    parseTableRows("H9 | 3 | 40", columns).map((row) => [
+      row.hawb,
+      row.packages,
+      row.grossWeight,
+    ]),
+    [["H9", "3", "40"]],
+  );
+});
+
+test("a sea cargo manifest prints its lines as a table with the total weight", async () => {
+  const columns = manifestColumns("manifestLines", "sea_manifest");
+  const file = await renderTransportDocumentPdf(
+    {
+      document: document({
+        kind: "sea_manifest",
+        documentNumber: "TRHU4227440",
+        fields: {
+          masterReference: "ONEYPSQG01159900",
+          vessel: "MIRADOR EXPRESS 2635W",
+          containerNumber: "TRHU4227440",
+          totalPackages: "5",
+          manifestLines: formatTableRows(
+            [
+              {
+                shipper: "TRUST SOK CARGO",
+                consignee: "MR HENRY AKYEAH\nMARKSMAN- ACCRA",
+                blNumber: "ONEYPSQG01159900A",
+                description: "1 UNIT OF TOYOTA CAMRY",
+                weightKg: "3684",
+              },
+              {
+                shipper: "TRUST SOK CARGO",
+                consignee: "TOGBUI AKAMU",
+                blNumber: "ONEYPSQG01159900B",
+                description: "1 UNIT OF HONDA ACCORD",
+                weightKg: "1533",
+              },
+            ],
+            columns,
+          ),
+        },
+      }),
+      job,
+      settings,
+    },
+    { compress: false },
+  );
+  const text = pdfText(file);
+  for (const expected of [
+    "SEA CARGO MANIFEST",
+    "ONEYPSQG01159900",
+    "ONEYPSQG01159900A",
+    "ONEYPSQG01159900B",
+    "CAMRY",
+    "3,684",
+    "1,533",
+    "Total",
+    "5,217",
+  ]) {
+    assert.ok(text.includes(expected), `missing: ${expected}`);
+  }
+  assert.equal(pageCount(file), 1);
 });

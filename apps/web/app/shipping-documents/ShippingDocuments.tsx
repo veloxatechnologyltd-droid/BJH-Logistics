@@ -22,6 +22,7 @@ const kindLabels: Record<Kind, string> = {
   house_bl: "Bill of lading",
   house_awb: "Air waybill",
   air_manifest: "Air manifest",
+  sea_manifest: "Sea manifest",
   waybill: "Waybill",
 };
 const kinds = Object.keys(kindLabels) as Kind[];
@@ -44,7 +45,7 @@ const prepareTab = (kind: Kind) =>
   kind === "waybill" ? "delivery" : "documents";
 
 /**
- * Every bill of lading, air waybill, air manifest and road waybill across
+ * Every bill of lading, air waybill, air and sea manifest and road waybill across
  * jobs, in one place. They are still prepared on the job (it holds the
  * parties, references and cargo they start from); "Prepare" picks the job and
  * opens the right tab.

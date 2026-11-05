@@ -11,6 +11,7 @@ import {
   isUuid,
   parseContract,
   transportDocumentCreateSchema,
+  transportDocumentFields,
   transportDocumentKinds,
   transportDocumentKindsFor,
   transportDocumentTitles,
@@ -97,7 +98,9 @@ export class TransportDocumentsService {
     const containers = references
       .filter((item) => item.kind === "container")
       .map((item) =>
-        item.sealNumber ? `${item.value}, seal ${item.sealNumber}` : item.value,
+        item.sealNumber
+          ? `${item.value} | Seal ${item.sealNumber}`
+          : item.value,
       )
       .join("\n");
 
@@ -112,6 +115,12 @@ export class TransportDocumentsService {
       fields.deliveryAgent = partyText(parties, "agent");
       fields.masterReference = first("master_bl") ?? first("booking");
       fields.containers = containers || undefined;
+    } else if (kind === "sea_manifest") {
+      // One manifest per container, so the container number is its number.
+      fields.masterReference = first("master_bl") ?? first("booking");
+      fields.vessel = job.vessel ?? undefined;
+      fields.containerNumber = first("container");
+      documentNumber = first("container") ?? null;
     } else if (kind === "house_awb") {
       fields.masterAwb = first("master_awb");
       documentNumber = first("house_awb") ?? null;
@@ -122,9 +131,12 @@ export class TransportDocumentsService {
       delete fields.consignee;
       documentNumber = first("house_awb") ?? null;
     }
+    // Only the fields this document has: others would be refused on save.
+    const known = new Set(transportDocumentFields[kind].map((f) => f.key));
     const present = Object.fromEntries(
       Object.entries(fields).filter(
-        (entry): entry is [string, string] => typeof entry[1] === "string",
+        (entry): entry is [string, string] =>
+          typeof entry[1] === "string" && known.has(entry[0]),
       ),
     );
     return { documentNumber, fields: present };

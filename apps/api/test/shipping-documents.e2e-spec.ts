@@ -129,6 +129,7 @@ before(async () => {
   await houseDocument(seaJob, "house_bl", "SYN-HBL-1");
   await houseDocument(airJob, "house_awb", "SYN-HAWB-1");
   await houseDocument(airJob, "air_manifest", null);
+  await houseDocument(seaJob, "sea_manifest", "SYN-SM-1");
 
   const driver = await json<{ id: string }>(
     await post("/api/v1/drivers", TEST_SUPER_ADMIN_TOKEN, {
@@ -161,7 +162,7 @@ after(async () => {
 
 test("one list holds the bill of lading, air waybill, manifest and road waybill of every job", async () => {
   const items = await list(TEST_SUPER_ADMIN_TOKEN);
-  assert.equal(items.length, 4);
+  assert.equal(items.length, 5);
   assert.deepEqual(
     summary(items)
       .map((line) => line.replace(/BJH\/WB\/\d{4}\/\d+/, "WAYBILL"))
@@ -171,6 +172,7 @@ test("one list holds the bill of lading, air waybill, manifest and road waybill 
       "air_manifest:-:draft",
       "house_awb:SYN-HAWB-1:issued",
       "house_bl:BL-NUMBER:issued",
+      "sea_manifest:SYN-SM-1:issued",
       "waybill:WAYBILL:dispatched",
     ].sort(),
   );
