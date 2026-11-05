@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
+import type { BankAccount } from "@bjh/contracts";
 import { canWorkFinance } from "../auth/roleAccess";
 import { useStaffAccess } from "../auth/useStaffAccess";
 import { listCustomers } from "../customers/customerApi";
@@ -22,6 +23,7 @@ import { formatDate } from "../jobs/jobFormat";
 import styles from "../jobs/jobs.module.css";
 import { getQuote } from "../quotes/quoteApi";
 import { popularCurrencies } from "../settings/business/BusinessSettingsForm";
+import { BankAccountSelect, listedBankAccountId } from "../BankAccountSelect";
 import { getSettings } from "../settings/business/settingsApi";
 import { plainMessage } from "../ErrorPopup";
 
@@ -54,6 +56,9 @@ export function NewInvoice() {
   const [containers, setContainers] = useState("1");
   const [dueDate, setDueDate] = useState("");
   const [notes, setNotes] = useState("");
+  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
+  // "" = automatic: the account in the invoice's currency.
+  const [bankAccountId, setBankAccountId] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [leftOut, setLeftOut] = useState<{
@@ -67,7 +72,10 @@ export function NewInvoice() {
       .catch(() => undefined);
     getSettings()
       .then((result) => {
-        if (result.current) setConfigured(result.current.settings.currencies);
+        if (result.current) {
+          setConfigured(result.current.settings.currencies);
+          setBankAccounts(result.current.settings.bankAccounts ?? []);
+        }
       })
       .catch(() => undefined);
   }, []);
@@ -158,6 +166,8 @@ export function NewInvoice() {
         currency,
         dueDate: dueDate || undefined,
         notes: notes.trim() || undefined,
+        bankAccountId:
+          listedBankAccountId(bankAccounts, bankAccountId) || undefined,
       };
       if (fromQuote) {
         const count = Number(containers);
@@ -386,6 +396,12 @@ export function NewInvoice() {
                   </label>
                 </>
               )}
+              <BankAccountSelect
+                accounts={bankAccounts}
+                className={styles.field}
+                onChange={setBankAccountId}
+                value={listedBankAccountId(bankAccounts, bankAccountId)}
+              />
               <label className={styles.field}>
                 Due date (optional; the payment terms in settings apply
                 otherwise)

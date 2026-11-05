@@ -1,4 +1,4 @@
-import type { QuoteBasis, ServiceLine } from "@bjh/contracts";
+import type { BankAccount, QuoteBasis, ServiceLine } from "@bjh/contracts";
 import { authenticatedFetch } from "../auth/authenticatedFetch";
 
 export type QuoteLine = {
@@ -32,6 +32,7 @@ export type QuoteVersion = {
   timeline: string | null;
   terms: string[];
   sizeLabels: string[];
+  bankAccount: BankAccount | null;
   issuedAt: string | null;
   lines: QuoteLine[];
 };
@@ -84,6 +85,8 @@ export type QuoteVersionBody = {
   timeline?: string;
   terms: string[];
   sizeLabels: string[];
+  /** One of the Settings accounts; left out, the quote uses the one in its currency. */
+  bankAccountId?: string;
   lines: Array<{
     section?: string;
     description: string;

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { BankAccountSelect, listedBankAccountId } from "../BankAccountSelect";
 import { ChargeOptions } from "../ChargeOptions";
 import type { FormEvent, ReactNode } from "react";
 import {
@@ -10,7 +11,12 @@ import {
   quoteBasisLabels,
   serviceLinesForRoles,
 } from "@bjh/contracts";
-import type { HeldStaffRoleKey, QuoteBasis, ServiceLine } from "@bjh/contracts";
+import type {
+  BankAccount,
+  HeldStaffRoleKey,
+  QuoteBasis,
+  ServiceLine,
+} from "@bjh/contracts";
 import { useStaffAccess } from "../auth/useStaffAccess";
 import { listCustomers } from "../customers/customerApi";
 import type { CustomerCompany } from "../customers/customerApi";
@@ -160,6 +166,11 @@ export function QuoteEditor({
   const [configuredCurrencies, setConfiguredCurrencies] = useState<string[]>(
     [],
   );
+  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
+  // "" = automatic: the account in the quote's currency.
+  const [bankAccountId, setBankAccountId] = useState(
+    draft?.bankAccount?.id ?? "",
+  );
   /** The standard wording saved in Settings; null until loaded. */
   const [defaults, setDefaults] = useState<Wording | null>(null);
   /**
@@ -203,6 +214,7 @@ export function QuoteEditor({
         if (!current) return;
         const { settings } = current;
         setConfiguredCurrencies(settings.currencies);
+        setBankAccounts(settings.bankAccounts ?? []);
         setDefaults(settings.quoteDefaults);
         if (draft) return;
         applyWording(settings.quoteDefaults);
@@ -280,6 +292,8 @@ export function QuoteEditor({
       timeline: timeline.trim() || undefined,
       terms: cleanList(terms),
       sizeLabels: [],
+      bankAccountId:
+        listedBankAccountId(bankAccounts, bankAccountId) || undefined,
       lines: built,
     };
   }
@@ -452,6 +466,12 @@ export function QuoteEditor({
                   ))}
               </select>
             </label>
+            <BankAccountSelect
+              accounts={bankAccounts}
+              className={styles.field}
+              onChange={setBankAccountId}
+              value={listedBankAccountId(bankAccounts, bankAccountId)}
+            />
           </div>
 
           <h2>Charges</h2>

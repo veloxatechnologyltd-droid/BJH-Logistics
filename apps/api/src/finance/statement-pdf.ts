@@ -1,4 +1,5 @@
 import PDFDocument from "pdfkit";
+import { drawLogo } from "../assets/logo";
 import type { BusinessSettings } from "@bjh/contracts";
 import { formatInvoiceAmount } from "./invoice-pdf";
 import type { StatementView } from "./statements.service";
@@ -11,6 +12,7 @@ const BORDER = "#d7e3ed";
 const CANVAS = "#f4f8fc";
 
 const PAGE_MARGIN = 40;
+const LOGO_HEIGHT = 40;
 
 const serviceLabels: Record<string, string> = {
   sea_import: "Sea import",
@@ -80,8 +82,11 @@ export function renderStatementPdf(
   const bottom = () => doc.page.height - PAGE_MARGIN - FOOTER_SPACE;
 
   // Brand block, document title on the right.
+  const logoHeight = drawLogo(doc, left, PAGE_MARGIN, LOGO_HEIGHT);
   doc.font("Helvetica-Bold").fontSize(20).fillColor(PRIMARY);
-  doc.text(issuerName, left, PAGE_MARGIN, { width: width * 0.58 });
+  doc.text(issuerName, left, PAGE_MARGIN + (logoHeight ? logoHeight + 6 : 0), {
+    width: width * 0.58,
+  });
   doc.font("Helvetica").fontSize(10).fillColor(MUTED);
   const contact = [
     settings?.issuer.address,

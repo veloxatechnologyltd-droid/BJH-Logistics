@@ -1073,6 +1073,10 @@ export const quoteVersionInputSchema = z
       documentsNote: optionalText("documentsNote", 2000),
       timeline: optionalText("timeline", 2000),
       terms: textList("terms", 30, 1000),
+      /** One of the accounts in Settings; the quote prints its details. */
+      bankAccountId: uuidField("bankAccountId")
+        .nullish()
+        .transform((value) => value ?? null),
       /** Names of the size columns, for example 20ft and 40ft; empty for none. */
       sizeLabels: textList("sizeLabels", 4, 30),
       lines: z
@@ -1171,6 +1175,43 @@ const optionalEmail = z
 export const notificationChannelModes = ["email", "sms", "both"] as const;
 export type NotificationChannelMode = (typeof notificationChannelModes)[number];
 
+/** One bank account of the business, listed in Settings and printed on quotes and invoices. */
+export const bankAccountSchema = z.object(
+  {
+    id: uuidField("bank account id"),
+    bankName: requiredText("bank name", 120),
+    branch: optionalText("bank branch", 120),
+    accountName: requiredText("account name", 160),
+    accountNumber: requiredText("account number", 60),
+    currency: z
+      .string({ error: "bank account currency is required" })
+      .transform((value) => value.trim().toUpperCase())
+      .refine((value) => /^[A-Z]{3}$/.test(value), {
+        error: "bank account currency must be a 3-letter code such as GHS",
+      }),
+    swiftCode: optionalText("SWIFT code", 20),
+    address: optionalText("bank account address", 300),
+  },
+  objectError("A bank account object is required"),
+);
+export type BankAccount = z.infer<typeof bankAccountSchema>;
+
+/**
+ * The account a new quote or invoice starts with: the one asked for if it is
+ * listed, else the first account in the document's currency, else none.
+ */
+export function pickBankAccount(
+  accounts: readonly BankAccount[],
+  currency: string,
+  wantedId?: string | null,
+): BankAccount | null {
+  return (
+    accounts.find((account) => account.id === wantedId) ??
+    accounts.find((account) => account.currency === currency) ??
+    null
+  );
+}
+
 export const businessSettingsSchema = z
   .object(
     {
@@ -1221,6 +1262,14 @@ export const businessSettingsSchema = z
         .max(365, { error: "paymentTermsDays must be 0 to 365" })
         .nullish()
         .transform((value) => value ?? null),
+      // Printed on quotes and invoices; the person preparing one picks which.
+      // Absent in settings saved before bank accounts existed.
+      bankAccounts: z
+        .array(bankAccountSchema, { error: "bankAccounts must be a list" })
+        .max(10, { error: "At most 10 bank accounts can be configured" })
+        .nullish()
+        .transform((value) => value ?? undefined)
+        .optional(),
       numbering: z.object(
         {
           quotePrefix: prefixField("quotePrefix"),
@@ -1287,6 +1336,13 @@ export const businessSettingsSchema = z
       context.addIssue({
         code: "custom",
         message: "currencies must not repeat",
+      });
+    }
+    const ids = (settings.bankAccounts ?? []).map((account) => account.id);
+    if (new Set(ids).size !== ids.length) {
+      context.addIssue({
+        code: "custom",
+        message: "bank accounts must not repeat",
       });
     }
   });
@@ -1618,6 +1674,10 @@ export const invoiceInputSchema = z.object(
       .nullish()
       .transform((value) => value ?? null),
     notes: optionalText("notes", 2000),
+    /** One of the accounts in Settings; the invoice prints its details. */
+    bankAccountId: uuidField("bankAccountId")
+      .nullish()
+      .transform((value) => value ?? null),
   },
   objectError("An invoice object is required"),
 );

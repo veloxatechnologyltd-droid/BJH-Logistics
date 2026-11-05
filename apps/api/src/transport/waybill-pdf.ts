@@ -1,4 +1,5 @@
 import PDFDocument from "pdfkit";
+import { drawLogo } from "../assets/logo";
 import type { BusinessSettings } from "@bjh/contracts";
 import type {
   DeliveryRecord,
@@ -16,6 +17,7 @@ const BORDER = "#d7e3ed";
 const CANVAS = "#f4f8fc";
 
 const PAGE_MARGIN = 40;
+const LOGO_HEIGHT = 36;
 
 // Print type scale (pt): body text 11, small labels 9, footer 9.
 const BODY = 11;
@@ -94,8 +96,11 @@ export function renderWaybillPdf(
   const bottom = doc.page.height - PAGE_MARGIN - FOOTER_SPACE;
 
   // Brand block: issuer identity over a blue rule, waybill number on the right.
+  const logoHeight = drawLogo(doc, left, PAGE_MARGIN, LOGO_HEIGHT);
   doc.font("Helvetica-Bold").fontSize(20).fillColor(PRIMARY);
-  doc.text(issuerName, left, PAGE_MARGIN, { width: width * 0.58 });
+  doc.text(issuerName, left, PAGE_MARGIN + (logoHeight ? logoHeight + 6 : 0), {
+    width: width * 0.58,
+  });
   doc.font("Helvetica").fontSize(10).fillColor(MUTED);
   const contact = [
     settings?.issuer.address,

@@ -1,4 +1,5 @@
 import type {
+  BankAccount,
   DocumentType,
   JobStatus,
   MilestoneDefinition,
@@ -460,6 +461,7 @@ export type Invoice = {
   lines: InvoiceLine[];
   dueDate: string | null;
   notes: string | null;
+  bankAccount: BankAccount | null;
   subtotalMinor: number;
   taxLines: Array<{
     name: string;
@@ -543,6 +545,8 @@ export type InvoiceDraftInput = {
   lines: InvoiceLine[];
   dueDate?: string;
   notes?: string;
+  /** One of the Settings accounts; left out, the invoice uses the one in its currency. */
+  bankAccountId?: string;
 };
 
 export const listInvoices = (id: string) =>
@@ -558,7 +562,12 @@ export interface ChargeLeftOut {
 
 export const createInvoiceFromCharges = (
   id: string,
-  input: { currency: string; dueDate?: string; notes?: string },
+  input: {
+    currency: string;
+    dueDate?: string;
+    notes?: string;
+    bankAccountId?: string;
+  },
 ) =>
   send<{ invoice: Invoice; skipped: number; leftOut: ChargeLeftOut[] }>(
     `/${encodeURIComponent(id)}/invoices/from-charges`,

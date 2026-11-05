@@ -1,4 +1,5 @@
 import PDFDocument from "pdfkit";
+import { drawLogo } from "../assets/logo";
 import type { BusinessSettings } from "@bjh/contracts";
 import type {
   BatchReceiptLine,
@@ -18,6 +19,7 @@ const BORDER = "#d7e3ed";
 const MARK_RED = "#b3261e";
 
 const PAGE_MARGIN = 40;
+const LOGO_HEIGHT = 40;
 
 // Print type scale (pt): body text 11, small labels 9, footer 9.
 const BODY = 11;
@@ -198,8 +200,11 @@ export function renderPaymentSummaryPdf(
 
   const bottom = doc.page.height - PAGE_MARGIN - FOOTER_SPACE;
 
+  const logoHeight = drawLogo(doc, left, PAGE_MARGIN, LOGO_HEIGHT);
   doc.font("Helvetica-Bold").fontSize(20).fillColor(PRIMARY);
-  doc.text(issuerName, left, PAGE_MARGIN, { width: width * 0.5 });
+  doc.text(issuerName, left, PAGE_MARGIN + (logoHeight ? logoHeight + 6 : 0), {
+    width: width * 0.5,
+  });
   const brandBottom = doc.y;
   doc.font("Helvetica-Bold").fontSize(11).fillColor(PRIMARY);
   doc.text("PAYMENT SUMMARY RECEIPT", left + width * 0.5, PAGE_MARGIN, {
@@ -388,8 +393,11 @@ function drawReceipt(
   const bottom = doc.page.height - PAGE_MARGIN - FOOTER_SPACE;
 
   // Brand block, receipt number on the right.
+  const logoHeight = drawLogo(doc, left, PAGE_MARGIN, LOGO_HEIGHT);
   doc.font("Helvetica-Bold").fontSize(20).fillColor(PRIMARY);
-  doc.text(issuerName, left, PAGE_MARGIN, { width: width * 0.58 });
+  doc.text(issuerName, left, PAGE_MARGIN + (logoHeight ? logoHeight + 6 : 0), {
+    width: width * 0.58,
+  });
   doc.font("Helvetica").fontSize(10).fillColor(MUTED);
   const contact = [
     settings?.issuer.address,

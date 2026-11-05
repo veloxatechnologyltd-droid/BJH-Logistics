@@ -1,4 +1,5 @@
 import PDFDocument from "pdfkit";
+import { drawLogo } from "../assets/logo";
 import type { BusinessSettings } from "@bjh/contracts";
 import { formatInvoiceAmount } from "./invoice-pdf";
 import type { JobReportView } from "./job-report.service";
@@ -11,6 +12,7 @@ const BORDER = "#d7e3ed";
 const CANVAS = "#f4f8fc";
 
 const PAGE_MARGIN = 40;
+const LOGO_HEIGHT = 40;
 
 const serviceLabels: Record<string, string> = {
   sea_import: "Sea import",
@@ -98,8 +100,11 @@ export function renderJobReportPdf(
   };
 
   // Header.
+  const logoHeight = drawLogo(doc, left, PAGE_MARGIN, LOGO_HEIGHT);
   doc.font("Helvetica-Bold").fontSize(20).fillColor(PRIMARY);
-  doc.text(issuerName, left, PAGE_MARGIN, { width });
+  doc.text(issuerName, left, PAGE_MARGIN + (logoHeight ? logoHeight + 6 : 0), {
+    width,
+  });
   doc.font("Helvetica-Bold").fontSize(16).fillColor(INK);
   doc.text("Job report", left, doc.y + 4);
   doc.font("Helvetica").fontSize(12).fillColor(INK);

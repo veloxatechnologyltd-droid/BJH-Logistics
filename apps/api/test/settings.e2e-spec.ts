@@ -301,3 +301,61 @@ test("access boundaries: only the super admin edits; staff read; customers see n
   ).json()) as { current: Revision };
   assert.equal(unchanged.current.revisionNumber, 2);
 });
+
+test("a quote keeps the bank account chosen from Settings, and a new version copies it", async () => {
+  const usd = {
+    id: "5f0f2b9e-0a53-4f3e-9d57-1a2b3c4d5e02",
+    bankName: "Synthetic Bank",
+    accountName: "Synthetic Forwarding Ltd",
+    accountNumber: "0002000200020",
+    currency: "USD",
+  };
+  const ghs = {
+    ...usd,
+    id: "5f0f2b9e-0a53-4f3e-9d57-1a2b3c4d5e01",
+    accountNumber: "0001000100010",
+    currency: "GHS",
+  };
+  assert.equal(
+    (
+      await put(
+        "/api/v1/settings",
+        TEST_SUPER_ADMIN_TOKEN,
+        settings({ bankAccounts: [ghs, usd] }),
+      )
+    ).status,
+    200,
+  );
+  type Created = {
+    id: string;
+    versions: Array<{ bankAccount: { id: string } | null }>;
+  };
+  const create = async (version: Record<string, unknown>) =>
+    post("/api/v1/quotes", TEST_MATCHING_TOKEN, {
+      customerCompanyId: companyA,
+      serviceLine: "sea_import",
+      version,
+    });
+
+  // Not chosen: the account in the quote's currency.
+  const automatic = (await (await create(content("USD"))).json()) as Created;
+  assert.equal(automatic.versions[0].bankAccount?.id, usd.id);
+
+  // Chosen: that account; an id Settings does not list is refused.
+  const chosen = (await (
+    await create({ ...content("USD"), bankAccountId: ghs.id })
+  ).json()) as Created;
+  assert.equal(chosen.versions[0].bankAccount?.id, ghs.id);
+  const unknown = await create({
+    ...content("USD"),
+    bankAccountId: "5f0f2b9e-0a53-4f3e-9d57-1a2b3c4d5eff",
+  });
+  assert.equal(unknown.status, 400);
+
+  // Issue, then revise: the new draft starts with the same account.
+  await post(`/api/v1/quotes/${chosen.id}/issue`, TEST_MATCHING_TOKEN, {});
+  const revised = (await (
+    await post(`/api/v1/quotes/${chosen.id}/versions`, TEST_MATCHING_TOKEN, {})
+  ).json()) as Created;
+  assert.equal(revised.versions.at(-1)?.bankAccount?.id, ghs.id);
+});

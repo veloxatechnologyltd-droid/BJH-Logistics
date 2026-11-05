@@ -1,4 +1,5 @@
 import PDFDocument from "pdfkit";
+import { drawLogo } from "../assets/logo";
 import type { BusinessSettings } from "@bjh/contracts";
 
 // Same palette as the invoice, quote, statement and job report PDFs.
@@ -9,6 +10,7 @@ const BORDER = "#d7e3ed";
 const CANVAS = "#f4f8fc";
 
 const PAGE_MARGIN = 40;
+const LOGO_HEIGHT = 40;
 
 export interface ReportColumn {
   header: string;
@@ -90,8 +92,11 @@ export function renderReportPdf(
   };
 
   // Header.
+  const logoHeight = drawLogo(doc, left, PAGE_MARGIN, LOGO_HEIGHT);
   doc.font("Helvetica-Bold").fontSize(16).fillColor(PRIMARY);
-  doc.text(issuerName, left, PAGE_MARGIN, { width });
+  doc.text(issuerName, left, PAGE_MARGIN + (logoHeight ? logoHeight + 6 : 0), {
+    width,
+  });
   doc.font("Helvetica-Bold").fontSize(14).fillColor(INK);
   doc.text(document.title, left, doc.y + 4, { width });
   doc.font("Helvetica").fontSize(10.5).fillColor(MUTED);

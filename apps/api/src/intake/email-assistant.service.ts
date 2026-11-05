@@ -25,6 +25,7 @@ import type {
 import { formatQuoteAmount } from "../quotations/quote-pdf";
 import { QuoteRequestsService } from "../quotations/quote-requests.service";
 import type { QuoteSuggestion } from "../quotations/quote-suggestion";
+import { resolveBankAccount } from "../settings/bank-account";
 import { findPossibleMatches } from "./customer-match";
 import { inChargeOf } from "./inbound-email.service";
 import { REPLY_DRAFTER, ReplyDraftError } from "./reply-drafter";
@@ -391,7 +392,20 @@ export class EmailAssistantService {
       );
       return false;
     }
-    await this.database.createQuote(parsed.data, null);
+    await this.database.createQuote(
+      {
+        ...parsed.data,
+        version: {
+          ...parsed.data.version,
+          bankAccount: resolveBankAccount(
+            settings?.settings ?? null,
+            currency,
+            null,
+          ),
+        },
+      },
+      null,
+    );
     const label = serviceLineLabels[service].toLowerCase();
     if (!suggestion.basedOn) {
       notes.push(

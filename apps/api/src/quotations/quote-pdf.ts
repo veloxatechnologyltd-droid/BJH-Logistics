@@ -1,11 +1,20 @@
 import PDFDocument from "pdfkit";
-import { quoteBasisLabels, quoteLineTotalMinor } from "@bjh/contracts";
+import {
+  pickBankAccount,
+  quoteBasisLabels,
+  quoteLineTotalMinor,
+} from "@bjh/contracts";
 import type { BusinessSettings } from "@bjh/contracts";
 import type {
   QuoteLineRecord,
   QuoteRecord,
   QuoteVersionRecord,
 } from "../database/database.port";
+import { drawLogo } from "../assets/logo";
+import {
+  bankDetailsHeight,
+  drawBankDetails,
+} from "../settings/bank-details-pdf";
 
 // Colours match the document layout preview (apps/web/app/styles.css).
 const PRIMARY = "#0b3fae";
@@ -17,6 +26,7 @@ const CANVAS = "#f4f8fc";
 const DRAFT_RED = "#b3261e";
 
 const PAGE_MARGIN = 50;
+const LOGO_HEIGHT = 40;
 
 export interface QuotePdfInput {
   quote: QuoteRecord;
@@ -129,9 +139,12 @@ export function renderQuotePdf(
     });
   };
 
-  // Brand block: issuer identity over a blue rule.
+  // Brand block: logo and issuer identity over a blue rule.
+  const logoHeight = drawLogo(doc, left, PAGE_MARGIN, LOGO_HEIGHT);
   doc.font("Helvetica-Bold").fontSize(16).fillColor(PRIMARY);
-  doc.text(issuerName, left, PAGE_MARGIN, { width });
+  doc.text(issuerName, left, PAGE_MARGIN + (logoHeight ? logoHeight + 6 : 0), {
+    width,
+  });
   const contact = [
     settings?.issuer.address,
     [settings?.issuer.phone, settings?.issuer.email, settings?.issuer.website]
@@ -390,6 +403,19 @@ export function renderQuotePdf(
       paragraph(`- ${item}`);
       doc.moveDown(0.2);
     }
+  }
+
+  // Where to pay: the account chosen on the quote, else the one in its currency.
+  const bank =
+    version.bankAccount ??
+    pickBankAccount(settings?.bankAccounts ?? [], version.currency);
+  if (bank) {
+    const bankHeight = bankDetailsHeight(doc, bank, width);
+    ensure(bankHeight + 24);
+    doc.moveDown(1);
+    const bankTop = doc.y;
+    drawBankDetails(doc, bank, left, bankTop, width);
+    doc.y = bankTop + bankHeight;
   }
 
   // Acceptance: BJH on the left, the client on the right.

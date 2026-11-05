@@ -13,7 +13,9 @@ import {
   quoteDecisionInputSchema,
   quoteVersionInputSchema,
 } from "@bjh/contracts";
+import type { BusinessSettings } from "@bjh/contracts";
 import { serviceLinesForRoles } from "../auth/auth.guards";
+import { resolveBankAccount } from "../settings/bank-account";
 import { randomUUID } from "node:crypto";
 import { quoteIssuedMessage } from "../notifications/notification-messages";
 import { NotificationsService } from "../notifications/notifications.service";
@@ -73,8 +75,18 @@ export class QuotesService {
       }
     }
 
-    await this.requireConfiguredCurrency(parsed.data.version.currency);
-    const id = await this.database.createQuote(parsed.data, createdBy);
+    const settings = await this.requireConfiguredCurrency(
+      parsed.data.version.currency,
+    );
+    const bankAccount = resolveBankAccount(
+      settings,
+      parsed.data.version.currency,
+      parsed.data.version.bankAccountId,
+    );
+    const id = await this.database.createQuote(
+      { ...parsed.data, version: { ...parsed.data.version, bankAccount } },
+      createdBy,
+    );
     return this.get(id, {});
   }
 
@@ -98,11 +110,16 @@ export class QuotesService {
     this.requireNotAccepted(quote);
     const parsed = parseContract(quoteVersionInputSchema, input);
     if (!parsed.success) throw new BadRequestException(parsed.message);
-    await this.requireConfiguredCurrency(parsed.data.currency);
-    const result = await this.database.saveQuoteVersionDraft(
-      quote.id,
-      parsed.data,
+    const settings = await this.requireConfiguredCurrency(parsed.data.currency);
+    const bankAccount = resolveBankAccount(
+      settings,
+      parsed.data.currency,
+      parsed.data.bankAccountId,
     );
+    const result = await this.database.saveQuoteVersionDraft(quote.id, {
+      ...parsed.data,
+      bankAccount,
+    });
     if (result === "no_draft") {
       throw new ConflictException(
         "Issued versions cannot be edited; start a new version first",
@@ -290,13 +307,16 @@ export class QuotesService {
   }
 
   /** Once Settings exist, quotes may only use its configured currencies. */
-  private async requireConfiguredCurrency(currency: string): Promise<void> {
+  private async requireConfiguredCurrency(
+    currency: string,
+  ): Promise<BusinessSettings | null> {
     const current = await this.database.getBusinessSettings();
     if (current && !current.settings.currencies.includes(currency)) {
       throw new BadRequestException(
         `currency must be one of the configured currencies: ${current.settings.currencies.join(", ")}`,
       );
     }
+    return current?.settings ?? null;
   }
 
   /**

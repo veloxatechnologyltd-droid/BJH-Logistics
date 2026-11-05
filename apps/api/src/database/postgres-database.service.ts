@@ -1,6 +1,7 @@
 import { Inject, Injectable, OnModuleDestroy } from "@nestjs/common";
 import type {
   JobReportQuery,
+  BankAccount,
   BusinessSettings,
   ChargeKind,
   DocumentType,
@@ -101,6 +102,7 @@ import {
   QuoteLineRecord,
   QuoteRecord,
   QuoteSummaryRecord,
+  QuoteVersionContent,
   QuoteVersionRecord,
   ServiceLine,
   QuoteRequestRecord,
@@ -133,7 +135,7 @@ const jobTaskSelect = (source: string) => `
     ON company.company_id = job.customer_company_id`;
 
 /** Version columns in the order the INSERT/UPDATE statements above expect. */
-const quoteVersionValues = (content: QuoteVersionInput) => [
+const quoteVersionValues = (content: QuoteVersionContent) => [
   content.currency,
   content.title,
   content.subtitle,
@@ -146,6 +148,7 @@ const quoteVersionValues = (content: QuoteVersionInput) => [
   content.timeline,
   content.terms,
   content.sizeLabels,
+  content.bankAccount ? JSON.stringify(content.bankAccount) : null,
 ];
 
 export const POSTGRES_POOL = Symbol("POSTGRES_POOL");
@@ -2023,7 +2026,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       customerCompanyId: string;
       serviceLine: ServiceLine;
       quoteRequestId: string | null;
-      version: QuoteVersionInput;
+      version: QuoteVersionContent;
     },
     createdBy: string,
   ): Promise<string> {
@@ -2048,10 +2051,11 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
         `INSERT INTO app.quote_version
           (quote_id, version_number, currency, title, subtitle, shipment_scope,
            intro, at_cost_note, procedure_steps, required_documents,
-           documents_note, timeline, terms, size_labels, created_by,
-           created_by_assistant)
+           documents_note, timeline, terms, size_labels, bank_account,
+           created_by, created_by_assistant)
          VALUES ($1::uuid, 1, $2, $3, $4, $5, $6, $7, $8::text[], $9::text[],
-           $10, $11, $12::text[], $13::text[], $14::uuid, $14::uuid IS NULL)
+           $10, $11, $12::text[], $13::text[], $14::jsonb, $15::uuid,
+           $15::uuid IS NULL)
          RETURNING version_id`,
         [quoteId, ...quoteVersionValues(input.version), createdBy],
       );
@@ -2310,7 +2314,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
 
   async saveQuoteVersionDraft(
     quoteId: string,
-    content: QuoteVersionInput,
+    content: QuoteVersionContent,
   ): Promise<"saved" | "no_draft"> {
     const client = await this.pool.connect();
     try {
@@ -2335,7 +2339,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
              intro = $6, at_cost_note = $7, procedure_steps = $8::text[],
              required_documents = $9::text[], documents_note = $10,
              timeline = $11, terms = $12::text[], size_labels = $13::text[],
-             updated_at = clock_timestamp()
+             bank_account = $14::jsonb, updated_at = clock_timestamp()
          WHERE version_id = $1::uuid`,
         [versionId, ...quoteVersionValues(content)],
       );
@@ -2373,11 +2377,11 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
         `INSERT INTO app.quote_version
           (quote_id, version_number, currency, title, subtitle, shipment_scope,
            intro, at_cost_note, procedure_steps, required_documents,
-           documents_note, timeline, terms, size_labels, created_by)
+           documents_note, timeline, terms, size_labels, bank_account, created_by)
          SELECT quote_id, version_number + 1, currency, title, subtitle,
            shipment_scope, intro, at_cost_note, procedure_steps,
            required_documents, documents_note, timeline, terms, size_labels,
-           $2::uuid
+           bank_account, $2::uuid
          FROM app.quote_version WHERE quote_id = $1::uuid
          ORDER BY version_number DESC LIMIT 1
          RETURNING version_id, version_number`,
@@ -2535,6 +2539,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       timeline: optional(row.timeline),
       terms: row.terms as string[],
       sizeLabels: row.size_labels as string[],
+      bankAccount: (row.bank_account as BankAccount | null) ?? null,
       createdBy: optional(row.created_by),
       createdByAssistant: row.created_by_assistant === true,
       createdAt: this.toIsoString(row.created_at),
@@ -3171,14 +3176,16 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     lines: InvoiceLineRecord[];
     dueDate: string | null;
     notes: string | null;
+    bankAccount: BankAccount | null;
     totals: InvoiceTotals;
     createdBy: string;
   }): Promise<InvoiceRecord> {
     const inserted = await this.pool.query(
       `INSERT INTO app.invoice
         (job_id, currency, lines, due_date, notes, subtotal_minor, tax_lines,
-         tax_total_minor, total_minor, created_by)
-       VALUES ($1::uuid, $2, $3::jsonb, $4::date, $5, $6, $7::jsonb, $8, $9, $10::uuid)
+         tax_total_minor, total_minor, created_by, bank_account)
+       VALUES ($1::uuid, $2, $3::jsonb, $4::date, $5, $6, $7::jsonb, $8, $9,
+         $10::uuid, $11::jsonb)
        RETURNING *, to_char(due_date, 'YYYY-MM-DD') AS due_date_text`,
       [
         invoice.jobId,
@@ -3191,6 +3198,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
         invoice.totals.taxTotalMinor,
         invoice.totals.totalMinor,
         invoice.createdBy,
+        invoice.bankAccount ? JSON.stringify(invoice.bankAccount) : null,
       ],
     );
     return this.mapInvoice(inserted.rows[0]);
@@ -3291,6 +3299,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       lines: InvoiceLineRecord[];
       dueDate: string | null;
       notes: string | null;
+      bankAccount: BankAccount | null;
       totals: InvoiceTotals;
     },
   ): Promise<InvoiceRecord | "not_found" | "not_draft"> {
@@ -3314,7 +3323,8 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
         `UPDATE app.invoice
          SET currency = $3, lines = $4::jsonb, due_date = $5::date, notes = $6,
              subtotal_minor = $7, tax_lines = $8::jsonb, tax_total_minor = $9,
-             total_minor = $10, updated_at = clock_timestamp()
+             total_minor = $10, bank_account = $11::jsonb,
+             updated_at = clock_timestamp()
          WHERE invoice_id = $2::uuid AND job_id = $1::uuid
          RETURNING *, to_char(due_date, 'YYYY-MM-DD') AS due_date_text`,
         [
@@ -3328,6 +3338,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
           JSON.stringify(draft.totals.taxLines),
           draft.totals.taxTotalMinor,
           draft.totals.totalMinor,
+          draft.bankAccount ? JSON.stringify(draft.bankAccount) : null,
         ],
       );
       await client.query("COMMIT");
@@ -6895,6 +6906,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       lines: row.lines as InvoiceLineRecord[],
       dueDate: optional(row.due_date_text),
       notes: optional(row.notes),
+      bankAccount: (row.bank_account as BankAccount | null) ?? null,
       subtotalMinor: Number(row.subtotal_minor),
       taxLines: row.tax_lines as InvoiceRecord["taxLines"],
       taxTotalMinor: Number(row.tax_total_minor),

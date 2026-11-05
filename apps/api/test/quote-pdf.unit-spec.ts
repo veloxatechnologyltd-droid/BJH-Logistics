@@ -48,6 +48,7 @@ const version = (
   timeline: null,
   terms: ["Synthetic term."],
   sizeLabels: [],
+  bankAccount: null,
   createdBy: "user",
   createdByAssistant: false,
   createdAt: "2026-09-22T09:00:00.000Z",
@@ -246,4 +247,55 @@ test("a charge's description is printed under its name", async () => {
   const text = pdfText(file);
   assert.ok(text.includes("Port handling fee"));
   assert.ok(text.includes("Covers terminal handling and gate-in"));
+});
+
+const quoteAccount = {
+  id: "5f0f2b9e-0a53-4f3e-9d57-1a2b3c4d5e02",
+  bankName: "Synthetic Bank",
+  branch: null,
+  accountName: "Synthetic Forwarding Ltd",
+  accountNumber: "0002000200020",
+  currency: "USD",
+  swiftCode: "SYNTGHAC",
+  address: null,
+};
+
+test("a quote prints the bank account chosen for it, else the one in its currency, and carries the logo", async () => {
+  const chosen = version({ bankAccount: quoteAccount });
+  const file = await renderQuotePdf(
+    { quote: quote(chosen), version: chosen, settings },
+    { compress: false },
+  );
+  const text = pdfText(file);
+  for (const expected of [
+    "BANK PAYMENT DETAILS",
+    "Account number",
+    "(USD)",
+    "0002000200020",
+    "SYNTGHAC",
+  ]) {
+    assert.ok(text.includes(expected), `missing: ${expected}`);
+  }
+  assert.ok(file.toString("latin1").includes("/Subtype /Image"));
+
+  const plain = version();
+  const fromSettings = pdfText(
+    await renderQuotePdf(
+      {
+        quote: quote(plain),
+        version: plain,
+        settings: { ...settings, bankAccounts: [quoteAccount] },
+      },
+      { compress: false },
+    ),
+  );
+  assert.ok(fromSettings.includes("0002000200020"));
+
+  const none = pdfText(
+    await renderQuotePdf(
+      { quote: quote(plain), version: plain, settings },
+      { compress: false },
+    ),
+  );
+  assert.ok(!none.includes("BANK PAYMENT DETAILS"));
 });

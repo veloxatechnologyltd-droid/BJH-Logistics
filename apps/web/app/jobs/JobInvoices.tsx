@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { BankAccountSelect, listedBankAccountId } from "../BankAccountSelect";
 import { ChargeOptions } from "../ChargeOptions";
-import type { PaymentMethod } from "@bjh/contracts";
+import type { BankAccount, PaymentMethod } from "@bjh/contracts";
 import { formatMoney, toMinor } from "../quotes/quoteApi";
 import { popularCurrencies } from "../settings/business/BusinessSettingsForm";
 import { getSettings } from "../settings/business/settingsApi";
@@ -122,6 +123,9 @@ export function JobInvoices({
   const [configuredCurrencies, setConfiguredCurrencies] = useState<string[]>(
     [],
   );
+  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
+  // The account chosen for the draft being edited; "" = automatic (its currency).
+  const [draftBank, setDraftBank] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
   const [lines, setLines] = useState<DraftLine[]>([]);
   // The currency of the draft being edited; it can still be changed.
@@ -171,8 +175,10 @@ export function JobInvoices({
     if (!isStaff) return;
     getSettings()
       .then((result) => {
-        if (result.current)
+        if (result.current) {
           setConfiguredCurrencies(result.current.settings.currencies);
+          setBankAccounts(result.current.settings.bankAccounts ?? []);
+        }
       })
       .catch(() => undefined);
   }, [isStaff]);
@@ -252,6 +258,12 @@ export function JobInvoices({
         lines: parsed,
         dueDate: invoice.dueDate ?? undefined,
         notes: invoice.notes ?? undefined,
+        // Keep the account the draft already has unless it is being changed.
+        bankAccountId:
+          listedBankAccountId(
+            bankAccounts,
+            open ? draftBank : invoice.bankAccount?.id,
+          ) || undefined,
       });
       if (after) await after();
       else setEditing(null);
@@ -439,6 +451,7 @@ export function JobInvoices({
                     onClick={() => {
                       setEditing(editing === invoice.id ? null : invoice.id);
                       setDraftCurrency(invoice.currency);
+                      setDraftBank(invoice.bankAccount?.id ?? "");
                       setLines(toDraftLines(invoice.lines));
                     }}
                     type="button"
@@ -495,6 +508,12 @@ export function JobInvoices({
                         ))}
                       </select>
                     </label>
+                    <BankAccountSelect
+                      accounts={bankAccounts}
+                      className={styles.field}
+                      onChange={setDraftBank}
+                      value={listedBankAccountId(bankAccounts, draftBank)}
+                    />
                     {lines.map((line, index) => (
                       <div className={styles.actions} key={index}>
                         <label className={styles.field}>

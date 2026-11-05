@@ -40,7 +40,8 @@ export interface QuoteSuggestion {
     customerCompanyName: string;
     match: SuggestionMatch;
   } | null;
-  version: QuoteVersionInput;
+  /** The bank account is not suggested; it is chosen on the quote form. */
+  version: Omit<QuoteVersionInput, "bankAccountId">;
 }
 
 const serviceTitles: Record<ServiceLine, string> = {
