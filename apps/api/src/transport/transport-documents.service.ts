@@ -112,7 +112,6 @@ export class TransportDocumentsService {
       fields.deliveryAgent = partyText(parties, "agent");
       fields.masterReference = first("master_bl") ?? first("booking");
       fields.containers = containers || undefined;
-      documentNumber = first("house_bl") ?? null;
     } else if (kind === "house_awb") {
       fields.masterAwb = first("master_awb");
       documentNumber = first("house_awb") ?? null;
@@ -149,7 +148,9 @@ export class TransportDocumentsService {
     return this.database.createTransportDocument({
       jobId: job.id,
       kind: parsed.data.kind,
-      documentNumber: parsed.data.documentNumber,
+      // A house B/L is numbered by the system when it is issued.
+      documentNumber:
+        parsed.data.kind === "house_bl" ? null : parsed.data.documentNumber,
       fields: cleaned.data,
       createdBy,
     });
@@ -173,7 +174,13 @@ export class TransportDocumentsService {
     const result = await this.database.updateTransportDocumentDraft(
       job.id,
       existing.id,
-      { documentNumber: parsed.data.documentNumber, fields: cleaned.data },
+      {
+        documentNumber:
+          existing.kind === "house_bl"
+            ? existing.documentNumber
+            : parsed.data.documentNumber,
+        fields: cleaned.data,
+      },
     );
     if (result === "not_found") this.notFound();
     if (result === "not_draft") {
