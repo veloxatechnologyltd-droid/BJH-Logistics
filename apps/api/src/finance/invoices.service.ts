@@ -32,7 +32,7 @@ import {
 import { JobsService } from "../jobs/jobs.service";
 import { TeamChatService } from "../team-chat/team-chat.service";
 import { JobChargesService, JobChargeView } from "./job-charges.service";
-import { resolveBankAccount } from "../settings/bank-account";
+import { resolveBankAccounts } from "../settings/bank-account";
 import { computeInvoiceTotals } from "./invoice-totals";
 import {
   invoiceIssuedMessage,
@@ -215,10 +215,10 @@ export class InvoicesService {
       lines: parsed.data.lines,
       dueDate: parsed.data.dueDate,
       notes: parsed.data.notes,
-      bankAccount: resolveBankAccount(
+      bankAccounts: resolveBankAccounts(
         settings,
         parsed.data.currency,
-        parsed.data.bankAccountId,
+        parsed.data.bankAccountIds,
       ),
       totals: computeInvoiceTotals(parsed.data.lines, settings?.taxLines ?? []),
       createdBy,
@@ -289,10 +289,10 @@ export class InvoicesService {
       lines,
       dueDate: parsed.data.dueDate,
       notes: parsed.data.notes,
-      bankAccount: resolveBankAccount(
+      bankAccounts: resolveBankAccounts(
         settings,
         parsed.data.currency,
-        parsed.data.bankAccountId,
+        parsed.data.bankAccountIds,
       ),
       totals: computeInvoiceTotals(lines, settings?.taxLines ?? []),
       createdBy,
@@ -320,10 +320,10 @@ export class InvoicesService {
           lines: parsed.data.lines,
           dueDate: parsed.data.dueDate,
           notes: parsed.data.notes,
-          bankAccount: resolveBankAccount(
+          bankAccounts: resolveBankAccounts(
             settings,
             parsed.data.currency,
-            parsed.data.bankAccountId,
+            parsed.data.bankAccountIds,
           ),
           totals: computeInvoiceTotals(
             parsed.data.lines,

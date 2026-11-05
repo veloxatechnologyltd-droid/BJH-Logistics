@@ -1,17 +1,29 @@
 import type { BankAccount } from "@bjh/contracts";
 
-/** The saved account's id if Settings still lists it; "" (automatic) otherwise. */
-export const listedBankAccountId = (
+/**
+ * The ids to send with a quote or invoice: the ticked accounts that Settings
+ * still lists, or undefined when the person has not touched the choice (the API
+ * then uses the default accounts).
+ */
+export const listedBankAccountIds = (
   accounts: BankAccount[],
-  id: string | null | undefined,
-) => (id && accounts.some((account) => account.id === id) ? id : "");
+  ids: string[] | null | undefined,
+): string[] | undefined =>
+  ids
+    ? ids.filter((id) => accounts.some((account) => account.id === id))
+    : undefined;
+
+/** A saved document's account ids; undefined for one made before bank accounts existed. */
+export const savedBankAccountIds = (
+  saved: Array<{ id: string }> | null | undefined,
+): string[] | null => (saved ? saved.map((account) => account.id) : null);
 
 /**
- * Picks which of the Settings bank accounts a quote or invoice prints. Left on
- * automatic, the document uses the account in its own currency. Shows nothing
- * until Settings has an account.
+ * Ticks which of the Settings bank accounts a quote or invoice prints. Until
+ * the person ticks something (`value` null) the default accounts show ticked,
+ * and that is what prints. Shows nothing until Settings has an account.
  */
-export function BankAccountSelect({
+export function BankAccountPicker({
   accounts,
   className,
   onChange,
@@ -19,21 +31,45 @@ export function BankAccountSelect({
 }: {
   accounts: BankAccount[];
   className?: string;
-  onChange: (id: string) => void;
-  value: string;
+  onChange: (ids: string[]) => void;
+  value: string[] | null;
 }) {
   if (accounts.length === 0) return null;
+  const hasDefault = accounts.some((account) => account.isDefault);
+  const ticked =
+    value ??
+    accounts
+      .filter((account) => account.isDefault)
+      .map((account) => account.id);
   return (
-    <label className={className}>
-      Bank account to print
-      <select onChange={(event) => onChange(event.target.value)} value={value}>
-        <option value="">Automatic: the account in the same currency</option>
-        {accounts.map((account) => (
-          <option key={account.id} value={account.id}>
-            {account.bankName} · {account.currency} {account.accountNumber}
-          </option>
-        ))}
-      </select>
-    </label>
+    <fieldset className={className}>
+      <legend>Bank accounts to print</legend>
+      {accounts.map((account) => (
+        <label key={account.id}>
+          <input
+            checked={ticked.includes(account.id)}
+            onChange={(event) =>
+              onChange(
+                accounts
+                  .filter((item) =>
+                    item.id === account.id
+                      ? event.target.checked
+                      : ticked.includes(item.id),
+                  )
+                  .map((item) => item.id),
+              )
+            }
+            type="checkbox"
+          />{" "}
+          {account.bankName} · {account.currency} {account.accountNumber}
+        </label>
+      ))}
+      {value === null && !hasDefault ? (
+        <small>
+          None is marked as default in Settings, so the account in the
+          document&apos;s currency prints unless you tick others.
+        </small>
+      ) : null}
+    </fieldset>
   );
 }

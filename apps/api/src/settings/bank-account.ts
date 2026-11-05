@@ -1,23 +1,34 @@
 import { BadRequestException } from "@nestjs/common";
-import { pickBankAccount } from "@bjh/contracts";
+import { pickBankAccounts } from "@bjh/contracts";
 import type { BankAccount, BusinessSettings } from "@bjh/contracts";
 
 /**
- * The bank account to keep on a quote or an invoice: the one chosen, which
- * must still be listed in Settings (the browser sends only its id, never the
- * details), else the first account in the document's currency, else none.
+ * The bank accounts to keep on a quote or an invoice: the ones chosen, which
+ * must all still be listed in Settings (the browser sends only ids, never the
+ * details), else the default accounts, else the first account in the
+ * document's currency, else none.
  */
-export function resolveBankAccount(
+export function resolveBankAccounts(
   settings: BusinessSettings | null,
   currency: string,
-  wantedId: string | null,
-): BankAccount | null {
+  wantedIds: string[] | undefined,
+): BankAccount[] {
   // Settings saved before bank accounts existed have no list.
   const accounts = settings?.bankAccounts ?? [];
-  if (wantedId && !accounts.some((account) => account.id === wantedId)) {
+  if (wantedIds?.some((id) => !accounts.some((account) => account.id === id))) {
     throw new BadRequestException(
-      "That bank account is not in Settings; choose another",
+      "A chosen bank account is not in Settings; choose another",
     );
   }
-  return pickBankAccount(accounts, currency, wantedId);
+  return pickBankAccounts(accounts, currency, wantedIds);
+}
+
+/**
+ * Reads the `bank_account` column of a quote version or invoice. Documents made
+ * on 2026-11-05 hold one account as an object; later ones hold a list. Null
+ * means the document predates bank accounts, so the PDF falls back to Settings.
+ */
+export function storedBankAccounts(value: unknown): BankAccount[] | null {
+  if (Array.isArray(value)) return value as BankAccount[];
+  return value ? [value as BankAccount] : null;
 }

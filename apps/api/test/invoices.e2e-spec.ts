@@ -97,7 +97,11 @@ type Invoice = {
   }>;
   taxTotalMinor: number;
   totalMinor: number;
-  bankAccount: { id: string; bankName: string; accountNumber: string } | null;
+  bankAccounts: Array<{
+    id: string;
+    bankName: string;
+    accountNumber: string;
+  }> | null;
   paidMinor: number;
   outstandingMinor: number;
   paymentStatus: string;
@@ -1022,7 +1026,7 @@ const bankAccounts = [
   },
 ];
 
-test("an invoice keeps the bank account chosen from Settings, or the one in its currency", async () => {
+test("an invoice keeps the bank accounts ticked from Settings, or the defaults", async () => {
   const [ghs, usd] = bankAccounts;
   const saved = await put(
     "/api/v1/settings",
@@ -1035,22 +1039,33 @@ test("an invoice keeps the bank account chosen from Settings, or the one in its 
   const create = (body: Record<string, unknown>) =>
     post(`/api/v1/jobs/${job}/invoices`, TEST_MATCHING_TOKEN, body);
 
-  // Not chosen: the account in the invoice's currency.
+  const ids = (invoice: Invoice | undefined) =>
+    invoice?.bankAccounts?.map((account) => account.id);
+
+  // Nothing sent and no default marked: the account in the invoice's currency.
   const automatic = (await (
     await create({ currency: "USD" })
   ).json()) as Invoice;
-  assert.equal(automatic.bankAccount?.id, usd.id);
+  assert.deepEqual(ids(automatic), [usd.id]);
 
-  // Chosen: that account, even in another currency.
+  // Chosen: exactly those, even in another currency; none is allowed.
   const chosen = (await (
-    await create({ currency: "GHS", bankAccountId: usd.id })
+    await create({ currency: "GHS", bankAccountIds: [usd.id] })
   ).json()) as Invoice;
-  assert.equal(chosen.bankAccount?.accountNumber, usd.accountNumber);
+  assert.equal(chosen.bankAccounts?.[0].accountNumber, usd.accountNumber);
+  const both = (await (
+    await create({ currency: "GHS", bankAccountIds: [usd.id, ghs.id] })
+  ).json()) as Invoice;
+  assert.deepEqual(ids(both), [ghs.id, usd.id]);
+  const none = (await (
+    await create({ currency: "GHS", bankAccountIds: [] })
+  ).json()) as Invoice;
+  assert.deepEqual(ids(none), []);
 
   // The browser sends an id, never details; an id Settings does not list is refused.
   const unknown = await create({
     currency: "GHS",
-    bankAccountId: "5f0f2b9e-0a53-4f3e-9d57-1a2b3c4d5eff",
+    bankAccountIds: [usd.id, "5f0f2b9e-0a53-4f3e-9d57-1a2b3c4d5eff"],
   });
   assert.equal(unknown.status, 400);
   assert.match(await message(unknown), /not in Settings/);
@@ -1066,18 +1081,35 @@ test("an invoice keeps the bank account chosen from Settings, or the one in its 
   const unchanged = (await invoicesOf(job)).find(
     (item) => item.id === automatic.id,
   );
-  assert.equal(unchanged?.bankAccount?.bankName, "Synthetic Bank");
+  assert.equal(unchanged?.bankAccounts?.[0].bankName, "Synthetic Bank");
 
-  // Saving the draft again, with no choice sent, goes back to the automatic pick.
+  // Saving the draft again, with no choice sent, goes back to the defaults
+  // (here none is marked, so the account in the currency).
   const resaved = await put(
     `/api/v1/jobs/${job}/invoices/${chosen.id}`,
     TEST_MATCHING_TOKEN,
     { currency: "GHS" },
   );
   assert.equal(
-    ((await resaved.json()) as Invoice).bankAccount?.bankName,
+    ((await resaved.json()) as Invoice).bankAccounts?.[0].bankName,
     "Renamed Bank",
   );
+
+  // With defaults marked in Settings, a new invoice prints all of them.
+  await put(
+    "/api/v1/settings",
+    TEST_SUPER_ADMIN_TOKEN,
+    settings({
+      bankAccounts: [
+        { ...ghs, isDefault: true },
+        { ...usd, isDefault: true },
+      ],
+    }),
+  );
+  const defaults = (await (
+    await create({ currency: "GHS" })
+  ).json()) as Invoice;
+  assert.deepEqual(ids(defaults), [ghs.id, usd.id]);
 
   // A bad list is refused: repeated ids, missing details.
   for (const list of [

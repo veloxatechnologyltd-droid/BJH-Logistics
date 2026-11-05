@@ -23,7 +23,7 @@ import { formatDate } from "../jobs/jobFormat";
 import styles from "../jobs/jobs.module.css";
 import { getQuote } from "../quotes/quoteApi";
 import { popularCurrencies } from "../settings/business/BusinessSettingsForm";
-import { BankAccountSelect, listedBankAccountId } from "../BankAccountSelect";
+import { BankAccountPicker, listedBankAccountIds } from "../BankAccountSelect";
 import { getSettings } from "../settings/business/settingsApi";
 import { plainMessage } from "../ErrorPopup";
 
@@ -57,8 +57,8 @@ export function NewInvoice() {
   const [dueDate, setDueDate] = useState("");
   const [notes, setNotes] = useState("");
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
-  // "" = automatic: the account in the invoice's currency.
-  const [bankAccountId, setBankAccountId] = useState("");
+  // null = untouched: the default accounts print.
+  const [bankChoice, setBankChoice] = useState<string[] | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [leftOut, setLeftOut] = useState<{
@@ -166,8 +166,7 @@ export function NewInvoice() {
         currency,
         dueDate: dueDate || undefined,
         notes: notes.trim() || undefined,
-        bankAccountId:
-          listedBankAccountId(bankAccounts, bankAccountId) || undefined,
+        bankAccountIds: listedBankAccountIds(bankAccounts, bankChoice),
       };
       if (fromQuote) {
         const count = Number(containers);
@@ -396,11 +395,11 @@ export function NewInvoice() {
                   </label>
                 </>
               )}
-              <BankAccountSelect
+              <BankAccountPicker
                 accounts={bankAccounts}
                 className={styles.field}
-                onChange={setBankAccountId}
-                value={listedBankAccountId(bankAccounts, bankAccountId)}
+                onChange={setBankChoice}
+                value={bankChoice}
               />
               <label className={styles.field}>
                 Due date (optional; the payment terms in settings apply

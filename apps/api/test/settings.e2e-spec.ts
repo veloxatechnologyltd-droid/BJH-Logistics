@@ -302,7 +302,7 @@ test("access boundaries: only the super admin edits; staff read; customers see n
   assert.equal(unchanged.current.revisionNumber, 2);
 });
 
-test("a quote keeps the bank account chosen from Settings, and a new version copies it", async () => {
+test("a quote keeps the bank accounts chosen from Settings, and a new version copies them", async () => {
   const usd = {
     id: "5f0f2b9e-0a53-4f3e-9d57-1a2b3c4d5e02",
     bankName: "Synthetic Bank",
@@ -328,7 +328,7 @@ test("a quote keeps the bank account chosen from Settings, and a new version cop
   );
   type Created = {
     id: string;
-    versions: Array<{ bankAccount: { id: string } | null }>;
+    versions: Array<{ bankAccounts: Array<{ id: string }> | null }>;
   };
   const create = async (version: Record<string, unknown>) =>
     post("/api/v1/quotes", TEST_MATCHING_TOKEN, {
@@ -337,18 +337,21 @@ test("a quote keeps the bank account chosen from Settings, and a new version cop
       version,
     });
 
-  // Not chosen: the account in the quote's currency.
-  const automatic = (await (await create(content("USD"))).json()) as Created;
-  assert.equal(automatic.versions[0].bankAccount?.id, usd.id);
+  const ids = (created: Created, at = 0) =>
+    created.versions[at].bankAccounts?.map((account) => account.id);
 
-  // Chosen: that account; an id Settings does not list is refused.
+  // Nothing sent and no default marked: the account in the quote's currency.
+  const automatic = (await (await create(content("USD"))).json()) as Created;
+  assert.deepEqual(ids(automatic), [usd.id]);
+
+  // Chosen: those accounts; an id Settings does not list is refused.
   const chosen = (await (
-    await create({ ...content("USD"), bankAccountId: ghs.id })
+    await create({ ...content("USD"), bankAccountIds: [ghs.id, usd.id] })
   ).json()) as Created;
-  assert.equal(chosen.versions[0].bankAccount?.id, ghs.id);
+  assert.deepEqual(ids(chosen), [ghs.id, usd.id]);
   const unknown = await create({
     ...content("USD"),
-    bankAccountId: "5f0f2b9e-0a53-4f3e-9d57-1a2b3c4d5eff",
+    bankAccountIds: ["5f0f2b9e-0a53-4f3e-9d57-1a2b3c4d5eff"],
   });
   assert.equal(unknown.status, 400);
 
@@ -357,5 +360,5 @@ test("a quote keeps the bank account chosen from Settings, and a new version cop
   const revised = (await (
     await post(`/api/v1/quotes/${chosen.id}/versions`, TEST_MATCHING_TOKEN, {})
   ).json()) as Created;
-  assert.equal(revised.versions.at(-1)?.bankAccount?.id, ghs.id);
+  assert.deepEqual(ids(revised, revised.versions.length - 1), [ghs.id, usd.id]);
 });

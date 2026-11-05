@@ -120,7 +120,7 @@ const invoice = (over: Partial<InvoiceView> = {}): InvoiceView => ({
   ],
   dueDate: "2026-10-22",
   notes: "Thank you for your business.",
-  bankAccount: null,
+  bankAccounts: null,
   subtotalMinor: 239780,
   taxLines: [
     { name: "NHIL", rateBasisPoints: 250, amountMinor: 5995 },
@@ -408,7 +408,7 @@ const usdAccount = {
 
 test("an invoice prints the bank account chosen for it, and carries the logo", async () => {
   const file = await renderInvoicePdf(
-    { invoice: invoice({ bankAccount: usdAccount }), job, settings },
+    { invoice: invoice({ bankAccounts: [usdAccount] }), job, settings },
     { compress: false },
   );
   const text = pdfText(file);
@@ -440,6 +440,76 @@ test("an invoice with no chosen account prints the one in its currency, or none"
   const none = pdfText(
     await renderInvoicePdf(
       { invoice: invoice(), job, settings },
+      { compress: false },
+    ),
+  );
+  assert.ok(!none.includes("BANK PAYMENT DETAILS"));
+});
+
+test("an invoice prints several accounts in one box, a bank's currencies together", async () => {
+  const uba = {
+    ...ghsAccount,
+    bankName: "United Bank for Africa",
+    accountNumber: "00315953503516",
+    isDefault: true,
+  };
+  const ubaUsd = {
+    ...uba,
+    id: "5f0f2b9e-0a53-4f3e-9d57-1a2b3c4d5e03",
+    accountNumber: "00315953504230",
+    currency: "USD",
+  };
+  const momo = {
+    ...ghsAccount,
+    id: "5f0f2b9e-0a53-4f3e-9d57-1a2b3c4d5e04",
+    bankName: "MTN Mobile Money",
+    branch: null,
+    accountNumber: "663057",
+    swiftCode: null,
+    address: null,
+    isDefault: true,
+  };
+  const listed = { ...settings, bankAccounts: [uba, ubaUsd, momo, usdAccount] };
+
+  // Kept on the invoice: exactly those, one box, bank details printed once per bank.
+  const kept = pdfText(
+    await renderInvoicePdf(
+      {
+        invoice: invoice({ bankAccounts: [uba, ubaUsd, momo] }),
+        job,
+        settings,
+      },
+      { compress: false },
+    ),
+  );
+  assert.equal(kept.split("BANK PAYMENT DETAILS").length - 1, 1);
+  for (const expected of [
+    "United Bank for Africa",
+    "00315953503516",
+    "00315953504230",
+    "(GHS)",
+    "(USD)",
+    "MTN Mobile Money",
+    "663057",
+  ]) {
+    assert.ok(kept.includes(expected), `missing: ${expected}`);
+  }
+  assert.equal(kept.split("United Bank for Africa").length - 1, 1);
+
+  // An older invoice with none kept prints today's defaults, not the other accounts.
+  const fallback = pdfText(
+    await renderInvoicePdf(
+      { invoice: invoice(), job, settings: listed },
+      { compress: false },
+    ),
+  );
+  assert.ok(fallback.includes("663057") && fallback.includes("00315953504230"));
+  assert.ok(!fallback.includes("0002000200020"), "not the unmarked account");
+
+  // Saved with no account ticked: no box, even though Settings has defaults.
+  const none = pdfText(
+    await renderInvoicePdf(
+      { invoice: invoice({ bankAccounts: [] }), job, settings: listed },
       { compress: false },
     ),
   );

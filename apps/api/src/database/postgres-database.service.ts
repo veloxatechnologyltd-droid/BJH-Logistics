@@ -21,6 +21,7 @@ import type {
   TeamKey,
   VehicleInput,
 } from "@bjh/contracts";
+import { storedBankAccounts } from "../settings/bank-account";
 import { parseContract, requestDetailsSchema } from "@bjh/contracts";
 import { staffDisplayName } from "../auth/staff-admin.port";
 import {
@@ -148,7 +149,7 @@ const quoteVersionValues = (content: QuoteVersionContent) => [
   content.timeline,
   content.terms,
   content.sizeLabels,
-  content.bankAccount ? JSON.stringify(content.bankAccount) : null,
+  content.bankAccounts ? JSON.stringify(content.bankAccounts) : null,
 ];
 
 export const POSTGRES_POOL = Symbol("POSTGRES_POOL");
@@ -2539,7 +2540,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       timeline: optional(row.timeline),
       terms: row.terms as string[],
       sizeLabels: row.size_labels as string[],
-      bankAccount: (row.bank_account as BankAccount | null) ?? null,
+      bankAccounts: storedBankAccounts(row.bank_account),
       createdBy: optional(row.created_by),
       createdByAssistant: row.created_by_assistant === true,
       createdAt: this.toIsoString(row.created_at),
@@ -3176,7 +3177,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     lines: InvoiceLineRecord[];
     dueDate: string | null;
     notes: string | null;
-    bankAccount: BankAccount | null;
+    bankAccounts: BankAccount[] | null;
     totals: InvoiceTotals;
     createdBy: string;
   }): Promise<InvoiceRecord> {
@@ -3198,7 +3199,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
         invoice.totals.taxTotalMinor,
         invoice.totals.totalMinor,
         invoice.createdBy,
-        invoice.bankAccount ? JSON.stringify(invoice.bankAccount) : null,
+        invoice.bankAccounts ? JSON.stringify(invoice.bankAccounts) : null,
       ],
     );
     return this.mapInvoice(inserted.rows[0]);
@@ -3299,7 +3300,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       lines: InvoiceLineRecord[];
       dueDate: string | null;
       notes: string | null;
-      bankAccount: BankAccount | null;
+      bankAccounts: BankAccount[] | null;
       totals: InvoiceTotals;
     },
   ): Promise<InvoiceRecord | "not_found" | "not_draft"> {
@@ -3338,7 +3339,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
           JSON.stringify(draft.totals.taxLines),
           draft.totals.taxTotalMinor,
           draft.totals.totalMinor,
-          draft.bankAccount ? JSON.stringify(draft.bankAccount) : null,
+          draft.bankAccounts ? JSON.stringify(draft.bankAccounts) : null,
         ],
       );
       await client.query("COMMIT");
@@ -6906,7 +6907,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       lines: row.lines as InvoiceLineRecord[],
       dueDate: optional(row.due_date_text),
       notes: optional(row.notes),
-      bankAccount: (row.bank_account as BankAccount | null) ?? null,
+      bankAccounts: storedBankAccounts(row.bank_account),
       subtotalMinor: Number(row.subtotal_minor),
       taxLines: row.tax_lines as InvoiceRecord["taxLines"],
       taxTotalMinor: Number(row.tax_total_minor),

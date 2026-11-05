@@ -38,6 +38,7 @@ type BankRow = {
   currency: string;
   swiftCode: string;
   address: string;
+  isDefault: boolean;
 };
 
 const toLines = (text: string) =>
@@ -120,6 +121,7 @@ export function BusinessSettingsForm() {
         currency: account.currency,
         swiftCode: account.swiftCode ?? "",
         address: account.address ?? "",
+        isDefault: account.isDefault === true,
       })),
     );
     setTerms(
@@ -358,9 +360,11 @@ export function BusinessSettingsForm() {
 
                 <h2>Bank accounts</h2>
                 <p className={styles.muted}>
-                  Printed on quotes and invoices. Whoever prepares one picks the
-                  account; it starts on the account in the document&apos;s
-                  currency.
+                  Printed on quotes and invoices. Accounts marked as default are
+                  printed on every new one, together in one box; whoever
+                  prepares the document can untick them or tick others. Editing
+                  or removing an account here does not change a document already
+                  prepared.
                 </p>
                 {banks.map((row, index) => {
                   const change = (patch: Partial<BankRow>) =>
@@ -415,6 +419,16 @@ export function BusinessSettingsForm() {
                       {text("Address (optional)", row.address, (value) =>
                         change({ address: value }),
                       )}
+                      <label>
+                        <input
+                          checked={row.isDefault}
+                          onChange={(event) =>
+                            change({ isDefault: event.target.checked })
+                          }
+                          type="checkbox"
+                        />{" "}
+                        Print by default on new quotes and invoices
+                      </label>
                       <button
                         className={styles.secondaryButton}
                         onClick={() =>
@@ -444,6 +458,7 @@ export function BusinessSettingsForm() {
                           currency: selectedCurrencies[0] ?? "GHS",
                           swiftCode: "",
                           address: "",
+                          isDefault: false,
                         },
                       ])
                     }

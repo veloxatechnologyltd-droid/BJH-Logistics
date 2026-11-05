@@ -362,6 +362,15 @@ const uuidField = (field: string) =>
     .string({ error: `${field} is required` })
     .refine(isUuid, { error: `${field} must be a valid ID` });
 
+/** The Settings bank accounts a quote or invoice prints; absent means the default accounts. */
+const bankAccountIdList = z
+  .array(uuidField("bankAccountIds"), {
+    error: "bankAccountIds must be a list of bank account IDs",
+  })
+  .max(10, { error: "At most 10 bank accounts can be printed" })
+  .nullish()
+  .transform((value) => value ?? undefined);
+
 export const jobCreateInputSchema = z.object(
   {
     customerCompanyId: uuidField("customerCompanyId"),
@@ -1073,10 +1082,8 @@ export const quoteVersionInputSchema = z
       documentsNote: optionalText("documentsNote", 2000),
       timeline: optionalText("timeline", 2000),
       terms: textList("terms", 30, 1000),
-      /** One of the accounts in Settings; the quote prints its details. */
-      bankAccountId: uuidField("bankAccountId")
-        .nullish()
-        .transform((value) => value ?? null),
+      /** Accounts in Settings the quote prints; absent means the default accounts, empty means none. */
+      bankAccountIds: bankAccountIdList,
       /** Names of the size columns, for example 20ft and 40ft; empty for none. */
       sizeLabels: textList("sizeLabels", 4, 30),
       lines: z
@@ -1191,25 +1198,35 @@ export const bankAccountSchema = z.object(
       }),
     swiftCode: optionalText("SWIFT code", 20),
     address: optionalText("bank account address", 300),
+    /** Printed on every new quote and invoice unless the person preparing it unticks it. */
+    isDefault: z
+      .boolean({ error: "isDefault must be true or false" })
+      .optional(),
   },
   objectError("A bank account object is required"),
 );
 export type BankAccount = z.infer<typeof bankAccountSchema>;
 
 /**
- * The account a new quote or invoice starts with: the one asked for if it is
- * listed, else the first account in the document's currency, else none.
+ * The accounts a quote or invoice prints. With `wantedIds` (the person's own
+ * ticks, an empty list meaning none), exactly the listed accounts among them;
+ * without, the accounts marked as default, else the first account in the
+ * document's currency. Always in the order of the Settings list.
  */
-export function pickBankAccount(
+export function pickBankAccounts(
   accounts: readonly BankAccount[],
   currency: string,
-  wantedId?: string | null,
-): BankAccount | null {
-  return (
-    accounts.find((account) => account.id === wantedId) ??
-    accounts.find((account) => account.currency === currency) ??
-    null
+  wantedIds?: readonly string[] | null,
+): BankAccount[] {
+  if (wantedIds) {
+    return accounts.filter((account) => wantedIds.includes(account.id));
+  }
+  const defaults = accounts.filter((account) => account.isDefault);
+  if (defaults.length > 0) return defaults;
+  const sameCurrency = accounts.find(
+    (account) => account.currency === currency,
   );
+  return sameCurrency ? [sameCurrency] : [];
 }
 
 export const businessSettingsSchema = z
@@ -1674,10 +1691,8 @@ export const invoiceInputSchema = z.object(
       .nullish()
       .transform((value) => value ?? null),
     notes: optionalText("notes", 2000),
-    /** One of the accounts in Settings; the invoice prints its details. */
-    bankAccountId: uuidField("bankAccountId")
-      .nullish()
-      .transform((value) => value ?? null),
+    /** Accounts in Settings the invoice prints; absent means the default accounts, empty means none. */
+    bankAccountIds: bankAccountIdList,
   },
   objectError("An invoice object is required"),
 );

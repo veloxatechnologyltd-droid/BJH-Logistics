@@ -15,7 +15,7 @@ import {
 } from "@bjh/contracts";
 import type { BusinessSettings } from "@bjh/contracts";
 import { serviceLinesForRoles } from "../auth/auth.guards";
-import { resolveBankAccount } from "../settings/bank-account";
+import { resolveBankAccounts } from "../settings/bank-account";
 import { randomUUID } from "node:crypto";
 import { quoteIssuedMessage } from "../notifications/notification-messages";
 import { NotificationsService } from "../notifications/notifications.service";
@@ -78,13 +78,13 @@ export class QuotesService {
     const settings = await this.requireConfiguredCurrency(
       parsed.data.version.currency,
     );
-    const bankAccount = resolveBankAccount(
+    const bankAccounts = resolveBankAccounts(
       settings,
       parsed.data.version.currency,
-      parsed.data.version.bankAccountId,
+      parsed.data.version.bankAccountIds,
     );
     const id = await this.database.createQuote(
-      { ...parsed.data, version: { ...parsed.data.version, bankAccount } },
+      { ...parsed.data, version: { ...parsed.data.version, bankAccounts } },
       createdBy,
     );
     return this.get(id, {});
@@ -111,14 +111,14 @@ export class QuotesService {
     const parsed = parseContract(quoteVersionInputSchema, input);
     if (!parsed.success) throw new BadRequestException(parsed.message);
     const settings = await this.requireConfiguredCurrency(parsed.data.currency);
-    const bankAccount = resolveBankAccount(
+    const bankAccounts = resolveBankAccounts(
       settings,
       parsed.data.currency,
-      parsed.data.bankAccountId,
+      parsed.data.bankAccountIds,
     );
     const result = await this.database.saveQuoteVersionDraft(quote.id, {
       ...parsed.data,
-      bankAccount,
+      bankAccounts,
     });
     if (result === "no_draft") {
       throw new ConflictException(

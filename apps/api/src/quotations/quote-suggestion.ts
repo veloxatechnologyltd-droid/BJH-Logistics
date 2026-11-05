@@ -41,7 +41,7 @@ export interface QuoteSuggestion {
     match: SuggestionMatch;
   } | null;
   /** The bank account is not suggested; it is chosen on the quote form. */
-  version: Omit<QuoteVersionInput, "bankAccountId">;
+  version: Omit<QuoteVersionInput, "bankAccountIds">;
 }
 
 const serviceTitles: Record<ServiceLine, string> = {
