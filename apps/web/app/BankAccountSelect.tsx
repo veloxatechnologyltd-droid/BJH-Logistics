@@ -23,11 +23,11 @@ const label = (account: BankAccount) =>
   `${account.bankName} · ${account.currency} ${account.accountNumber}`;
 
 /**
- * Chooses which of the Settings bank accounts a quote or invoice prints:
- * "Default" (`value` null) prints the accounts marked default in Settings, each
- * with its currency, and "Custom" lets the person tick the accounts. A saved
- * choice that equals the defaults shows as Default. Shows nothing until
- * Settings has an account.
+ * A dropdown choosing which of the Settings bank accounts a quote or invoice
+ * prints: "Default" (`value` null) prints the accounts marked default in
+ * Settings, each with its currency, listed underneath; "Custom" shows a tick
+ * list of all accounts. A saved choice that equals the defaults shows as
+ * Default. Shows nothing until Settings has an account.
  */
 export function BankAccountPicker(props: PickerProps) {
   // Mounted only once Settings has loaded, so the first choice shown is right.
@@ -41,8 +41,14 @@ type PickerProps = {
   value: string[] | null;
 };
 
+const detail = {
+  color: "var(--brand-muted)",
+  fontSize: "0.85rem",
+  fontWeight: 400,
+} as const;
+
 function Picker({ accounts, className, onChange, value }: PickerProps) {
-  const name = useId();
+  const id = useId();
   const defaults = accounts.filter((account) => account.isDefault);
   const [custom, setCustom] = useState(
     value !== null &&
@@ -53,61 +59,63 @@ function Picker({ accounts, className, onChange, value }: PickerProps) {
   );
   const ticked = value ?? defaults.map((account) => account.id);
   return (
-    <fieldset className={className}>
-      <legend>Bank accounts to print</legend>
-      <label>
-        <input
-          checked={!custom}
-          name={name}
-          onChange={() => {
-            setCustom(false);
-            onChange(null);
-          }}
-          type="radio"
-        />{" "}
-        Default: the accounts set as default in Settings
-      </label>
-      {!custom ? (
-        <small>
-          {defaults.length > 0
-            ? defaults.map(label).join("; ")
-            : "None is marked as default in Settings, so the account in the document's currency prints."}
-        </small>
-      ) : null}
-      <label>
-        <input
-          checked={custom}
-          name={name}
-          onChange={() => {
-            setCustom(true);
-            onChange(ticked);
-          }}
-          type="radio"
-        />{" "}
-        Custom: choose the accounts
-      </label>
-      {custom
-        ? accounts.map((account) => (
-            <label key={account.id}>
-              <input
-                checked={ticked.includes(account.id)}
-                onChange={(event) =>
-                  onChange(
-                    accounts
-                      .filter((item) =>
-                        item.id === account.id
-                          ? event.target.checked
-                          : ticked.includes(item.id),
-                      )
-                      .map((item) => item.id),
-                  )
-                }
-                type="checkbox"
-              />{" "}
-              {label(account)}
-            </label>
-          ))
-        : null}
-    </fieldset>
+    <div className={className}>
+      <label htmlFor={id}>Bank accounts to print</label>
+      <select
+        id={id}
+        onChange={(event) => {
+          const next = event.target.value === "custom";
+          setCustom(next);
+          onChange(next ? ticked : null);
+        }}
+        value={custom ? "custom" : "default"}
+      >
+        <option value="default">Default (set in Settings)</option>
+        <option value="custom">Custom: choose the accounts</option>
+      </select>
+      {custom ? (
+        accounts.map((account) => (
+          <label
+            key={account.id}
+            style={{
+              ...detail,
+              alignItems: "center",
+              color: "var(--brand-ink)",
+              display: "flex",
+              gap: 8,
+            }}
+          >
+            <input
+              checked={ticked.includes(account.id)}
+              onChange={(event) =>
+                onChange(
+                  accounts
+                    .filter((item) =>
+                      item.id === account.id
+                        ? event.target.checked
+                        : ticked.includes(item.id),
+                    )
+                    .map((item) => item.id),
+                )
+              }
+              style={{ padding: 0, width: "auto" }}
+              type="checkbox"
+            />
+            {label(account)}
+          </label>
+        ))
+      ) : defaults.length > 0 ? (
+        defaults.map((account) => (
+          <span key={account.id} style={detail}>
+            {label(account)}
+          </span>
+        ))
+      ) : (
+        <span style={detail}>
+          None is marked as default in Settings, so the account in the
+          document&apos;s currency prints.
+        </span>
+      )}
+    </div>
   );
 }
