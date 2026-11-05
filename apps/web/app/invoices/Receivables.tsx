@@ -5,7 +5,11 @@ import { useCallback, useEffect, useState } from "react";
 import { useStaffAccess } from "../auth/useStaffAccess";
 import { listCustomers } from "../customers/customerApi";
 import type { CustomerCompany } from "../customers/customerApi";
-import { getOutstandingInvoices } from "../jobs/jobApi";
+import {
+  fetchInvoicePdf,
+  getOutstandingInvoices,
+  invoiceHome,
+} from "../jobs/jobApi";
 import type { OutstandingInvoice } from "../jobs/jobApi";
 import { formatMoney } from "../quotes/quoteApi";
 import { ReceiptList } from "../finance/ReceiptList";
@@ -41,6 +45,22 @@ function OwedInvoices() {
   const [companyId, setCompanyId] = useState("");
   const [error, setError] = useState("");
   const [creditsKey, setCreditsKey] = useState(0);
+
+  /** An invoice with no job has no job page to open it from, so it opens here. */
+  async function openInvoice(row: OutstandingInvoice) {
+    // Opened first so the browser treats it as a click, not a pop-up.
+    const tab = window.open("", "_blank");
+    try {
+      const url = URL.createObjectURL(
+        await fetchInvoicePdf(invoiceHome(row), row.invoiceId),
+      );
+      if (tab) tab.location.href = url;
+      else window.location.href = url;
+    } catch (cause) {
+      tab?.close();
+      setError(cause instanceof Error ? cause.message : "The PDF failed");
+    }
+  }
 
   const load = useCallback(async () => {
     setError("");
@@ -162,19 +182,35 @@ function OwedInvoices() {
                     {rows.map((row) => (
                       <tr key={row.invoiceId}>
                         <td className={cards.jobCell}>
-                          <Link
-                            className={styles.link}
-                            href={`/jobs/${row.jobId}`}
-                          >
-                            {row.fileNumber}
-                          </Link>
+                          {row.jobId ? (
+                            <Link
+                              className={styles.link}
+                              href={`/jobs/${row.jobId}`}
+                            >
+                              {row.fileNumber}
+                            </Link>
+                          ) : (
+                            "No job"
+                          )}
                           {isStaff && (
                             <span className={cards.customerName}>
                               {row.customerCompanyName}
                             </span>
                           )}
                         </td>
-                        <td data-label="Invoice">{row.invoiceNumber}</td>
+                        <td data-label="Invoice">
+                          {row.jobId ? (
+                            row.invoiceNumber
+                          ) : (
+                            <button
+                              className={styles.textButton}
+                              onClick={() => void openInvoice(row)}
+                              type="button"
+                            >
+                              {row.invoiceNumber}
+                            </button>
+                          )}
+                        </td>
                         <td data-label="Due">
                           {row.dueDate ?? "-"}
                           {row.overdue && (

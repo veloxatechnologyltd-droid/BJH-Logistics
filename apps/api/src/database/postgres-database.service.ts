@@ -3,6 +3,7 @@ import type {
   JobReportQuery,
   BankAccount,
   BusinessSettings,
+  InvoiceShipment,
   ChargeKind,
   DocumentType,
   QuoteDecision,
@@ -282,6 +283,13 @@ const customerSelect = `
     contact.created_at AS contact_created_at
   FROM app.customer_company AS company
   LEFT JOIN app.customer_contact AS contact ON contact.company_id = company.company_id`;
+
+/**
+ * SQL: the invoice (optionally under `alias`) belongs to owner `$1`, which is a
+ * job, or a client for an invoice made without a job. An ID is never both.
+ */
+const ownedBy = (alias = "") =>
+  `(${alias}job_id = $1::uuid OR (${alias}job_id IS NULL AND ${alias}customer_company_id = $1::uuid))`;
 
 /** A payment with its reversal (if any) and the receipt date as plain text. */
 const PAYMENT_COLUMNS = `p.payment_id, p.invoice_id, p.receipt_number, p.credit_id, p.batch_id, p.amount_minor,
@@ -3172,7 +3180,9 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
   }
 
   async createInvoice(invoice: {
-    jobId: string;
+    jobId: string | null;
+    customerCompanyId: string;
+    shipment: InvoiceShipment | null;
     currency: string;
     lines: InvoiceLineRecord[];
     dueDate: string | null;
@@ -3183,10 +3193,11 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
   }): Promise<InvoiceRecord> {
     const inserted = await this.pool.query(
       `INSERT INTO app.invoice
-        (job_id, currency, lines, due_date, notes, subtotal_minor, tax_lines,
-         tax_total_minor, total_minor, created_by, bank_account)
-       VALUES ($1::uuid, $2, $3::jsonb, $4::date, $5, $6, $7::jsonb, $8, $9,
-         $10::uuid, $11::jsonb)
+        (job_id, customer_company_id, currency, lines, due_date, notes,
+         subtotal_minor, tax_lines, tax_total_minor, total_minor, created_by,
+         bank_account, shipment)
+       VALUES ($1::uuid, $12::uuid, $2, $3::jsonb, $4::date, $5, $6, $7::jsonb,
+         $8, $9, $10::uuid, $11::jsonb, $13::jsonb)
        RETURNING *, to_char(due_date, 'YYYY-MM-DD') AS due_date_text`,
       [
         invoice.jobId,
@@ -3200,29 +3211,31 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
         invoice.totals.totalMinor,
         invoice.createdBy,
         invoice.bankAccounts ? JSON.stringify(invoice.bankAccounts) : null,
+        invoice.customerCompanyId,
+        invoice.shipment ? JSON.stringify(invoice.shipment) : null,
       ],
     );
     return this.mapInvoice(inserted.rows[0]);
   }
 
-  async listInvoices(jobId: string): Promise<InvoiceRecord[]> {
+  async listInvoices(ownerId: string): Promise<InvoiceRecord[]> {
     const result = await this.pool.query(
       `SELECT *, to_char(due_date, 'YYYY-MM-DD') AS due_date_text
-       FROM app.invoice WHERE job_id = $1::uuid ORDER BY created_at, invoice_id`,
-      [jobId],
+       FROM app.invoice WHERE ${ownedBy()} ORDER BY created_at, invoice_id`,
+      [ownerId],
     );
     return result.rows.map((row) => this.mapInvoice(row));
   }
 
-  async listInvoicePayments(jobId: string): Promise<InvoicePaymentRecord[]> {
+  async listInvoicePayments(ownerId: string): Promise<InvoicePaymentRecord[]> {
     const result = await this.pool.query(
       `SELECT ${PAYMENT_COLUMNS}
        FROM app.invoice_payment p
        JOIN app.invoice i ON i.invoice_id = p.invoice_id
        LEFT JOIN app.invoice_payment_reversal r ON r.payment_id = p.payment_id
-       WHERE i.job_id = $1::uuid
+       WHERE ${ownedBy("i.")}
        ORDER BY p.recorded_at, p.payment_id`,
-      [jobId],
+      [ownerId],
     );
     return result.rows.map((row) => this.mapPayment(row));
   }
@@ -3239,19 +3252,19 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       `SELECT i.*, to_char(i.due_date, 'YYYY-MM-DD') AS due_date_text,
               job.file_number, company.company_name AS customer_company_name
        FROM app.invoice i
-       JOIN app.job job ON job.job_id = i.job_id
-       JOIN app.customer_company company ON company.company_id = job.customer_company_id
+       LEFT JOIN app.job job ON job.job_id = i.job_id
+       JOIN app.customer_company company ON company.company_id = i.customer_company_id
        WHERE i.status = 'issued'
          AND i.issued_at >= ($1::date::timestamp AT TIME ZONE 'Africa/Accra')
          AND i.issued_at < (($2::date + 1)::timestamp AT TIME ZONE 'Africa/Accra')
-         AND ($3::uuid[] IS NULL OR job.customer_company_id = ANY($3::uuid[]))
-         AND ($4::text[] IS NULL OR job.service_line = ANY($4::text[]))
+         AND ($3::uuid[] IS NULL OR i.customer_company_id = ANY($3::uuid[]))
+         AND ($4::text[] IS NULL OR job.job_id IS NULL OR job.service_line = ANY($4::text[]))
        ORDER BY i.issued_at, i.invoice_number`,
       [from, to, scope.companyIds ?? null, scope.serviceLines ?? null],
     );
     return result.rows.map((row) => ({
-      jobId: String(row.job_id),
-      fileNumber: String(row.file_number),
+      jobId: row.job_id ? String(row.job_id) : null,
+      fileNumber: row.file_number ? String(row.file_number) : null,
       customerCompanyName: String(row.customer_company_name),
       invoice: this.mapInvoice(row),
     }));
@@ -3267,23 +3280,23 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     }
     const result = await this.pool.query(
       `SELECT ${PAYMENT_COLUMNS}, job.job_id, job.file_number,
-              job.customer_company_id,
+              i.customer_company_id,
               company.company_name AS customer_company_name,
               i.currency, i.invoice_number
        FROM app.invoice_payment p
        JOIN app.invoice i ON i.invoice_id = p.invoice_id AND i.status = 'issued'
-       JOIN app.job job ON job.job_id = i.job_id
-       JOIN app.customer_company company ON company.company_id = job.customer_company_id
+       LEFT JOIN app.job job ON job.job_id = i.job_id
+       JOIN app.customer_company company ON company.company_id = i.customer_company_id
        LEFT JOIN app.invoice_payment_reversal r ON r.payment_id = p.payment_id
        WHERE p.received_on >= $1::date AND p.received_on <= $2::date
-         AND ($3::uuid[] IS NULL OR job.customer_company_id = ANY($3::uuid[]))
-         AND ($4::text[] IS NULL OR job.service_line = ANY($4::text[]))
+         AND ($3::uuid[] IS NULL OR i.customer_company_id = ANY($3::uuid[]))
+         AND ($4::text[] IS NULL OR job.job_id IS NULL OR job.service_line = ANY($4::text[]))
        ORDER BY p.received_on, p.recorded_at, p.payment_id`,
       [from, to, scope.companyIds ?? null, scope.serviceLines ?? null],
     );
     return result.rows.map((row) => ({
-      jobId: String(row.job_id),
-      fileNumber: String(row.file_number),
+      jobId: row.job_id ? String(row.job_id) : null,
+      fileNumber: row.file_number ? String(row.file_number) : null,
       customerCompanyId: String(row.customer_company_id),
       customerCompanyName: String(row.customer_company_name),
       currency: String(row.currency),
@@ -3293,10 +3306,11 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
   }
 
   async updateDraftInvoice(
-    jobId: string,
+    ownerId: string,
     invoiceId: string,
     draft: {
       currency: string;
+      shipment: InvoiceShipment | null;
       lines: InvoiceLineRecord[];
       dueDate: string | null;
       notes: string | null;
@@ -3309,8 +3323,8 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       await client.query("BEGIN");
       const current = await client.query(
         `SELECT status FROM app.invoice
-         WHERE invoice_id = $2::uuid AND job_id = $1::uuid FOR UPDATE`,
-        [jobId, invoiceId],
+         WHERE invoice_id = $2::uuid AND ${ownedBy()} FOR UPDATE`,
+        [ownerId, invoiceId],
       );
       if (current.rows.length === 0) {
         await client.query("ROLLBACK");
@@ -3325,11 +3339,11 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
          SET currency = $3, lines = $4::jsonb, due_date = $5::date, notes = $6,
              subtotal_minor = $7, tax_lines = $8::jsonb, tax_total_minor = $9,
              total_minor = $10, bank_account = $11::jsonb,
-             updated_at = clock_timestamp()
-         WHERE invoice_id = $2::uuid AND job_id = $1::uuid
+             shipment = $12::jsonb, updated_at = clock_timestamp()
+         WHERE invoice_id = $2::uuid AND ${ownedBy()}
          RETURNING *, to_char(due_date, 'YYYY-MM-DD') AS due_date_text`,
         [
-          jobId,
+          ownerId,
           invoiceId,
           draft.currency,
           JSON.stringify(draft.lines),
@@ -3340,6 +3354,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
           draft.totals.taxTotalMinor,
           draft.totals.totalMinor,
           draft.bankAccounts ? JSON.stringify(draft.bankAccounts) : null,
+          draft.shipment ? JSON.stringify(draft.shipment) : null,
         ],
       );
       await client.query("COMMIT");
@@ -3353,7 +3368,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
   }
 
   async issueInvoice(
-    jobId: string,
+    ownerId: string,
     invoiceId: string,
     issue: {
       issuedBy: string;
@@ -3367,8 +3382,8 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       await client.query("BEGIN");
       const current = await client.query(
         `SELECT status, jsonb_array_length(lines) AS line_count FROM app.invoice
-         WHERE invoice_id = $2::uuid AND job_id = $1::uuid FOR UPDATE`,
-        [jobId, invoiceId],
+         WHERE invoice_id = $2::uuid AND ${ownedBy()} FOR UPDATE`,
+        [ownerId, invoiceId],
       );
       if (current.rows.length === 0) {
         await client.query("ROLLBACK");
@@ -3395,10 +3410,10 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
              issued_at = clock_timestamp(), due_date = $5::date,
              subtotal_minor = $6, tax_lines = $7::jsonb, tax_total_minor = $8,
              total_minor = $9, updated_at = clock_timestamp()
-         WHERE invoice_id = $2::uuid AND job_id = $1::uuid
+         WHERE invoice_id = $2::uuid AND ${ownedBy()}
          RETURNING *, to_char(due_date, 'YYYY-MM-DD') AS due_date_text`,
         [
-          jobId,
+          ownerId,
           invoiceId,
           String(allocated.rows[0].invoice_number),
           issue.issuedBy,
@@ -3420,7 +3435,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
   }
 
   async voidInvoice(
-    jobId: string,
+    ownerId: string,
     invoiceId: string,
     voidedBy: string,
     reason: string,
@@ -3430,8 +3445,8 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       await client.query("BEGIN");
       const current = await client.query(
         `SELECT status FROM app.invoice
-         WHERE invoice_id = $2::uuid AND job_id = $1::uuid FOR UPDATE`,
-        [jobId, invoiceId],
+         WHERE invoice_id = $2::uuid AND ${ownedBy()} FOR UPDATE`,
+        [ownerId, invoiceId],
       );
       if (current.rows.length === 0) {
         await client.query("ROLLBACK");
@@ -3457,9 +3472,9 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
         `UPDATE app.invoice
          SET status = 'void', voided_by = $3::uuid, voided_at = clock_timestamp(),
              void_reason = $4, updated_at = clock_timestamp()
-         WHERE invoice_id = $2::uuid AND job_id = $1::uuid
+         WHERE invoice_id = $2::uuid AND ${ownedBy()}
          RETURNING *, to_char(due_date, 'YYYY-MM-DD') AS due_date_text`,
-        [jobId, invoiceId, voidedBy, reason],
+        [ownerId, invoiceId, voidedBy, reason],
       );
       await client.query("COMMIT");
       return this.mapInvoice(updated.rows[0]);
@@ -3472,20 +3487,20 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
   }
 
   async listInvoiceAcceptances(
-    jobId: string,
+    ownerId: string,
   ): Promise<InvoiceAcceptanceRecord[]> {
     const result = await this.pool.query(
       `SELECT a.* FROM app.invoice_acceptance a
        JOIN app.invoice i ON i.invoice_id = a.invoice_id
-       WHERE i.job_id = $1::uuid
+       WHERE ${ownedBy("i.")}
        ORDER BY a.accepted_at`,
-      [jobId],
+      [ownerId],
     );
     return result.rows.map((row) => this.mapInvoiceAcceptance(row));
   }
 
   async recordInvoiceAcceptance(
-    jobId: string,
+    ownerId: string,
     invoiceId: string,
     acceptance: {
       acceptedBy: string;
@@ -3500,8 +3515,8 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       await client.query("BEGIN");
       const invoice = await client.query(
         `SELECT status FROM app.invoice
-         WHERE invoice_id = $2::uuid AND job_id = $1::uuid FOR UPDATE`,
-        [jobId, invoiceId],
+         WHERE invoice_id = $2::uuid AND ${ownedBy()} FOR UPDATE`,
+        [ownerId, invoiceId],
       );
       if (invoice.rows.length === 0) {
         await client.query("ROLLBACK");
@@ -4743,7 +4758,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
   }
 
   async recordInvoicePayment(
-    jobId: string,
+    ownerId: string,
     invoiceId: string,
     payment: {
       amountMinor: number;
@@ -4768,8 +4783,8 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       // The invoice row is locked so simultaneous payments are checked one by one.
       const invoice = await client.query(
         `SELECT status, total_minor FROM app.invoice
-         WHERE invoice_id = $2::uuid AND job_id = $1::uuid FOR UPDATE`,
-        [jobId, invoiceId],
+         WHERE invoice_id = $2::uuid AND ${ownedBy()} FOR UPDATE`,
+        [ownerId, invoiceId],
       );
       if (invoice.rows.length === 0) {
         await client.query("ROLLBACK");
@@ -4799,7 +4814,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
         const document = await client.query(
           `SELECT 1 FROM app.document
            WHERE document_id = $2::uuid AND job_id = $1::uuid`,
-          [jobId, payment.evidenceDocumentId],
+          [ownerId, payment.evidenceDocumentId],
         );
         if (document.rows.length === 0) {
           await client.query("ROLLBACK");
@@ -4858,23 +4873,23 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
                     SELECT 1 FROM app.invoice_payment_reversal sr
                     WHERE sr.payment_id = s.payment_id)
               ), 0) AS outstanding_minor,
-              job.job_id, job.file_number, job.customer_company_id,
+              job.job_id, job.file_number, i.customer_company_id,
               company.company_name AS customer_company_name
        FROM app.invoice_payment p
        JOIN app.invoice i ON i.invoice_id = p.invoice_id
-       JOIN app.job job ON job.job_id = i.job_id
-       JOIN app.customer_company company ON company.company_id = job.customer_company_id
+       LEFT JOIN app.job job ON job.job_id = i.job_id
+       JOIN app.customer_company company ON company.company_id = i.customer_company_id
        LEFT JOIN app.invoice_payment_reversal r ON r.payment_id = p.payment_id
        WHERE p.batch_id = $1::uuid
-         AND ($2::uuid[] IS NULL OR job.customer_company_id = ANY($2::uuid[]))
+         AND ($2::uuid[] IS NULL OR i.customer_company_id = ANY($2::uuid[]))
        ORDER BY i.invoice_number, p.payment_id`,
       [batchId, companyIds ?? null],
     );
     return result.rows.map((row) => ({
       payment: this.mapPayment(row),
       invoiceNumber: String(row.invoice_number),
-      jobId: String(row.job_id),
-      fileNumber: String(row.file_number),
+      jobId: row.job_id ? String(row.job_id) : null,
+      fileNumber: row.file_number ? String(row.file_number) : null,
       customerCompanyId: String(row.customer_company_id),
       customerCompanyName: String(row.customer_company_name),
       currency: String(row.currency),
@@ -5175,12 +5190,12 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     // and each invoice's balance is checked one batch at a time.
     const found = await client.query(
       `SELECT i.invoice_id, i.invoice_number, i.status, i.total_minor, i.currency,
-              i.job_id, job.customer_company_id
+              i.job_id, i.customer_company_id
        FROM app.invoice i
-       JOIN app.job job ON job.job_id = i.job_id
+       LEFT JOIN app.job job ON job.job_id = i.job_id
        WHERE i.invoice_id = ANY($1::uuid[])
-         AND ($2::uuid[] IS NULL OR job.customer_company_id = ANY($2::uuid[]))
-         AND ($3::text[] IS NULL OR job.service_line = ANY($3::text[]))
+         AND ($2::uuid[] IS NULL OR i.customer_company_id = ANY($2::uuid[]))
+         AND ($3::text[] IS NULL OR job.job_id IS NULL OR job.service_line = ANY($3::text[]))
        ORDER BY i.invoice_id
        FOR UPDATE OF i`,
       [ids, scope.companyIds ?? null, scope.serviceLines ?? null],
@@ -5346,7 +5361,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
   }
 
   async reverseInvoicePayment(
-    jobId: string,
+    ownerId: string,
     invoiceId: string,
     paymentId: string,
     reason: string,
@@ -5360,9 +5375,9 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
          FROM app.invoice_payment p
          JOIN app.invoice i ON i.invoice_id = p.invoice_id
          WHERE p.payment_id = $3::uuid AND p.invoice_id = $2::uuid
-           AND i.job_id = $1::uuid
+           AND ${ownedBy("i.")}
          FOR UPDATE OF p`,
-        [jobId, invoiceId, paymentId],
+        [ownerId, invoiceId, paymentId],
       );
       if (payment.rows.length === 0) {
         await client.query("ROLLBACK");
@@ -6493,13 +6508,13 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       [companyId],
     );
     const money = await this.pool.query(
-      `SELECT job.customer_company_id AS company_id, i.currency,
+      `SELECT i.customer_company_id AS company_id, i.currency,
               sum(i.total_minor) AS invoiced_minor,
               sum(COALESCE(paid.received_minor, 0)) AS received_minor,
               avg(paid.last_received_on - i.issued_at::date)
                 FILTER (WHERE paid.received_minor >= i.total_minor) AS days_to_pay
        FROM app.invoice i
-       JOIN app.job job ON job.job_id = i.job_id
+       LEFT JOIN app.job job ON job.job_id = i.job_id
        LEFT JOIN LATERAL (
          SELECT sum(p.amount_minor) AS received_minor,
                 max(p.received_on) AS last_received_on
@@ -6510,8 +6525,8 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
              WHERE r.payment_id = p.payment_id)
        ) paid ON true
        WHERE i.status = 'issued'
-         AND ($1::uuid IS NULL OR job.customer_company_id = $1::uuid)
-       GROUP BY job.customer_company_id, i.currency
+         AND ($1::uuid IS NULL OR i.customer_company_id = $1::uuid)
+       GROUP BY i.customer_company_id, i.currency
        ORDER BY i.currency`,
       [companyId],
     );
@@ -6686,7 +6701,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       `SELECT * FROM (
          SELECT i.invoice_id, i.invoice_number, i.currency, i.total_minor,
                 to_char(i.due_date, 'YYYY-MM-DD') AS due_date_text, i.issued_at,
-                job.job_id, job.file_number, job.customer_company_id,
+                job.job_id, job.file_number, i.customer_company_id,
                 company.company_name,
                 i.total_minor - COALESCE((
                   SELECT sum(p.amount_minor) FROM app.invoice_payment p
@@ -6696,12 +6711,12 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
                       WHERE r.payment_id = p.payment_id)
                 ), 0) AS outstanding_minor
          FROM app.invoice i
-         JOIN app.job job ON job.job_id = i.job_id
-         JOIN app.customer_company company ON company.company_id = job.customer_company_id
+         LEFT JOIN app.job job ON job.job_id = i.job_id
+         JOIN app.customer_company company ON company.company_id = i.customer_company_id
          WHERE i.status = 'issued'
-           AND ($1::uuid IS NULL OR job.customer_company_id = $1::uuid)
-           AND ($2::uuid[] IS NULL OR job.customer_company_id = ANY($2::uuid[]))
-           AND ($3::text[] IS NULL OR job.service_line = ANY($3::text[]))
+           AND ($1::uuid IS NULL OR i.customer_company_id = $1::uuid)
+           AND ($2::uuid[] IS NULL OR i.customer_company_id = ANY($2::uuid[]))
+           AND ($3::text[] IS NULL OR job.job_id IS NULL OR job.service_line = ANY($3::text[]))
        ) owing
        WHERE outstanding_minor > 0
        ORDER BY due_date_text NULLS LAST, issued_at, invoice_id`,
@@ -6710,8 +6725,8 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     return result.rows.map((row) => ({
       invoiceId: String(row.invoice_id),
       invoiceNumber: String(row.invoice_number),
-      jobId: String(row.job_id),
-      fileNumber: String(row.file_number),
+      jobId: row.job_id ? String(row.job_id) : null,
+      fileNumber: row.file_number ? String(row.file_number) : null,
       customerCompanyId: String(row.customer_company_id),
       customerCompanyName: String(row.company_name),
       currency: String(row.currency),
@@ -6733,7 +6748,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     const result = await this.pool.query(
       `SELECT i.invoice_id, i.invoice_number, i.status, i.currency, i.total_minor,
               to_char(i.due_date, 'YYYY-MM-DD') AS due_date_text, i.created_at, i.issued_at,
-              job.job_id, job.file_number, job.customer_company_id,
+              job.job_id, job.file_number, i.customer_company_id,
               company.company_name,
               COALESCE((
                 SELECT sum(p.amount_minor) FROM app.invoice_payment p
@@ -6743,11 +6758,11 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
                     WHERE r.payment_id = p.payment_id)
               ), 0) AS paid_minor
        FROM app.invoice i
-       JOIN app.job job ON job.job_id = i.job_id
-       JOIN app.customer_company company ON company.company_id = job.customer_company_id
-       WHERE ($1::uuid IS NULL OR job.customer_company_id = $1::uuid)
-         AND ($2::uuid[] IS NULL OR job.customer_company_id = ANY($2::uuid[]))
-         AND ($3::text[] IS NULL OR job.service_line = ANY($3::text[]))
+       LEFT JOIN app.job job ON job.job_id = i.job_id
+       JOIN app.customer_company company ON company.company_id = i.customer_company_id
+       WHERE ($1::uuid IS NULL OR i.customer_company_id = $1::uuid)
+         AND ($2::uuid[] IS NULL OR i.customer_company_id = ANY($2::uuid[]))
+         AND ($3::text[] IS NULL OR job.job_id IS NULL OR job.service_line = ANY($3::text[]))
        ORDER BY COALESCE(i.issued_at, i.created_at) DESC, i.invoice_id`,
       [filter.companyId, scope.companyIds ?? null, scope.serviceLines ?? null],
     );
@@ -6755,8 +6770,8 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       invoiceId: String(row.invoice_id),
       invoiceNumber: row.invoice_number ? String(row.invoice_number) : null,
       status: row.status as InvoiceRegisterRecord["status"],
-      jobId: String(row.job_id),
-      fileNumber: String(row.file_number),
+      jobId: row.job_id ? String(row.job_id) : null,
+      fileNumber: row.file_number ? String(row.file_number) : null,
       customerCompanyId: String(row.customer_company_id),
       customerCompanyName: String(row.company_name),
       currency: String(row.currency),
@@ -6781,8 +6796,8 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
                 NULL::text AS receipt_number, NULL::text AS method, NULL::text AS reference,
                 false AS on_account
          FROM app.invoice i
-         JOIN app.job job ON job.job_id = i.job_id
-         WHERE job.customer_company_id = $1::uuid AND i.status = 'issued'
+         LEFT JOIN app.job job ON job.job_id = i.job_id
+         WHERE i.customer_company_id = $1::uuid AND i.status = 'issued'
            AND ($2::text IS NULL OR job.service_line = $2::text)
          UNION ALL
          SELECT 'payment', to_char(p.received_on, 'YYYY-MM-DD'), p.recorded_at, i.currency,
@@ -6790,8 +6805,8 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
                 p.receipt_number, p.method, p.reference, false
          FROM app.invoice_payment p
          JOIN app.invoice i ON i.invoice_id = p.invoice_id
-         JOIN app.job job ON job.job_id = i.job_id
-         WHERE job.customer_company_id = $1::uuid AND i.status = 'issued'
+         LEFT JOIN app.job job ON job.job_id = i.job_id
+         WHERE i.customer_company_id = $1::uuid AND i.status = 'issued'
            AND ($2::text IS NULL OR job.service_line = $2::text)
            -- Paid from credit: the money already shows as the credit below,
            -- except for one service, where the credit (no job) is left out.
@@ -6835,7 +6850,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       currency: String(row.currency),
       amountMinor: Number(row.amount_minor),
       invoiceNumber: String(row.invoice_number),
-      fileNumber: String(row.file_number),
+      fileNumber: row.file_number ? String(row.file_number) : "",
       jobReferences: byJob.get(String(row.job_id)) ?? [],
       receiptNumber: row.receipt_number ? String(row.receipt_number) : null,
       method: row.method as StatementEntryRecord["method"],
@@ -6900,7 +6915,8 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       value ? this.toIsoString(value) : null;
     return {
       id: String(row.invoice_id),
-      jobId: String(row.job_id),
+      jobId: optional(row.job_id),
+      customerCompanyId: String(row.customer_company_id),
       invoiceNumber: optional(row.invoice_number),
       status: row.status as InvoiceRecord["status"],
       currency: String(row.currency),
@@ -6908,6 +6924,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       dueDate: optional(row.due_date_text),
       notes: optional(row.notes),
       bankAccounts: storedBankAccounts(row.bank_account),
+      shipment: (row.shipment as InvoiceShipment | null) ?? null,
       subtotalMinor: Number(row.subtotal_minor),
       taxLines: row.tax_lines as InvoiceRecord["taxLines"],
       taxTotalMinor: Number(row.tax_total_minor),

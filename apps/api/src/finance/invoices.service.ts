@@ -93,7 +93,22 @@ export function chargeBilling(
 }
 
 /**
- * Customer invoices on a job and the payments staff record against them.
+ * Whose invoices a request is about: a job's (its ID), or a client's own
+ * invoices made without a job.
+ */
+export type InvoiceHome = string | { companyId: string };
+
+/** An invoice home worked out: the job when there is one, and always the client. */
+interface ResolvedHome {
+  /** What the database keys the invoices by: the job's ID, else the client's. */
+  ownerId: string;
+  companyId: string;
+  job: JobRecord | null;
+}
+
+/**
+ * Customer invoices on a job, or on a client with no job, and the payments
+ * staff record against them.
  * A draft is editable; issuing numbers it and freezes lines, tax and totals;
  * a mistake is corrected by voiding and issuing a new invoice. Payments are
  * received outside the system, never reduce below zero, and are reversed, not
@@ -110,13 +125,13 @@ export class InvoicesService {
     @Inject(TeamChatService) private readonly teamChat: TeamChatService,
   ) {}
 
-  async list(id: string, scope: JobScope): Promise<InvoiceView[]> {
-    const job = await this.jobs.get(id, scope);
+  async list(id: InvoiceHome, scope: JobScope): Promise<InvoiceView[]> {
+    const home = await this.resolveHome(id, scope, false);
     const isCustomer = scope.companyIds !== undefined;
     const [invoices, payments, acceptances] = await Promise.all([
-      this.database.listInvoices(job.id),
-      this.database.listInvoicePayments(job.id),
-      this.database.listInvoiceAcceptances(job.id),
+      this.database.listInvoices(home.ownerId),
+      this.database.listInvoicePayments(home.ownerId),
+      this.database.listInvoiceAcceptances(home.ownerId),
     ]);
     return (
       invoices
@@ -200,17 +215,19 @@ export class InvoicesService {
   }
 
   async create(
-    id: string,
+    id: InvoiceHome,
     input: unknown,
     createdBy: string,
     scope: JobScope,
   ): Promise<InvoiceView> {
-    const job = await this.editableJob(id, scope);
+    const home = await this.resolveHome(id, scope, true);
     const parsed = parseContract(invoiceInputSchema, input);
     if (!parsed.success) throw new BadRequestException(parsed.message);
     const settings = await this.requireConfiguredCurrency(parsed.data.currency);
     const invoice = await this.database.createInvoice({
-      jobId: job.id,
+      jobId: home.job?.id ?? null,
+      customerCompanyId: home.companyId,
+      shipment: parsed.data.shipment,
       currency: parsed.data.currency,
       lines: parsed.data.lines,
       dueDate: parsed.data.dueDate,
@@ -285,6 +302,8 @@ export class InvoicesService {
     }
     const invoice = await this.database.createInvoice({
       jobId: job.id,
+      customerCompanyId: job.customerCompanyId,
+      shipment: parsed.data.shipment,
       currency: parsed.data.currency,
       lines,
       dueDate: parsed.data.dueDate,
@@ -305,18 +324,19 @@ export class InvoicesService {
   }
 
   async update(
-    id: string,
+    id: InvoiceHome,
     invoiceId: string,
     input: unknown,
     scope: JobScope,
   ): Promise<InvoiceView> {
-    const job = await this.editableJob(id, scope);
+    const home = await this.resolveHome(id, scope, true);
     const parsed = parseContract(invoiceInputSchema, input);
     if (!parsed.success) throw new BadRequestException(parsed.message);
     const settings = await this.requireConfiguredCurrency(parsed.data.currency);
     const result = isUuid(invoiceId)
-      ? await this.database.updateDraftInvoice(job.id, invoiceId, {
+      ? await this.database.updateDraftInvoice(home.ownerId, invoiceId, {
           currency: parsed.data.currency,
+          shipment: parsed.data.shipment,
           lines: parsed.data.lines,
           dueDate: parsed.data.dueDate,
           notes: parsed.data.notes,
@@ -344,14 +364,14 @@ export class InvoicesService {
 
   /** Numbers the invoice and freezes its lines, tax lines and totals. */
   async issue(
-    id: string,
+    id: InvoiceHome,
     invoiceId: string,
     issuedBy: string,
     scope: JobScope,
     notify = true,
   ): Promise<InvoiceView> {
-    const job = await this.editableJob(id, scope);
-    const invoice = await this.find(job.id, invoiceId);
+    const home = await this.resolveHome(id, scope, true);
+    const invoice = await this.find(home.ownerId, invoiceId);
     const current = await this.database.getBusinessSettings();
     if (!current) {
       throw new ConflictException(
@@ -371,7 +391,7 @@ export class InvoicesService {
         : new Date(Date.now() + settings.paymentTermsDays * 86_400_000)
             .toISOString()
             .slice(0, 10));
-    const result = await this.database.issueInvoice(job.id, invoice.id, {
+    const result = await this.database.issueInvoice(home.ownerId, invoice.id, {
       issuedBy,
       year: new Date().getUTCFullYear(),
       dueDate,
@@ -389,8 +409,8 @@ export class InvoicesService {
     const invoiceNumber = result.invoiceNumber;
     if (invoiceNumber && notify) {
       await this.notifications.notify({
-        companyId: job.customerCompanyId,
-        jobId: job.id,
+        companyId: home.companyId,
+        jobId: home.job?.id ?? null,
         event: "invoice_issued",
         dedupeKey: `invoice-issued:${result.id}`,
         message: (sender) =>
@@ -401,7 +421,7 @@ export class InvoicesService {
             result.currency,
             result.dueDate,
           ),
-        linkPath: `/jobs/${job.id}`,
+        linkPath: home.job ? `/jobs/${home.job.id}` : "/invoices",
         createdBy: issuedBy,
       });
     }
@@ -451,12 +471,14 @@ export class InvoicesService {
       );
     }
     for (const row of rows) {
-      const label = `Invoice on job ${row.fileNumber}`;
+      const label = row.fileNumber
+        ? `Invoice on job ${row.fileNumber}`
+        : "An invoice with no job";
       if (row.status !== "draft") {
         throw new ConflictException(`${label} is already issued or void`);
       }
-      const job = await this.editableJob(row.jobId, scope);
-      const invoice = await this.find(job.id, row.invoiceId);
+      const home = await this.resolveHome(homeOf(row), scope, true);
+      const invoice = await this.find(home.ownerId, row.invoiceId);
       if (invoice.lines.length === 0) {
         throw new BadRequestException(`${label} has no lines yet`);
       }
@@ -469,7 +491,7 @@ export class InvoicesService {
     const issued: InvoiceView[] = [];
     for (const row of rows) {
       issued.push(
-        await this.issue(row.jobId, row.invoiceId, issuedBy, scope, false),
+        await this.issue(homeOf(row), row.invoiceId, issuedBy, scope, false),
       );
     }
     const jobIds = new Set(rows.map((row) => row.jobId));
@@ -497,25 +519,28 @@ export class InvoicesService {
                 dueDate: invoice.dueDate,
               })),
             ),
-      linkPath: jobIds.size === 1 ? `/jobs/${rows[0].jobId}` : "/invoices",
+      linkPath:
+        jobIds.size === 1 && rows[0].jobId
+          ? `/jobs/${rows[0].jobId}`
+          : "/invoices",
       createdBy: issuedBy,
     });
     return issued;
   }
 
   async voidInvoice(
-    id: string,
+    id: InvoiceHome,
     invoiceId: string,
     input: unknown,
     voidedBy: string,
     scope: JobScope,
   ): Promise<InvoiceView> {
-    const job = await this.editableJob(id, scope);
+    const home = await this.resolveHome(id, scope, true);
     const parsed = parseContract(invoiceReasonInputSchema, input);
     if (!parsed.success) throw new BadRequestException(parsed.message);
     const result = isUuid(invoiceId)
       ? await this.database.voidInvoice(
-          job.id,
+          home.ownerId,
           invoiceId,
           voidedBy,
           parsed.data.reason,
@@ -537,13 +562,13 @@ export class InvoicesService {
 
   /** Payments may arrive after a job is closed, so the job status is not checked. */
   async recordPayment(
-    id: string,
+    id: InvoiceHome,
     invoiceId: string,
     input: unknown,
     recordedBy: string,
     scope: JobScope,
   ): Promise<InvoicePaymentRecord> {
-    const job = await this.jobs.get(id, scope);
+    const home = await this.resolveHome(id, scope, false);
     const parsed = parseContract(paymentInputSchema, input);
     if (!parsed.success) throw new BadRequestException(parsed.message);
     // One day of slack covers a client whose date is ahead of UTC.
@@ -555,7 +580,7 @@ export class InvoicesService {
     }
     const result = isUuid(invoiceId)
       ? await this.database.recordInvoicePayment(
-          job.id,
+          home.ownerId,
           invoiceId,
           parsed.data,
           recordedBy,
@@ -580,15 +605,15 @@ export class InvoicesService {
         "evidenceDocumentId must be a document on this job",
       );
     }
-    const invoice = await this.find(job.id, invoiceId);
-    const standing = (await this.database.listInvoicePayments(job.id)).filter(
-      (item) => item.invoiceId === invoice.id && item.reversal === null,
-    );
+    const invoice = await this.find(home.ownerId, invoiceId);
+    const standing = (
+      await this.database.listInvoicePayments(home.ownerId)
+    ).filter((item) => item.invoiceId === invoice.id && item.reversal === null);
     const paid = standing.reduce((sum, item) => sum + item.amountMinor, 0);
     const invoiceNumber = invoice.invoiceNumber ?? "";
     await this.notifications.notify({
-      companyId: job.customerCompanyId,
-      jobId: job.id,
+      companyId: home.companyId,
+      jobId: home.job?.id ?? null,
       event: "payment_received",
       dedupeKey: `payment:${result.id}`,
       message: (sender) =>
@@ -600,7 +625,7 @@ export class InvoicesService {
           invoice.totalMinor - paid,
           invoice.currency,
         ),
-      linkPath: `/jobs/${job.id}`,
+      linkPath: home.job ? `/jobs/${home.job.id}` : "/invoices",
       createdBy: recordedBy,
     });
     return result;
@@ -809,7 +834,8 @@ export class InvoicesService {
                   balanceMinor: line.balanceMinor,
                 })),
               ),
-        linkPath: jobIds.size === 1 ? `/jobs/${only.jobId}` : "/invoices",
+        linkPath:
+          jobIds.size === 1 && only.jobId ? `/jobs/${only.jobId}` : "/invoices",
         createdBy: recordedBy,
       });
     }
@@ -834,20 +860,20 @@ export class InvoicesService {
   }
 
   async reversePayment(
-    id: string,
+    id: InvoiceHome,
     invoiceId: string,
     paymentId: string,
     input: unknown,
     reversedBy: string,
     scope: JobScope,
   ): Promise<InvoicePaymentRecord> {
-    const job = await this.jobs.get(id, scope);
+    const home = await this.resolveHome(id, scope, false);
     const parsed = parseContract(invoiceReasonInputSchema, input);
     if (!parsed.success) throw new BadRequestException(parsed.message);
     const result =
       isUuid(invoiceId) && isUuid(paymentId)
         ? await this.database.reverseInvoicePayment(
-            job.id,
+            home.ownerId,
             invoiceId,
             paymentId,
             parsed.data.reason,
@@ -1070,17 +1096,23 @@ export class InvoicesService {
     if (rows.length === 0) {
       throw new NotFoundException("No invoices were found for this client");
     }
+    const customer = await this.database.findCustomer(
+      companyId,
+      scope.companyIds,
+    );
+    if (!customer) throw new NotFoundException("Client was not found");
     const [settings, invoices] = await Promise.all([
       this.database.getBusinessSettings(),
       Promise.all(
         rows.map(async (row) => {
-          const job = await this.jobs.get(row.jobId, scope);
+          const home = await this.resolveHome(homeOf(row), scope, false);
           const [invoice, payments] = await Promise.all([
-            this.find(job.id, row.invoiceId),
-            this.database.listInvoicePayments(job.id),
+            this.find(home.ownerId, row.invoiceId),
+            this.database.listInvoicePayments(home.ownerId),
           ]);
           return {
-            job,
+            job: home.job,
+            customer,
             invoice: this.view(
               invoice,
               payments.filter((payment) => payment.invoiceId === invoice.id),
@@ -1102,19 +1134,21 @@ export class InvoicesService {
 
   /** Customers reach only invoices that were issued, on their own company's jobs. */
   async pdf(
-    id: string,
+    id: InvoiceHome,
     invoiceId: string,
     scope: JobScope,
   ): Promise<{ file: Buffer; filename: string }> {
-    const job = await this.jobs.get(id, scope);
-    const invoice = await this.find(job.id, invoiceId);
+    const home = await this.resolveHome(id, scope, false);
+    const invoice = await this.find(home.ownerId, invoiceId);
     if (scope.companyIds !== undefined && invoice.issuedAt === null) {
       throw new NotFoundException("Invoice was not found on this job");
     }
-    const [payments, settings] = await Promise.all([
-      this.database.listInvoicePayments(job.id),
+    const [payments, settings, customer] = await Promise.all([
+      this.database.listInvoicePayments(home.ownerId),
       this.database.getBusinessSettings(),
+      this.database.findCustomer(home.companyId, scope.companyIds),
     ]);
+    if (!customer) throw new NotFoundException("Client was not found");
     const view = this.view(
       invoice,
       payments.filter((payment) => payment.invoiceId === invoice.id),
@@ -1122,7 +1156,8 @@ export class InvoicesService {
     );
     const file = await renderInvoicePdf({
       invoice: view,
-      job,
+      job: home.job,
+      customer,
       settings: settings?.settings ?? null,
     });
     const base = (invoice.invoiceNumber ?? "invoice-draft").replace(
@@ -1134,14 +1169,14 @@ export class InvoicesService {
 
   /** A payment's receipt: staff hand it to the customer; it is not a bank confirmation. */
   async receiptPdf(
-    id: string,
+    id: InvoiceHome,
     invoiceId: string,
     paymentId: string,
     scope: JobScope,
   ): Promise<{ file: Buffer; filename: string }> {
-    const job = await this.jobs.get(id, scope);
-    const invoice = await this.find(job.id, invoiceId);
-    const payments = await this.database.listInvoicePayments(job.id);
+    const home = await this.resolveHome(id, scope, false);
+    const invoice = await this.find(home.ownerId, invoiceId);
+    const payments = await this.database.listInvoicePayments(home.ownerId);
     const forInvoice = payments.filter((item) => item.invoiceId === invoice.id);
     const payment = isUuid(paymentId)
       ? forInvoice.find((item) => item.id === paymentId)
@@ -1149,7 +1184,10 @@ export class InvoicesService {
     if (!payment?.receiptNumber) {
       throw new NotFoundException("Receipt was not found on this invoice");
     }
-    const settings = await this.database.getBusinessSettings();
+    const [settings, customer] = await Promise.all([
+      this.database.getBusinessSettings(),
+      this.database.findCustomer(home.companyId, scope.companyIds),
+    ]);
     const file = payment.batchId
       ? await renderBatchReceiptPdf({
           lines: await this.database.listBatchReceipt(
@@ -1161,7 +1199,8 @@ export class InvoicesService {
       : await renderReceiptPdf({
           payment,
           invoice: this.view(invoice, forInvoice, false),
-          job,
+          job: home.job,
+          customerCompanyName: customer?.companyName ?? "",
           settings: settings?.settings ?? null,
         });
     return {
@@ -1379,16 +1418,16 @@ export class InvoicesService {
 
   /** Queues the receipt, PDF attached, to the client's contacts; a resend is a new message. */
   async sendReceipt(
-    id: string,
+    id: InvoiceHome,
     invoiceId: string,
     paymentId: string,
     sentBy: string,
     scope: JobScope,
   ): Promise<{ queued: boolean }> {
-    const job = await this.jobs.get(id, scope);
-    const invoice = await this.find(job.id, invoiceId);
+    const home = await this.resolveHome(id, scope, false);
+    const invoice = await this.find(home.ownerId, invoiceId);
     const payment = isUuid(paymentId)
-      ? (await this.database.listInvoicePayments(job.id)).find(
+      ? (await this.database.listInvoicePayments(home.ownerId)).find(
           (item) => item.id === paymentId && item.invoiceId === invoice.id,
         )
       : undefined;
@@ -1400,13 +1439,13 @@ export class InvoicesService {
     const batch = payment.batchId
       ? (
           await this.database.listBatchReceipt(payment.batchId, [
-            job.customerCompanyId,
+            home.companyId,
           ])
         ).filter((line) => line.payment.reversal === null)
       : [];
     const result = await this.notifications.notify({
-      companyId: job.customerCompanyId,
-      jobId: job.id,
+      companyId: home.companyId,
+      jobId: home.job?.id ?? null,
       event: "receipt_sent",
       dedupeKey: `receipt-sent:${payment.id}:${Date.now()}`,
       message: (sender) =>
@@ -1425,7 +1464,7 @@ export class InvoicesService {
               payment.amountMinor,
               invoice.currency,
             ),
-      linkPath: `/jobs/${job.id}/money`,
+      linkPath: home.job ? `/jobs/${home.job.id}/money` : "/invoices",
       createdBy: sentBy,
     });
     if (!result || result === "duplicate") {
@@ -1448,9 +1487,12 @@ export class InvoicesService {
     return invoiceView(invoice, payments, includeLedger, acceptance);
   }
 
-  private async find(jobId: string, invoiceId: string): Promise<InvoiceRecord> {
+  private async find(
+    ownerId: string,
+    invoiceId: string,
+  ): Promise<InvoiceRecord> {
     const invoice = isUuid(invoiceId)
-      ? (await this.database.listInvoices(jobId)).find(
+      ? (await this.database.listInvoices(ownerId)).find(
           (item) => item.id === invoiceId,
         )
       : undefined;
@@ -1471,6 +1513,30 @@ export class InvoicesService {
     return current?.settings ?? null;
   }
 
+  /**
+   * Checks the caller may reach this job, or this client's job-less invoices,
+   * and (for changes) that a job is still open. A client is reached by
+   * customers of that company and by finance staff, whatever service lines
+   * they work on; their route is guarded for finance roles.
+   */
+  private async resolveHome(
+    home: InvoiceHome,
+    scope: JobScope,
+    editable: boolean,
+  ): Promise<ResolvedHome> {
+    if (typeof home === "string") {
+      const job = editable
+        ? await this.editableJob(home, scope)
+        : await this.jobs.get(home, scope);
+      return { ownerId: job.id, companyId: job.customerCompanyId, job };
+    }
+    const customer = isUuid(home.companyId)
+      ? await this.database.findCustomer(home.companyId, scope.companyIds)
+      : null;
+    if (!customer) throw new NotFoundException("Client was not found");
+    return { ownerId: customer.id, companyId: customer.id, job: null };
+  }
+
   private async editableJob(id: string, scope: JobScope): Promise<JobRecord> {
     const job = await this.jobs.get(id, scope);
     if (job.status === "closed" || job.status === "cancelled") {
@@ -1478,6 +1544,14 @@ export class InvoicesService {
     }
     return job;
   }
+}
+
+/** The home of an invoice row: its job, else its client. */
+function homeOf(row: {
+  jobId: string | null;
+  customerCompanyId: string;
+}): InvoiceHome {
+  return row.jobId ?? { companyId: row.customerCompanyId };
 }
 
 /** An invoice with its balance worked out from the standing payments. */

@@ -80,6 +80,7 @@ import { JobChargesController } from "./finance/job-charges.controller";
 import { JobChargesService } from "./finance/job-charges.service";
 import {
   InvoicesController,
+  ClientInvoicesController,
   FinanceSummaryController,
   OutstandingInvoicesController,
   InvoiceRegisterController,
@@ -164,6 +165,7 @@ import { PushService } from "./push/push.service";
     ClientMessagesController,
     JobChargesController,
     InvoicesController,
+    ClientInvoicesController,
     OutstandingInvoicesController,
     InvoiceRegisterController,
     ReceiptsController,

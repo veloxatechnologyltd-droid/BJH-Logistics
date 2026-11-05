@@ -38,7 +38,9 @@ export const methodLabels: Record<InvoicePaymentRecord["method"], string> = {
 export interface ReceiptPdfInput {
   payment: InvoicePaymentRecord;
   invoice: InvoiceView;
-  job: JobRecord;
+  /** Null for an invoice made without a job. */
+  job: JobRecord | null;
+  customerCompanyName: string;
   /** null until the business settings are configured (D03). */
   settings: BusinessSettings | null;
 }
@@ -61,17 +63,17 @@ export function renderReceiptPdf(
   input: ReceiptPdfInput,
   options: { compress?: boolean } = {},
 ): Promise<Buffer> {
-  const { payment, invoice, job, settings } = input;
+  const { payment, invoice, job, customerCompanyName, settings } = input;
   const money = (minor: number) => formatInvoiceAmount(minor, invoice.currency);
   return drawReceipt(
     {
       receiptNumber: payment.receiptNumber ?? "",
       amount: money(payment.amountMinor),
       cells: [
-        ["Received from", job.customerCompanyName],
+        ["Received from", customerCompanyName],
         ["Date received", formatDate(payment.receivedOn)],
         ["In payment of invoice", invoice.invoiceNumber ?? "-"],
-        ["Job file", job.fileNumber],
+        ["Job file", job?.fileNumber ?? "-"],
         ["Payment method", methodLabels[payment.method]],
         ["Reference", payment.reference ?? "-"],
         ["Invoice total", money(invoice.totalMinor)],
@@ -142,7 +144,7 @@ export function renderBatchReceiptPdf(
       ],
       invoices: lines.map((line) => [
         line.invoiceNumber,
-        line.fileNumber,
+        line.fileNumber ?? "-",
         money(line.payment.amountMinor) +
           (line.payment.reversal ? " (reversed)" : ""),
         money(line.invoiceOutstandingMinor),

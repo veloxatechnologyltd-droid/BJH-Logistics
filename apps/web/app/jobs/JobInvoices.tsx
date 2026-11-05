@@ -7,6 +7,13 @@ import {
   savedBankAccountIds,
 } from "../BankAccountSelect";
 import { ChargeOptions } from "../ChargeOptions";
+import {
+  ShipmentFields,
+  emptyShipment,
+  shipmentInput,
+  toShipmentForm,
+} from "../finance/ShipmentFields";
+import type { ShipmentForm } from "../finance/ShipmentFields";
 import type { BankAccount, PaymentMethod } from "@bjh/contracts";
 import { formatMoney, toMinor } from "../quotes/quoteApi";
 import { popularCurrencies } from "../settings/business/BusinessSettingsForm";
@@ -131,6 +138,9 @@ export function JobInvoices({
   // The accounts ticked for the draft being edited; null = the default accounts.
   const [draftBank, setDraftBank] = useState<string[] | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
+  // The shipment details of the draft being edited.
+  const [draftShipment, setDraftShipment] =
+    useState<ShipmentForm>(emptyShipment);
   const [lines, setLines] = useState<DraftLine[]>([]);
   // The currency of the draft being edited; it can still be changed.
   const [draftCurrency, setDraftCurrency] = useState("");
@@ -169,6 +179,7 @@ export function JobInvoices({
     if (finance && canEdit && linked?.status === "draft") {
       setEditing(linked.id);
       setDraftCurrency(linked.currency);
+      setDraftShipment(toShipmentForm(linked.shipment));
       setLines(
         linked.lines.length > 0 ? toDraftLines(linked.lines) : [blankLine()],
       );
@@ -262,6 +273,9 @@ export function JobInvoices({
         lines: parsed,
         dueDate: invoice.dueDate ?? undefined,
         notes: invoice.notes ?? undefined,
+        shipment: shipmentInput(
+          open ? draftShipment : toShipmentForm(invoice.shipment),
+        ),
         // Keep the accounts the draft already has unless they are being changed.
         bankAccountIds: listedBankAccountIds(
           bankAccounts,
@@ -455,6 +469,7 @@ export function JobInvoices({
                       setEditing(editing === invoice.id ? null : invoice.id);
                       setDraftCurrency(invoice.currency);
                       setDraftBank(savedBankAccountIds(invoice.bankAccounts));
+                      setDraftShipment(toShipmentForm(invoice.shipment));
                       setLines(toDraftLines(invoice.lines));
                     }}
                     type="button"
@@ -516,6 +531,10 @@ export function JobInvoices({
                       className={styles.field}
                       onChange={setDraftBank}
                       value={draftBank}
+                    />
+                    <ShipmentFields
+                      onChange={setDraftShipment}
+                      value={draftShipment}
                     />
                     {lines.map((line, index) => (
                       <div className={styles.actions} key={index}>
