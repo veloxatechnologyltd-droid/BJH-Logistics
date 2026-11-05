@@ -401,6 +401,38 @@
   gap: 8px;
   align-items: center;
 }
+/* One container of a house B/L: number, seal, weight and a remove button. */
+.containerRow {
+  display: grid;
+  grid-template-columns: 2fr 1.5fr 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+@media (max-width: 640px) {
+  .containerRow {
+    grid-template-columns: 1fr 1fr auto;
+  }
+  .containerRow > input:first-child {
+    grid-column: 1 / -1;
+  }
+}
+/* One line of a manifest's shipment table: a card of labelled cells. */
+.tableRow {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px;
+  align-items: start;
+  padding: 10px;
+  border: 1px solid var(--brand-border);
+  border-radius: 8px;
+}
+.tableRow textarea {
+  width: 100%;
+  border: 1px solid var(--brand-border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font: inherit;
+}
 .error {
   color: #a3261f;
   font-size: 0.85rem;

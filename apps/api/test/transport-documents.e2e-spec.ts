@@ -163,7 +163,7 @@ test("a document starts from what the job already holds", async () => {
     notifyParty: "Synthetic Notify Co",
     deliveryAgent: "Synthetic Delivery Agent Ltd",
     masterReference: "SYNBK00042",
-    containers: "SYNU1234568, seal 002686",
+    containers: "SYNU1234568 | Seal 002686",
   });
 
   // With business settings saved, BJH is the forwarding agent.
@@ -199,7 +199,7 @@ test("a document starts from what the job already holds", async () => {
   assert.equal(unknown.status, 400);
   assert.equal(
     await message(unknown),
-    "kind must be one of house_bl, house_awb, air_manifest",
+    "kind must be one of house_bl, house_awb, air_manifest, sea_manifest",
   );
 });
 
@@ -221,7 +221,7 @@ test("a draft is edited, numbered and issued; an issued document is frozen", asy
     ],
     [
       { kind: "manifest" },
-      "kind must be one of house_bl, house_awb, air_manifest",
+      "kind must be one of house_bl, house_awb, air_manifest, sea_manifest",
     ],
     [{ kind: "house_bl", fields: "no" }, "fields must be an object"],
   ];
@@ -539,5 +539,86 @@ test("a house B/L takes the next BJH/BL number when prepared; other kinds still 
   assert.equal(
     await message(refused),
     "Enter the document number before issuing",
+  );
+});
+
+test("a sea cargo manifest starts from the job, is issued, and is refused on an air job", async () => {
+  const prefill = await json<Prefill>(
+    await get(`${base()}/prefill?kind=sea_manifest`),
+  );
+  // One manifest per container: the container number is its number.
+  assert.equal(prefill.documentNumber, "SYNU1234568");
+  assert.equal(prefill.fields.containerNumber, "SYNU1234568");
+  assert.equal(prefill.fields.masterReference, "SYNBK00042");
+  assert.equal(
+    prefill.fields.shipper,
+    "Synthetic Shipper Ltd\nBolgatanga, Ghana",
+  );
+  // Fields the manifest does not have are not offered (they would be refused on save).
+  assert.equal(prefill.fields.forwardingAgent, undefined);
+  assert.equal(prefill.fields.notifyParty, undefined);
+
+  const lines = JSON.stringify([
+    {
+      shipper: "Synthetic Shipper Ltd",
+      consignee: "Synthetic Consignee LLC",
+      blNumber: "SYN-HBL-0001A",
+      description: "1 UNIT OF SYNTHETIC CAR",
+      weightKg: "1500",
+    },
+  ]);
+  const created = await post(base(), TEST_MATCHING_TOKEN, {
+    kind: "sea_manifest",
+    documentNumber: prefill.documentNumber,
+    fields: { ...prefill.fields, manifestLines: lines },
+  });
+  assert.equal(created.status, 201);
+  const manifest = await json<Doc>(created);
+  assert.equal(manifest.kind, "sea_manifest");
+  assert.equal(manifest.fields.manifestLines, lines);
+
+  // A table can be longer than a text box: past the old 2000 characters.
+  const long = JSON.stringify(
+    Array.from({ length: 40 }, (_, index) => ({
+      blNumber: `SYN-HBL-${index}`,
+      description: "x".repeat(100),
+    })),
+  );
+  assert.ok(long.length > 2000);
+  const edited = await put(`${base()}/${manifest.id}`, TEST_MATCHING_TOKEN, {
+    documentNumber: manifest.documentNumber,
+    fields: { manifestLines: long },
+  });
+  assert.equal(edited.status, 200);
+
+  const issued = await post(
+    `${base()}/${manifest.id}/issue`,
+    TEST_MATCHING_TOKEN,
+  );
+  assert.equal(issued.status, 201);
+  const pdf = await get(`${base()}/${manifest.id}/pdf`);
+  assert.equal(pdf.status, 200);
+  assert.equal(pdf.headers.get("content-type"), "application/pdf");
+
+  // A sea manifest belongs to sea jobs only.
+  const wrong = await post(
+    `/api/v1/jobs/${airJob}/transport-documents`,
+    TEST_SUPER_ADMIN_TOKEN,
+    { kind: "sea_manifest", fields: {} },
+  );
+  assert.equal(wrong.status, 400);
+  assert.equal(
+    await message(wrong),
+    "Sea cargo manifest cannot be prepared on a air_import job",
+  );
+
+  // The customer of the job reads it once issued; another customer cannot.
+  assert.equal(
+    (await get(`${base()}/${manifest.id}/pdf`, TEST_CUSTOMER_A_TOKEN)).status,
+    200,
+  );
+  assert.equal(
+    (await get(`${base()}/${manifest.id}/pdf`, TEST_CUSTOMER_B_TOKEN)).status,
+    404,
   );
 });

@@ -2219,6 +2219,7 @@ export const transportDocumentKinds = [
   "house_bl",
   "house_awb",
   "air_manifest",
+  "sea_manifest",
 ] as const;
 export type TransportDocumentKind = (typeof transportDocumentKinds)[number];
 
@@ -2226,11 +2227,29 @@ export const transportDocumentTitles: Record<TransportDocumentKind, string> = {
   house_bl: "Transport bill of lading (house B/L)",
   house_awb: "House air waybill (HAWB)",
   air_manifest: "Air cargo manifest",
+  sea_manifest: "Sea cargo manifest",
 };
+
+/** One column of a table field such as a manifest's shipment lines. */
+export interface TableColumn {
+  key: string;
+  label: string;
+  /** Several lines of text in the editor and on the page. */
+  multiline?: boolean;
+  /** Added up in the table's total row. */
+  sum?: boolean;
+  /** Share of the table width, relative to the other columns. */
+  width: number;
+}
 
 export interface TransportDocumentField {
   key: string;
   label: string;
+  /**
+   * A table of rows rather than text: the value is a JSON list of rows keyed
+   * by these columns (see `parseTableRows`).
+   */
+  columns?: TableColumn[];
   /** Several lines of text rather than a single line. */
   multiline?: boolean;
   /** Sits beside its neighbours in the printed grid; multiline fields span the row. */
@@ -2270,7 +2289,7 @@ export const transportDocumentFields: Record<
     line("placeOfDelivery", "Final place of delivery", "Route"),
     line("vessel", "Vessel", "Route"),
     line("voyage", "Voyage", "Route"),
-    block("containers", "Containers and seals (one per line)", "Cargo"),
+    block("containers", "Containers, seals and weights", "Cargo"),
     block(
       "goods",
       "Number and kind of packages, description of goods",
@@ -2323,15 +2342,59 @@ export const transportDocumentFields: Record<
     block("forwardingAgent", "Forwarding agent", "Parties"),
     block("notifyParty", "Notify party", "Parties"),
     block("handlingInformation", "Handling information", "Parties"),
-    block(
-      "shipmentLines",
-      "Shipment details (one house waybill per line: HAWB, packages, weights, volume, goods, origin)",
-      "Cargo",
-    ),
+    {
+      key: "shipmentLines",
+      label: "Shipment details",
+      group: "Cargo",
+      columns: [
+        { key: "hawb", label: "HAWB", width: 1.3 },
+        { key: "packages", label: "Packages", sum: true, width: 0.9 },
+        { key: "grossWeight", label: "Gross weight (kg)", sum: true, width: 1 },
+        {
+          key: "chargeableWeight",
+          label: "Chargeable weight (kg)",
+          sum: true,
+          width: 1.1,
+        },
+        { key: "volume", label: "Volume (CBM)", sum: true, width: 0.9 },
+        {
+          key: "commodity",
+          label: "Commodity description",
+          multiline: true,
+          width: 3,
+        },
+        { key: "origin", label: "Country of origin", width: 1.2 },
+      ],
+    },
     line("departure", "Departure", "Cargo"),
     line("destination", "Destination", "Cargo"),
     line("cargoStatus", "Cargo status", "Cargo"),
     line("preparedBy", "Prepared by", "Cargo"),
+  ],
+  sea_manifest: [
+    block("shipper", "Shipper", "Parties"),
+    block("consignee", "Consignee", "Parties"),
+    line("masterReference", "MBL", "Shipment"),
+    line("vessel", "Vessel and voyage", "Shipment"),
+    line("containerNumber", "Container number", "Shipment"),
+    line("totalPackages", "Total packages", "Shipment"),
+    {
+      key: "manifestLines",
+      label: "Shipment details",
+      group: "Cargo",
+      columns: [
+        { key: "shipper", label: "Shipper", multiline: true, width: 2 },
+        { key: "consignee", label: "Consignee", multiline: true, width: 1.8 },
+        { key: "blNumber", label: "BL number", width: 2.7 },
+        {
+          key: "description",
+          label: "Item description",
+          multiline: true,
+          width: 2.4,
+        },
+        { key: "weightKg", label: "Weight (kg)", sum: true, width: 1 },
+      ],
+    },
   ],
 };
 
@@ -2339,7 +2402,7 @@ export const transportDocumentFields: Record<
 export function transportDocumentKindsFor(
   serviceLine: ServiceLine,
 ): TransportDocumentKind[] {
-  if (serviceLine.startsWith("sea")) return ["house_bl"];
+  if (serviceLine.startsWith("sea")) return ["house_bl", "sea_manifest"];
   if (serviceLine.startsWith("air")) return ["house_awb", "air_manifest"];
   return [];
 }
@@ -2379,6 +2442,146 @@ export type TransportDocumentUpdate = z.infer<
   typeof transportDocumentUpdateSchema
 >;
 
+/** One row of a table field: cell text by column key. */
+export type TableRow = Record<string, string>;
+
+/**
+ * The rows of a table field. The stored value is a JSON list; text from before
+ * the tables existed (one row per line, cells split by `|`) still loads, cells
+ * taken in column order.
+ */
+export function parseTableRows(
+  value: string | undefined,
+  columns: TableColumn[],
+): TableRow[] {
+  const text = (value ?? "").trim();
+  if (!text) return [];
+  if (text.startsWith("[")) {
+    try {
+      const parsed: unknown = JSON.parse(text);
+      if (Array.isArray(parsed)) {
+        return parsed
+          .filter(
+            (row): row is Record<string, unknown> =>
+              typeof row === "object" && row !== null,
+          )
+          .map((row) =>
+            Object.fromEntries(
+              columns.map((column) => [
+                column.key,
+                typeof row[column.key] === "string"
+                  ? (row[column.key] as string)
+                  : "",
+              ]),
+            ),
+          );
+      }
+    } catch {
+      // Not JSON after all: read it as lines.
+    }
+  }
+  return text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const cells = line.split("|").map((cell) => cell.trim());
+      return Object.fromEntries(
+        columns.map((column, index) => [column.key, cells[index] ?? ""]),
+      );
+    });
+}
+
+/** The value to store: rows with at least one filled cell, as JSON; empty text for none. */
+export function formatTableRows(
+  rows: TableRow[],
+  columns: TableColumn[],
+): string {
+  const kept = rows
+    .map((row) =>
+      Object.fromEntries(
+        columns.map((column) => [column.key, (row[column.key] ?? "").trim()]),
+      ),
+    )
+    .filter((row) => Object.values(row).some(Boolean));
+  return kept.length > 0 ? JSON.stringify(kept) : "";
+}
+
+/**
+ * A column added up, or null when no row has a readable number. A cell such
+ * as "259 CTNS" counts as 259; commas are ignored.
+ */
+export function sumTableColumn(rows: TableRow[], key: string): string | null {
+  const values = rows
+    .map((row) => Number.parseFloat((row[key] ?? "").replace(/,/g, "")))
+    .filter((value) => Number.isFinite(value) && value >= 0);
+  if (values.length === 0) return null;
+  return String(
+    Math.round(values.reduce((sum, value) => sum + value, 0) * 1000) / 1000,
+  );
+}
+
+/** One container on a house B/L: number, optional seal and weight in kg. */
+export interface BlContainer {
+  number: string;
+  seal: string;
+  weightKg: string;
+}
+
+/**
+ * The B/L's `containers` text holds one container per line, such as
+ * `MSKU1234567 | Seal 12345 | 12500 kg`; seal and weight are left out when empty.
+ */
+export function formatBlContainers(containers: BlContainer[]): string {
+  return containers
+    .filter((item) => item.number.trim())
+    .map((item) =>
+      [
+        item.number.trim(),
+        item.seal.trim() && `Seal ${item.seal.trim()}`,
+        item.weightKg.trim() && `${item.weightKg.trim()} kg`,
+      ]
+        .filter(Boolean)
+        .join(" | "),
+    )
+    .join("\n");
+}
+
+/** The container weights added up, or null when no row has a readable weight. */
+export function sumBlContainerWeights(
+  containers: BlContainer[],
+): string | null {
+  const weights = containers
+    .filter((item) => item.weightKg.trim() !== "")
+    .map((item) => Number(item.weightKg.replace(/,/g, "").trim()))
+    .filter((value) => Number.isFinite(value) && value >= 0);
+  if (weights.length === 0) return null;
+  const total = weights.reduce((sum, value) => sum + value, 0);
+  return String(Math.round(total * 1000) / 1000);
+}
+
+/** Reads the text back into rows; older lines such as `MSKU1234567, seal 12345` still load. */
+export function parseBlContainers(text: string): BlContainer[] {
+  return text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const row: BlContainer = { number: "", seal: "", weightKg: "" };
+      const parts = line.includes("|")
+        ? line.split("|").map((part) => part.trim())
+        : line.split(/,\s*(?=seal\b)/i).map((part) => part.trim());
+      for (const [index, part] of parts.entries()) {
+        const seal = /^seal\s+(.*)$/i.exec(part);
+        const weight = /^(.*?)\s*kg$/i.exec(part);
+        if (index > 0 && seal) row.seal = seal[1];
+        else if (index > 0 && weight) row.weightKg = weight[1];
+        else if (index === 0) row.number = part;
+      }
+      return row;
+    });
+}
+
 /**
  * Checks the fields of one document: only known fields, trimmed, empty ones
  * dropped, single-line fields up to 300 characters and blocks up to 2000.
@@ -2405,7 +2608,7 @@ export function cleanTransportDocumentFields(
       };
     }
     const value = raw.trim();
-    const limit = field.multiline ? 2000 : 300;
+    const limit = field.columns ? 20000 : field.multiline ? 2000 : 300;
     if (value.length > limit) {
       return {
         success: false,

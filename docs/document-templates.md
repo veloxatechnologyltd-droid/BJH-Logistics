@@ -32,7 +32,7 @@ The supplied transport bill and HBL layouts group:
 - freight prepaid/collect or other carrier terms; and
 - issue date/place, original/release status, carrier/agent signature and stamp.
 
-The air manifest is a consolidated shipment summary, with master/house air-waybill references, route/carrier, parties, handling information, per-house package/weight/volume/cargo rows, totals, cargo status, and certification. Carrier-issued B/L/AWB forms remain source documents; the app may record their metadata or produce a manifest, but should not imitate or issue a carrier form without an approved template and authority.
+The air manifest is a consolidated shipment summary, with master/house air-waybill references, route/carrier, parties, handling information, per-house package/weight/volume/cargo rows, totals, cargo status, and certification. The sea cargo manifest (BJH's "breakdown" sheet, `EVIDENCES/BJH_Breakdown.pdf`) lists the house bills of lading under one master B/L and container: shipper and consignee, MBL, vessel, container number and total packages, then one row per house B/L (shipper, consignee, BL number, item description, weight) with the total weight. Both manifests keep their rows as a table (JSON in the document's `fields`) and print the total row; the air manifest prints landscape like the Athens sample (`EVIDENCES/BJH_Air_Cargo_Manifest_Athens.pdf`) with its certification text. Carrier-issued B/L/AWB forms remain source documents; the app may record their metadata or produce a manifest, but should not imitate or issue a carrier form without an approved template and authority.
 
 ## Proof of delivery
 

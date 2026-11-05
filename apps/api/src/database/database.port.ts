@@ -955,7 +955,7 @@ export interface DocumentExtractionRecord {
 export interface TransportDocumentRecord {
   id: string;
   jobId: string;
-  kind: "house_bl" | "house_awb" | "air_manifest";
+  kind: "house_bl" | "house_awb" | "air_manifest" | "sea_manifest";
   documentNumber: string | null;
   status: "draft" | "issued" | "void";
   fields: Record<string, string>;
