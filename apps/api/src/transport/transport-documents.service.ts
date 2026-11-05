@@ -124,6 +124,33 @@ export class TransportDocumentsService {
     } else if (kind === "house_awb") {
       fields.masterAwb = first("master_awb");
       documentNumber = first("house_awb") ?? null;
+    } else if (kind === "delivery_order" || kind === "proof_of_delivery") {
+      // Both start from the bill of lading; the number follows the B/L's.
+      const blNumber = first("house_bl") ?? first("master_bl");
+      const boxes = references.filter((item) => item.kind === "container");
+      fields.blNumber = blNumber;
+      fields.vesselVoyage = job.vessel ?? undefined;
+      fields.portOfLoading = job.portOfLoading ?? undefined;
+      fields.portOfDischarge = job.portOfDischarge ?? undefined;
+      fields.container =
+        boxes.map((item) => item.value).join(", ") || undefined;
+      fields.seals =
+        boxes
+          .map((item) => item.sealNumber)
+          .filter(Boolean)
+          .join(", ") || undefined;
+      fields.cargoDescription = job.goodsDescription ?? undefined;
+      if (kind === "delivery_order") {
+        fields.addressedTo = "Cargo Custodian / Terminal Operator";
+        fields.issueDate = new Intl.DateTimeFormat("en-GB", {
+          day: "2-digit",
+          month: "long",
+          year: "numeric",
+        }).format(new Date());
+      }
+      if (blNumber) {
+        documentNumber = `BJH/${kind === "delivery_order" ? "DO" : "POD"}/${blNumber}`;
+      }
     } else {
       fields.masterAwb = first("master_awb");
       fields.houseAwb = first("house_awb");

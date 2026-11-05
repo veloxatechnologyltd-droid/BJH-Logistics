@@ -199,7 +199,7 @@ test("a document starts from what the job already holds", async () => {
   assert.equal(unknown.status, 400);
   assert.equal(
     await message(unknown),
-    "kind must be one of house_bl, house_awb, air_manifest, sea_manifest",
+    "kind must be one of house_bl, house_awb, air_manifest, sea_manifest, delivery_order, proof_of_delivery",
   );
 });
 
@@ -221,7 +221,7 @@ test("a draft is edited, numbered and issued; an issued document is frozen", asy
     ],
     [
       { kind: "manifest" },
-      "kind must be one of house_bl, house_awb, air_manifest, sea_manifest",
+      "kind must be one of house_bl, house_awb, air_manifest, sea_manifest, delivery_order, proof_of_delivery",
     ],
     [{ kind: "house_bl", fields: "no" }, "fields must be an object"],
   ];
@@ -620,5 +620,63 @@ test("a sea cargo manifest starts from the job, is issued, and is refused on an 
   assert.equal(
     (await get(`${base()}/${manifest.id}/pdf`, TEST_CUSTOMER_B_TOKEN)).status,
     404,
+  );
+});
+
+test("a delivery order and a proof of delivery start from the B/L, and belong to sea jobs", async () => {
+  const order = await json<Prefill>(
+    await get(`${base()}/prefill?kind=delivery_order`),
+  );
+  // Numbered after the house B/L reference; the date is today's.
+  assert.equal(order.documentNumber, "BJH/DO/SYN-HBL-0001");
+  assert.equal(order.fields.blNumber, "SYN-HBL-0001");
+  assert.equal(order.fields.container, "SYNU1234568");
+  assert.equal(order.fields.seals, "002686");
+  assert.equal(order.fields.consignee, "Synthetic Consignee LLC\nDoral, USA");
+  assert.match(order.fields.issueDate, /^\d{2} [A-Z][a-z]+ \d{4}$/);
+  assert.equal(order.fields.notifyParty, undefined);
+
+  const pod = await json<Prefill>(
+    await get(`${base()}/prefill?kind=proof_of_delivery`),
+  );
+  assert.equal(pod.documentNumber, "BJH/POD/SYN-HBL-0001");
+  assert.equal(pod.fields.issueDate, undefined);
+
+  for (const [kind, prefill] of [
+    ["delivery_order", order],
+    ["proof_of_delivery", pod],
+  ] as const) {
+    const created = await post(base(), TEST_MATCHING_TOKEN, {
+      kind,
+      documentNumber: prefill.documentNumber,
+      fields: { ...prefill.fields, packages: "56", grossWeight: "2840" },
+    });
+    assert.equal(created.status, 201, kind);
+    const document = await json<Doc>(created);
+    assert.equal(document.kind, kind);
+    const issued = await post(
+      `${base()}/${document.id}/issue`,
+      TEST_MATCHING_TOKEN,
+    );
+    assert.equal(issued.status, 201, kind);
+    const pdf = await get(`${base()}/${document.id}/pdf`);
+    assert.equal(pdf.status, 200, kind);
+    assert.equal(pdf.headers.get("content-type"), "application/pdf");
+    // Another customer cannot read it.
+    assert.equal(
+      (await get(`${base()}/${document.id}/pdf`, TEST_CUSTOMER_B_TOKEN)).status,
+      404,
+    );
+  }
+
+  const wrong = await post(
+    `/api/v1/jobs/${airJob}/transport-documents`,
+    TEST_SUPER_ADMIN_TOKEN,
+    { kind: "delivery_order", fields: {} },
+  );
+  assert.equal(wrong.status, 400);
+  assert.equal(
+    await message(wrong),
+    "Delivery order cannot be prepared on a air_import job",
   );
 });
