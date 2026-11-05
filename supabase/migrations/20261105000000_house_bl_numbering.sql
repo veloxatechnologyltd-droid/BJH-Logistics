@@ -40,3 +40,10 @@ $$;
 
 REVOKE ALL ON FUNCTION app.allocate_house_bl_number(integer, text)
   FROM PUBLIC, anon, authenticated;
+
+-- One-off: house B/L drafts prepared before numbering existed get their number now.
+UPDATE app.transport_document
+SET document_number = app.allocate_house_bl_number(
+      extract(year FROM clock_timestamp())::integer, 'BJH/BL'),
+    updated_at = clock_timestamp()
+WHERE kind = 'house_bl' AND status = 'draft' AND document_number IS NULL;
