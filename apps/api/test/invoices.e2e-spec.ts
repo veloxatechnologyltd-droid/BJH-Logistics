@@ -1124,3 +1124,146 @@ test("an invoice keeps the bank accounts ticked from Settings, or the defaults",
     assert.equal(refused.status, 400);
   }
 });
+
+test("an invoice can be made for a client with no job, with its shipment details", async () => {
+  const base = `/api/v1/companies/${companyA}/invoices`;
+  const created = await post(base, TEST_MATCHING_TOKEN, {
+    currency: "GHS",
+    lines: [{ description: "Release charges", amountMinor: 1_000_000 }],
+    shipment: {
+      billOfLading: "TAOF18217600B",
+      vessel: "HMM SKY",
+      goods: "Foton truck",
+      weightKg: "2,840",
+    },
+  });
+  assert.equal(created.status, 201);
+  const draft = (await created.json()) as Invoice & {
+    jobId: string | null;
+    customerCompanyId: string;
+    shipment: { billOfLading: string; weightKg: string; voyage: null } | null;
+  };
+  assert.equal(draft.jobId, null);
+  assert.equal(draft.customerCompanyId, companyA);
+  assert.equal(draft.shipment?.billOfLading, "TAOF18217600B");
+  assert.equal(draft.shipment?.weightKg, "2,840");
+  assert.equal(draft.shipment?.voyage, null);
+
+  // A shipment with every detail empty is no shipment at all.
+  const emptyShipment = (await (
+    await post(base, TEST_MATCHING_TOKEN, {
+      currency: "GHS",
+      lines: [{ description: "Handling", amountMinor: 500 }],
+      shipment: { billOfLading: "  ", goods: "" },
+    })
+  ).json()) as { shipment: unknown };
+  assert.equal(emptyShipment.shipment, null);
+
+  // A draft can be edited, then issued: it gets a number like any invoice.
+  const edited = await put(`${base}/${draft.id}`, TEST_MATCHING_TOKEN, {
+    currency: "GHS",
+    lines: [{ description: "Release charges", amountMinor: 1_000_000 }],
+    shipment: { billOfLading: "TAOF18217600B", goods: "Foton truck" },
+  });
+  assert.equal(edited.status, 200);
+  assert.equal(
+    ((await edited.json()) as { shipment: { weightKg: unknown } }).shipment
+      .weightKg,
+    null,
+  );
+  const issued = await post(
+    `${base}/${draft.id}/issue`,
+    TEST_MATCHING_TOKEN,
+    {},
+  );
+  assert.equal(issued.status, 201);
+  const numbered = (await issued.json()) as Invoice;
+  assert.match(numbered.invoiceNumber ?? "", new RegExp(`^SYN/INV/${year}/`));
+  assert.equal(
+    (
+      await put(`${base}/${draft.id}`, TEST_MATCHING_TOKEN, {
+        currency: "GHS",
+        lines: [],
+      })
+    ).status,
+    409,
+  );
+
+  // Finance's list shows it with no job; the client sees it once issued.
+  const register = (await (
+    await get(`/api/v1/invoices?companyId=${companyA}`)
+  ).json()) as Array<{
+    invoiceId: string;
+    jobId: string | null;
+    fileNumber: string | null;
+  }>;
+  const row = register.find((item) => item.invoiceId === draft.id);
+  assert.equal(row?.jobId, null);
+  assert.equal(row?.fileNumber, null);
+  const own = (await (
+    await get(base, TEST_CUSTOMER_A_TOKEN)
+  ).json()) as Invoice[];
+  assert.deepEqual(
+    own.map((item) => item.id),
+    [draft.id],
+    "the draft with no number and the other draft are not shown",
+  );
+
+  // PDF: staff and the client's own account only.
+  for (const [token, status] of [
+    [TEST_MATCHING_TOKEN, 200],
+    [TEST_CUSTOMER_A_TOKEN, 200],
+    [TEST_CUSTOMER_B_TOKEN, 404],
+  ] as const) {
+    assert.equal((await get(`${base}/${draft.id}/pdf`, token)).status, status);
+  }
+  assert.equal((await get(base, TEST_CUSTOMER_B_TOKEN)).status, 404);
+  assert.equal((await get(base, TEST_UNASSIGNED_TOKEN)).status, 403);
+  assert.equal(
+    (await post(base, TEST_CUSTOMER_A_TOKEN, { currency: "GHS" })).status,
+    403,
+  );
+
+  // A job's address and a client's address are not interchangeable.
+  assert.equal((await get(`/api/v1/jobs/${companyA}/invoices`)).status, 404);
+  assert.equal((await get(`/api/v1/companies/${jobA}/invoices`)).status, 404);
+
+  // Payments work as on a job's invoice, but evidence needs a job's document.
+  const withEvidence = await post(
+    `${base}/${draft.id}/payments`,
+    TEST_MATCHING_TOKEN,
+    {
+      amountMinor: 100,
+      receivedOn: daysFromNow(0),
+      method: "cash",
+      evidenceDocumentId: evidenceOnA,
+    },
+  );
+  assert.equal(withEvidence.status, 400);
+  const paid = await post(`${base}/${draft.id}/payments`, TEST_MATCHING_TOKEN, {
+    amountMinor: 400_000,
+    receivedOn: daysFromNow(0),
+    method: "bank_transfer",
+  });
+  assert.equal(paid.status, 201);
+  const payment = (await paid.json()) as { id: string; receiptNumber: string };
+  assert.match(payment.receiptNumber, new RegExp(`^SYN/RCT/${year}/`));
+  const standing = (await (await get(base)).json()) as Invoice[];
+  assert.equal(
+    standing.find((item) => item.id === draft.id)?.outstandingMinor,
+    numbered.totalMinor - 400_000,
+  );
+  assert.equal(
+    (await get(`${base}/${draft.id}/payments/${payment.id}/receipt`)).status,
+    200,
+  );
+  assert.equal(
+    (
+      await post(`${base}/${draft.id}/void`, TEST_MATCHING_TOKEN, {
+        reason: "Wrong client",
+      })
+    ).status,
+    409,
+    "a standing payment must be reversed first",
+  );
+});

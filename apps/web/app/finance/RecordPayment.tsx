@@ -429,7 +429,7 @@ export function RecordPayment({
                             <span>
                               {row.invoiceNumber}
                               <small>
-                                {row.fileNumber} · owing{" "}
+                                {row.fileNumber ?? "No job"} · owing{" "}
                                 {formatMoney(
                                   row.outstandingMinor,
                                   row.currency,

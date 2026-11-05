@@ -952,7 +952,7 @@ export function invoicesPaymentsDocument(input: {
         ],
         rows: invoices.map(({ fileNumber, customerCompanyName, invoice }) => [
           invoice.invoiceNumber ?? "-",
-          fileNumber,
+          fileNumber ?? "-",
           customerCompanyName,
           day(invoice.issuedAt),
           day(invoice.dueDate),
@@ -980,7 +980,7 @@ export function invoicesPaymentsDocument(input: {
             payment,
           }) => [
             payment.receiptNumber ?? "-",
-            `${invoiceNumber}\n${fileNumber}`,
+            `${invoiceNumber}\n${fileNumber ?? "No job"}`,
             customerCompanyName,
             day(payment.receivedOn),
             methodLabels[payment.method],
@@ -1129,7 +1129,7 @@ export function receivablesDocument(input: {
           .sort((a, b) => a.dueDate!.localeCompare(b.dueDate!))
           .map((row) => [
             row.invoiceNumber,
-            row.fileNumber,
+            row.fileNumber ?? "-",
             row.customerCompanyName,
             day(row.dueDate),
             String(daysBetween(today, row.dueDate!)),

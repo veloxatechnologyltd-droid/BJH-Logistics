@@ -11,6 +11,7 @@ import {
   sendPaymentSummary,
   listCredits,
   listReceipts,
+  invoiceHome,
   sendReceipt,
 } from "../jobs/jobApi";
 import type { CustomerCredit, Receipt } from "../jobs/jobApi";
@@ -106,7 +107,7 @@ export function ReceiptList({ reloadKey = 0 }: { reloadKey?: number }) {
       [first, ...rest]
         .map(
           (r) =>
-            `${r.customerCompanyName} ${r.invoiceNumber} ${r.fileNumber} ${r.receiptNumber} ${r.reference ?? ""}`,
+            `${r.customerCompanyName} ${r.invoiceNumber} ${r.fileNumber ?? ""} ${r.receiptNumber} ${r.reference ?? ""}`,
         )
         .join(" "),
     ),
@@ -198,7 +199,7 @@ export function ReceiptList({ reloadKey = 0 }: { reloadKey?: number }) {
     try {
       const url = URL.createObjectURL(
         await fetchReceiptPdf(
-          receipt.jobId,
+          invoiceHome(receipt),
           receipt.invoiceId,
           receipt.paymentId,
         ),
@@ -215,7 +216,11 @@ export function ReceiptList({ reloadKey = 0 }: { reloadKey?: number }) {
     setError("");
     setNotice("");
     try {
-      await sendReceipt(receipt.jobId, receipt.invoiceId, receipt.paymentId);
+      await sendReceipt(
+        invoiceHome(receipt),
+        receipt.invoiceId,
+        receipt.paymentId,
+      );
       setNotice(
         `Receipt ${receipt.receiptNumber} is on its way to the client.`,
       );
@@ -270,12 +275,16 @@ export function ReceiptList({ reloadKey = 0 }: { reloadKey?: number }) {
           <td data-label="For" data-wide>
             {receipt.invoiceNumber}
             <br />
-            <Link
-              className={styles.link}
-              href={`/finance/jobs/${receipt.jobId}`}
-            >
-              {receipt.fileNumber}
-            </Link>
+            {receipt.jobId ? (
+              <Link
+                className={styles.link}
+                href={`/finance/jobs/${receipt.jobId}`}
+              >
+                {receipt.fileNumber}
+              </Link>
+            ) : (
+              "No job"
+            )}
           </td>
         ) : (
           <td data-label="For" data-wide>
@@ -295,12 +304,16 @@ export function ReceiptList({ reloadKey = 0 }: { reloadKey?: number }) {
                     {formatMoney(row.amountMinor, row.currency)}
                     {row.reversed && " (reversed)"}
                     <br />
-                    <Link
-                      className={styles.link}
-                      href={`/finance/jobs/${row.jobId}`}
-                    >
-                      {row.fileNumber}
-                    </Link>
+                    {row.jobId ? (
+                      <Link
+                        className={styles.link}
+                        href={`/finance/jobs/${row.jobId}`}
+                      >
+                        {row.fileNumber}
+                      </Link>
+                    ) : (
+                      "No job"
+                    )}
                   </li>
                 ))}
               </ul>

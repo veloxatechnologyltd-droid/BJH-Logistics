@@ -235,6 +235,181 @@ export class InvoicesController {
   }
 }
 
+/**
+ * Invoices made for a client with no job (client request, 2026-11-05): the
+ * same actions as a job's invoices, addressed by the client's ID. Customers
+ * read their own company's; finance staff do the rest.
+ */
+@Controller("api/v1/companies/:id/invoices")
+@UseGuards(SupabaseIdentityGuard)
+export class ClientInvoicesController {
+  constructor(
+    @Inject(InvoicesService) private readonly invoices: InvoicesService,
+  ) {}
+
+  @Get()
+  @UseGuards(JobScopeGuard, StaffRolesGuard(financeRoles, { customers: true }))
+  list(@Param("id") id: string, @Req() request: AuthenticatedRequest) {
+    return this.invoices.list({ companyId: id }, scopeOf(request));
+  }
+
+  @Post()
+  @UseGuards(DepartmentStaffGuard, JobScopeGuard, StaffRolesGuard(financeRoles))
+  create(
+    @Param("id") id: string,
+    @Body() body: unknown,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.invoices.create(
+      { companyId: id },
+      body,
+      request.authUser!.userId,
+      scopeOf(request),
+    );
+  }
+
+  @Put(":invoiceId")
+  @UseGuards(DepartmentStaffGuard, JobScopeGuard, StaffRolesGuard(financeRoles))
+  update(
+    @Param("id") id: string,
+    @Param("invoiceId") invoiceId: string,
+    @Body() body: unknown,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.invoices.update(
+      { companyId: id },
+      invoiceId,
+      body,
+      scopeOf(request),
+    );
+  }
+
+  @Post(":invoiceId/issue")
+  @UseGuards(DepartmentStaffGuard, JobScopeGuard, StaffRolesGuard(financeRoles))
+  issue(
+    @Param("id") id: string,
+    @Param("invoiceId") invoiceId: string,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.invoices.issue(
+      { companyId: id },
+      invoiceId,
+      request.authUser!.userId,
+      scopeOf(request),
+    );
+  }
+
+  @Post(":invoiceId/void")
+  @UseGuards(DepartmentStaffGuard, JobScopeGuard, StaffRolesGuard(financeRoles))
+  voidInvoice(
+    @Param("id") id: string,
+    @Param("invoiceId") invoiceId: string,
+    @Body() body: unknown,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.invoices.voidInvoice(
+      { companyId: id },
+      invoiceId,
+      body,
+      request.authUser!.userId,
+      scopeOf(request),
+    );
+  }
+
+  @Get(":invoiceId/pdf")
+  @UseGuards(JobScopeGuard, StaffRolesGuard(financeRoles, { customers: true }))
+  async pdf(
+    @Param("id") id: string,
+    @Param("invoiceId") invoiceId: string,
+    @Req() request: AuthenticatedRequest,
+    @Res() response: BinaryResponse,
+  ): Promise<void> {
+    const { file, filename } = await this.invoices.pdf(
+      { companyId: id },
+      invoiceId,
+      scopeOf(request),
+    );
+    response.setHeader("content-type", "application/pdf");
+    response.setHeader("content-disposition", `inline; filename="${filename}"`);
+    response.setHeader("content-length", String(file.length));
+    response.end(file);
+  }
+
+  @Post(":invoiceId/payments")
+  @UseGuards(DepartmentStaffGuard, JobScopeGuard, StaffRolesGuard(financeRoles))
+  recordPayment(
+    @Param("id") id: string,
+    @Param("invoiceId") invoiceId: string,
+    @Body() body: unknown,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.invoices.recordPayment(
+      { companyId: id },
+      invoiceId,
+      body,
+      request.authUser!.userId,
+      scopeOf(request),
+    );
+  }
+
+  @Get(":invoiceId/payments/:paymentId/receipt")
+  @UseGuards(JobScopeGuard, StaffRolesGuard(financeRoles, { customers: true }))
+  async receipt(
+    @Param("id") id: string,
+    @Param("invoiceId") invoiceId: string,
+    @Param("paymentId") paymentId: string,
+    @Req() request: AuthenticatedRequest,
+    @Res() response: BinaryResponse,
+  ): Promise<void> {
+    const { file, filename } = await this.invoices.receiptPdf(
+      { companyId: id },
+      invoiceId,
+      paymentId,
+      scopeOf(request),
+    );
+    response.setHeader("content-type", "application/pdf");
+    response.setHeader("content-disposition", `inline; filename="${filename}"`);
+    response.setHeader("content-length", String(file.length));
+    response.end(file);
+  }
+
+  @Post(":invoiceId/payments/:paymentId/reverse")
+  @UseGuards(DepartmentStaffGuard, JobScopeGuard, StaffRolesGuard(financeRoles))
+  reversePayment(
+    @Param("id") id: string,
+    @Param("invoiceId") invoiceId: string,
+    @Param("paymentId") paymentId: string,
+    @Body() body: unknown,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.invoices.reversePayment(
+      { companyId: id },
+      invoiceId,
+      paymentId,
+      body,
+      request.authUser!.userId,
+      scopeOf(request),
+    );
+  }
+
+  @Post(":invoiceId/payments/:paymentId/receipt/send")
+  @UseGuards(DepartmentStaffGuard, JobScopeGuard, StaffRolesGuard(financeRoles))
+  sendReceipt(
+    @Param("id") id: string,
+    @Param("invoiceId") invoiceId: string,
+    @Param("paymentId") paymentId: string,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.invoices.sendReceipt(
+      { companyId: id },
+      invoiceId,
+      paymentId,
+      request.authUser!.userId,
+      scopeOf(request),
+    );
+  }
+}
+
 /** Every receipt the caller may see: finance staff, customers their own. */
 @Controller("api/v1/receipts")
 @UseGuards(

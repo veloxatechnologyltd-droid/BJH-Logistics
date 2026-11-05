@@ -1,4 +1,5 @@
 import type {
+  InvoiceShipment,
   BankAccount,
   DocumentType,
   JobStatus,
@@ -455,6 +456,11 @@ export type InvoicePayment = {
 
 export type Invoice = {
   id: string;
+  /** Null for an invoice made for a client with no job. */
+  jobId: string | null;
+  customerCompanyId: string;
+  /** The shipment details printed on the invoice, if any. */
+  shipment: InvoiceShipment | null;
   invoiceNumber: string | null;
   status: "draft" | "issued" | "void";
   currency: string;
@@ -540,8 +546,14 @@ export const acceptInvoice = (
     { signatoryName },
   );
 
+/** What is sent for an invoice's shipment details: only the details filled in. */
+export type InvoiceShipmentInput = Partial<
+  Record<keyof InvoiceShipment, string>
+>;
+
 export type InvoiceDraftInput = {
   currency: string;
+  shipment?: InvoiceShipmentInput | null;
   lines: InvoiceLine[];
   dueDate?: string;
   notes?: string;
@@ -549,10 +561,38 @@ export type InvoiceDraftInput = {
   bankAccountIds?: string[];
 };
 
+/**
+ * Invoices are reached through a "home": a job's ID, or `clientHome(id)` for a
+ * client's own invoices made without a job.
+ */
+export const clientHome = (companyId: string) => `company:${companyId}`;
+/** The home of an invoice row: its job, else its client. */
+export const invoiceHome = (row: {
+  jobId: string | null;
+  customerCompanyId: string;
+}) => row.jobId ?? clientHome(row.customerCompanyId);
+/** Finance's page for one invoice. */
+export const financeInvoicePath = (row: {
+  jobId: string | null;
+  customerCompanyId: string;
+  invoiceId: string;
+}) =>
+  row.jobId
+    ? `/finance/jobs/${row.jobId}/invoices/${row.invoiceId}`
+    : `/finance/clients/${row.customerCompanyId}/invoices/${row.invoiceId}`;
+export const homeCompanyId = (home: string) =>
+  home.startsWith("company:") ? home.slice("company:".length) : null;
+const invoicesPath = (home: string) => {
+  const companyId = homeCompanyId(home);
+  return companyId
+    ? `/companies/${encodeURIComponent(companyId)}/invoices`
+    : `/jobs/${encodeURIComponent(home)}/invoices`;
+};
+
 export const listInvoices = (id: string) =>
-  send<Invoice[]>(`/${encodeURIComponent(id)}/invoices`, "GET");
+  sendApi<Invoice[]>(invoicesPath(id), "GET");
 export const createInvoice = (id: string, input: InvoiceDraftInput) =>
-  send<Invoice>(`/${encodeURIComponent(id)}/invoices`, "POST", input);
+  sendApi<Invoice>(invoicesPath(id), "POST", input);
 /** A job charge an invoice started from charges did not include, and why. */
 export interface ChargeLeftOut {
   description: string;
@@ -567,6 +607,7 @@ export const createInvoiceFromCharges = (
     dueDate?: string;
     notes?: string;
     bankAccountIds?: string[];
+    shipment?: InvoiceShipmentInput | null;
   },
 ) =>
   send<{ invoice: Invoice; skipped: number; leftOut: ChargeLeftOut[] }>(
@@ -579,20 +620,20 @@ export const updateInvoice = (
   invoiceId: string,
   input: InvoiceDraftInput,
 ) =>
-  send<Invoice>(
-    `/${encodeURIComponent(id)}/invoices/${encodeURIComponent(invoiceId)}`,
+  sendApi<Invoice>(
+    `${invoicesPath(id)}/${encodeURIComponent(invoiceId)}`,
     "PUT",
     input,
   );
 export const issueInvoice = (id: string, invoiceId: string) =>
-  send<Invoice>(
-    `/${encodeURIComponent(id)}/invoices/${encodeURIComponent(invoiceId)}/issue`,
+  sendApi<Invoice>(
+    `${invoicesPath(id)}/${encodeURIComponent(invoiceId)}/issue`,
     "POST",
     {},
   );
 export const voidInvoice = (id: string, invoiceId: string, reason: string) =>
-  send<Invoice>(
-    `/${encodeURIComponent(id)}/invoices/${encodeURIComponent(invoiceId)}/void`,
+  sendApi<Invoice>(
+    `${invoicesPath(id)}/${encodeURIComponent(invoiceId)}/void`,
     "POST",
     { reason },
   );
@@ -608,8 +649,8 @@ export const recordInvoicePayment = (
     note?: string;
   },
 ) =>
-  send<InvoicePayment>(
-    `/${encodeURIComponent(id)}/invoices/${encodeURIComponent(invoiceId)}/payments`,
+  sendApi<InvoicePayment>(
+    `${invoicesPath(id)}/${encodeURIComponent(invoiceId)}/payments`,
     "POST",
     input,
   );
@@ -619,8 +660,8 @@ export const reverseInvoicePayment = (
   paymentId: string,
   reason: string,
 ) =>
-  send<InvoicePayment>(
-    `/${encodeURIComponent(id)}/invoices/${encodeURIComponent(invoiceId)}/payments/${encodeURIComponent(paymentId)}/reverse`,
+  sendApi<InvoicePayment>(
+    `${invoicesPath(id)}/${encodeURIComponent(invoiceId)}/payments/${encodeURIComponent(paymentId)}/reverse`,
     "POST",
     { reason },
   );
@@ -629,7 +670,7 @@ export async function fetchInvoicePdf(
   invoiceId: string,
 ): Promise<Blob> {
   const response = await authenticatedFetch(
-    `${jobsUrl}/${encodeURIComponent(id)}/invoices/${encodeURIComponent(invoiceId)}/pdf`,
+    `${apiRoot}${invoicesPath(id)}/${encodeURIComponent(invoiceId)}/pdf`,
   );
   if (!response.ok) throw new Error("The invoice could not be created");
   return response.blob();
@@ -641,7 +682,7 @@ export async function fetchReceiptPdf(
   paymentId: string,
 ): Promise<Blob> {
   const response = await authenticatedFetch(
-    `${jobsUrl}/${encodeURIComponent(id)}/invoices/${encodeURIComponent(invoiceId)}/payments/${encodeURIComponent(paymentId)}/receipt`,
+    `${apiRoot}${invoicesPath(id)}/${encodeURIComponent(invoiceId)}/payments/${encodeURIComponent(paymentId)}/receipt`,
   );
   if (!response.ok) throw new Error("The receipt could not be created");
   return response.blob();
@@ -952,8 +993,9 @@ export async function fetchTransportDocumentPdf(
 export type OutstandingInvoice = {
   invoiceId: string;
   invoiceNumber: string;
-  jobId: string;
-  fileNumber: string;
+  /** Null for an invoice made for a client with no job. */
+  jobId: string | null;
+  fileNumber: string | null;
   customerCompanyId: string;
   customerCompanyName: string;
   currency: string;
@@ -1223,8 +1265,8 @@ export type InvoiceRegisterRow = {
   invoiceNumber: string | null;
   status: "draft" | "issued" | "void";
   paymentStatus: Invoice["paymentStatus"];
-  jobId: string;
-  fileNumber: string;
+  jobId: string | null;
+  fileNumber: string | null;
   customerCompanyId: string;
   customerCompanyName: string;
   currency: string;
@@ -1247,8 +1289,9 @@ export const listAllInvoices = (companyId: string) =>
 export type Receipt = {
   paymentId: string;
   invoiceId: string;
-  jobId: string;
-  fileNumber: string;
+  /** Null for an invoice made for a client with no job. */
+  jobId: string | null;
+  fileNumber: string | null;
   customerCompanyId: string;
   customerCompanyName: string;
   invoiceNumber: string;
@@ -1326,7 +1369,7 @@ export async function fetchInvoiceSummaryPdf(
 
 /** Emails the receipt, PDF attached, to the client's contacts. */
 export const sendReceipt = (id: string, invoiceId: string, paymentId: string) =>
-  send<{ queued: boolean }>(
-    `/${encodeURIComponent(id)}/invoices/${encodeURIComponent(invoiceId)}/payments/${encodeURIComponent(paymentId)}/receipt/send`,
+  sendApi<{ queued: boolean }>(
+    `${invoicesPath(id)}/${encodeURIComponent(invoiceId)}/payments/${encodeURIComponent(paymentId)}/receipt/send`,
     "POST",
   );

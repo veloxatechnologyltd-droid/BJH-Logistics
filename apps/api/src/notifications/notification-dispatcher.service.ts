@@ -289,6 +289,7 @@ export class NotificationDispatcher implements OnModuleInit, OnModuleDestroy {
             false,
           ),
           job,
+          customerCompanyName: job.customerCompanyName,
           settings: settings?.settings ?? null,
         });
     const filename = `${payment.receiptNumber.replace(/[^A-Za-z0-9-]+/g, "-")}.pdf`;

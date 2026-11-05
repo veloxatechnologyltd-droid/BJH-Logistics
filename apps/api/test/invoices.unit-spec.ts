@@ -1,12 +1,18 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { JobRecord } from "../src/database/database.port";
+import type {
+  CustomerCompanyRecord,
+  JobRecord,
+} from "../src/database/database.port";
+import type { InvoiceShipment } from "@bjh/contracts";
+import { amountInWords } from "../src/finance/amount-words";
 import { computeInvoiceTotals } from "../src/finance/invoice-totals";
 import {
   formatInvoiceAmount,
   formatRate,
   invoiceDraftReason,
   renderInvoicePdf,
+  shipmentRows,
 } from "../src/finance/invoice-pdf";
 import {
   renderBatchReceiptPdf,
@@ -108,9 +114,21 @@ const job: JobRecord = {
   expectedCompletionDate: null,
 };
 
+const customer: CustomerCompanyRecord = {
+  id: "company",
+  companyName: "Harbor Demo Ltd",
+  billingAddress: "12 Quay Road, Tema",
+  phone: "+233 24 000 0000",
+  companyEmail: "accounts@harbor.example",
+  createdAt: "2026-09-01T09:00:00.000Z",
+  contacts: [],
+};
+
 const invoice = (over: Partial<InvoiceView> = {}): InvoiceView => ({
   id: "invoice",
   jobId: "job",
+  customerCompanyId: "company",
+  shipment: null,
   invoiceNumber: "SYN/INV/2026/0001",
   status: "issued",
   currency: "GHS",
@@ -189,42 +207,53 @@ function pdfText(file: Buffer): string {
 
 test("an issued invoice prints its lines, tax lines, total and balance", async () => {
   const file = await renderInvoicePdf(
-    { invoice: invoice(), job, settings },
+    { invoice: invoice(), job, customer, settings },
     { compress: false },
   );
   assert.equal(file.subarray(0, 5).toString("latin1"), "%PDF-");
   const text = pdfText(file);
   for (const expected of [
+    "INVOICE",
     "SYN/INV/2026/0001",
+    "BILL TO",
     "Harbor Demo Ltd",
-    "SYN/SI/2026/0001",
+    "12 Quay Road, Tema",
+    "CHARGES",
+    "Amount GHS",
     "Shore handling",
-    "GHS 1,381.90",
+    "1,381.90",
     "NHIL 2.5%",
     "VAT 15%",
-    "GHS 359.67",
-    "GHS 2,877.36",
+    "359.67",
+    "TOTAL AMOUNT DUE",
+    "2,877.36",
     "Balance due",
-    "GHS 1,877.36",
+    "1,877.36",
+    "Two thousand eight hundred and seventy-seven Ghana cedis and thirty-six pesewas only.",
     "Thank you for your business.",
   ]) {
     assert.ok(text.includes(expected), `missing: ${expected}`);
   }
   assert.ok(!text.includes("DRAFT"));
+  assert.ok(!text.includes("SHIPMENT DETAILS"), "no shipment, no table");
 });
 
 test("drafts and unconfigured settings are marked, and void invoices say why", async () => {
-  assert.equal(invoiceDraftReason({ invoice: invoice(), job, settings }), null);
+  assert.equal(
+    invoiceDraftReason({ invoice: invoice(), job, customer, settings }),
+    null,
+  );
   assert.equal(
     invoiceDraftReason({
       invoice: invoice({ status: "draft", invoiceNumber: null }),
       job,
+      customer,
       settings,
     }),
     "Draft - not yet issued",
   );
   assert.equal(
-    invoiceDraftReason({ invoice: invoice(), job, settings: null }),
+    invoiceDraftReason({ invoice: invoice(), job, customer, settings: null }),
     "Draft - business settings not configured",
   );
   const voided = pdfText(
@@ -238,6 +267,7 @@ test("drafts and unconfigured settings are marked, and void invoices say why", a
           paymentStatus: "void",
         }),
         job,
+        customer,
         settings,
       },
       { compress: false },
@@ -249,6 +279,7 @@ test("drafts and unconfigured settings are marked, and void invoices say why", a
       {
         invoice: invoice({ status: "draft", invoiceNumber: null }),
         job,
+        customer,
         settings: null,
       },
       { compress: false },
@@ -281,7 +312,13 @@ const payment = (
 test("a receipt acknowledges the payment and never claims bank verification", async () => {
   const text = pdfText(
     await renderReceiptPdf(
-      { payment: payment(), invoice: invoice(), job, settings },
+      {
+        payment: payment(),
+        invoice: invoice(),
+        job,
+        customerCompanyName: customer.companyName,
+        settings,
+      },
       { compress: false },
     ),
   );
@@ -320,6 +357,7 @@ test("a reversed payment's receipt is stamped with the reason", async () => {
         }),
         invoice: invoice(),
         job,
+        customerCompanyName: customer.companyName,
         settings,
       },
       { compress: false },
@@ -408,20 +446,24 @@ const usdAccount = {
 
 test("an invoice prints the bank account chosen for it, and carries the logo", async () => {
   const file = await renderInvoicePdf(
-    { invoice: invoice({ bankAccounts: [usdAccount] }), job, settings },
+    {
+      invoice: invoice({ bankAccounts: [usdAccount] }),
+      job,
+      customer,
+      settings,
+    },
     { compress: false },
   );
   const text = pdfText(file);
   for (const expected of [
-    "BANK PAYMENT DETAILS",
-    "Synthetic Bank",
-    "Account number",
-    "(USD)",
+    "PAYMENT DETAILS",
+    "SYNTHETIC BANK",
+    "USD account:",
     "0002000200020",
   ]) {
     assert.ok(text.includes(expected), `missing: ${expected}`);
   }
-  assert.ok(!text.includes("SWIFT code"), "an empty detail is left out");
+  assert.ok(!text.includes("SWIFT:"), "an empty detail is left out");
   assert.ok(file.toString("latin1").includes("/Subtype /Image"));
 });
 
@@ -429,7 +471,7 @@ test("an invoice with no chosen account prints the one in its currency, or none"
   const listed = { ...settings, bankAccounts: [usdAccount, ghsAccount] };
   const text = pdfText(
     await renderInvoicePdf(
-      { invoice: invoice(), job, settings: listed },
+      { invoice: invoice(), job, customer, settings: listed },
       { compress: false },
     ),
   );
@@ -439,11 +481,11 @@ test("an invoice with no chosen account prints the one in its currency, or none"
 
   const none = pdfText(
     await renderInvoicePdf(
-      { invoice: invoice(), job, settings },
+      { invoice: invoice(), job, customer, settings },
       { compress: false },
     ),
   );
-  assert.ok(!none.includes("BANK PAYMENT DETAILS"));
+  assert.ok(!none.includes("PAYMENT DETAILS"));
 });
 
 test("an invoice prints several accounts in one box, a bank's currencies together", async () => {
@@ -477,29 +519,31 @@ test("an invoice prints several accounts in one box, a bank's currencies togethe
       {
         invoice: invoice({ bankAccounts: [uba, ubaUsd, momo] }),
         job,
+        customer,
         settings,
       },
       { compress: false },
     ),
   );
-  assert.equal(kept.split("BANK PAYMENT DETAILS").length - 1, 1);
+  assert.equal(kept.split("PAYMENT DETAILS").length - 1, 1);
   for (const expected of [
-    "United Bank for Africa",
+    "UNITED BANK FOR AFRICA",
     "00315953503516",
     "00315953504230",
-    "(GHS)",
-    "(USD)",
+    "GHS account:",
+    "USD account:",
     "MTN Mobile Money",
+    "Number / code:",
     "663057",
   ]) {
     assert.ok(kept.includes(expected), `missing: ${expected}`);
   }
-  assert.equal(kept.split("United Bank for Africa").length - 1, 1);
+  assert.equal(kept.split("UNITED BANK FOR AFRICA").length - 1, 1);
 
   // An older invoice with none kept prints today's defaults, not the other accounts.
   const fallback = pdfText(
     await renderInvoicePdf(
-      { invoice: invoice(), job, settings: listed },
+      { invoice: invoice(), job, customer, settings: listed },
       { compress: false },
     ),
   );
@@ -509,9 +553,110 @@ test("an invoice prints several accounts in one box, a bank's currencies togethe
   // Saved with no account ticked: no box, even though Settings has defaults.
   const none = pdfText(
     await renderInvoicePdf(
-      { invoice: invoice({ bankAccounts: [] }), job, settings: listed },
+      {
+        invoice: invoice({ bankAccounts: [] }),
+        job,
+        customer,
+        settings: listed,
+      },
       { compress: false },
     ),
   );
-  assert.ok(!none.includes("BANK PAYMENT DETAILS"));
+  assert.ok(!none.includes("PAYMENT DETAILS"));
+});
+
+test("amounts are written out in words, with the currency's own names", () => {
+  assert.equal(
+    amountInWords(1_000_000, "GHS"),
+    "Ten thousand Ghana cedis only.",
+  );
+  assert.equal(
+    amountInWords(287_736, "GHS"),
+    "Two thousand eight hundred and seventy-seven Ghana cedis and thirty-six pesewas only.",
+  );
+  assert.equal(amountInWords(100, "USD"), "One US dollar only.");
+  assert.equal(
+    amountInWords(10_000_000_005, "EUR"),
+    "One hundred million euros and five cents only.",
+  );
+  assert.equal(amountInWords(5_000, "XYZ"), "Fifty XYZ only.");
+});
+
+test("shipment details become the sample's rows, and empty ones are left out", () => {
+  assert.deepEqual(shipmentRows(null), []);
+  const shipment = {
+    billOfLading: "TAOF18217600B",
+    billOfLadingDate: "2026-08-25",
+    vessel: "HMM SKY",
+    voyage: "0006W",
+    portOfLoading: "Qingdao",
+    portOfDischarge: "Tema",
+    containerNumbers: "HMMU4059500",
+    containerType: "1 x 40HQ",
+    sealNumbers: "26H0276585",
+    goods: "Foton truck",
+    otherReferences: "Chassis: LVAV2JVB7LE200954",
+    packages: "56",
+    weightKg: "2,840",
+    volumeCbm: "32.96",
+  };
+  assert.deepEqual(shipmentRows(shipment), [
+    ["Bill of lading", "TAOF18217600B | 25 August 2026"],
+    ["Vessel and route", "HMM SKY / 0006W | Qingdao to Tema"],
+    ["Container and seal", "HMMU4059500 | 1 x 40HQ | Seal: 26H0276585"],
+    ["Goods", "Foton truck\nChassis: LVAV2JVB7LE200954"],
+    ["Quantity and weight", "56 packages | 2,840 kg | 32.96 CBM"],
+  ]);
+  const partial = {
+    ...Object.fromEntries(Object.keys(shipment).map((key) => [key, null])),
+    billOfLading: "ABC123",
+    portOfDischarge: "Tema",
+    weightKg: "about 3 tonnes",
+  } as unknown as InvoiceShipment;
+  assert.deepEqual(shipmentRows(partial), [
+    ["Bill of lading", "ABC123"],
+    ["Vessel and route", "To Tema"],
+    ["Quantity and weight", "about 3 tonnes"],
+  ]);
+});
+
+test("an invoice with no job prints its shipment details and bills the client", async () => {
+  const shipment = {
+    billOfLading: "TAOF18217600B",
+    billOfLadingDate: null,
+    vessel: "HMM SKY",
+    voyage: null,
+    portOfLoading: null,
+    portOfDischarge: null,
+    containerNumbers: null,
+    containerType: null,
+    sealNumbers: null,
+    goods: "Foton truck",
+    otherReferences: null,
+    packages: "56",
+    weightKg: null,
+    volumeCbm: null,
+  };
+  const text = pdfText(
+    await renderInvoicePdf(
+      {
+        invoice: invoice({ jobId: null, shipment }),
+        job: null,
+        customer,
+        settings,
+      },
+      { compress: false },
+    ),
+  );
+  for (const expected of [
+    "Harbor Demo Ltd",
+    "SHIPMENT DETAILS",
+    "Bill of lading",
+    "TAOF18217600B",
+    "Foton truck",
+    "56 packages",
+  ]) {
+    assert.ok(text.includes(expected), `missing: ${expected}`);
+  }
+  assert.ok(!text.includes("Job file"));
 });

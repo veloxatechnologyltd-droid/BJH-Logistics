@@ -3,6 +3,7 @@ import type {
   TeamKey,
   TeamTagKind,
   BankAccount,
+  InvoiceShipment,
   BusinessSettings,
   ChargeKind,
   DocumentType,
@@ -483,7 +484,10 @@ export interface InvoiceTotals {
 
 export interface InvoiceRecord extends InvoiceTotals {
   id: string;
-  jobId: string;
+  /** Null for an invoice made without a job. */
+  jobId: string | null;
+  /** The client billed: the job's client when there is a job. */
+  customerCompanyId: string;
   /** Null until the invoice is issued. */
   invoiceNumber: string | null;
   status: "draft" | "issued" | "void";
@@ -494,6 +498,8 @@ export interface InvoiceRecord extends InvoiceTotals {
   notes: string | null;
   /** Details printed on the invoice; null when none was chosen or configured. */
   bankAccounts: BankAccount[] | null;
+  /** The "Shipment details" printed on the invoice; null when none. */
+  shipment: InvoiceShipment | null;
   createdBy: string;
   createdAt: string;
   updatedAt: string;
@@ -697,7 +703,8 @@ export interface InvoicePaymentRecord {
 export interface PaymentBatchLine {
   payment: InvoicePaymentRecord;
   invoiceNumber: string;
-  jobId: string;
+  /** Null for an invoice made without a job. */
+  jobId: string | null;
   /** What the invoice still owes after this payment. */
   balanceMinor: number;
 }
@@ -706,8 +713,8 @@ export interface PaymentBatchLine {
 export interface BatchReceiptLine {
   payment: InvoicePaymentRecord;
   invoiceNumber: string;
-  jobId: string;
-  fileNumber: string;
+  jobId: string | null;
+  fileNumber: string | null;
   customerCompanyId: string;
   customerCompanyName: string;
   currency: string;
@@ -800,15 +807,16 @@ export interface StockMovementRecord {
 }
 
 export interface ReportInvoiceRecord {
-  jobId: string;
-  fileNumber: string;
+  /** Null for an invoice made without a job. */
+  jobId: string | null;
+  fileNumber: string | null;
   customerCompanyName: string;
   invoice: InvoiceRecord;
 }
 
 export interface ReportPaymentRecord {
-  jobId: string;
-  fileNumber: string;
+  jobId: string | null;
+  fileNumber: string | null;
   customerCompanyId: string;
   customerCompanyName: string;
   currency: string;
@@ -1077,8 +1085,8 @@ export interface JobFinanceRecord {
 export interface OutstandingInvoiceRecord {
   invoiceId: string;
   invoiceNumber: string;
-  jobId: string;
-  fileNumber: string;
+  jobId: string | null;
+  fileNumber: string | null;
   customerCompanyId: string;
   customerCompanyName: string;
   currency: string;
@@ -1095,8 +1103,9 @@ export interface InvoiceRegisterRecord {
   /** Null while it is a draft. */
   invoiceNumber: string | null;
   status: "draft" | "issued" | "void";
-  jobId: string;
-  fileNumber: string;
+  /** Null for an invoice made without a job. */
+  jobId: string | null;
+  fileNumber: string | null;
   customerCompanyId: string;
   customerCompanyName: string;
   currency: string;
@@ -1741,7 +1750,9 @@ export abstract class DatabasePort {
     DeliveryRecord | "not_found" | "already_delivered" | "document_invalid"
   >;
   abstract createInvoice(invoice: {
-    jobId: string;
+    jobId: string | null;
+    customerCompanyId: string;
+    shipment: InvoiceShipment | null;
     currency: string;
     lines: InvoiceLineRecord[];
     dueDate: string | null;
@@ -1750,14 +1761,21 @@ export abstract class DatabasePort {
     totals: InvoiceTotals;
     createdBy: string;
   }): Promise<InvoiceRecord>;
-  abstract listInvoices(jobId: string): Promise<InvoiceRecord[]>;
-  /** Every payment on the job's invoices, oldest first, with any reversal. */
-  abstract listInvoicePayments(jobId: string): Promise<InvoicePaymentRecord[]>;
+  /**
+   * The methods below that take an `ownerId` work on one owner's invoices: a
+   * job's, or a client's own for invoices made without a job.
+   */
+  abstract listInvoices(ownerId: string): Promise<InvoiceRecord[]>;
+  /** Every payment on the owner's invoices, oldest first, with any reversal. */
+  abstract listInvoicePayments(
+    ownerId: string,
+  ): Promise<InvoicePaymentRecord[]>;
   abstract updateDraftInvoice(
-    jobId: string,
+    ownerId: string,
     invoiceId: string,
     draft: {
       currency: string;
+      shipment: InvoiceShipment | null;
       lines: InvoiceLineRecord[];
       dueDate: string | null;
       notes: string | null;
@@ -1766,7 +1784,7 @@ export abstract class DatabasePort {
     },
   ): Promise<InvoiceRecord | "not_found" | "not_draft">;
   abstract issueInvoice(
-    jobId: string,
+    ownerId: string,
     invoiceId: string,
     issue: {
       issuedBy: string;
@@ -1776,16 +1794,16 @@ export abstract class DatabasePort {
     },
   ): Promise<InvoiceRecord | "not_found" | "not_draft" | "no_lines">;
   abstract voidInvoice(
-    jobId: string,
+    ownerId: string,
     invoiceId: string,
     voidedBy: string,
     reason: string,
   ): Promise<InvoiceRecord | "not_found" | "already_void" | "has_payments">;
   abstract listInvoiceAcceptances(
-    jobId: string,
+    ownerId: string,
   ): Promise<InvoiceAcceptanceRecord[]>;
   abstract recordInvoiceAcceptance(
-    jobId: string,
+    ownerId: string,
     invoiceId: string,
     acceptance: {
       acceptedBy: string;
@@ -2003,7 +2021,7 @@ export abstract class DatabasePort {
     removedBy: string,
   ): Promise<JobAssignmentRecord | "not_found">;
   abstract recordInvoicePayment(
-    jobId: string,
+    ownerId: string,
     invoiceId: string,
     payment: {
       amountMinor: number;
@@ -2071,7 +2089,7 @@ export abstract class DatabasePort {
     CustomerCreditRecord | "not_found" | "already_reversed" | "applied"
   >;
   abstract reverseInvoicePayment(
-    jobId: string,
+    ownerId: string,
     invoiceId: string,
     paymentId: string,
     reason: string,

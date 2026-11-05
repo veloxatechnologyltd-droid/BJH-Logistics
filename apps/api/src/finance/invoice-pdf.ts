@@ -1,12 +1,16 @@
 import PDFDocument from "pdfkit";
 import { pickBankAccounts } from "@bjh/contracts";
-import type { BusinessSettings } from "@bjh/contracts";
+import type { BusinessSettings, InvoiceShipment } from "@bjh/contracts";
 import { drawLogo } from "../assets/logo";
-import type { JobRecord } from "../database/database.port";
+import type {
+  CustomerCompanyRecord,
+  JobRecord,
+} from "../database/database.port";
 import {
-  bankDetailsHeight,
-  drawBankDetails,
+  drawPaymentDetails,
+  paymentDetailsHeight,
 } from "../settings/bank-details-pdf";
+import { amountInWords } from "./amount-words";
 import type { InvoiceView } from "./invoices.service";
 
 // Same palette as the quote and waybill PDFs.
@@ -23,12 +27,17 @@ const LOGO_HEIGHT = 40;
 // Print type scale (pt): body text 11, small labels 9, footer 9.
 const BODY = 11;
 const LABEL = 9;
+// Text in the invoice's own tables.
+const TEXT = 10;
 // Space kept above the bottom margin for the page footer.
 const FOOTER_SPACE = 24;
 
 export interface InvoicePdfInput {
   invoice: InvoiceView;
-  job: JobRecord;
+  /** Null for an invoice made without a job. */
+  job: JobRecord | null;
+  /** The client billed. */
+  customer: CustomerCompanyRecord;
   /** null until the business settings are configured (D03). */
   settings: BusinessSettings | null;
 }
@@ -44,6 +53,14 @@ export function formatInvoiceAmount(minor: number, currency: string): string {
   })
     .format(minor / 100)
     .replace(/\p{Zs}/gu, " ");
+}
+
+/** 1000000 -> "10,000.00": the table headings already say the currency. */
+function formatAmount(minor: number): string {
+  return new Intl.NumberFormat("en", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(minor / 100);
 }
 
 /** 250 -> "2.5%", 1500 -> "15%". */
@@ -101,261 +118,316 @@ function collect(doc: PDFKit.PDFDocument): Promise<Buffer> {
   });
 }
 
+/** "56" -> "56 packages"; text that already has words is left as typed. */
+function withUnit(value: string, unit: string): string {
+  return /^[\d.,\s]+$/.test(value) ? `${value.trim()}${unit}` : value;
+}
+
+/** The "Shipment details" rows an invoice prints, from what staff entered. */
+export function shipmentRows(
+  shipment: InvoiceShipment | null,
+): Array<[string, string]> {
+  if (!shipment) return [];
+  const join = (parts: Array<string | null>, separator: string) =>
+    parts.filter(Boolean).join(separator);
+  const route =
+    shipment.portOfLoading && shipment.portOfDischarge
+      ? `${shipment.portOfLoading} to ${shipment.portOfDischarge}`
+      : shipment.portOfLoading
+        ? `From ${shipment.portOfLoading}`
+        : shipment.portOfDischarge
+          ? `To ${shipment.portOfDischarge}`
+          : null;
+  const rows: Array<[string, string]> = [
+    [
+      "Bill of lading",
+      join(
+        [
+          shipment.billOfLading,
+          shipment.billOfLadingDate
+            ? formatDate(shipment.billOfLadingDate)
+            : null,
+        ],
+        " | ",
+      ),
+    ],
+    [
+      "Vessel and route",
+      join([join([shipment.vessel, shipment.voyage], " / "), route], " | "),
+    ],
+    [
+      "Container and seal",
+      join(
+        [
+          shipment.containerNumbers,
+          shipment.containerType,
+          shipment.sealNumbers ? `Seal: ${shipment.sealNumbers}` : null,
+        ],
+        " | ",
+      ),
+    ],
+    ["Goods", join([shipment.goods, shipment.otherReferences], "\n")],
+    [
+      "Quantity and weight",
+      join(
+        [
+          shipment.packages ? withUnit(shipment.packages, " packages") : null,
+          shipment.weightKg ? withUnit(shipment.weightKg, " kg") : null,
+          shipment.volumeCbm ? withUnit(shipment.volumeCbm, " CBM") : null,
+        ],
+        " | ",
+      ),
+    ],
+  ];
+  return rows.filter(([, value]) => value !== "");
+}
+
 /** Draws one invoice from the top of the current page (and onto new ones). */
 function drawInvoice(doc: PDFKit.PDFDocument, input: InvoicePdfInput): void {
-  const { invoice, job, settings } = input;
+  const { invoice, customer, settings } = input;
   const issuerName = settings?.issuer.name ?? "Issuer details not configured";
-  const money = (minor: number) => formatInvoiceAmount(minor, invoice.currency);
   const left = PAGE_MARGIN;
   const width = doc.page.width - PAGE_MARGIN * 2;
   const bottom = () => doc.page.height - PAGE_MARGIN - FOOTER_SPACE;
+  const ensure = (height: number) => {
+    if (doc.y + height > bottom()) doc.addPage();
+  };
+  const heading = (title: string) => {
+    ensure(40);
+    doc.font("Helvetica-Bold").fontSize(11).fillColor(PRIMARY);
+    doc.text(title, left, doc.y + 8, { width, characterSpacing: 0.5 });
+    doc.y += 4;
+  };
 
-  // Brand block (logo, then the issuer), invoice number on the right.
-  const logoHeight = drawLogo(doc, left, PAGE_MARGIN, LOGO_HEIGHT);
-  doc.font("Helvetica-Bold").fontSize(20).fillColor(PRIMARY);
-  doc.text(issuerName, left, PAGE_MARGIN + (logoHeight ? logoHeight + 6 : 0), {
-    width: width * 0.58,
+  // Logo on the left, the issuer's details beside it.
+  const logoHeight = drawLogo(doc, left, PAGE_MARGIN, LOGO_HEIGHT * 1.3);
+  const textX = left + width * 0.5;
+  doc.font("Helvetica-Bold").fontSize(9).fillColor(INK);
+  doc.text(issuerName.toUpperCase(), textX, PAGE_MARGIN + 6, {
+    width: width * 0.5,
   });
-  doc.font("Helvetica").fontSize(10).fillColor(MUTED);
+  doc.font("Helvetica").fontSize(9).fillColor(INK);
   const contact = [
     settings?.issuer.address,
-    [settings?.issuer.phone, settings?.issuer.email, settings?.issuer.website]
-      .filter(Boolean)
-      .join("  |  "),
+    settings?.issuer.phone ? `Tel / WhatsApp: ${settings.issuer.phone}` : null,
+    settings?.issuer.email,
+    settings?.issuer.website,
   ].filter(Boolean);
   for (const row of contact) {
-    doc.text(String(row), left, doc.y + 2, { width: width * 0.58 });
+    doc.text(String(row), textX, doc.y + 2, { width: width * 0.5 });
   }
-  const brandBottom = doc.y;
-  doc.font("Helvetica-Bold").fontSize(11).fillColor(PRIMARY);
-  doc.text("INVOICE", left + width * 0.58, PAGE_MARGIN, {
-    width: width * 0.42,
-    align: "right",
-    characterSpacing: 1.5,
-  });
-  doc.font("Helvetica-Bold").fontSize(18).fillColor(INK);
-  doc.text(
+  doc.y = Math.max(doc.y, PAGE_MARGIN + logoHeight) + 10;
+
+  // Title, then the invoice's own details.
+  doc.font("Helvetica-Bold").fontSize(26).fillColor("#000000");
+  doc.text("INVOICE", left, doc.y, { width, align: "center" });
+  doc.y += 4;
+  const detail = (label: string, value: string, x: number, y: number) => {
+    doc.font("Helvetica-Bold").fontSize(TEXT).fillColor("#000000");
+    doc.text(`${label} `, x, y, { continued: true, lineBreak: false });
+    doc.font("Helvetica").text(value, { continued: false, lineBreak: false });
+  };
+  detail(
+    "Invoice no:",
     invoice.invoiceNumber ?? "Not yet numbered",
-    left + width * 0.58,
-    PAGE_MARGIN + 17,
-    { width: width * 0.42, align: "right" },
+    left,
+    doc.y,
   );
-  doc.y = Math.max(brandBottom, PAGE_MARGIN + 42) + 10;
-  doc
-    .moveTo(left, doc.y)
-    .lineTo(left + width, doc.y)
-    .lineWidth(2.5)
-    .strokeColor(PRIMARY)
-    .stroke();
   doc.y += 16;
+  const dateLine = doc.y;
+  detail(
+    "Invoice date:",
+    invoice.issuedAt ? formatDate(invoice.issuedAt) : "Not yet issued",
+    left,
+    dateLine,
+  );
+  detail("Currency:", invoice.currency, left + 215, dateLine);
+  if (invoice.dueDate) {
+    detail("Due date:", formatDate(invoice.dueDate), left + 330, dateLine);
+  }
+  doc.y = dateLine + 18;
 
-  // Metadata grid.
-  const cells: Array<[string, string]> = [
-    ["Bill to", job.customerCompanyName],
-    ["Job file", job.fileNumber],
+  // Bill to.
+  heading("BILL TO");
+  doc.font("Helvetica-Bold").fontSize(TEXT).fillColor("#000000");
+  doc.text(customer.companyName, left, doc.y + 4, { width });
+  doc.font("Helvetica").fontSize(TEXT);
+  const billTo = [
+    customer.billingAddress || customer.businessAddress,
     [
-      "Invoice date",
-      invoice.issuedAt ? formatDate(invoice.issuedAt) : "Not yet issued",
-    ],
-    ["Due date", invoice.dueDate ? formatDate(invoice.dueDate) : "-"],
-  ];
-  const cellWidth = width / 2;
-  const cellHeight = 50;
-  const gridTop = doc.y;
-  cells.forEach(([label, value], index) => {
-    const x = left + (index % 2) * cellWidth;
-    const y = gridTop + Math.floor(index / 2) * cellHeight;
-    doc
-      .lineWidth(0.8)
-      .strokeColor(BORDER)
-      .rect(x, y, cellWidth, cellHeight)
-      .stroke();
-    doc.font("Helvetica").fontSize(LABEL).fillColor(MUTED);
-    doc.text(label.toUpperCase(), x + 10, y + 9, {
-      width: cellWidth - 20,
-      characterSpacing: 0.5,
-    });
-    doc.font("Helvetica-Bold").fontSize(12).fillColor(INK);
-    doc.text(value, x + 10, y + 24, {
-      width: cellWidth - 20,
-      height: 18,
-      ellipsis: true,
-    });
-  });
-  doc.y = gridTop + cellHeight * 2 + 20;
+      customer.phone ? `Tel: ${customer.phone}` : null,
+      customer.companyEmail ? `Email: ${customer.companyEmail}` : null,
+    ]
+      .filter(Boolean)
+      .join(" | "),
+  ].filter(Boolean);
+  for (const row of billTo) doc.text(String(row), left, doc.y + 1, { width });
 
-  // Lines table, framed with column rules.
-  // Description | Qty | Unit price | Amount; Qty and unit price are blank on
-  // a line given as one amount.
-  const columns = [
-    { title: "Description", width: width * 0.44 },
-    { title: "Qty", width: width * 0.1 },
-    { title: `Unit price (${invoice.currency})`, width: width * 0.22 },
-    { title: `Amount (${invoice.currency})`, width: width * 0.24 },
-  ];
+  // Shipment details: a two-column table, only the rows with something in them.
+  const rows = shipmentRows(invoice.shipment);
+  if (rows.length > 0) {
+    heading("SHIPMENT DETAILS");
+    doc.y += 4;
+    const labelWidth = width * 0.3;
+    for (const [label, value] of rows) {
+      doc.font("Helvetica").fontSize(TEXT);
+      const rowHeight =
+        doc.heightOfString(value, { width: width - labelWidth - 20 }) + 12;
+      ensure(rowHeight);
+      const y = doc.y;
+      doc
+        .lineWidth(0.8)
+        .rect(left, y, labelWidth, rowHeight)
+        .fillAndStroke(CANVAS, BORDER);
+      doc
+        .lineWidth(0.8)
+        .strokeColor(BORDER)
+        .rect(left, y, width, rowHeight)
+        .stroke();
+      doc.font("Helvetica-Bold").fontSize(TEXT).fillColor("#000000");
+      doc.text(label, left + 10, y + 6, { width: labelWidth - 20 });
+      doc.font("Helvetica").fillColor("#000000");
+      doc.text(value, left + labelWidth + 10, y + 6, {
+        width: width - labelWidth - 20,
+      });
+      doc.y = y + rowHeight;
+    }
+  }
+
+  // Charges: description, quantity (and unit price when any line has one), amount.
+  heading("CHARGES");
+  doc.y += 4;
+  const priced = (line: InvoiceView["lines"][number]) =>
+    line.quantity !== null &&
+    line.quantity !== undefined &&
+    line.unitAmountMinor !== null &&
+    line.unitAmountMinor !== undefined;
+  const showUnit = invoice.lines.some(priced);
+  const columns = showUnit
+    ? [
+        { title: "Description", width: width * 0.42 },
+        { title: "Quantity", width: width * 0.14 },
+        { title: `Unit price ${invoice.currency}`, width: width * 0.22 },
+        { title: `Amount ${invoice.currency}`, width: width * 0.22 },
+      ]
+    : [
+        { title: "Description", width: width * 0.6 },
+        { title: "Quantity", width: width * 0.18 },
+        { title: `Amount ${invoice.currency}`, width: width * 0.22 },
+      ];
+  const last = columns.length - 1;
   const columnLeft = (index: number) =>
     left + columns.slice(0, index).reduce((sum, item) => sum + item.width, 0);
-  const cell = (index: number, text: string, y: number) =>
-    doc.text(text, columnLeft(index) + 8, y + 8, {
-      width: columns[index].width - 16,
-      align: index === 0 ? "left" : "right",
-    });
   const quantityText = (value: number) =>
     new Intl.NumberFormat("en-GH", { maximumFractionDigits: 3 }).format(value);
-  const headerHeight = 28;
-  let tableTop = doc.y;
-  const drawHeader = () => {
+  const tableRow = (
+    texts: string[],
+    options: { bold?: boolean; fill?: string; height?: number } = {},
+  ) => {
+    doc.font(options.bold ? "Helvetica-Bold" : "Helvetica").fontSize(TEXT);
+    const height =
+      options.height ??
+      doc.heightOfString(texts[0] || " ", { width: columns[0].width - 20 }) +
+        16;
+    ensure(height);
     const y = doc.y;
-    tableTop = y;
-    doc.lineWidth(0.8).rect(left, y, width, headerHeight);
-    doc.fillAndStroke(CANVAS, BORDER);
-    doc.font("Helvetica-Bold").fontSize(10).fillColor(PRIMARY);
-    columns.forEach((column, index) => cell(index, column.title, y + 1));
-    doc.y = y + headerHeight;
+    columns.forEach((column, index) => {
+      const x = columnLeft(index);
+      doc.lineWidth(0.8).rect(x, y, column.width, height);
+      if (options.fill) doc.fillAndStroke(options.fill, BORDER);
+      else doc.strokeColor(BORDER).stroke();
+      doc.font(options.bold ? "Helvetica-Bold" : "Helvetica").fontSize(TEXT);
+      doc.fillColor("#000000");
+      doc.text(texts[index] ?? "", x + 10, y + 6, {
+        width: column.width - 20,
+        align: index >= last ? "right" : "left",
+      });
+    });
+    doc.y = y + height;
   };
-  // Outer frame and column rules from the header down to `to`.
-  const closeTable = (to: number) => {
-    doc.lineWidth(0.8).strokeColor(BORDER);
-    doc.rect(left, tableTop, width, to - tableTop).stroke();
-    for (let index = 1; index < columns.length; index += 1) {
-      doc
-        .moveTo(columnLeft(index), tableTop)
-        .lineTo(columnLeft(index), to)
-        .stroke();
-    }
+  tableRow(
+    columns.map((column) => column.title),
+    { bold: true, fill: CANVAS },
+  );
+  for (const line of invoice.lines) {
+    tableRow([
+      line.description,
+      priced(line) ? quantityText(line.quantity!) : "",
+      ...(showUnit
+        ? [priced(line) ? formatAmount(line.unitAmountMinor!) : ""]
+        : []),
+      formatAmount(line.amountMinor),
+    ]);
+  }
+  const summaryRow = (label: string, value: string, strong: boolean) => {
+    const cells = columns.map(() => "");
+    cells[0] = label;
+    cells[last] = value;
+    tableRow(cells, {
+      bold: strong,
+      fill: strong ? CANVAS : undefined,
+      height: 24,
+    });
   };
-
-  // Totals block, measured first so the table can stretch down to meet it.
-  const totals: Array<[string, string, boolean]> = [
-    ["Subtotal", money(invoice.subtotalMinor), false],
-  ];
   const taxableMinor = invoice.lines
     .filter((line) => line.taxable)
     .reduce((sum, line) => sum + line.amountMinor, 0);
-  if (invoice.taxLines.length > 0 && taxableMinor !== invoice.subtotalMinor) {
-    totals.push(["Taxable amount", money(taxableMinor), false]);
+  if (invoice.taxLines.length > 0) {
+    summaryRow("Subtotal", formatAmount(invoice.subtotalMinor), false);
+    if (taxableMinor !== invoice.subtotalMinor) {
+      summaryRow("Taxable amount", formatAmount(taxableMinor), false);
+    }
+    for (const tax of invoice.taxLines) {
+      summaryRow(
+        `${tax.name} ${formatRate(tax.rateBasisPoints)}`,
+        formatAmount(tax.amountMinor),
+        false,
+      );
+    }
   }
-  for (const tax of invoice.taxLines) {
-    totals.push([
-      `${tax.name} ${formatRate(tax.rateBasisPoints)}`,
-      money(tax.amountMinor),
-      false,
-    ]);
-  }
-  totals.push([`Total ${invoice.currency}`, money(invoice.totalMinor), true]);
+  summaryRow("TOTAL AMOUNT DUE", formatAmount(invoice.totalMinor), true);
   if (invoice.status === "issued" && invoice.paidMinor > 0) {
-    totals.push(["Paid", money(invoice.paidMinor), false]);
-    totals.push(["Balance due", money(invoice.outstandingMinor), true]);
+    summaryRow("Paid", formatAmount(invoice.paidMinor), false);
+    summaryRow("Balance due", formatAmount(invoice.outstandingMinor), true);
   }
-  const showTaxNote =
-    taxableMinor !== invoice.subtotalMinor || invoice.taxLines.length > 0;
-  const totalRowHeight = 24;
-  doc.font("Helvetica").fontSize(BODY);
-  const notesHeight = invoice.notes
-    ? 22 + doc.heightOfString(invoice.notes, { width, lineGap: 2 })
-    : 0;
+  doc.font("Helvetica-Bold").fontSize(10).fillColor("#000000");
+  ensure(24);
+  doc.text("Amount in words: ", left, doc.y + 10, {
+    continued: true,
+    width,
+  });
+  doc
+    .font("Helvetica")
+    .text(amountInWords(invoice.totalMinor, invoice.currency), {
+      continued: false,
+    });
+
+  if (invoice.notes) {
+    heading("NOTES");
+    doc.font("Helvetica").fontSize(TEXT).fillColor("#000000");
+    doc.text(invoice.notes, left, doc.y + 4, { width, lineGap: 2 });
+  }
+
   // Where to pay: the accounts kept on the invoice; an older invoice with
   // none kept prints today's defaults from Settings.
   const bank =
     invoice.bankAccounts ??
     pickBankAccounts(settings?.bankAccounts ?? [], invoice.currency);
-  const bankHeight =
-    bank.length > 0 ? 16 + bankDetailsHeight(doc, bank, width) : 0;
-  const totalsHeight =
-    10 +
-    totals.length * totalRowHeight +
-    (showTaxNote ? 22 : 0) +
-    notesHeight +
-    bankHeight;
-
-  drawHeader();
-  for (const line of invoice.lines) {
-    doc.font("Helvetica").fontSize(BODY);
-    const rowHeight =
-      doc.heightOfString(line.description, { width: columns[0].width - 16 }) +
-      16;
-    if (doc.y + rowHeight > bottom()) {
-      closeTable(doc.y);
-      doc.addPage();
-      drawHeader();
-    }
-    const y = doc.y;
-    doc.font("Helvetica").fontSize(BODY).fillColor(INK);
-    cell(0, line.description, y);
-    const priced =
-      line.quantity !== null &&
-      line.quantity !== undefined &&
-      line.unitAmountMinor !== null &&
-      line.unitAmountMinor !== undefined;
-    cell(1, priced ? quantityText(line.quantity!) : "", y);
-    cell(2, priced ? money(line.unitAmountMinor!) : "", y);
-    cell(3, money(line.amountMinor), y);
-    doc
-      .moveTo(left, y + rowHeight)
-      .lineTo(left + width, y + rowHeight)
-      .lineWidth(0.6)
-      .strokeColor(BORDER)
-      .stroke();
-    doc.y = y + rowHeight;
+  if (bank.length > 0) {
+    // The heading never sits alone at the foot of a page.
+    ensure(40 + paymentDetailsHeight(bank));
+    heading("PAYMENT DETAILS");
+    doc.y += 4;
+    doc.y += drawPaymentDetails(doc, bank, left, doc.y, width);
   }
-
-  // Stretch the table to meet the totals at the foot of the page, so the
-  // printed invoice fills the sheet; if they do not fit, they go overleaf.
-  const fillTo = bottom() - totalsHeight;
-  if (doc.y <= fillTo) {
-    closeTable(fillTo);
-    doc.y = fillTo;
-  } else {
-    closeTable(doc.y);
-    doc.addPage();
-  }
-
-  // Totals, right-aligned under the amount column.
-  doc.y += 10;
-  const labelX = left + width * 0.46;
-  for (const [label, value, strong] of totals) {
-    const y = doc.y;
-    doc
-      .font(strong ? "Helvetica-Bold" : "Helvetica")
-      .fontSize(strong ? 12.5 : BODY);
-    doc.fillColor(strong ? PRIMARY : INK);
-    doc.text(label, labelX + 8, y + 5, {
-      width: width * 0.3,
-      lineBreak: false,
-    });
-    doc.text(value, columnLeft(3) + 8, y + 5, {
-      width: columns[3].width - 16,
-      align: "right",
-      lineBreak: false,
-    });
-    if (strong) {
-      doc
-        .moveTo(labelX, y)
-        .lineTo(left + width, y)
-        .lineWidth(1)
-        .strokeColor(PRIMARY)
-        .stroke();
-    }
-    doc.y = y + totalRowHeight;
-  }
-  if (showTaxNote) {
-    doc.font("Helvetica").fontSize(LABEL).fillColor(MUTED);
-    doc.text(
-      "Each tax line is a percentage of the taxable amount.",
-      left,
-      doc.y + 8,
-      { width },
-    );
-    doc.y += 2;
-  }
-
-  if (invoice.notes) {
-    doc.font("Helvetica-Bold").fontSize(BODY).fillColor(PRIMARY);
-    doc.text("Notes", left, doc.y + 8, { width });
-    doc.font("Helvetica").fontSize(BODY).fillColor(INK);
-    doc.text(invoice.notes, left, doc.y + 2, { width, lineGap: 2 });
-  }
-  if (bank.length > 0) drawBankDetails(doc, bank, left, doc.y + 16, width);
+  doc.font("Helvetica").fontSize(10).fillColor("#000000");
+  ensure(40);
+  doc.text(
+    `Please quote the invoice number when making payment and send the payment confirmation to ${issuerName}.`,
+    left,
+    doc.y + 14,
+    { width },
+  );
 }
 
 /**
@@ -416,7 +488,11 @@ export interface InvoiceSummaryPdfInput {
   companyName: string;
   settings: BusinessSettings | null;
   /** In the order they are listed; each gets its full invoice after the summary. */
-  invoices: Array<{ invoice: InvoiceView; job: JobRecord }>;
+  invoices: Array<{
+    invoice: InvoiceView;
+    job: JobRecord | null;
+    customer: CustomerCompanyRecord;
+  }>;
 }
 
 /**
@@ -524,7 +600,7 @@ export function renderInvoiceSummaryPdf(
     const y = doc.y;
     doc.font("Helvetica").fontSize(10.5).fillColor(INK);
     cell(0, invoice.invoiceNumber ?? "Draft (no number yet)", y);
-    cell(1, job.fileNumber, y);
+    cell(1, job?.fileNumber ?? "-", y);
     cell(2, invoice.dueDate ?? "-", y);
     cell(3, String(invoice.lines.length), y);
     cell(4, statusText(invoice), y);
@@ -592,10 +668,10 @@ export function renderInvoiceSummaryPdf(
   const summaryPages = doc.bufferedPageRange().count;
 
   const spans: Array<[InvoicePdfInput, number, number]> = [];
-  for (const { invoice, job } of invoices) {
+  for (const { invoice, job, customer } of invoices) {
     doc.addPage();
     const start = doc.bufferedPageRange().count - 1;
-    const one = { invoice, job, settings };
+    const one = { invoice, job, customer, settings };
     drawInvoice(doc, one);
     spans.push([one, start, doc.bufferedPageRange().count - start]);
   }

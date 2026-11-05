@@ -1679,9 +1679,46 @@ export const invoiceLineSchema = z
   }));
 export type InvoiceLineInput = z.infer<typeof invoiceLineSchema>;
 
+/**
+ * The shipment an invoice is for, printed as a "Shipment details" table. Staff
+ * type each detail (or it is copied from the job when the invoice is made); a
+ * detail left empty is not printed, and none at all prints no table.
+ */
+export const invoiceShipmentSchema = z
+  .object(
+    {
+      billOfLading: optionalText("bill of lading", 100),
+      billOfLadingDate: isoDate("bill of lading date")
+        .nullish()
+        .transform((value) => value ?? null),
+      vessel: optionalText("vessel", 120),
+      voyage: optionalText("voyage", 60),
+      portOfLoading: optionalText("port of loading", 120),
+      portOfDischarge: optionalText("port of discharge", 120),
+      containerNumbers: optionalText("container numbers", 300),
+      containerType: optionalText("container type", 100),
+      sealNumbers: optionalText("seal numbers", 200),
+      goods: optionalText("goods", 600),
+      otherReferences: optionalText("other references", 300),
+      packages: optionalText("packages", 60),
+      weightKg: optionalText("weight", 60),
+      volumeCbm: optionalText("volume", 60),
+    },
+    objectError("A shipment object is required"),
+  )
+  .transform((value) =>
+    Object.values(value).some((row) => row !== null) ? value : null,
+  );
+export type InvoiceShipment = NonNullable<
+  z.infer<typeof invoiceShipmentSchema>
+>;
+
 export const invoiceInputSchema = z.object(
   {
     currency: currencyCode("currency"),
+    shipment: invoiceShipmentSchema
+      .nullish()
+      .transform((value) => value ?? null),
     lines: z
       .array(invoiceLineSchema, { error: "lines must be a list" })
       .max(100, { error: "An invoice can have at most 100 lines" })

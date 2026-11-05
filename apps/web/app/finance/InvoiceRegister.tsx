@@ -8,6 +8,8 @@ import { FinanceTabs } from "../invoices/FinanceTabs";
 import {
   fetchInvoicePdf,
   fetchInvoiceSummaryPdf,
+  financeInvoicePath,
+  invoiceHome,
   sendInvoiceSummary,
   issueInvoices,
   listAllInvoices,
@@ -146,7 +148,11 @@ export function InvoiceRegister() {
       (row) =>
         matches(row, filter) &&
         (!text ||
-          [row.invoiceNumber ?? "", row.fileNumber, row.customerCompanyName]
+          [
+            row.invoiceNumber ?? "",
+            row.fileNumber ?? "",
+            row.customerCompanyName,
+          ]
             .join(" ")
             .toLowerCase()
             .includes(text)),
@@ -453,12 +459,14 @@ export function InvoiceRegister() {
                               <td className={cards.jobCell}>
                                 <Link
                                   className={styles.link}
-                                  href={`/finance/jobs/${row.jobId}/invoices/${row.invoiceId}`}
+                                  href={financeInvoicePath(row)}
                                 >
                                   {row.invoiceNumber ?? "Draft invoice"}
                                 </Link>
                                 <span className={cards.customerName}>
-                                  job {row.fileNumber}
+                                  {row.fileNumber
+                                    ? `job ${row.fileNumber}`
+                                    : "No job"}
                                 </span>
                               </td>
                               <td data-label="Status">
@@ -497,7 +505,7 @@ export function InvoiceRegister() {
                                 ) : (
                                   <Link
                                     className={styles.textButton}
-                                    href={`/finance/jobs/${row.jobId}/invoices/${row.invoiceId}`}
+                                    href={financeInvoicePath(row)}
                                   >
                                     {row.status === "draft"
                                       ? "Review & issue"
@@ -512,7 +520,7 @@ export function InvoiceRegister() {
                                       onClick={() =>
                                         void openPdf(() =>
                                           fetchInvoicePdf(
-                                            row.jobId,
+                                            invoiceHome(row),
                                             row.invoiceId,
                                           ),
                                         )

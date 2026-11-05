@@ -14,7 +14,9 @@ import {
   createInvoice,
   createInvoiceFromCharges,
   importCharges,
+  clientHome,
   listJobs,
+  listReferences,
   serviceLineLabels,
   statusLabels,
 } from "../jobs/jobApi";
@@ -26,6 +28,13 @@ import { popularCurrencies } from "../settings/business/BusinessSettingsForm";
 import { BankAccountPicker, listedBankAccountIds } from "../BankAccountSelect";
 import { getSettings } from "../settings/business/settingsApi";
 import { plainMessage } from "../ErrorPopup";
+import {
+  ShipmentFields,
+  emptyShipment,
+  shipmentFromJob,
+  shipmentInput,
+} from "./ShipmentFields";
+import type { ShipmentForm } from "./ShipmentFields";
 
 type Start = "quote" | "fresh";
 
@@ -38,8 +47,11 @@ type QuoteFacts = {
 
 /**
  * Starts an invoice from Finance (Evans, 2026-11-04): choose the client,
- * whether it comes from their accepted quote or starts fresh, and which of
- * their jobs it bills. The draft then opens in the job's billing in Finance.
+ * whether it comes from their accepted quote or starts fresh, and, if wanted,
+ * which of their jobs it bills. A job is optional (client request,
+ * 2026-11-05): a fresh invoice can be made for a client with no job, with the
+ * bill of lading and shipment details typed on it. The draft then opens in
+ * Finance.
  */
 export function NewInvoice() {
   const router = useRouter();
@@ -50,6 +62,7 @@ export function NewInvoice() {
   const [jobs, setJobs] = useState<Job[] | null>(null);
   const [start, setStart] = useState<Start>("quote");
   const [jobId, setJobId] = useState("");
+  const [shipment, setShipment] = useState<ShipmentForm>(emptyShipment);
   const [quote, setQuote] = useState<QuoteFacts | null>(null);
   const [currency, setCurrency] = useState("");
   const [containerSize, setContainerSize] = useState("");
@@ -153,12 +166,32 @@ export function NewInvoice() {
       .catch(() => undefined);
   }, [job?.quoteId]);
 
+  // Choosing a job fills the shipment details with what the job already
+  // holds; they can be changed, and no job starts them empty.
+  useEffect(() => {
+    if (!job) {
+      setShipment(emptyShipment());
+      return;
+    }
+    let current = true;
+    listReferences(job.id)
+      .then((references) => {
+        if (current) setShipment(shipmentFromJob(job, references));
+      })
+      .catch(() => {
+        if (current) setShipment(shipmentFromJob(job, []));
+      });
+    return () => {
+      current = false;
+    };
+  }, [job?.id]);
+
   const currencies = configured.length > 0 ? configured : popularCurrencies;
   const fromQuote = start === "quote" && Boolean(job?.quoteId);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!job || !currency) return;
+    if (!currency || (!job && start === "quote")) return;
     setSaving(true);
     setError("");
     try {
@@ -167,8 +200,15 @@ export function NewInvoice() {
         dueDate: dueDate || undefined,
         notes: notes.trim() || undefined,
         bankAccountIds: listedBankAccountIds(bankAccounts, bankChoice),
+        shipment: shipmentInput(shipment),
       };
-      if (fromQuote) {
+      if (!job) {
+        const created = await createInvoice(clientHome(companyId), {
+          ...details,
+          lines: [],
+        });
+        router.push(`/finance/clients/${companyId}/invoices/${created.id}`);
+      } else if (fromQuote) {
         const count = Number(containers);
         // Lines already brought in from the quote are skipped, not doubled.
         await importCharges(
@@ -305,14 +345,28 @@ export function NewInvoice() {
 
           {companyId && (
             <section className={styles.card} aria-labelledby="job-title">
-              <h2 id="job-title">3. Job it bills</h2>
+              <h2 id="job-title">3. Job it bills (optional)</h2>
               {!jobs && <p role="status">Loading the client&apos;s jobs…</p>}
               {jobs && choices.length === 0 && (
                 <p className={styles.muted}>
                   {start === "quote"
                     ? "None of this client's open jobs came from an accepted quote. Choose a fresh invoice instead."
-                    : "This client has no open jobs. An invoice belongs to a job, so open a job first."}
+                    : "This client has no open jobs: the invoice will be made for the client directly."}
                 </p>
+              )}
+              {start === "fresh" && (
+                <label className={styles.choice}>
+                  <input
+                    checked={jobId === ""}
+                    name="job"
+                    onChange={() => setJobId("")}
+                    type="radio"
+                  />
+                  <span>
+                    <strong>No job</strong>
+                    <small>Invoice the client directly, without a job</small>
+                  </span>
+                </label>
               )}
               {choices.map((item) => (
                 <label className={styles.choice} key={item.id}>
@@ -320,7 +374,7 @@ export function NewInvoice() {
                     checked={jobId === item.id}
                     name="job"
                     onChange={() => setJobId(item.id)}
-                    required
+                    required={start === "quote"}
                     type="radio"
                   />
                   <span>
@@ -336,7 +390,7 @@ export function NewInvoice() {
             </section>
           )}
 
-          {job && (
+          {companyId && (job || start === "fresh") && (
             <section className={styles.card} aria-labelledby="details-title">
               <h2 id="details-title">4. Details</h2>
               {fromQuote && quote?.quoteNumber && (
@@ -401,6 +455,7 @@ export function NewInvoice() {
                 onChange={setBankChoice}
                 value={bankChoice}
               />
+              <ShipmentFields onChange={setShipment} value={shipment} />
               <label className={styles.field}>
                 Due date (optional; the payment terms in settings apply
                 otherwise)
@@ -437,7 +492,7 @@ export function NewInvoice() {
               </div>
             </section>
           )}
-          {!job && error && (
+          {!(companyId && (job || start === "fresh")) && error && (
             <p className={styles.error} role="alert">
               {error}
             </p>

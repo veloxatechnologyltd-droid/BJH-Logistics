@@ -914,3 +914,30 @@
     grid-column: 1;
   }
 }
+
+/* An invoice's shipment details: two columns, one on a phone. */
+.shipmentFields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 14px;
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--brand-border);
+  border-radius: 8px;
+}
+.shipmentFields legend {
+  padding: 0 6px;
+  font-weight: 700;
+}
+.shipmentFields > p {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+.shipmentWide {
+  grid-column: 1 / -1;
+}
+@media (max-width: 640px) {
+  .shipmentFields {
+    grid-template-columns: 1fr;
+  }
+}
