@@ -1,4 +1,5 @@
 import PDFDocument from "pdfkit";
+import { drawLogo } from "../assets/logo";
 import {
   transportDocumentFields,
   transportDocumentTitles,
@@ -18,6 +19,7 @@ const BORDER = "#d7e3ed";
 const MARK_RED = "#b3261e";
 
 const PAGE_MARGIN = 40;
+const LOGO_HEIGHT = 32;
 
 // Print type scale (pt): body text 11, small labels 9, footer 9.
 const BODY = 11;
@@ -84,8 +86,16 @@ export function renderTransportDocumentPdf(
   const bottom = () => doc.page.height - PAGE_MARGIN - FOOTER_SPACE;
 
   // Issuer block, document type and number on the right.
-  doc.font("Helvetica-Bold").fontSize(20).fillColor(PRIMARY);
-  doc.text(issuerName, left, PAGE_MARGIN, { width: width * 0.45 });
+  const logoHeight = drawLogo(doc, left, PAGE_MARGIN, LOGO_HEIGHT);
+  // With the logo above it, the name is set smaller so the one-page house
+  // documents still fit on one page.
+  doc
+    .font("Helvetica-Bold")
+    .fontSize(logoHeight ? 14 : 20)
+    .fillColor(PRIMARY);
+  doc.text(issuerName, left, PAGE_MARGIN + (logoHeight ? logoHeight + 4 : 0), {
+    width: width * 0.45,
+  });
   doc.font("Helvetica").fontSize(10).fillColor(MUTED);
   const contact = [
     settings?.issuer.address,
@@ -120,7 +130,7 @@ export function renderTransportDocumentPdf(
       align: "right",
     },
   );
-  doc.y = Math.max(brandBottom, PAGE_MARGIN + 60) + 10;
+  doc.y = Math.max(brandBottom, PAGE_MARGIN + 60) + (logoHeight ? 6 : 10);
   doc
     .moveTo(left, doc.y)
     .lineTo(left + width, doc.y)

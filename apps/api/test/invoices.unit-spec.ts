@@ -120,6 +120,7 @@ const invoice = (over: Partial<InvoiceView> = {}): InvoiceView => ({
   ],
   dueDate: "2026-10-22",
   notes: "Thank you for your business.",
+  bankAccount: null,
   subtotalMinor: 239780,
   taxLines: [
     { name: "NHIL", rateBasisPoints: 250, amountMinor: 5995 },
@@ -385,4 +386,62 @@ test("one payment across several invoices gets one receipt listing them all", as
   );
   assert.ok(partly.includes("(reversed)"));
   assert.ok(!partly.includes("REVERSED - "));
+});
+
+const ghsAccount = {
+  id: "5f0f2b9e-0a53-4f3e-9d57-1a2b3c4d5e01",
+  bankName: "Synthetic Bank",
+  branch: "Main branch",
+  accountName: "Synthetic Forwarding Ltd",
+  accountNumber: "0001000100010",
+  currency: "GHS",
+  swiftCode: "SYNTGHAC",
+  address: "1 Test Road",
+};
+const usdAccount = {
+  ...ghsAccount,
+  id: "5f0f2b9e-0a53-4f3e-9d57-1a2b3c4d5e02",
+  accountNumber: "0002000200020",
+  currency: "USD",
+  swiftCode: null,
+};
+
+test("an invoice prints the bank account chosen for it, and carries the logo", async () => {
+  const file = await renderInvoicePdf(
+    { invoice: invoice({ bankAccount: usdAccount }), job, settings },
+    { compress: false },
+  );
+  const text = pdfText(file);
+  for (const expected of [
+    "BANK PAYMENT DETAILS",
+    "Synthetic Bank",
+    "Account number",
+    "(USD)",
+    "0002000200020",
+  ]) {
+    assert.ok(text.includes(expected), `missing: ${expected}`);
+  }
+  assert.ok(!text.includes("SWIFT code"), "an empty detail is left out");
+  assert.ok(file.toString("latin1").includes("/Subtype /Image"));
+});
+
+test("an invoice with no chosen account prints the one in its currency, or none", async () => {
+  const listed = { ...settings, bankAccounts: [usdAccount, ghsAccount] };
+  const text = pdfText(
+    await renderInvoicePdf(
+      { invoice: invoice(), job, settings: listed },
+      { compress: false },
+    ),
+  );
+  assert.ok(text.includes("0001000100010"), "the GHS account");
+  assert.ok(text.includes("SYNTGHAC"));
+  assert.ok(!text.includes("0002000200020"), "not the USD account");
+
+  const none = pdfText(
+    await renderInvoicePdf(
+      { invoice: invoice(), job, settings },
+      { compress: false },
+    ),
+  );
+  assert.ok(!none.includes("BANK PAYMENT DETAILS"));
 });

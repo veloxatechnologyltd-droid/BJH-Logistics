@@ -9,6 +9,7 @@ import {
   serviceLineKeys,
   serviceLinesForRoles,
   parseContract,
+  pickBankAccount,
   quoteRequestInputSchema,
   quoteVersionInputSchema,
   staffCreateInputSchema,
@@ -270,4 +271,27 @@ test("dates that do not exist are refused, not rolled into the next month", () =
     });
   assert.equal(task("2026-11-30"), "ok");
   assert.equal(task("2026-02-30"), "dueDate must be a date (YYYY-MM-DD)");
+});
+
+test("a document starts on the chosen bank account, else the first in its currency, else none", () => {
+  const account = (id: string, currency: string) => ({
+    id,
+    bankName: "Synthetic Bank",
+    branch: null,
+    accountName: "Synthetic Ltd",
+    accountNumber: id,
+    currency,
+    swiftCode: null,
+    address: null,
+  });
+  const accounts = [
+    account("ghs-1", "GHS"),
+    account("usd-1", "USD"),
+    account("usd-2", "USD"),
+  ];
+  assert.equal(pickBankAccount(accounts, "USD")?.id, "usd-1");
+  assert.equal(pickBankAccount(accounts, "USD", "usd-2")?.id, "usd-2");
+  assert.equal(pickBankAccount(accounts, "GHS", "usd-2")?.id, "usd-2");
+  assert.equal(pickBankAccount(accounts, "EUR"), null);
+  assert.equal(pickBankAccount([], "USD"), null);
 });

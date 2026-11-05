@@ -28,6 +28,18 @@ export const popularCurrencies = [
 
 type TaxRow = { name: string; rate: string };
 
+/** One bank account in the form; `id` stays the same across saves so documents can point at it. */
+type BankRow = {
+  id: string;
+  bankName: string;
+  branch: string;
+  accountName: string;
+  accountNumber: string;
+  currency: string;
+  swiftCode: string;
+  address: string;
+};
+
 const toLines = (text: string) =>
   text
     .split("\n")
@@ -54,6 +66,7 @@ export function BusinessSettingsForm() {
   const [website, setWebsite] = useState("");
   const [currencies, setCurrencies] = useState("");
   const [taxes, setTaxes] = useState<TaxRow[]>([]);
+  const [banks, setBanks] = useState<BankRow[]>([]);
   const [terms, setTerms] = useState("");
   const [quotePrefix, setQuotePrefix] = useState("BJH/Q");
   const [invoicePrefix, setInvoicePrefix] = useState("BJH/INV");
@@ -95,6 +108,18 @@ export function BusinessSettingsForm() {
       settings.taxLines.map((line) => ({
         name: line.name,
         rate: String(line.rateBasisPoints / 100),
+      })),
+    );
+    setBanks(
+      (settings.bankAccounts ?? []).map((account) => ({
+        id: account.id,
+        bankName: account.bankName,
+        branch: account.branch ?? "",
+        accountName: account.accountName,
+        accountNumber: account.accountNumber,
+        currency: account.currency,
+        swiftCode: account.swiftCode ?? "",
+        address: account.address ?? "",
       })),
     );
     setTerms(
@@ -165,6 +190,7 @@ export function BusinessSettingsForm() {
           name: row.name,
           rateBasisPoints: rates[index],
         })),
+        bankAccounts: banks,
         paymentTermsDays: terms.trim() === "" ? null : Number(terms),
         numbering: {
           quotePrefix,
@@ -327,6 +353,103 @@ export function BusinessSettingsForm() {
                     type="button"
                   >
                     Add a tax line
+                  </button>
+                </div>
+
+                <h2>Bank accounts</h2>
+                <p className={styles.muted}>
+                  Printed on quotes and invoices. Whoever prepares one picks the
+                  account; it starts on the account in the document&apos;s
+                  currency.
+                </p>
+                {banks.map((row, index) => {
+                  const change = (patch: Partial<BankRow>) =>
+                    setBanks((current) =>
+                      current.map((item, at) =>
+                        at === index ? { ...item, ...patch } : item,
+                      ),
+                    );
+                  return (
+                    <div className={styles.card} key={row.id}>
+                      {text(
+                        "Bank name",
+                        row.bankName,
+                        (value) => change({ bankName: value }),
+                        true,
+                      )}
+                      {text("Branch", row.branch, (value) =>
+                        change({ branch: value }),
+                      )}
+                      {text(
+                        "Account name",
+                        row.accountName,
+                        (value) => change({ accountName: value }),
+                        true,
+                      )}
+                      {text(
+                        "Account number",
+                        row.accountNumber,
+                        (value) => change({ accountNumber: value }),
+                        true,
+                      )}
+                      <label className={styles.field}>
+                        Currency of the account
+                        <select
+                          onChange={(event) =>
+                            change({ currency: event.target.value })
+                          }
+                          value={row.currency}
+                        >
+                          {[...new Set([...currencyOptions, row.currency])].map(
+                            (code) => (
+                              <option key={code} value={code}>
+                                {code}
+                              </option>
+                            ),
+                          )}
+                        </select>
+                      </label>
+                      {text("SWIFT code (optional)", row.swiftCode, (value) =>
+                        change({ swiftCode: value }),
+                      )}
+                      {text("Address (optional)", row.address, (value) =>
+                        change({ address: value }),
+                      )}
+                      <button
+                        className={styles.secondaryButton}
+                        onClick={() =>
+                          setBanks((current) =>
+                            current.filter((_, at) => at !== index),
+                          )
+                        }
+                        type="button"
+                      >
+                        Remove bank account
+                      </button>
+                    </div>
+                  );
+                })}
+                <div className={styles.actions}>
+                  <button
+                    className={styles.secondaryButton}
+                    onClick={() =>
+                      setBanks((current) => [
+                        ...current,
+                        {
+                          id: crypto.randomUUID(),
+                          bankName: "",
+                          branch: "",
+                          accountName: name,
+                          accountNumber: "",
+                          currency: selectedCurrencies[0] ?? "GHS",
+                          swiftCode: "",
+                          address: "",
+                        },
+                      ])
+                    }
+                    type="button"
+                  >
+                    Add a bank account
                   </button>
                 </div>
 

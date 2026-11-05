@@ -97,6 +97,7 @@ type Invoice = {
   }>;
   taxTotalMinor: number;
   totalMinor: number;
+  bankAccount: { id: string; bankName: string; accountNumber: string } | null;
   paidMinor: number;
   outstandingMinor: number;
   paymentStatus: string;
@@ -999,5 +1000,95 @@ test("a line can be a quantity times a unit price; the amount is worked out", as
     );
     assert.equal(refused.status, 400, expected);
     assert.equal(await message(refused), expected);
+  }
+});
+
+const bankAccounts = [
+  {
+    id: "5f0f2b9e-0a53-4f3e-9d57-1a2b3c4d5e01",
+    bankName: "Synthetic Bank",
+    branch: "Main branch",
+    accountName: "Synthetic Forwarding Ltd",
+    accountNumber: "0001000100010",
+    currency: "GHS",
+    swiftCode: "SYNTGHAC",
+  },
+  {
+    id: "5f0f2b9e-0a53-4f3e-9d57-1a2b3c4d5e02",
+    bankName: "Synthetic Bank",
+    accountName: "Synthetic Forwarding Ltd",
+    accountNumber: "0002000200020",
+    currency: "USD",
+  },
+];
+
+test("an invoice keeps the bank account chosen from Settings, or the one in its currency", async () => {
+  const [ghs, usd] = bankAccounts;
+  const saved = await put(
+    "/api/v1/settings",
+    TEST_SUPER_ADMIN_TOKEN,
+    settings({ bankAccounts }),
+  );
+  assert.equal(saved.status, 200);
+
+  const job = await openJob(companyA);
+  const create = (body: Record<string, unknown>) =>
+    post(`/api/v1/jobs/${job}/invoices`, TEST_MATCHING_TOKEN, body);
+
+  // Not chosen: the account in the invoice's currency.
+  const automatic = (await (
+    await create({ currency: "USD" })
+  ).json()) as Invoice;
+  assert.equal(automatic.bankAccount?.id, usd.id);
+
+  // Chosen: that account, even in another currency.
+  const chosen = (await (
+    await create({ currency: "GHS", bankAccountId: usd.id })
+  ).json()) as Invoice;
+  assert.equal(chosen.bankAccount?.accountNumber, usd.accountNumber);
+
+  // The browser sends an id, never details; an id Settings does not list is refused.
+  const unknown = await create({
+    currency: "GHS",
+    bankAccountId: "5f0f2b9e-0a53-4f3e-9d57-1a2b3c4d5eff",
+  });
+  assert.equal(unknown.status, 400);
+  assert.match(await message(unknown), /not in Settings/);
+
+  // Editing the account in Settings leaves the invoice as it was prepared.
+  await put(
+    "/api/v1/settings",
+    TEST_SUPER_ADMIN_TOKEN,
+    settings({
+      bankAccounts: [{ ...ghs, bankName: "Renamed Bank" }, usd],
+    }),
+  );
+  const unchanged = (await invoicesOf(job)).find(
+    (item) => item.id === automatic.id,
+  );
+  assert.equal(unchanged?.bankAccount?.bankName, "Synthetic Bank");
+
+  // Saving the draft again, with no choice sent, goes back to the automatic pick.
+  const resaved = await put(
+    `/api/v1/jobs/${job}/invoices/${chosen.id}`,
+    TEST_MATCHING_TOKEN,
+    { currency: "GHS" },
+  );
+  assert.equal(
+    ((await resaved.json()) as Invoice).bankAccount?.bankName,
+    "Renamed Bank",
+  );
+
+  // A bad list is refused: repeated ids, missing details.
+  for (const list of [
+    [ghs, { ...usd, id: ghs.id }],
+    [{ ...ghs, accountNumber: "" }],
+  ]) {
+    const refused = await put(
+      "/api/v1/settings",
+      TEST_SUPER_ADMIN_TOKEN,
+      settings({ bankAccounts: list }),
+    );
+    assert.equal(refused.status, 400);
   }
 });

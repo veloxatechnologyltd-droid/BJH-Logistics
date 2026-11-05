@@ -1,6 +1,12 @@
 import PDFDocument from "pdfkit";
+import { pickBankAccount } from "@bjh/contracts";
 import type { BusinessSettings } from "@bjh/contracts";
+import { drawLogo } from "../assets/logo";
 import type { JobRecord } from "../database/database.port";
+import {
+  bankDetailsHeight,
+  drawBankDetails,
+} from "../settings/bank-details-pdf";
 import type { InvoiceView } from "./invoices.service";
 
 // Same palette as the quote and waybill PDFs.
@@ -12,6 +18,7 @@ const CANVAS = "#f4f8fc";
 const MARK_RED = "#b3261e";
 
 const PAGE_MARGIN = 40;
+const LOGO_HEIGHT = 40;
 
 // Print type scale (pt): body text 11, small labels 9, footer 9.
 const BODY = 11;
@@ -103,9 +110,12 @@ function drawInvoice(doc: PDFKit.PDFDocument, input: InvoicePdfInput): void {
   const width = doc.page.width - PAGE_MARGIN * 2;
   const bottom = () => doc.page.height - PAGE_MARGIN - FOOTER_SPACE;
 
-  // Brand block, invoice number on the right.
+  // Brand block (logo, then the issuer), invoice number on the right.
+  const logoHeight = drawLogo(doc, left, PAGE_MARGIN, LOGO_HEIGHT);
   doc.font("Helvetica-Bold").fontSize(20).fillColor(PRIMARY);
-  doc.text(issuerName, left, PAGE_MARGIN, { width: width * 0.58 });
+  doc.text(issuerName, left, PAGE_MARGIN + (logoHeight ? logoHeight + 6 : 0), {
+    width: width * 0.58,
+  });
   doc.font("Helvetica").fontSize(10).fillColor(MUTED);
   const contact = [
     settings?.issuer.address,
@@ -244,8 +254,17 @@ function drawInvoice(doc: PDFKit.PDFDocument, input: InvoicePdfInput): void {
   const notesHeight = invoice.notes
     ? 22 + doc.heightOfString(invoice.notes, { width, lineGap: 2 })
     : 0;
+  // Where to pay: the account chosen on the invoice, else the one in its currency.
+  const bank =
+    invoice.bankAccount ??
+    pickBankAccount(settings?.bankAccounts ?? [], invoice.currency);
+  const bankHeight = bank ? 16 + bankDetailsHeight(doc, bank, width) : 0;
   const totalsHeight =
-    10 + totals.length * totalRowHeight + (showTaxNote ? 22 : 0) + notesHeight;
+    10 +
+    totals.length * totalRowHeight +
+    (showTaxNote ? 22 : 0) +
+    notesHeight +
+    bankHeight;
 
   drawHeader();
   for (const line of invoice.lines) {
@@ -334,6 +353,7 @@ function drawInvoice(doc: PDFKit.PDFDocument, input: InvoicePdfInput): void {
     doc.font("Helvetica").fontSize(BODY).fillColor(INK);
     doc.text(invoice.notes, left, doc.y + 2, { width, lineGap: 2 });
   }
+  if (bank) drawBankDetails(doc, bank, left, doc.y + 16, width);
 }
 
 /**
@@ -423,8 +443,11 @@ export function renderInvoiceSummaryPdf(
   const width = doc.page.width - PAGE_MARGIN * 2;
   const bottom = () => doc.page.height - PAGE_MARGIN - FOOTER_SPACE;
 
+  const logoHeight = drawLogo(doc, left, PAGE_MARGIN, LOGO_HEIGHT);
   doc.font("Helvetica-Bold").fontSize(20).fillColor(PRIMARY);
-  doc.text(issuerName, left, PAGE_MARGIN, { width: width * 0.58 });
+  doc.text(issuerName, left, PAGE_MARGIN + (logoHeight ? logoHeight + 6 : 0), {
+    width: width * 0.58,
+  });
   const brandBottom = doc.y;
   doc.font("Helvetica-Bold").fontSize(11).fillColor(PRIMARY);
   doc.text("INVOICE SUMMARY", left + width * 0.5, PAGE_MARGIN, {
