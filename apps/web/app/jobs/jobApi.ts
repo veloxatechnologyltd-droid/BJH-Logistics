@@ -461,7 +461,7 @@ export type Invoice = {
   lines: InvoiceLine[];
   dueDate: string | null;
   notes: string | null;
-  bankAccount: BankAccount | null;
+  bankAccounts: BankAccount[] | null;
   subtotalMinor: number;
   taxLines: Array<{
     name: string;
@@ -546,7 +546,7 @@ export type InvoiceDraftInput = {
   dueDate?: string;
   notes?: string;
   /** One of the Settings accounts; left out, the invoice uses the one in its currency. */
-  bankAccountId?: string;
+  bankAccountIds?: string[];
 };
 
 export const listInvoices = (id: string) =>
@@ -566,7 +566,7 @@ export const createInvoiceFromCharges = (
     currency: string;
     dueDate?: string;
     notes?: string;
-    bankAccountId?: string;
+    bankAccountIds?: string[];
   },
 ) =>
   send<{ invoice: Invoice; skipped: number; leftOut: ChargeLeftOut[] }>(

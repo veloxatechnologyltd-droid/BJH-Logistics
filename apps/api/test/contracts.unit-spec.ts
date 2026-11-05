@@ -9,7 +9,7 @@ import {
   serviceLineKeys,
   serviceLinesForRoles,
   parseContract,
-  pickBankAccount,
+  pickBankAccounts,
   quoteRequestInputSchema,
   quoteVersionInputSchema,
   staffCreateInputSchema,
@@ -273,8 +273,8 @@ test("dates that do not exist are refused, not rolled into the next month", () =
   assert.equal(task("2026-02-30"), "dueDate must be a date (YYYY-MM-DD)");
 });
 
-test("a document starts on the chosen bank account, else the first in its currency, else none", () => {
-  const account = (id: string, currency: string) => ({
+test("a document prints the chosen bank accounts, else the defaults, else the first in its currency, else none", () => {
+  const account = (id: string, currency: string, isDefault?: boolean) => ({
     id,
     bankName: "Synthetic Bank",
     branch: null,
@@ -283,15 +283,36 @@ test("a document starts on the chosen bank account, else the first in its curren
     currency,
     swiftCode: null,
     address: null,
+    isDefault,
   });
-  const accounts = [
+  const ids = (list: Array<{ id: string }>) => list.map((item) => item.id);
+  const plain = [
     account("ghs-1", "GHS"),
     account("usd-1", "USD"),
     account("usd-2", "USD"),
   ];
-  assert.equal(pickBankAccount(accounts, "USD")?.id, "usd-1");
-  assert.equal(pickBankAccount(accounts, "USD", "usd-2")?.id, "usd-2");
-  assert.equal(pickBankAccount(accounts, "GHS", "usd-2")?.id, "usd-2");
-  assert.equal(pickBankAccount(accounts, "EUR"), null);
-  assert.equal(pickBankAccount([], "USD"), null);
+  // No default marked and nothing ticked: the first account in the currency.
+  assert.deepEqual(ids(pickBankAccounts(plain, "USD")), ["usd-1"]);
+  assert.deepEqual(ids(pickBankAccounts(plain, "EUR")), []);
+  assert.deepEqual(ids(pickBankAccounts([], "USD")), []);
+
+  // Defaults are all printed, whatever the document's currency.
+  const marked = [
+    account("ghs-1", "GHS", true),
+    account("usd-1", "USD", false),
+    account("usd-2", "USD", true),
+  ];
+  assert.deepEqual(ids(pickBankAccounts(marked, "EUR")), ["ghs-1", "usd-2"]);
+  assert.deepEqual(ids(pickBankAccounts(marked, "USD", null)), [
+    "ghs-1",
+    "usd-2",
+  ]);
+
+  // Ticked accounts win over defaults, in the Settings order; none ticked is none.
+  assert.deepEqual(ids(pickBankAccounts(marked, "GHS", ["usd-2", "usd-1"])), [
+    "usd-1",
+    "usd-2",
+  ]);
+  assert.deepEqual(ids(pickBankAccounts(marked, "GHS", [])), []);
+  assert.deepEqual(ids(pickBankAccounts(marked, "GHS", ["gone"])), []);
 });

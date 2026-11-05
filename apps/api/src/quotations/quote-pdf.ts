@@ -1,6 +1,6 @@
 import PDFDocument from "pdfkit";
 import {
-  pickBankAccount,
+  pickBankAccounts,
   quoteBasisLabels,
   quoteLineTotalMinor,
 } from "@bjh/contracts";
@@ -405,11 +405,12 @@ export function renderQuotePdf(
     }
   }
 
-  // Where to pay: the account chosen on the quote, else the one in its currency.
+  // Where to pay: the accounts kept on the quote; an older version with none
+  // kept prints today's defaults from Settings.
   const bank =
-    version.bankAccount ??
-    pickBankAccount(settings?.bankAccounts ?? [], version.currency);
-  if (bank) {
+    version.bankAccounts ??
+    pickBankAccounts(settings?.bankAccounts ?? [], version.currency);
+  if (bank.length > 0) {
     const bankHeight = bankDetailsHeight(doc, bank, width);
     ensure(bankHeight + 24);
     doc.moveDown(1);

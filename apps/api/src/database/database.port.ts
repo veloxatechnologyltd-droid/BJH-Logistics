@@ -285,9 +285,9 @@ export interface QuoteLineRecord {
   sizeAmountsMinor: number[] | null;
 }
 
-/** A quote version as saved: what staff entered plus the bank account copied from Settings. */
+/** A quote version as saved: what staff entered plus the bank accounts copied from Settings. */
 export type QuoteVersionContent = QuoteVersionInput & {
-  bankAccount: BankAccount | null;
+  bankAccounts: BankAccount[] | null;
 };
 
 export interface QuoteVersionRecord {
@@ -306,8 +306,8 @@ export interface QuoteVersionRecord {
   timeline: string | null;
   terms: string[];
   sizeLabels: string[];
-  /** Details printed on the quote; null when none was chosen or configured. */
-  bankAccount: BankAccount | null;
+  /** Details printed on the quote; null on a version made before bank accounts existed, empty when none is printed. */
+  bankAccounts: BankAccount[] | null;
   /** Null when the email assistant drafted this version. */
   createdBy: string | null;
   createdByAssistant: boolean;
@@ -493,7 +493,7 @@ export interface InvoiceRecord extends InvoiceTotals {
   dueDate: string | null;
   notes: string | null;
   /** Details printed on the invoice; null when none was chosen or configured. */
-  bankAccount: BankAccount | null;
+  bankAccounts: BankAccount[] | null;
   createdBy: string;
   createdAt: string;
   updatedAt: string;
@@ -1746,7 +1746,7 @@ export abstract class DatabasePort {
     lines: InvoiceLineRecord[];
     dueDate: string | null;
     notes: string | null;
-    bankAccount: BankAccount | null;
+    bankAccounts: BankAccount[] | null;
     totals: InvoiceTotals;
     createdBy: string;
   }): Promise<InvoiceRecord>;
@@ -1761,7 +1761,7 @@ export abstract class DatabasePort {
       lines: InvoiceLineRecord[];
       dueDate: string | null;
       notes: string | null;
-      bankAccount: BankAccount | null;
+      bankAccounts: BankAccount[] | null;
       totals: InvoiceTotals;
     },
   ): Promise<InvoiceRecord | "not_found" | "not_draft">;

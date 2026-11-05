@@ -32,7 +32,7 @@ export type QuoteVersion = {
   timeline: string | null;
   terms: string[];
   sizeLabels: string[];
-  bankAccount: BankAccount | null;
+  bankAccounts: BankAccount[] | null;
   issuedAt: string | null;
   lines: QuoteLine[];
 };
@@ -86,7 +86,7 @@ export type QuoteVersionBody = {
   terms: string[];
   sizeLabels: string[];
   /** One of the Settings accounts; left out, the quote uses the one in its currency. */
-  bankAccountId?: string;
+  bankAccountIds?: string[];
   lines: Array<{
     section?: string;
     description: string;

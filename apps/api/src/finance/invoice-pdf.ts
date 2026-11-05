@@ -1,5 +1,5 @@
 import PDFDocument from "pdfkit";
-import { pickBankAccount } from "@bjh/contracts";
+import { pickBankAccounts } from "@bjh/contracts";
 import type { BusinessSettings } from "@bjh/contracts";
 import { drawLogo } from "../assets/logo";
 import type { JobRecord } from "../database/database.port";
@@ -254,11 +254,13 @@ function drawInvoice(doc: PDFKit.PDFDocument, input: InvoicePdfInput): void {
   const notesHeight = invoice.notes
     ? 22 + doc.heightOfString(invoice.notes, { width, lineGap: 2 })
     : 0;
-  // Where to pay: the account chosen on the invoice, else the one in its currency.
+  // Where to pay: the accounts kept on the invoice; an older invoice with
+  // none kept prints today's defaults from Settings.
   const bank =
-    invoice.bankAccount ??
-    pickBankAccount(settings?.bankAccounts ?? [], invoice.currency);
-  const bankHeight = bank ? 16 + bankDetailsHeight(doc, bank, width) : 0;
+    invoice.bankAccounts ??
+    pickBankAccounts(settings?.bankAccounts ?? [], invoice.currency);
+  const bankHeight =
+    bank.length > 0 ? 16 + bankDetailsHeight(doc, bank, width) : 0;
   const totalsHeight =
     10 +
     totals.length * totalRowHeight +
@@ -353,7 +355,7 @@ function drawInvoice(doc: PDFKit.PDFDocument, input: InvoicePdfInput): void {
     doc.font("Helvetica").fontSize(BODY).fillColor(INK);
     doc.text(invoice.notes, left, doc.y + 2, { width, lineGap: 2 });
   }
-  if (bank) drawBankDetails(doc, bank, left, doc.y + 16, width);
+  if (bank.length > 0) drawBankDetails(doc, bank, left, doc.y + 16, width);
 }
 
 /**

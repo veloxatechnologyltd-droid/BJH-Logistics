@@ -25,7 +25,7 @@ import type {
 import { formatQuoteAmount } from "../quotations/quote-pdf";
 import { QuoteRequestsService } from "../quotations/quote-requests.service";
 import type { QuoteSuggestion } from "../quotations/quote-suggestion";
-import { resolveBankAccount } from "../settings/bank-account";
+import { resolveBankAccounts } from "../settings/bank-account";
 import { findPossibleMatches } from "./customer-match";
 import { inChargeOf } from "./inbound-email.service";
 import { REPLY_DRAFTER, ReplyDraftError } from "./reply-drafter";
@@ -397,10 +397,10 @@ export class EmailAssistantService {
         ...parsed.data,
         version: {
           ...parsed.data.version,
-          bankAccount: resolveBankAccount(
+          bankAccounts: resolveBankAccounts(
             settings?.settings ?? null,
             currency,
-            null,
+            undefined,
           ),
         },
       },

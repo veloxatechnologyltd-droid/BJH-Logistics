@@ -48,7 +48,7 @@ const version = (
   timeline: null,
   terms: ["Synthetic term."],
   sizeLabels: [],
-  bankAccount: null,
+  bankAccounts: null,
   createdBy: "user",
   createdByAssistant: false,
   createdAt: "2026-09-22T09:00:00.000Z",
@@ -261,7 +261,7 @@ const quoteAccount = {
 };
 
 test("a quote prints the bank account chosen for it, else the one in its currency, and carries the logo", async () => {
-  const chosen = version({ bankAccount: quoteAccount });
+  const chosen = version({ bankAccounts: [quoteAccount] });
   const file = await renderQuotePdf(
     { quote: quote(chosen), version: chosen, settings },
     { compress: false },

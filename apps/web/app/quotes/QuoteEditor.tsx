@@ -3,7 +3,11 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { BankAccountSelect, listedBankAccountId } from "../BankAccountSelect";
+import {
+  BankAccountPicker,
+  listedBankAccountIds,
+  savedBankAccountIds,
+} from "../BankAccountSelect";
 import { ChargeOptions } from "../ChargeOptions";
 import type { FormEvent, ReactNode } from "react";
 import {
@@ -167,9 +171,9 @@ export function QuoteEditor({
     [],
   );
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
-  // "" = automatic: the account in the quote's currency.
-  const [bankAccountId, setBankAccountId] = useState(
-    draft?.bankAccount?.id ?? "",
+  // null = untouched: the default accounts print.
+  const [bankChoice, setBankChoice] = useState<string[] | null>(
+    savedBankAccountIds(draft?.bankAccounts),
   );
   /** The standard wording saved in Settings; null until loaded. */
   const [defaults, setDefaults] = useState<Wording | null>(null);
@@ -292,8 +296,7 @@ export function QuoteEditor({
       timeline: timeline.trim() || undefined,
       terms: cleanList(terms),
       sizeLabels: [],
-      bankAccountId:
-        listedBankAccountId(bankAccounts, bankAccountId) || undefined,
+      bankAccountIds: listedBankAccountIds(bankAccounts, bankChoice),
       lines: built,
     };
   }
@@ -466,11 +469,11 @@ export function QuoteEditor({
                   ))}
               </select>
             </label>
-            <BankAccountSelect
+            <BankAccountPicker
               accounts={bankAccounts}
               className={styles.field}
-              onChange={setBankAccountId}
-              value={listedBankAccountId(bankAccounts, bankAccountId)}
+              onChange={setBankChoice}
+              value={bankChoice}
             />
           </div>
 
