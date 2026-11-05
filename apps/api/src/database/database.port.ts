@@ -963,7 +963,13 @@ export interface DocumentExtractionRecord {
 export interface TransportDocumentRecord {
   id: string;
   jobId: string;
-  kind: "house_bl" | "house_awb" | "air_manifest" | "sea_manifest";
+  kind:
+    | "house_bl"
+    | "house_awb"
+    | "air_manifest"
+    | "sea_manifest"
+    | "delivery_order"
+    | "proof_of_delivery";
   documentNumber: string | null;
   status: "draft" | "issued" | "void";
   fields: Record<string, string>;

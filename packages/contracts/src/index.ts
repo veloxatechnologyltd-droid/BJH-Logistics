@@ -2272,6 +2272,8 @@ export const transportDocumentKinds = [
   "house_awb",
   "air_manifest",
   "sea_manifest",
+  "delivery_order",
+  "proof_of_delivery",
 ] as const;
 export type TransportDocumentKind = (typeof transportDocumentKinds)[number];
 
@@ -2280,6 +2282,8 @@ export const transportDocumentTitles: Record<TransportDocumentKind, string> = {
   house_awb: "House air waybill (HAWB)",
   air_manifest: "Air cargo manifest",
   sea_manifest: "Sea cargo manifest",
+  delivery_order: "Delivery order",
+  proof_of_delivery: "Proof of delivery note",
 };
 
 /** One column of a table field such as a manifest's shipment lines. */
@@ -2448,13 +2452,57 @@ export const transportDocumentFields: Record<
       ],
     },
   ],
+  // The delivery order and the proof of delivery note start from the same
+  // bill of lading particulars (BJH's samples for Premium Bright Line).
+  delivery_order: [
+    line("addressedTo", "To (terminal operator or cargo custodian)", "Order"),
+    line("issueDate", "Order date", "Order"),
+    block("consignee", "Consignee (name, address, tel, email)", "Consignee"),
+    line("blNumber", "Bill of lading number", "Shipment"),
+    line("blDate", "Bill of lading date", "Shipment"),
+    block("shipper", "Shipper", "Shipment"),
+    line("vesselVoyage", "Vessel / voyage", "Shipment"),
+    line("portOfLoading", "Port of loading", "Shipment"),
+    line("portOfDischarge", "Port of discharge", "Shipment"),
+    line("placeOfDelivery", "Place of delivery", "Shipment"),
+    line("container", "Container / size", "Shipment"),
+    line("seals", "Seal number", "Shipment"),
+    line("packages", "Packages", "Shipment"),
+    line("grossWeight", "Gross weight (kg)", "Shipment"),
+    line("volume", "Volume (CBM)", "Shipment"),
+    line("marks", "Marks", "Shipment"),
+    line("freightTerms", "Freight (prepaid or collect)", "Shipment"),
+    line("serviceType", "Service (e.g. CY-CY)", "Shipment"),
+    line("releaseNotation", "B/L release notation", "Shipment"),
+    block("cargoDescription", "Cargo description (one item per line)", "Cargo"),
+  ],
+  proof_of_delivery: [
+    block("consignee", "Consignee (name, address, tel, email)", "Consignee"),
+    line("blNumber", "Bill of lading number", "Shipment"),
+    line("blDate", "Bill of lading date", "Shipment"),
+    line("vesselVoyage", "Vessel / voyage", "Shipment"),
+    line("portOfLoading", "Port of loading", "Shipment"),
+    line("portOfDischarge", "Port of discharge", "Shipment"),
+    line("container", "Container / size", "Shipment"),
+    line("seals", "Seal number", "Shipment"),
+    line("packages", "Packages on the B/L", "Shipment"),
+    line("grossWeight", "Gross weight (kg)", "Shipment"),
+    line("volume", "Volume (CBM)", "Shipment"),
+    block("cargoDescription", "Cargo description (one item per line)", "Cargo"),
+    block(
+      "receiptItems",
+      "Items to confirm on delivery (one per line; each prints with Yes / No)",
+      "Cargo",
+    ),
+  ],
 };
 
 /** Which documents belong to which service line. */
 export function transportDocumentKindsFor(
   serviceLine: ServiceLine,
 ): TransportDocumentKind[] {
-  if (serviceLine.startsWith("sea")) return ["house_bl", "sea_manifest"];
+  if (serviceLine.startsWith("sea"))
+    return ["house_bl", "sea_manifest", "delivery_order", "proof_of_delivery"];
   if (serviceLine.startsWith("air")) return ["house_awb", "air_manifest"];
   return [];
 }

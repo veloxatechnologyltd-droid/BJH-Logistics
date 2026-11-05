@@ -1,5 +1,6 @@
 import PDFDocument from "pdfkit";
 import { drawLogo } from "../assets/logo";
+import { renderDeliveryDocumentPdf } from "./delivery-document-pdf";
 import {
   transportDocumentFields,
   transportDocumentTitles,
@@ -71,6 +72,13 @@ export function renderTransportDocumentPdf(
   input: TransportDocumentPdfInput,
   options: { compress?: boolean } = {},
 ): Promise<Buffer> {
+  // These two have their own one-page layouts, drawn like BJH's samples.
+  if (
+    input.document.kind === "delivery_order" ||
+    input.document.kind === "proof_of_delivery"
+  ) {
+    return renderDeliveryDocumentPdf(input, options);
+  }
   const { document, job, settings } = input;
   const issuerName = settings?.issuer.name ?? "Issuer details not configured";
   const title = transportDocumentTitles[document.kind];
