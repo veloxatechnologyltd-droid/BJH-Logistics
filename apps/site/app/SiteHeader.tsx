@@ -12,7 +12,7 @@ const links = [
   { href: "/services", label: "Services" },
   { href: "/projects", label: "Projects" },
   { href: "/about", label: "About" },
-  { href: "/contact", label: "Contact" },
+  { href: "/#contact", label: "Contact" },
 ];
 
 export function SiteHeader() {
@@ -49,6 +49,7 @@ export function SiteHeader() {
               key={link.href}
               href={link.href}
               className={pathname === link.href ? "active" : undefined}
+              onClick={() => setOpen(false)}
             >
               {link.label}
             </Link>
