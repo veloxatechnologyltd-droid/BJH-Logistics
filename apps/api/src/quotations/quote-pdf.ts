@@ -12,8 +12,8 @@ import type {
 } from "../database/database.port";
 import { drawLogo } from "../assets/logo";
 import {
-  bankDetailsHeight,
-  drawBankDetails,
+  drawPaymentDetails,
+  paymentDetailsHeight,
 } from "../settings/bank-details-pdf";
 
 // Colours match the document layout preview (apps/web/app/styles.css).
@@ -411,12 +411,11 @@ export function renderQuotePdf(
     version.bankAccounts ??
     pickBankAccounts(settings?.bankAccounts ?? [], version.currency);
   if (bank.length > 0) {
-    const bankHeight = bankDetailsHeight(doc, bank, width);
-    ensure(bankHeight + 24);
-    doc.moveDown(1);
-    const bankTop = doc.y;
-    drawBankDetails(doc, bank, left, bankTop, width);
-    doc.y = bankTop + bankHeight;
+    // The heading never sits alone at the foot of a page.
+    ensure(60 + paymentDetailsHeight(bank));
+    heading("PAYMENT DETAILS");
+    doc.y += 4;
+    doc.y += drawPaymentDetails(doc, bank, left, doc.y, width);
   }
 
   // Acceptance: BJH on the left, the client on the right.
