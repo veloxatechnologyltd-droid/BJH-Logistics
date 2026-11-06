@@ -826,6 +826,20 @@
 .textButton:hover {
   text-decoration: underline;
 }
+.narrowField {
+  max-width: 220px;
+}
+/* A charge line, and the paragraphs and buttons around it, with room between. */
+.lineRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: flex-end;
+  margin-top: 14px;
+}
+.spaced {
+  margin: 14px 0 0;
+}
 .formActions {
   display: flex;
   flex-wrap: wrap;

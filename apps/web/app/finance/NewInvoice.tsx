@@ -421,7 +421,7 @@ export function NewInvoice() {
                   {quote.currency ? `, accepted in ${quote.currency}` : ""}.
                 </p>
               )}
-              <label className={styles.field}>
+              <label className={`${styles.field} ${styles.narrowField}`}>
                 Currency (required)
                 <select
                   onChange={(event) => setCurrency(event.target.value)}
@@ -479,23 +479,23 @@ export function NewInvoice() {
                 />
               )}
               {error && (
-                <p className={styles.error} role="alert">
+                <p className={`${styles.error} ${styles.spaced}`} role="alert">
                   {error}
                 </p>
               )}
-              <p className={styles.muted}>
+              <p className={`${styles.muted} ${styles.spaced}`}>
                 {fromQuote ? "The quote's charges become the lines. " : ""}
                 Next, on the draft: shipment details (bill of lading, vessel,
                 containers) if the invoice needs them, bank accounts, due date
                 and notes. Then issue it.
               </p>
               {missing.length > 0 && (
-                <p className={styles.error} role="status">
+                <p className={`${styles.error} ${styles.spaced}`} role="status">
                   Still needed before the draft can be created:{" "}
                   {missing.join(", ")}.
                 </p>
               )}
-              <div className={styles.formActions}>
+              <div className={`${styles.formActions} ${styles.spaced}`}>
                 <button
                   className={styles.button}
                   disabled={saving || missing.length > 0}

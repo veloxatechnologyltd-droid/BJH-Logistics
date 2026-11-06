@@ -111,7 +111,7 @@ export function InvoiceLinesEditor({
   return (
     <>
       {lines.map((line, index) => (
-        <div className={styles.actions} key={index}>
+        <div className={styles.lineRow} key={index}>
           <label className={styles.field}>
             Description
             <input
@@ -186,7 +186,7 @@ export function InvoiceLinesEditor({
         </div>
       ))}
       <ChargeOptions id="invoice-charge-options" />
-      <div className={styles.actions}>
+      <div className={`${styles.actions} ${styles.spaced}`}>
         <button
           className={styles.secondaryButton}
           onClick={() => onChange([...lines, blankLine()])}
