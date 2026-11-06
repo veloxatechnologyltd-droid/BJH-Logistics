@@ -188,6 +188,16 @@ export function NewInvoice() {
 
   const currencies = configured.length > 0 ? configured : popularCurrencies;
   const fromQuote = start === "quote" && Boolean(job?.quoteId);
+  const sizePriced = fromQuote && quote !== null && quote.sizeLabels.length > 0;
+  const containerCount = Number(containers);
+  // Shown beside the button, so a greyed-out button always says why.
+  const missing = [
+    !currency && "a currency",
+    sizePriced && !containerSize && "a container size",
+    sizePriced &&
+      !(Number.isInteger(containerCount) && containerCount > 0) &&
+      "the number of containers",
+  ].filter((item): item is string => Boolean(item));
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -400,7 +410,7 @@ export function NewInvoice() {
                 </p>
               )}
               <label className={styles.field}>
-                Currency
+                Currency (required)
                 <select
                   onChange={(event) => setCurrency(event.target.value)}
                   required
@@ -422,7 +432,7 @@ export function NewInvoice() {
               {fromQuote && quote && quote.sizeLabels.length > 0 && (
                 <>
                   <label className={styles.field}>
-                    Container size (the quote prices by size)
+                    Container size (required; the quote prices by size)
                     <select
                       onChange={(event) => setContainerSize(event.target.value)}
                       required
@@ -437,7 +447,7 @@ export function NewInvoice() {
                     </select>
                   </label>
                   <label className={styles.field}>
-                    Number of containers
+                    Number of containers (required)
                     <input
                       inputMode="numeric"
                       min={1}
@@ -478,10 +488,22 @@ export function NewInvoice() {
                   {error}
                 </p>
               )}
+              {!fromQuote && (
+                <p className={styles.muted}>
+                  Next you add the charge lines (description, quantity, unit
+                  price) on the draft, then issue it.
+                </p>
+              )}
+              {missing.length > 0 && (
+                <p className={styles.error} role="status">
+                  Still needed before the draft can be created:{" "}
+                  {missing.join(", ")}.
+                </p>
+              )}
               <div className={styles.formActions}>
                 <button
                   className={styles.button}
-                  disabled={saving || !currency}
+                  disabled={saving || missing.length > 0}
                   type="submit"
                 >
                   {saving ? "Creating…" : "Create draft invoice"}
