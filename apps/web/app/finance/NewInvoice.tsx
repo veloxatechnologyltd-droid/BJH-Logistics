@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
-import type { BankAccount } from "@bjh/contracts";
 import { canWorkFinance } from "../auth/roleAccess";
 import { useStaffAccess } from "../auth/useStaffAccess";
 import { listCustomers } from "../customers/customerApi";
@@ -25,11 +24,11 @@ import { formatDate } from "../jobs/jobFormat";
 import styles from "../jobs/jobs.module.css";
 import { getQuote } from "../quotes/quoteApi";
 import { popularCurrencies } from "../settings/business/BusinessSettingsForm";
-import { BankAccountPicker, listedBankAccountIds } from "../BankAccountSelect";
 import { getSettings } from "../settings/business/settingsApi";
 import { plainMessage } from "../ErrorPopup";
+import { InvoiceLinesEditor, blankLine, parseDraftLines } from "./InvoiceLines";
+import type { DraftLine } from "./InvoiceLines";
 import {
-  ShipmentFields,
   emptyShipment,
   shipmentFromJob,
   shipmentInput,
@@ -50,8 +49,12 @@ type QuoteFacts = {
  * whether it comes from their accepted quote or starts fresh, and, if wanted,
  * which of their jobs it bills. A job is optional (client request,
  * 2026-11-05): a fresh invoice can be made for a client with no job, with the
- * bill of lading and shipment details typed on it. The draft then opens in
- * Finance.
+ * bill of lading and shipment details typed on it.
+ *
+ * Only what every invoice needs is asked here (client, currency, the charge
+ * lines; Evans, 2026-11-06). Shipment details, bank accounts, due date and
+ * notes are optional and filled on the draft, which opens next. A job's
+ * shipment details are still prefilled from the job, unseen here.
  */
 export function NewInvoice() {
   const router = useRouter();
@@ -67,11 +70,7 @@ export function NewInvoice() {
   const [currency, setCurrency] = useState("");
   const [containerSize, setContainerSize] = useState("");
   const [containers, setContainers] = useState("1");
-  const [dueDate, setDueDate] = useState("");
-  const [notes, setNotes] = useState("");
-  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
-  // null = untouched: the default accounts print.
-  const [bankChoice, setBankChoice] = useState<string[] | null>(null);
+  const [lines, setLines] = useState<DraftLine[]>(() => [blankLine()]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [leftOut, setLeftOut] = useState<{
@@ -87,7 +86,6 @@ export function NewInvoice() {
       .then((result) => {
         if (result.current) {
           setConfigured(result.current.settings.currencies);
-          setBankAccounts(result.current.settings.bankAccounts ?? []);
         }
       })
       .catch(() => undefined);
@@ -190,9 +188,17 @@ export function NewInvoice() {
   const fromQuote = start === "quote" && Boolean(job?.quoteId);
   const sizePriced = fromQuote && quote !== null && quote.sizeLabels.length > 0;
   const containerCount = Number(containers);
+  const typedLines = lines.filter(
+    (line) =>
+      line.description.trim() ||
+      line.quantity.trim() ||
+      line.unit.trim() ||
+      line.amount.trim(),
+  );
   // Shown beside the button, so a greyed-out button always says why.
   const missing = [
     !currency && "a currency",
+    !fromQuote && typedLines.length === 0 && "at least one charge line",
     sizePriced && !containerSize && "a container size",
     sizePriced &&
       !(Number.isInteger(containerCount) && containerCount > 0) &&
@@ -202,20 +208,20 @@ export function NewInvoice() {
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (!currency || (!job && start === "quote")) return;
+    const parsed = fromQuote ? { lines: [] } : parseDraftLines(typedLines);
+    if ("error" in parsed) {
+      setError(parsed.error);
+      return;
+    }
     setSaving(true);
     setError("");
     try {
-      const details = {
-        currency,
-        dueDate: dueDate || undefined,
-        notes: notes.trim() || undefined,
-        bankAccountIds: listedBankAccountIds(bankAccounts, bankChoice),
-        shipment: shipmentInput(shipment),
-      };
+      // Bank accounts left out: the defaults in settings print.
+      const details = { currency, shipment: shipmentInput(shipment) };
       if (!job) {
         const created = await createInvoice(clientHome(companyId), {
           ...details,
-          lines: [],
+          lines: parsed.lines,
         });
         router.push(`/finance/clients/${companyId}/invoices/${created.id}`);
       } else if (fromQuote) {
@@ -234,7 +240,10 @@ export function NewInvoice() {
         }
         router.push(href);
       } else {
-        const created = await createInvoice(job.id, { ...details, lines: [] });
+        const created = await createInvoice(job.id, {
+          ...details,
+          lines: parsed.lines,
+        });
         router.push(`/finance/jobs/${job.id}/invoices/${created.id}`);
       }
     } catch (cause) {
@@ -270,7 +279,8 @@ export function NewInvoice() {
           </Link>
           <h1 className={styles.title}>New invoice</h1>
           <p className={styles.muted}>
-            Start a draft, check the lines, then issue it to the client.
+            Choose the client and add the charges. Shipment details, bank
+            accounts and due date come next, on the draft.
           </p>
         </div>
       </header>
@@ -402,7 +412,9 @@ export function NewInvoice() {
 
           {companyId && (job || start === "fresh") && (
             <section className={styles.card} aria-labelledby="details-title">
-              <h2 id="details-title">4. Details</h2>
+              <h2 id="details-title">
+                4. {fromQuote ? "Currency" : "Currency and charges"}
+              </h2>
               {fromQuote && quote?.quoteNumber && (
                 <p className={styles.muted}>
                   From quote {quote.quoteNumber}
@@ -459,41 +471,24 @@ export function NewInvoice() {
                   </label>
                 </>
               )}
-              <BankAccountPicker
-                accounts={bankAccounts}
-                className={styles.field}
-                onChange={setBankChoice}
-                value={bankChoice}
-              />
-              <ShipmentFields onChange={setShipment} value={shipment} />
-              <label className={styles.field}>
-                Due date (optional; the payment terms in settings apply
-                otherwise)
-                <input
-                  onChange={(event) => setDueDate(event.target.value)}
-                  type="date"
-                  value={dueDate}
+              {!fromQuote && (
+                <InvoiceLinesEditor
+                  currency={currency}
+                  lines={lines}
+                  onChange={setLines}
                 />
-              </label>
-              <label className={styles.field}>
-                Notes (optional)
-                <input
-                  maxLength={2000}
-                  onChange={(event) => setNotes(event.target.value)}
-                  value={notes}
-                />
-              </label>
+              )}
               {error && (
                 <p className={styles.error} role="alert">
                   {error}
                 </p>
               )}
-              {!fromQuote && (
-                <p className={styles.muted}>
-                  Next you add the charge lines (description, quantity, unit
-                  price) on the draft, then issue it.
-                </p>
-              )}
+              <p className={styles.muted}>
+                {fromQuote ? "The quote's charges become the lines. " : ""}
+                Next, on the draft: shipment details (bill of lading, vessel,
+                containers) if the invoice needs them, bank accounts, due date
+                and notes. Then issue it.
+              </p>
               {missing.length > 0 && (
                 <p className={styles.error} role="status">
                   Still needed before the draft can be created:{" "}
@@ -506,7 +501,7 @@ export function NewInvoice() {
                   disabled={saving || missing.length > 0}
                   type="submit"
                 >
-                  {saving ? "Creating…" : "Create draft invoice"}
+                  {saving ? "Creating…" : "Create draft and continue"}
                 </button>
                 <Link className={styles.secondaryButton} href="/invoices">
                   Cancel
