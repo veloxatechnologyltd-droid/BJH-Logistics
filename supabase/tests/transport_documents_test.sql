@@ -2,7 +2,7 @@ BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 
-SELECT extensions.plan(8);
+SELECT extensions.plan(10);
 
 SELECT extensions.ok(
   NOT has_table_privilege('anon', 'app.transport_document', 'SELECT')
@@ -69,6 +69,17 @@ SELECT extensions.throws_ok(
 SELECT extensions.throws_ok(
   $$DELETE FROM app.transport_document$$,
   'P0001', 'transport documents cannot be deleted; void them instead', 'documents cannot be deleted'
+);
+SELECT extensions.lives_ok(
+  $$INSERT INTO app.transport_document (job_id, kind, fields, created_by)
+    VALUES ('00000000-0000-4000-8000-0000000007ca', 'delivery_order', '{}'::jsonb, '00000000-0000-4000-8000-0000000007aa'),
+           ('00000000-0000-4000-8000-0000000007ca', 'proof_of_delivery', '{}'::jsonb, '00000000-0000-4000-8000-0000000007aa')$$,
+  'a delivery order and a proof of delivery note can be saved'
+);
+SELECT extensions.throws_ok(
+  $$INSERT INTO app.transport_document (job_id, kind, fields, created_by)
+    VALUES ('00000000-0000-4000-8000-0000000007ca', 'passport', '{}'::jsonb, '00000000-0000-4000-8000-0000000007aa')$$,
+  '23514', NULL, 'an unknown kind is still refused'
 );
 
 SELECT * FROM extensions.finish();

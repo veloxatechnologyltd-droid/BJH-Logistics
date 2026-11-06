@@ -112,10 +112,14 @@ test("each service line offers its own documents", () => {
   assert.deepEqual(transportDocumentKindsFor("sea_import"), [
     "house_bl",
     "sea_manifest",
+    "delivery_order",
+    "proof_of_delivery",
   ]);
   assert.deepEqual(transportDocumentKindsFor("sea_export"), [
     "house_bl",
     "sea_manifest",
+    "delivery_order",
+    "proof_of_delivery",
   ]);
   assert.deepEqual(transportDocumentKindsFor("air_import"), [
     "house_awb",
@@ -480,5 +484,107 @@ test("a sea cargo manifest prints its lines as a table with the total weight", a
   ]) {
     assert.ok(text.includes(expected), `missing: ${expected}`);
   }
+  assert.equal(pageCount(file), 1);
+});
+
+const deliveryFields = {
+  addressedTo: "Cargo Custodian / Terminal Operator, Synthetic Port",
+  issueDate: "05 November 2026",
+  consignee:
+    "SYNTHETIC CONSIGNEE LLC\n1 Test Street, Testville\nTel: +000 11 222 3333",
+  blNumber: "SYN-HBL-0001A",
+  blDate: "25 August 2026",
+  shipper: "SYNTHETIC SHIPPER CO., LTD",
+  vesselVoyage: "SYN VESSEL / 0001W",
+  portOfLoading: "Alpha",
+  portOfDischarge: "Beta",
+  container: "SYNU1234567 / 1 x 40HQ",
+  seals: "SEAL0001",
+  packages: "56",
+  grossWeight: "2840",
+  volume: "32.96",
+  marks: "N/M",
+  freightTerms: "Freight prepaid",
+  serviceType: "CY-CY",
+  releaseNotation: "TELEX-RELEASE",
+  cargoDescription: "1. SYNTHETIC TRUCK\nChassis number: SYNCHASSIS0001",
+  receiptItems: "Truck received",
+};
+
+test("a delivery order prints the sample's sections with the shipment particulars joined", async () => {
+  const text = pdfText(
+    await renderTransportDocumentPdf(
+      {
+        document: document({
+          kind: "delivery_order",
+          documentNumber: "BJH/DO/SYN-HBL-0001A",
+          fields: deliveryFields,
+        }),
+        job,
+        settings,
+      },
+      { compress: false },
+    ),
+  );
+  for (const expected of [
+    "DELIVERY ORDER",
+    "BJH/DO/SYN-HBL-0001A",
+    "05 November 2026",
+    "Cargo Custodian / Terminal Operator, Synthetic Port",
+    "CONSIGNEE",
+    "SYNTHETIC CONSIGNEE LLC",
+    "SHIPMENT PARTICULARS",
+    "SYN-HBL-0001A",
+    "Alpha / Beta",
+    "SYNU1234567 / 1 x 40HQ",
+    "56 packages / 2,840 kg / 32.96 CBM",
+    "N/M / Freight prepaid / CY-CY",
+    "TELEX-RELEASE",
+    "CARGO DESCRIPTION",
+    "Chassis number: SYNCHASSIS0001",
+    "RELEASE CONDITIONS",
+    "For Synthetic Forwarding Ltd",
+    "Received by consignee or representative",
+  ]) {
+    assert.ok(text.includes(expected), `missing: ${expected}`);
+  }
+  assert.ok(!text.includes("DRAFT"));
+});
+
+test("a proof of delivery note prints the B/L totals and blank delivery record", async () => {
+  const file = await renderTransportDocumentPdf(
+    {
+      document: document({
+        kind: "proof_of_delivery",
+        documentNumber: "BJH/POD/SYN-HBL-0001A",
+        status: "draft",
+        fields: deliveryFields,
+      }),
+      job,
+      settings,
+    },
+    { compress: false },
+  );
+  const text = pdfText(file);
+  for (const expected of [
+    "PROOF OF DELIVERY NOTE",
+    "BJH/POD/SYN-HBL-0001A",
+    "CONSIGNEE AND SHIPMENT",
+    "SYN-HBL-0001A | Dated 25 August 2026",
+    "SYN VESSEL / 0001W | Alpha to Beta",
+    "SYNU1234567 / 1 x 40HQ | Seal: SEAL0001",
+    "56 packages | Gross weight: 2,840 kg | Volume: 32.96 CBM",
+    "DELIVERY RECORD",
+    "packages received out of 56 packages on B/L",
+    "Truck received: Yes / No",
+    "Seal intact: Yes / No / Not applicable",
+    "ACKNOWLEDGEMENT OF RECEIPT",
+    "Consignee or authorized receiver",
+    "Delivered by",
+    "DRAFT",
+  ]) {
+    assert.ok(text.includes(expected), `missing: ${expected}`);
+  }
+  // Both are one-page sheets.
   assert.equal(pageCount(file), 1);
 });

@@ -23,6 +23,8 @@ const kindLabels: Record<Kind, string> = {
   house_awb: "Air waybill",
   air_manifest: "Air manifest",
   sea_manifest: "Sea manifest",
+  delivery_order: "Delivery order",
+  proof_of_delivery: "Proof of delivery",
   waybill: "Waybill",
 };
 const kinds = Object.keys(kindLabels) as Kind[];
