@@ -2302,3 +2302,46 @@ h2 {
 .project-row h2 a:hover {
   text-decoration: underline;
 }
+
+/* Contact section on the home page: clear the fixed header when jumped to */
+
+#contact {
+  scroll-margin-top: 72px;
+}
+
+/* Floating WhatsApp button */
+
+.whatsapp-float {
+  position: fixed;
+  z-index: 40;
+  right: 20px;
+  bottom: 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 13px 20px;
+  border-radius: 999px;
+  background: #15803d;
+  color: var(--white);
+  font-weight: 700;
+  font-size: 15px;
+  text-decoration: none;
+  box-shadow: 0 12px 28px -10px rgba(0, 0, 0, 0.45);
+  transition:
+    background 0.25s var(--ease),
+    transform 0.25s var(--ease);
+}
+
+.whatsapp-float:hover {
+  background: #116530;
+  transform: translateY(-2px);
+}
+
+@media (max-width: 480px) {
+  .whatsapp-float {
+    right: 14px;
+    bottom: 14px;
+    padding: 11px 16px;
+    font-size: 14px;
+  }
+}

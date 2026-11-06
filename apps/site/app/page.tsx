@@ -14,6 +14,7 @@ import {
   processSteps,
   whatsappHref,
 } from "./content";
+import { ContactSection } from "./ContactSection";
 import { Icon } from "./Icon";
 import { HeroShowcase } from "./HeroShowcase";
 import { JsonLd } from "./JsonLd";
@@ -322,6 +323,8 @@ export default function HomePage() {
           </div>
         </div>
       </section>
+
+      <ContactSection withHeading />
 
       <CtaBand />
     </>
