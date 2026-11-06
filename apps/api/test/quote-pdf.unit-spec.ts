@@ -268,9 +268,8 @@ test("a quote prints the bank account chosen for it, else the one in its currenc
   );
   const text = pdfText(file);
   for (const expected of [
-    "BANK PAYMENT DETAILS",
-    "Account number",
-    "(USD)",
+    "PAYMENT DETAILS",
+    "USD account:",
     "0002000200020",
     "SYNTGHAC",
   ]) {
@@ -297,5 +296,5 @@ test("a quote prints the bank account chosen for it, else the one in its currenc
       { compress: false },
     ),
   );
-  assert.ok(!none.includes("BANK PAYMENT DETAILS"));
+  assert.ok(!none.includes("PAYMENT DETAILS"));
 });
