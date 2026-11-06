@@ -2,18 +2,14 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
-  formatBlContainers,
   formatTableRows,
-  parseBlContainers,
-  parseTableRows,
-  sumBlContainerWeights,
+  parseDocumentTableRows,
   sumTableColumn,
   transportDocumentFields,
   transportDocumentKindsFor,
   transportDocumentTitles,
 } from "@bjh/contracts";
 import type {
-  BlContainer,
   TableRow,
   ServiceLine,
   TransportDocumentKind,
@@ -59,8 +55,6 @@ export function JobTransportDocuments({
   const [items, setItems] = useState<TransportDocument[] | null>(null);
   const [error, setError] = useState("");
   const [editing, setEditing] = useState<Editing | null>(null);
-  // The house B/L's containers while editing; saved as lines of text.
-  const [containerRows, setContainerRows] = useState<BlContainer[]>([]);
   // Table fields (manifest shipment lines) while editing, by field key.
   const [tables, setTables] = useState<Record<string, TableRow[]>>({});
 
@@ -89,7 +83,7 @@ export function JobTransportDocuments({
         .filter((field) => field.columns)
         .map((field) => [
           field.key,
-          parseTableRows(fields[field.key], field.columns ?? []),
+          parseDocumentTableRows(kind, field, fields[field.key]),
         ]),
     );
 
@@ -126,7 +120,6 @@ export function JobTransportDocuments({
     setError("");
     try {
       const suggestion = await prefillTransportDocument(jobId, kind);
-      setContainerRows(parseBlContainers(suggestion.fields.containers ?? ""));
       setTables(loadTables(kind, suggestion.fields));
       setEditing({
         id: null,
@@ -139,18 +132,6 @@ export function JobTransportDocuments({
     }
   }
 
-  /** Changing the containers also refreshes the gross weight with their sum. */
-  function changeContainers(next: BlContainer[]) {
-    setContainerRows(next);
-    const total = sumBlContainerWeights(next);
-    if (editing && total !== null) {
-      setEditing({
-        ...editing,
-        fields: { ...editing.fields, grossWeight: total },
-      });
-    }
-  }
-
   async function save(issueAfter: boolean) {
     if (!editing) return;
     await run(async () => {
@@ -158,9 +139,6 @@ export function JobTransportDocuments({
         documentNumber: editing.number.trim() || undefined,
         fields: {
           ...editing.fields,
-          ...(editing.kind === "house_bl"
-            ? { containers: formatBlContainers(containerRows) }
-            : {}),
           ...Object.fromEntries(
             transportDocumentFields[editing.kind]
               .filter((field) => field.columns)
@@ -240,9 +218,6 @@ export function JobTransportDocuments({
                     <button
                       className={styles.textButton}
                       onClick={() => {
-                        setContainerRows(
-                          parseBlContainers(item.fields.containers ?? ""),
-                        );
                         setTables(loadTables(item.kind, item.fields));
                         setEditing({
                           id: item.id,
@@ -372,7 +347,9 @@ export function JobTransportDocuments({
                         }
                         type="button"
                       >
-                        Add line
+                        {field.key === "containers"
+                          ? "Add container"
+                          : "Add line"}
                       </button>
                       <p className={styles.muted}>
                         {(field.columns ?? [])
@@ -389,67 +366,6 @@ export function JobTransportDocuments({
                           .filter(Boolean)
                           .join(" · ")}
                       </p>
-                    </div>
-                  ) : field.key === "containers" ? (
-                    <div className={styles.field} key={field.key}>
-                      {field.label}
-                      {containerRows.map((row, index) => (
-                        <div className={styles.containerRow} key={index}>
-                          {(
-                            [
-                              ["number", "Container no.", 30],
-                              ["seal", "Seal no.", 30],
-                              ["weightKg", "Weight (kg)", 12],
-                            ] as const
-                          ).map(([key, label, max]) => (
-                            <input
-                              aria-label={`${label}, container ${index + 1}`}
-                              key={key}
-                              maxLength={max}
-                              onChange={(event) =>
-                                changeContainers(
-                                  containerRows.map((item, at) =>
-                                    at === index
-                                      ? { ...item, [key]: event.target.value }
-                                      : item,
-                                  ),
-                                )
-                              }
-                              placeholder={label}
-                              value={row[key]}
-                            />
-                          ))}
-                          <button
-                            className={styles.textButton}
-                            onClick={() =>
-                              changeContainers(
-                                containerRows.filter((_, at) => at !== index),
-                              )
-                            }
-                            type="button"
-                          >
-                            Remove
-                          </button>
-                        </div>
-                      ))}
-                      <button
-                        className={styles.secondaryButton}
-                        onClick={() =>
-                          setContainerRows([
-                            ...containerRows,
-                            { number: "", seal: "", weightKg: "" },
-                          ])
-                        }
-                        type="button"
-                      >
-                        Add container
-                      </button>
-                      {sumBlContainerWeights(containerRows) !== null && (
-                        <p className={styles.muted}>
-                          Total: {sumBlContainerWeights(containerRows)} kg (also
-                          entered as the gross weight)
-                        </p>
-                      )}
                     </div>
                   ) : (
                     <label className={styles.field} key={field.key}>

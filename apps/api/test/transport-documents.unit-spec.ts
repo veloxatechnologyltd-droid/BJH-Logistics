@@ -175,19 +175,20 @@ test("an issued house B/L prints its number, parties, containers and goods", asy
     ),
   );
   for (const expected of [
-    "TRANSPORT BILL OF LADING (HOUSE B/L)",
+    "HOUSE BILL OF LADING",
     "SYN-HBL-0001",
-    "Job file SYN/SI/2026/0001",
-    "Synthetic Forwarding Ltd",
+    "SYNTHETIC FORWARDING LTD",
     "Synthetic Shipper Ltd",
     "Doral, USA",
     "SYNBK00042",
-    "CONTAINER NO.",
+    "Container number",
     "SYNU1234567",
     "002686",
     "82 SACKS WOVEN BASKETS",
     "FREIGHT COLLECT",
-    "MBL / BOOKING NO.",
+    "Master B/L no.: SYNBK00042",
+    "CARGO PARTICULARS",
+    "FREIGHT TERMS / PAYABLE AT",
     "For Synthetic Forwarding Ltd",
   ]) {
     assert.ok(text.includes(expected), `missing: ${expected}`);
@@ -338,58 +339,108 @@ test("a typical house B/L, air waybill and manifest each fit on one page", async
   }
 });
 
-test("several containers print as a table with their total weight", async () => {
-  const file = await renderTransportDocumentPdf(
-    {
-      document: document({
-        fields: {
-          ...document().fields,
-          containers:
-            "MSKU1234567 | Seal A100 | 12500 kg\nTGHU7654321 | Seal B200 | 9800.5 kg",
-        },
-      }),
-      job,
-      settings,
-    },
-    { compress: false },
+/** Rows of the house B/L's container table, as the editor saves them. */
+const blRows = (count: number) =>
+  JSON.stringify(
+    Array.from({ length: count }, (_, index) => ({
+      number: `MSKU${1234560 + index}`,
+      seal: `A${index}`,
+      goods: index % 2 ? "Seasoning" : "Clothing",
+      packages: "2",
+      grossWeight: "1000",
+      volume: "1",
+    })),
   );
-  const text = pdfText(file);
+
+test("each container prints its own row, with totals and the packages in words", async () => {
+  const containers = JSON.stringify([
+    {
+      number: "MSKU1234567",
+      seal: "A100",
+      goods: "Clothing",
+      packages: "2",
+      grossWeight: "12500",
+      volume: "1.5",
+    },
+    {
+      number: "TGHU7654321",
+      seal: "B200",
+      goods: "Seasoning",
+      packages: "8",
+      grossWeight: "9800.5",
+      volume: "2",
+    },
+  ]);
+  const text = pdfText(
+    await renderTransportDocumentPdf(
+      {
+        document: document({
+          fields: {
+            ...document().fields,
+            containers,
+            containerSize: "2 x 40 ft containers",
+          },
+        }),
+        job,
+        settings,
+      },
+      { compress: false },
+    ),
+  );
   for (const expected of [
     "MSKU1234567",
     "TGHU7654321",
     "A100",
+    "Seasoning",
     "12,500",
     "9,800.5",
-    "Total",
+    "TOTAL",
     "22,300.5",
+    "3.5",
+    "2 x 40 ft containers",
+    "Total packages in words: TEN (10) PACKAGES",
   ]) {
     assert.ok(text.includes(expected), `missing: ${expected}`);
   }
 });
 
+test("a house B/L without a job file number or a master B/L still prints", async () => {
+  const text = pdfText(
+    await renderTransportDocumentPdf(
+      {
+        document: document({
+          fields: { consignee: "Synthetic Consignee LLC" },
+        }),
+        job,
+        settings,
+      },
+      { compress: false },
+    ),
+  );
+  assert.ok(text.includes("Synthetic Consignee LLC"));
+  assert.ok(text.includes("Master B/L no.: ____"));
+  assert.ok(!text.includes("Total packages in words"));
+});
+
 test("the signature never stands alone on a page, however many containers", async () => {
-  for (const count of [1, 3, 4, 5, 6, 12]) {
-    const containers = Array.from(
-      { length: count },
-      (_, index) => `MSKU${1234560 + index} | Seal A${index} | 12000 kg`,
-    ).join("\n");
+  for (const count of [1, 3, 4, 5, 6, 12, 25]) {
     const file = await renderTransportDocumentPdf(
       {
         document: document({
-          fields: { ...document().fields, containers },
+          fields: { ...document().fields, containers: blRows(count) },
         }),
         job,
         settings,
       },
       { compress: false },
     );
-    // The last page must hold a row of the Terms boxes, not only the signature.
+    // The last page must hold the terms boxes with the signature.
     const pages = file.toString("latin1").split(/\/Type \/Page\b(?!s)/);
     const lastPage = pages[pages.length - 1];
     const text = pdfText(Buffer.from(lastPage, "latin1"));
     assert.ok(text.includes("For Synthetic Forwarding Ltd"), `${count}`);
     assert.ok(
-      pageCount(file) === 1 || text.includes("SIGNED FOR THE SHIPPER BY"),
+      text.includes("NUMBER OF ORIGINAL BILLS OF LADING"),
       `${count} containers: signature alone on the last page`,
     );
   }

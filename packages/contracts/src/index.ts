@@ -2312,6 +2312,16 @@ export interface TransportDocumentField {
   group: string;
 }
 
+/** One container on a house B/L: its own goods, packages, weight and volume. */
+const blContainerColumns: TableColumn[] = [
+  { key: "number", label: "Container number", width: 1.5 },
+  { key: "seal", label: "Seal no.", width: 0.8 },
+  { key: "goods", label: "Goods", multiline: true, width: 1.7 },
+  { key: "packages", label: "Packages", sum: true, width: 1.1 },
+  { key: "grossWeight", label: "Gross wt. (kg)", sum: true, width: 1.1 },
+  { key: "volume", label: "Volume (CBM)", sum: true, width: 1 },
+];
+
 const line = (key: string, label: string, group: string) => ({
   key,
   label,
@@ -2332,33 +2342,50 @@ export const transportDocumentFields: Record<
   TransportDocumentKind,
   TransportDocumentField[]
 > = {
+  // Laid out like the Promasidor sample BJH's client sent: one row per
+  // container, each with its own goods, packages, weight and volume.
   house_bl: [
-    block("shipper", "Shipper", "Parties"),
-    block("forwardingAgent", "Forwarding agent", "Parties"),
-    block("consignee", "Consignee", "Parties"),
-    line("masterReference", "MBL / booking no.", "Parties"),
+    block("shipper", "Shipper / exporter", "Parties"),
+    block("consignee", "Consignee (name and address)", "Parties"),
     block("notifyParty", "Notify party", "Parties"),
-    block("deliveryAgent", "Port delivery agent", "Parties"),
+    line("masterReference", "Master B/L no.", "Parties"),
     line("portOfLoading", "Port of loading", "Route"),
     line("portOfDischarge", "Port of discharge", "Route"),
-    line("placeOfReceipt", "Place of receipt", "Route"),
-    line("placeOfDelivery", "Final place of delivery", "Route"),
     line("vessel", "Vessel", "Route"),
     line("voyage", "Voyage", "Route"),
-    block("containers", "Containers, seals and weights", "Cargo"),
-    block(
-      "goods",
-      "Number and kind of packages, description of goods",
-      "Cargo",
+    line(
+      "containerSize",
+      "Container quantity / size (e.g. 5 x 40 ft)",
+      "Route",
     ),
-    line("grossWeight", "Gross weight (kg)", "Cargo"),
-    line("measurement", "Measurement (CBM)", "Cargo"),
-    line("freightTerms", "Freight (prepaid or collect)", "Terms"),
-    line("containerStatus", "Container status (FCL/LCL)", "Terms"),
+    block("goods", "Description of goods", "Cargo"),
+    {
+      key: "containers",
+      label: "Containers",
+      group: "Cargo",
+      columns: blContainerColumns,
+    },
+    line("freightTerms", "Freight terms / payable at", "Terms"),
     line("shippedOnBoard", "Shipped on board date", "Terms"),
     line("placeAndDateOfIssue", "Place and date of issue", "Terms"),
     line("originals", "Number of original bills of lading", "Terms"),
-    line("signatory", "Signed for the shipper by", "Terms"),
+    // From before the Promasidor layout; printed only when filled in.
+    block("forwardingAgent", "Forwarding agent", "Other details (optional)"),
+    block("deliveryAgent", "Port delivery agent", "Other details (optional)"),
+    line("placeOfReceipt", "Place of receipt", "Other details (optional)"),
+    line(
+      "placeOfDelivery",
+      "Final place of delivery",
+      "Other details (optional)",
+    ),
+    line(
+      "containerStatus",
+      "Container status (FCL/LCL)",
+      "Other details (optional)",
+    ),
+    line("grossWeight", "Gross weight (kg)", "Other details (optional)"),
+    line("measurement", "Measurement (CBM)", "Other details (optional)"),
+    line("signatory", "Signed for the shipper by", "Other details (optional)"),
   ],
   house_awb: [
     block("shipper", "Shipper", "Parties"),
@@ -2621,43 +2648,11 @@ export function sumTableColumn(rows: TableRow[], key: string): string | null {
   );
 }
 
-/** One container on a house B/L: number, optional seal and weight in kg. */
+/** One container as the house B/L once stored it: number, optional seal and weight in kg. */
 export interface BlContainer {
   number: string;
   seal: string;
   weightKg: string;
-}
-
-/**
- * The B/L's `containers` text holds one container per line, such as
- * `MSKU1234567 | Seal 12345 | 12500 kg`; seal and weight are left out when empty.
- */
-export function formatBlContainers(containers: BlContainer[]): string {
-  return containers
-    .filter((item) => item.number.trim())
-    .map((item) =>
-      [
-        item.number.trim(),
-        item.seal.trim() && `Seal ${item.seal.trim()}`,
-        item.weightKg.trim() && `${item.weightKg.trim()} kg`,
-      ]
-        .filter(Boolean)
-        .join(" | "),
-    )
-    .join("\n");
-}
-
-/** The container weights added up, or null when no row has a readable weight. */
-export function sumBlContainerWeights(
-  containers: BlContainer[],
-): string | null {
-  const weights = containers
-    .filter((item) => item.weightKg.trim() !== "")
-    .map((item) => Number(item.weightKg.replace(/,/g, "").trim()))
-    .filter((value) => Number.isFinite(value) && value >= 0);
-  if (weights.length === 0) return null;
-  const total = weights.reduce((sum, value) => sum + value, 0);
-  return String(Math.round(total * 1000) / 1000);
 }
 
 /** Reads the text back into rows; older lines such as `MSKU1234567, seal 12345` still load. */
@@ -2680,6 +2675,36 @@ export function parseBlContainers(text: string): BlContainer[] {
       }
       return row;
     });
+}
+
+/**
+ * The rows of a table field of a document. A house B/L saved before each
+ * container had its own goods holds its containers as text, one per line
+ * (`MSKU1234567 | Seal A100 | 12500 kg`); those load as rows with the weight
+ * in the gross weight column.
+ */
+export function parseDocumentTableRows(
+  kind: TransportDocumentKind,
+  field: TransportDocumentField,
+  value: string | undefined,
+): TableRow[] {
+  const columns = field.columns ?? [];
+  const text = (value ?? "").trim();
+  if (
+    kind === "house_bl" &&
+    field.key === "containers" &&
+    !text.startsWith("[")
+  ) {
+    return parseBlContainers(text).map((item) => ({
+      number: item.number,
+      seal: item.seal,
+      goods: "",
+      packages: "",
+      grossWeight: item.weightKg,
+      volume: "",
+    }));
+  }
+  return parseTableRows(value, columns);
 }
 
 /**
