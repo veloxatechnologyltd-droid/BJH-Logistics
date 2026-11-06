@@ -7,6 +7,7 @@ import { ScrollEffects } from "./ScrollEffects";
 import { OG_IMAGE, organizationJsonLd, SITE_NAME, websiteJsonLd } from "./seo";
 import { SiteFooter } from "./SiteFooter";
 import { SiteHeader } from "./SiteHeader";
+import { WhatsAppButton } from "./WhatsAppButton";
 import "./globals.css";
 
 const inter = Inter({
@@ -44,6 +45,7 @@ export default function RootLayout({
         <SiteHeader />
         <main>{children}</main>
         <SiteFooter />
+        <WhatsAppButton />
         <ScrollEffects />
       </body>
     </html>
