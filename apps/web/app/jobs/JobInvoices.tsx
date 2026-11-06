@@ -6,7 +6,6 @@ import {
   listedBankAccountIds,
   savedBankAccountIds,
 } from "../BankAccountSelect";
-import { ChargeOptions } from "../ChargeOptions";
 import {
   ShipmentFields,
   emptyShipment,
@@ -14,8 +13,15 @@ import {
   toShipmentForm,
 } from "../finance/ShipmentFields";
 import type { ShipmentForm } from "../finance/ShipmentFields";
+import {
+  InvoiceLinesEditor,
+  blankLine,
+  parseDraftLines,
+  toDraftLines,
+} from "../finance/InvoiceLines";
+import type { DraftLine } from "../finance/InvoiceLines";
 import type { BankAccount, PaymentMethod } from "@bjh/contracts";
-import { formatMoney, toMinor } from "../quotes/quoteApi";
+import { formatMoney } from "../quotes/quoteApi";
 import { popularCurrencies } from "../settings/business/BusinessSettingsForm";
 import { getSettings } from "../settings/business/settingsApi";
 import { canWorkFinance } from "../auth/roleAccess";
@@ -31,7 +37,7 @@ import {
   updateInvoice,
   voidInvoice,
 } from "./jobApi";
-import type { Invoice, InvoiceLine, JobDocument } from "./jobApi";
+import type { Invoice, JobDocument } from "./jobApi";
 import styles from "./jobs.module.css";
 import { ErrorPopup } from "../ErrorPopup";
 import Link from "next/link";
@@ -51,58 +57,6 @@ export const invoiceStatusLabels: Record<Invoice["paymentStatus"], string> = {
   partial: "Part paid",
   paid: "Paid",
 };
-
-/** A line as typed: an amount, or a quantity and a unit price. */
-type DraftLine = {
-  description: string;
-  quantity: string;
-  unit: string;
-  amount: string;
-  taxable: boolean;
-};
-
-const blankLine = (): DraftLine => ({
-  description: "",
-  quantity: "",
-  unit: "",
-  amount: "",
-  taxable: true,
-});
-
-/** "1,250.5" as a number; NaN when it is not one. */
-const readQuantity = (text: string) => {
-  const cleaned = text.replace(/[,\s]/g, "");
-  return /^\d+(\.\d{1,3})?$/.test(cleaned) ? Number(cleaned) : Number.NaN;
-};
-
-/** The line's amount in minor units as typed, or null while it cannot be worked out. */
-const lineMinor = (line: DraftLine): number | null => {
-  if (line.quantity.trim() || line.unit.trim()) {
-    const quantity = readQuantity(line.quantity);
-    const unit = toMinor(line.unit);
-    if (Number.isNaN(quantity) || unit === undefined || Number.isNaN(unit)) {
-      return null;
-    }
-    return Math.round(quantity * unit);
-  }
-  const minor = toMinor(line.amount);
-  return minor === undefined || Number.isNaN(minor) ? null : minor;
-};
-
-const toDraftLines = (lines: InvoiceLine[]): DraftLine[] =>
-  lines.map((line) => ({
-    description: line.description,
-    quantity:
-      line.quantity != null && line.unitAmountMinor != null
-        ? String(line.quantity)
-        : "",
-    unit:
-      line.quantity != null && line.unitAmountMinor != null
-        ? (line.unitAmountMinor / 100).toFixed(2)
-        : "",
-    amount: (line.amountMinor / 100).toFixed(2),
-    taxable: line.taxable,
-  }));
 
 /**
  * Customer invoices and the payments staff record against them. Customers see
@@ -142,6 +96,8 @@ export function JobInvoices({
   const [draftShipment, setDraftShipment] =
     useState<ShipmentForm>(emptyShipment);
   const [lines, setLines] = useState<DraftLine[]>([]);
+  const [draftDueDate, setDraftDueDate] = useState("");
+  const [draftNotes, setDraftNotes] = useState("");
   // The currency of the draft being edited; it can still be changed.
   const [draftCurrency, setDraftCurrency] = useState("");
   const [accepting, setAccepting] = useState<string | null>(null);
@@ -180,6 +136,8 @@ export function JobInvoices({
       setEditing(linked.id);
       setDraftCurrency(linked.currency);
       setDraftShipment(toShipmentForm(linked.shipment));
+      setDraftDueDate(linked.dueDate ?? "");
+      setDraftNotes(linked.notes ?? "");
       setLines(
         linked.lines.length > 0 ? toDraftLines(linked.lines) : [blankLine()],
       );
@@ -230,35 +188,12 @@ export function JobInvoices({
     openBlob(() => fetchReceiptPdf(jobId, invoiceId, paymentId));
 
   function draftInput(from: DraftLine[]) {
-    const parsed: InvoiceLine[] = [];
-    for (const line of from) {
-      const priced = Boolean(line.quantity.trim() || line.unit.trim());
-      const minor = lineMinor(line);
-      if (minor === null) {
-        setError(
-          priced
-            ? `"${line.description || "A line"}" needs a quantity such as 2 or 1.5 and a unit price such as 250.50`
-            : "Amounts must be numbers such as 250 or 250.50",
-        );
-        return null;
-      }
-      parsed.push(
-        priced
-          ? {
-              description: line.description.trim(),
-              quantity: readQuantity(line.quantity),
-              unitAmountMinor: toMinor(line.unit)!,
-              amountMinor: minor,
-              taxable: line.taxable,
-            }
-          : {
-              description: line.description.trim(),
-              amountMinor: minor,
-              taxable: line.taxable,
-            },
-      );
+    const result = parseDraftLines(from);
+    if ("error" in result) {
+      setError(result.error);
+      return null;
     }
-    return parsed;
+    return result.lines;
   }
 
   function saveDraft(invoice: Invoice, after?: () => Promise<unknown>) {
@@ -271,8 +206,8 @@ export function JobInvoices({
       await updateInvoice(jobId, invoice.id, {
         currency: open && draftCurrency ? draftCurrency : invoice.currency,
         lines: parsed,
-        dueDate: invoice.dueDate ?? undefined,
-        notes: invoice.notes ?? undefined,
+        dueDate: (open ? draftDueDate : invoice.dueDate) || undefined,
+        notes: (open ? draftNotes.trim() : invoice.notes) || undefined,
         shipment: shipmentInput(
           open ? draftShipment : toShipmentForm(invoice.shipment),
         ),
@@ -470,11 +405,13 @@ export function JobInvoices({
                       setDraftCurrency(invoice.currency);
                       setDraftBank(savedBankAccountIds(invoice.bankAccounts));
                       setDraftShipment(toShipmentForm(invoice.shipment));
+                      setDraftDueDate(invoice.dueDate ?? "");
+                      setDraftNotes(invoice.notes ?? "");
                       setLines(toDraftLines(invoice.lines));
                     }}
                     type="button"
                   >
-                    Edit lines
+                    Edit draft
                   </button>
                   <button
                     className={styles.textButton}
@@ -526,138 +463,53 @@ export function JobInvoices({
                         ))}
                       </select>
                     </label>
+                    {/* The charges come first; the details below are optional. */}
+                    <InvoiceLinesEditor
+                      currency={draftCurrency || invoice.currency}
+                      lines={lines}
+                      onChange={setLines}
+                    />
+                    {/* Open when the draft already has some (e.g. prefilled from the job). */}
+                    <details
+                      open={
+                        shipmentInput(toShipmentForm(invoice.shipment)) !== null
+                      }
+                    >
+                      <summary className={styles.disclosureSummary}>
+                        Shipment details (optional: bill of lading, vessel,
+                        containers…)
+                      </summary>
+                      <ShipmentFields
+                        onChange={setDraftShipment}
+                        value={draftShipment}
+                      />
+                    </details>
                     <BankAccountPicker
                       accounts={bankAccounts}
                       className={styles.field}
                       onChange={setDraftBank}
                       value={draftBank}
                     />
-                    <ShipmentFields
-                      onChange={setDraftShipment}
-                      value={draftShipment}
-                    />
-                    {lines.map((line, index) => (
-                      <div className={styles.actions} key={index}>
-                        <label className={styles.field}>
-                          Description
-                          <input
-                            list="invoice-charge-options"
-                            placeholder="Pick or type any charge"
-                            maxLength={300}
-                            onChange={(event) =>
-                              setLines(
-                                lines.map((item, at) =>
-                                  at === index
-                                    ? {
-                                        ...item,
-                                        description: event.target.value,
-                                      }
-                                    : item,
-                                ),
-                              )
-                            }
-                            required
-                            value={line.description}
-                          />
-                        </label>
-                        <label className={styles.field}>
-                          Qty
-                          <input
-                            inputMode="decimal"
-                            onChange={(event) =>
-                              setLines(
-                                lines.map((item, at) =>
-                                  at === index
-                                    ? { ...item, quantity: event.target.value }
-                                    : item,
-                                ),
-                              )
-                            }
-                            size={6}
-                            value={line.quantity}
-                          />
-                        </label>
-                        <label className={styles.field}>
-                          Unit price
-                          <input
-                            inputMode="decimal"
-                            onChange={(event) =>
-                              setLines(
-                                lines.map((item, at) =>
-                                  at === index
-                                    ? { ...item, unit: event.target.value }
-                                    : item,
-                                ),
-                              )
-                            }
-                            size={10}
-                            value={line.unit}
-                          />
-                        </label>
-                        <label className={styles.field}>
-                          Amount ({draftCurrency || invoice.currency})
-                          {line.quantity.trim() || line.unit.trim() ? (
-                            <output>
-                              {lineMinor(line) === null
-                                ? "—"
-                                : formatMoney(
-                                    lineMinor(line)!,
-                                    draftCurrency || invoice.currency,
-                                  )}
-                            </output>
-                          ) : (
-                            <input
-                              inputMode="decimal"
-                              onChange={(event) =>
-                                setLines(
-                                  lines.map((item, at) =>
-                                    at === index
-                                      ? { ...item, amount: event.target.value }
-                                      : item,
-                                  ),
-                                )
-                              }
-                              required
-                              value={line.amount}
-                            />
-                          )}
-                        </label>
-                        <label>
-                          <input
-                            checked={line.taxable}
-                            onChange={(event) =>
-                              setLines(
-                                lines.map((item, at) =>
-                                  at === index
-                                    ? { ...item, taxable: event.target.checked }
-                                    : item,
-                                ),
-                              )
-                            }
-                            type="checkbox"
-                          />{" "}
-                          Taxed
-                        </label>
-                        <button
-                          className={styles.secondaryButton}
-                          onClick={() =>
-                            setLines(lines.filter((_, at) => at !== index))
-                          }
-                          type="button"
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    ))}
-                    <ChargeOptions id="invoice-charge-options" />
+                    <label className={styles.field}>
+                      Due date (optional; the payment terms in settings apply
+                      otherwise)
+                      <input
+                        onChange={(event) =>
+                          setDraftDueDate(event.target.value)
+                        }
+                        type="date"
+                        value={draftDueDate}
+                      />
+                    </label>
+                    <label className={styles.field}>
+                      Notes (optional)
+                      <input
+                        maxLength={2000}
+                        onChange={(event) => setDraftNotes(event.target.value)}
+                        value={draftNotes}
+                      />
+                    </label>
                     <div className={styles.actions}>
-                      <button
-                        className={styles.secondaryButton}
-                        onClick={() => setLines([...lines, blankLine()])}
-                        type="button"
-                      >
-                        Add line
-                      </button>
                       <button className={styles.button} type="submit">
                         Save draft
                       </button>
