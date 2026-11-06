@@ -467,6 +467,29 @@ test("an invoice prints the bank account chosen for it, and carries the logo", a
   assert.ok(file.toString("latin1").includes("/Subtype /Image"));
 });
 
+test("one bank's GHS and USD accounts share one card even when the rows differ slightly", async () => {
+  const sameBank = {
+    ...usdAccount,
+    bankName: "synthetic  bank ",
+    branch: "Other branch",
+    accountName: "Synthetic Forwarding Limited",
+  };
+  const text = pdfText(
+    await renderInvoicePdf(
+      {
+        invoice: invoice({ bankAccounts: [ghsAccount, sameBank] }),
+        job,
+        customer,
+        settings,
+      },
+      { compress: false },
+    ),
+  );
+  assert.equal(text.split("SYNTHETIC BANK").length - 1, 1, "one card");
+  assert.ok(text.includes("0001000100010"));
+  assert.ok(text.includes("0002000200020"));
+});
+
 test("an invoice with no chosen account prints the one in its currency, or none", async () => {
   const listed = { ...settings, bankAccounts: [usdAccount, ghsAccount] };
   const text = pdfText(
