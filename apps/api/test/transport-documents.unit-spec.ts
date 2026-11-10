@@ -36,6 +36,7 @@ const job: JobRecord = {
   goodsDescription: null,
   remarks: null,
   expectedCompletionDate: null,
+  etdAt: null,
 };
 
 const document = (

@@ -253,7 +253,8 @@ const jobSelect = `
     job.port_of_discharge,
     job.goods_description,
     job.remarks,
-    to_char(job.expected_completion_date, 'YYYY-MM-DD') AS expected_completion_date
+    to_char(job.expected_completion_date, 'YYYY-MM-DD') AS expected_completion_date,
+    job.etd_at
   FROM app.job AS job
   JOIN app.customer_company AS company
     ON company.company_id = job.customer_company_id`;
@@ -1320,6 +1321,17 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     return this.findJob(jobId, {});
   }
 
+  async updateJobEtd(
+    jobId: string,
+    etdAt: string | null,
+  ): Promise<JobRecord | null> {
+    await this.pool.query(
+      `UPDATE app.job SET etd_at = $2::timestamptz WHERE job_id = $1::uuid`,
+      [jobId, etdAt],
+    );
+    return this.findJob(jobId, {});
+  }
+
   async findJob(id: string, scope: JobScope): Promise<JobRecord | null> {
     if (scope.companyIds?.length === 0 || scope.serviceLines?.length === 0) {
       return null;
@@ -1356,6 +1368,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       remarks: (row.remarks as string | null) ?? null,
       expectedCompletionDate:
         (row.expected_completion_date as string | null) ?? null,
+      etdAt: row.etd_at ? this.toIsoString(row.etd_at) : null,
     };
   }
 
@@ -4737,6 +4750,65 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     return result.rowCount ?? 0;
   }
 
+  async raiseEtaDueNotices(withinDays: number): Promise<number> {
+    // Each open job's newest ETA; the ones already passed.
+    const current = `
+      SELECT DISTINCT ON (e.job_id) e.eta_id, e.eta_at, e.job_id
+      FROM app.eta_event AS e
+      JOIN app.job AS j ON j.job_id = e.job_id
+      WHERE j.status NOT IN ('closed', 'cancelled')
+      ORDER BY e.job_id, e.recorded_at DESC, e.eta_id DESC`;
+    // An older notice whose ETA was replaced, or whose job closed, is stale.
+    await this.pool.query(
+      `UPDATE app.staff_notification AS n
+       SET dismissed_at = clock_timestamp()
+       WHERE n.kind = 'eta_due' AND n.dismissed_at IS NULL
+         AND NOT EXISTS (
+           SELECT 1 FROM (${current}) AS latest
+           WHERE latest.job_id = n.job_id
+             AND n.dedupe_key = 'eta:' || latest.eta_id || ':due')`,
+    );
+    const result = await this.pool.query(
+      `WITH due AS (
+         SELECT latest.*, j.file_number
+         FROM (${current}) AS latest
+         JOIN app.job AS j ON j.job_id = latest.job_id
+         WHERE latest.eta_at <= clock_timestamp()
+           AND latest.eta_at >= clock_timestamp() - make_interval(days => $1)
+       ),
+       people AS (
+         SELECT due.job_id, a.user_id
+         FROM due
+         JOIN app.job_assignment AS a
+           ON a.job_id = due.job_id AND a.removed_at IS NULL
+         UNION
+         SELECT due.job_id, admin.user_id
+         FROM due
+         CROSS JOIN (
+           SELECT DISTINCT user_id FROM app.staff_role_assignment
+           WHERE role_key = 'super_admin' AND revoked_at IS NULL
+         ) AS admin
+         WHERE NOT EXISTS (
+           SELECT 1 FROM app.job_assignment AS a
+           WHERE a.job_id = due.job_id AND a.removed_at IS NULL)
+       )
+       INSERT INTO app.staff_notification
+         (user_id, kind, job_id, dedupe_key, title, note, due_at)
+       SELECT people.user_id, 'eta_due', due.job_id,
+              'eta:' || due.eta_id || ':due',
+              left('Job ' || due.file_number || ' has reached its ETA', 200),
+              'ETA ' || to_char(due.eta_at AT TIME ZONE 'UTC', 'FMDD Mon YYYY, HH24:MI')
+                || ' (UTC). Check whether the shipment has arrived, then dismiss this.',
+              due.eta_at
+       FROM due
+       JOIN people ON people.job_id = due.job_id
+       ON CONFLICT (user_id, dedupe_key) WHERE dedupe_key IS NOT NULL
+       DO NOTHING`,
+      [withinDays],
+    );
+    return result.rowCount ?? 0;
+  }
+
   private mapStaffNotification(
     row: Record<string, unknown>,
   ): StaffNotificationRecord {
@@ -4748,6 +4820,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
         ? String(row.quote_request_id)
         : null,
       vehicleId: row.vehicle_id ? String(row.vehicle_id) : null,
+      jobId: row.job_id ? String(row.job_id) : null,
       title: String(row.title),
       note: (row.note as string | null) ?? null,
       dueAt: this.toIsoString(row.due_at),

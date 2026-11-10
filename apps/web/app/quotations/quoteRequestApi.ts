@@ -352,9 +352,16 @@ const apiRoot = apiBaseUrl.replace(/\/$/, "");
 
 export type StaffNotice = {
   id: string;
-  kind: "request_overdue" | "inquiry_overdue" | "reminder" | "vehicle_due";
+  kind:
+    | "request_overdue"
+    | "inquiry_overdue"
+    | "reminder"
+    | "vehicle_due"
+    | "eta_due";
   quoteRequestId: string | null;
   vehicleId: string | null;
+  /** On an "ETA reached" notice: the job to check. */
+  jobId: string | null;
   title: string;
   note: string | null;
   dueAt: string;

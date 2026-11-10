@@ -105,6 +105,16 @@ export class JobsController {
     return this.jobs.updateReportDetails(id, body, scopeOf(request));
   }
 
+  @Put(":id/etd")
+  @UseGuards(DepartmentStaffGuard, JobScopeGuard)
+  updateEtd(
+    @Param("id") id: string,
+    @Body() body: unknown,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.jobs.updateEtd(id, body, scopeOf(request));
+  }
+
   @Post(":id/status")
   @UseGuards(DepartmentStaffGuard, JobScopeGuard)
   changeStatus(

@@ -69,6 +69,7 @@ const job: JobRecord = {
   goodsDescription: null,
   remarks: null,
   expectedCompletionDate: null,
+  etdAt: null,
 };
 
 const company = { id: "company", name: "Harbor Demo Ltd" };

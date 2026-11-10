@@ -12,6 +12,7 @@ import {
   isUuid,
   jobCreateInputSchema,
   jobListQuerySchema,
+  jobEtdInputSchema,
   jobReportDetailsInputSchema,
   jobVoyageInputSchema,
   jobStatusChangeInputSchema,
@@ -181,6 +182,23 @@ export class JobsService {
       job.id,
       parsed.data,
     );
+    if (!saved) throw new NotFoundException("Job was not found");
+    return saved;
+  }
+
+  /** Staff on the job's line record the estimated departure; an empty value clears it. */
+  async updateEtd(
+    id: string,
+    input: unknown,
+    scope: JobScope,
+  ): Promise<JobRecord> {
+    const job = await this.get(id, scope);
+    if (job.status === "closed" || job.status === "cancelled") {
+      throw new ConflictException("Reopen the job before changing it");
+    }
+    const parsed = parseContract(jobEtdInputSchema, input);
+    if (!parsed.success) throw new BadRequestException(parsed.message);
+    const saved = await this.database.updateJobEtd(job.id, parsed.data.etdAt);
     if (!saved) throw new NotFoundException("Job was not found");
     return saved;
   }
