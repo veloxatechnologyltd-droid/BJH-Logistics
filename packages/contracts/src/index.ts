@@ -908,6 +908,22 @@ export const etaInputSchema = z.object(
 );
 export type EtaInput = z.infer<typeof etaInputSchema>;
 
+/** The estimated departure (ETD): one current value on the job; an empty value clears it. */
+export const jobEtdInputSchema = z.object(
+  {
+    etdAt: z
+      .string({ error: "etdAt must be a date and time" })
+      .transform((value) => value.trim())
+      .refine((value) => value === "" || isRealDateTime(value), {
+        error: "etdAt must be a date and time",
+      })
+      .nullish()
+      .transform((value) => (value ? new Date(value).toISOString() : null)),
+  },
+  objectError("An ETD object is required"),
+);
+export type JobEtdInput = z.infer<typeof jobEtdInputSchema>;
+
 export const taskKinds = [
   "task",
   "missing_documents",

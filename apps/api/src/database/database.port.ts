@@ -226,6 +226,8 @@ export interface JobRecord {
   remarks: string | null;
   /** YYYY-MM-DD: when the job is expected to finish. */
   expectedCompletionDate: string | null;
+  /** The estimated departure (ETD) staff record by hand; the ETA has its own history. */
+  etdAt: string | null;
 }
 
 export interface MilestoneEventRecord {
@@ -642,9 +644,16 @@ export interface AssistantConversationRecord {
 export interface StaffNotificationRecord {
   id: string;
   userId: string;
-  kind: "request_overdue" | "inquiry_overdue" | "reminder" | "vehicle_due";
+  kind:
+    | "request_overdue"
+    | "inquiry_overdue"
+    | "reminder"
+    | "vehicle_due"
+    | "eta_due";
   quoteRequestId: string | null;
   vehicleId: string | null;
+  /** Set on an "ETA reached" notice: the job to check. */
+  jobId: string | null;
   title: string;
   note: string | null;
   /** When it shows (and, for a reminder, pops up). */
@@ -1474,6 +1483,11 @@ export abstract class DatabasePort {
       expectedCompletionDate: string | null;
     },
   ): Promise<JobRecord | null>;
+  /** Sets the job's ETD; null clears it. */
+  abstract updateJobEtd(
+    jobId: string,
+    etdAt: string | null,
+  ): Promise<JobRecord | null>;
   abstract findJob(id: string, scope: JobScope): Promise<JobRecord | null>;
   abstract addJobParty(party: {
     jobId: string;
@@ -2011,6 +2025,16 @@ export abstract class DatabasePort {
     afterHours: number,
     withinDays: number,
   ): Promise<number>;
+  /**
+   * Tells the lead and assistants of each open job (the super admin when
+   * nobody is assigned) once its current ETA has passed, if that was within
+   * `withinDays` (older ones are left alone, so switching this on does not
+   * flood anyone). One notice per person
+   * and ETA, so a new ETA raises a new one; a notice for an ETA that has since
+   * been replaced, or for a job that has closed, is dismissed. Returns how many
+   * were raised.
+   */
+  abstract raiseEtaDueNotices(withinDays: number): Promise<number>;
   /** A new lead replaces the current one, in the same transaction. */
   abstract assignJob(
     jobId: string,
