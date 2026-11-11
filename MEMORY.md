@@ -1693,3 +1693,10 @@ Read MEMORY.md at the start of every session before doing anything. Never contra
 **Why:** Gideon is a Sales rep but the card showed "Import rep" in the dropdown, which read as his role.
 **What was rejected:** Server-side search (one page is up to 100 accounts; the filter covers what is on screen). Hiding roles already held from the dropdown (not asked; the API already refuses a duplicate).
 **Open:** Search covers the current page only; with more than 100 accounts it would need the API.
+
+## 2026-11-11, Staff section is a table
+
+**What was decided:** The Staff page lists people in a table (select box, Staff name and email, Role, Status, Created, Actions) instead of one card each. The buttons sit on each row: Revoke beside each role, an "Add a role…" box with Assign, and Edit / Suspend (Reactivate) / Delete. Edit opens a row under the person with name, new password (with confirm) and role history. Header box selects everyone shown; the bar "N selected: Delete selected, Clear selection" appears when anyone is ticked. Under 820px each row becomes a card, so no sideways scroll on a phone.
+**Why:** Evans: easier to use than the cards, with the buttons on the rows.
+**What was rejected:** Keeping the card list with a table only for the summary (two layouts to maintain); a horizontally scrolling table on phones.
+**Open:** Search still covers the loaded page only. Checked in the browser (local stack) at desktop and 390px; Edit, ticking rows and the selection bar.
