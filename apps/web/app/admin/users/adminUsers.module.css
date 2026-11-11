@@ -4,8 +4,7 @@
   padding: 38px clamp(20px, 4vw, 54px) 56px;
 }
 .heading,
-.directoryHeading,
-.userHeading {
+.directoryHeading {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -68,8 +67,7 @@
   align-items: end;
   gap: 12px;
 }
-.inviteForm label,
-.addRole label {
+.inviteForm label {
   display: grid;
   min-width: 0;
   gap: 6px;
@@ -79,7 +77,6 @@
 }
 .inviteForm input,
 .inviteForm select,
-.addRole select,
 .passwordForm input {
   min-width: 0;
   height: 40px;
@@ -95,7 +92,6 @@
   grid-column: span 2;
 }
 .inviteForm button,
-.addRole button,
 .pagination button,
 .passwordForm button {
   min-height: 46px;
@@ -129,31 +125,6 @@
 .directoryHeading {
   margin-bottom: 17px;
 }
-.userList {
-  display: grid;
-  gap: 12px;
-}
-.userCard {
-  min-width: 0;
-  border: 1px solid #dce6ed;
-  border-radius: 9px;
-  padding: 17px;
-}
-.userHeading {
-  align-items: flex-start;
-}
-.userHeading > div {
-  min-width: 0;
-}
-.userHeading > .userTitle {
-  flex: 1 1 auto;
-}
-.selectBox {
-  flex: 0 0 auto;
-  width: 20px;
-  height: 20px;
-  margin: 1px 0 0;
-}
 .selectionBar,
 .confirmPanel {
   display: flex;
@@ -180,17 +151,6 @@
   margin: 0;
   line-height: 1.5;
 }
-.userHeading h3 {
-  overflow-wrap: anywhere;
-  margin: 0 0 5px;
-  color: #203b54;
-  font-size: 0.9rem;
-}
-.userHeading p {
-  margin: 0;
-  color: #7a8d9d;
-  font-size: 0.75rem;
-}
 .activeBadge,
 .inactiveBadge {
   flex: 0 0 auto;
@@ -207,32 +167,6 @@
   background: #f1f4f6;
   color: #657887;
 }
-.roleList {
-  margin-top: 13px;
-  border-top: 1px solid #edf1f4;
-}
-.roleRow {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  border-bottom: 1px solid #edf1f4;
-  padding: 10px 0;
-  color: #344f67;
-  font-size: 0.74rem;
-  font-weight: 700;
-}
-.roleRow > span {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-.roleRow small {
-  display: block;
-  margin-top: 4px;
-  color: #8798a5;
-  font-size: 0.75rem;
-  font-weight: 400;
-}
 .revokeButton {
   min-height: 40px;
   border: 1px solid #0b3fae;
@@ -245,11 +179,6 @@
   font-weight: 600;
   cursor: pointer;
 }
-.userCard button {
-  max-width: 100%;
-  white-space: normal;
-}
-.noRoles,
 .empty,
 .history p {
   color: #788c9d;
@@ -259,10 +188,6 @@
   margin-top: 13px;
   color: #4e6578;
   font-size: 0.75rem;
-}
-.history summary {
-  cursor: pointer;
-  font-weight: 700;
 }
 .accountWarning {
   max-width: 680px;
@@ -295,24 +220,6 @@
   gap: 6px;
   padding-left: 20px;
   line-height: 1.5;
-}
-.addRole {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: end;
-  gap: 9px;
-  margin-top: 14px;
-}
-.addRole label {
-  flex: 1 1 220px;
-}
-.addRole select {
-  width: 100%;
-  height: 35px;
-}
-.addRole button {
-  min-height: 42px;
-  font-size: 0.95rem;
 }
 .pagination {
   display: flex;
@@ -384,9 +291,6 @@
   .count {
     align-self: flex-start;
   }
-  .userHeading {
-    flex-direction: column;
-  }
 }
 .headerButton,
 .inviteForm .cancelButton {
@@ -436,9 +340,147 @@
   font: inherit;
   font-size: 0.85rem;
 }
-.userHeading .roleTitle {
-  margin: 0 0 4px;
-  color: #0b3fae;
-  font-size: 0.78rem;
+
+.tableWrap {
+  overflow-x: auto;
+  border: 1px solid #dce6ed;
+  border-radius: 9px;
+}
+.staffTable {
+  width: 100%;
+  border-collapse: collapse;
+  color: #344f67;
+  font-size: 0.8rem;
+}
+.staffTable th {
+  border-bottom: 1px solid #dce6ed;
+  background: #f4f8fb;
+  padding: 10px 12px;
+  color: #4c6478;
+  font-size: 0.72rem;
+  text-align: left;
+  white-space: nowrap;
+}
+.staffTable td {
+  border-bottom: 1px solid #edf1f4;
+  padding: 12px;
+  vertical-align: top;
+}
+.staffTable tbody tr:last-child td {
+  border-bottom: 0;
+}
+.staffTable .checkCell {
+  width: 36px;
+  padding-right: 0;
+}
+.checkCell input {
+  width: 18px;
+  height: 18px;
+}
+.cellName {
+  display: block;
+  overflow-wrap: anywhere;
+  color: #203b54;
+}
+.cellSub {
+  display: block;
+  overflow-wrap: anywhere;
+  color: #7a8d9d;
+  font-size: 0.75rem;
+}
+.staffTable .activeBadge,
+.staffTable .inactiveBadge {
+  display: inline-block;
+  white-space: nowrap;
+}
+.roleChip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+  color: #203b54;
   font-weight: 700;
+}
+.rowAddRole {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+.rowAddRole select {
+  flex: 1 1 120px;
+  min-width: 0;
+  height: 32px;
+  border: 1px solid #cad9e4;
+  border-radius: 7px;
+  background: white;
+  color: #18334c;
+  padding: 0 6px;
+  font: inherit;
+  font-size: 0.75rem;
+}
+.rowActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.rowButton {
+  min-height: 32px;
+  border: 1px solid #0b3fae;
+  border-radius: 999px;
+  background: white;
+  color: #0b3fae;
+  padding: 0 12px;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.rowButton:hover {
+  background: #eaf1fb;
+}
+.detailRow td {
+  background: #f8fbfd;
+}
+
+@media (max-width: 820px) {
+  .tableWrap {
+    overflow: visible;
+    border: 0;
+  }
+  .staffTable,
+  .staffTable tbody,
+  .staffTable tr,
+  .staffTable td {
+    display: block;
+    box-sizing: border-box;
+    width: 100%;
+  }
+  .staffTable thead {
+    display: none;
+  }
+  .staffTable tr {
+    margin-bottom: 12px;
+    border: 1px solid #dce6ed;
+    border-radius: 9px;
+    padding: 6px 4px;
+  }
+  .staffTable td,
+  .staffTable tbody tr:last-child td {
+    border: 0;
+    padding: 6px 12px;
+  }
+  .staffTable .checkCell {
+    width: 100%;
+  }
+  .staffTable td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 2px;
+    color: #7a8d9d;
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+  }
 }

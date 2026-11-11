@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { departmentRoleKeys, staffRoleLabels } from "@bjh/contracts";
 import type { HeldStaffRoleKey } from "@bjh/contracts";
@@ -81,6 +81,7 @@ export function AdminUsers() {
   const [creating, setCreating] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
   const [query, setQuery] = useState("");
+  const [openUser, setOpenUser] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string[] | null>(null);
   const [deleting, setDeleting] = useState(false);
 
@@ -459,37 +460,23 @@ export function AdminUsers() {
             type="search"
             value={query}
           />
-          {visibleUsers.length > 0 && (
+          {selected.length > 0 && (
             <div className={styles.selectionBar}>
-              <label>
-                <input
-                  checked={
-                    visibleUsers.length > 0 &&
-                    selected.length === visibleUsers.length
-                  }
-                  onChange={(event) =>
-                    setSelected(
-                      event.target.checked
-                        ? visibleUsers.map((user) => user.id)
-                        : [],
-                    )
-                  }
-                  type="checkbox"
-                />
-                Select all on this page
-              </label>
-              {selected.length > 0 && (
-                <>
-                  <span>{selected.length} selected</span>
-                  <button
-                    className={styles.revokeButton}
-                    onClick={() => setConfirmDelete(selected)}
-                    type="button"
-                  >
-                    Delete selected
-                  </button>
-                </>
-              )}
+              <span>{selected.length} selected</span>
+              <button
+                className={styles.revokeButton}
+                onClick={() => setConfirmDelete(selected)}
+                type="button"
+              >
+                Delete selected
+              </button>
+              <button
+                className={styles.revokeButton}
+                onClick={() => setSelected([])}
+                type="button"
+              >
+                Clear selection
+              </button>
             </div>
           )}
           {confirmDelete && (
@@ -534,198 +521,256 @@ export function AdminUsers() {
                 : "No accounts found on this page."}
             </p>
           ) : (
-            <div className={styles.userList}>
-              {visibleUsers.map((user) => {
-                const activeRoles = user.assignments.filter(
-                  (assignment) => !assignment.revokedAt,
-                );
-                return (
-                  <article className={styles.userCard} key={user.id}>
-                    <div className={styles.userHeading}>
+            <div className={styles.tableWrap}>
+              <table className={styles.staffTable}>
+                <thead>
+                  <tr>
+                    <th className={styles.checkCell}>
                       <input
-                        aria-label={`Select ${user.email ?? user.id}`}
-                        checked={selected.includes(user.id)}
-                        className={styles.selectBox}
-                        onChange={() => toggleSelected(user.id)}
+                        aria-label="Select all shown"
+                        checked={
+                          visibleUsers.length > 0 &&
+                          selected.length === visibleUsers.length
+                        }
+                        onChange={(event) =>
+                          setSelected(
+                            event.target.checked
+                              ? visibleUsers.map((user) => user.id)
+                              : [],
+                          )
+                        }
                         type="checkbox"
                       />
-                      <div className={styles.userTitle}>
-                        <h3>{user.name || "No name set"}</h3>
-                        <p className={styles.roleTitle}>
-                          {activeRoles.length
-                            ? activeRoleLabels(user).join(" · ")
-                            : "No active role"}
-                        </p>
-                        <p>
-                          {user.email ?? "Email unavailable"} · Created{" "}
-                          {formatDate(user.createdAt)}
-                          {user.invitedAt
-                            ? ` · Invited ${formatDate(user.invitedAt)}`
-                            : ""}
-                        </p>
-                      </div>
-                      <span
-                        className={
-                          user.suspended || !activeRoles.length
-                            ? styles.inactiveBadge
-                            : styles.activeBadge
-                        }
-                      >
-                        {user.suspended
-                          ? "Suspended"
-                          : activeRoles.length
-                            ? "Access assigned"
-                            : "No active role"}
-                      </span>
-                    </div>
-                    <div className={styles.roleList}>
-                      {activeRoles.map((assignment) => (
-                        <div className={styles.roleRow} key={assignment.id}>
-                          <span>
-                            {roleLabel(assignment.roleKey)}{" "}
-                            <small>
-                              Assigned {formatDate(assignment.assignedAt)}
-                            </small>
-                          </span>
-                          <button
-                            className={styles.revokeButton}
-                            onClick={() =>
-                              void revokeRole(user, assignment.roleKey)
-                            }
-                            type="button"
-                          >
-                            Revoke
-                          </button>
-                        </div>
-                      ))}
-                      {activeRoles.length === 0 && (
-                        <p className={styles.noRoles}>
-                          This account has no active staff role.
-                        </p>
-                      )}
-                    </div>
-                    <details className={styles.history}>
-                      <summary>Account controls</summary>
-                      <p className={styles.accountWarning}>
-                        Password changes let another person use this same
-                        account. Activity remains tied to this account and will
-                        not identify who used it.
-                      </p>
-                      <form
-                        className={styles.passwordForm}
-                        onSubmit={(event) => {
-                          event.preventDefault();
-                          void changeName(user, event.currentTarget);
-                        }}
-                      >
-                        <label>
-                          Name shown to others
-                          <input
-                            defaultValue={user.name ?? ""}
-                            maxLength={80}
-                            name="name"
-                            placeholder="Full name"
-                          />
-                        </label>
-                        <button type="submit">Save name</button>
-                      </form>
-                      <form
-                        className={styles.passwordForm}
-                        onSubmit={(event) => {
-                          event.preventDefault();
-                          void changePassword(user, event.currentTarget);
-                        }}
-                      >
-                        <label>
-                          Set a new password
-                          <input
-                            autoComplete="new-password"
-                            minLength={6}
-                            name="password"
-                            placeholder="6+ characters: Aa and 1"
-                            required
-                            title={passwordRuleText}
-                            type="password"
-                          />
-                        </label>
-                        <label>
-                          Confirm the new password
-                          <input
-                            autoComplete="new-password"
-                            minLength={6}
-                            name="confirm"
-                            placeholder="Type it again"
-                            required
-                            type="password"
-                          />
-                        </label>
-                        <button type="submit">Change password</button>
-                      </form>
-                      <button
-                        className={styles.revokeButton}
-                        onClick={() => void changeSuspension(user)}
-                        type="button"
-                      >
-                        {user.suspended
-                          ? "Reactivate account"
-                          : "Suspend account"}
-                      </button>{" "}
-                      <button
-                        className={styles.revokeButton}
-                        onClick={() => setConfirmDelete([user.id])}
-                        type="button"
-                      >
-                        Delete account
-                      </button>
-                    </details>
-                    <details className={styles.history}>
-                      <summary>
-                        Role history ({user.assignments.length})
-                      </summary>
-                      {user.assignments.length ? (
-                        <ul>
-                          {user.assignments.map((assignment) => (
-                            <li key={assignment.id}>
-                              <strong>{roleLabel(assignment.roleKey)}</strong>{" "}
-                              assigned {formatDate(assignment.assignedAt)}
-                              {assignment.revokedAt
-                                ? `; revoked ${formatDate(assignment.revokedAt)}`
-                                : "; active"}
-                            </li>
-                          ))}
-                        </ul>
-                      ) : (
-                        <p>No role history.</p>
-                      )}
-                    </details>
-                    <form
-                      className={styles.addRole}
-                      onSubmit={(event) => {
-                        event.preventDefault();
-                        const form = event.currentTarget;
-                        const selected = new FormData(form).get("roleKey");
-                        if (typeof selected === "string")
-                          void updateRole(user, selected as RoleKey);
-                      }}
-                    >
-                      <label>
-                        Add a role
-                        <select name="roleKey" defaultValue="" required>
-                          <option disabled value="">
-                            Choose a role…
-                          </option>
-                          {assignableRoles.map(([key, label]) => (
-                            <option key={key} value={key}>
-                              {label}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <button type="submit">Assign role</button>
-                    </form>
-                  </article>
-                );
-              })}
+                    </th>
+                    <th>Staff</th>
+                    <th>Role</th>
+                    <th>Status</th>
+                    <th>Created</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleUsers.map((user) => {
+                    const activeRoles = user.assignments.filter(
+                      (assignment) => !assignment.revokedAt,
+                    );
+                    const isOpen = openUser === user.id;
+                    return (
+                      <Fragment key={user.id}>
+                        <tr>
+                          <td className={styles.checkCell}>
+                            <input
+                              aria-label={`Select ${user.email ?? user.id}`}
+                              checked={selected.includes(user.id)}
+                              onChange={() => toggleSelected(user.id)}
+                              type="checkbox"
+                            />
+                          </td>
+                          <td data-label="Staff">
+                            <strong className={styles.cellName}>
+                              {user.name || "No name set"}
+                            </strong>
+                            <span className={styles.cellSub}>
+                              {user.email ?? "Email unavailable"}
+                            </span>
+                          </td>
+                          <td data-label="Role">
+                            {activeRoles.map((assignment) => (
+                              <div
+                                className={styles.roleChip}
+                                key={assignment.id}
+                              >
+                                <span>{roleLabel(assignment.roleKey)}</span>
+                                <button
+                                  className={styles.rowButton}
+                                  onClick={() =>
+                                    void revokeRole(user, assignment.roleKey)
+                                  }
+                                  type="button"
+                                >
+                                  Revoke
+                                </button>
+                              </div>
+                            ))}
+                            {activeRoles.length === 0 && (
+                              <span className={styles.cellSub}>
+                                No active role
+                              </span>
+                            )}
+                            <form
+                              className={styles.rowAddRole}
+                              onSubmit={(event) => {
+                                event.preventDefault();
+                                const form = event.currentTarget;
+                                const chosen = new FormData(form).get(
+                                  "roleKey",
+                                );
+                                if (typeof chosen === "string")
+                                  void updateRole(user, chosen as RoleKey);
+                              }}
+                            >
+                              <select
+                                aria-label={`Add a role for ${user.email ?? user.id}`}
+                                defaultValue=""
+                                name="roleKey"
+                                required
+                              >
+                                <option disabled value="">
+                                  Add a role…
+                                </option>
+                                {assignableRoles.map(([key, label]) => (
+                                  <option key={key} value={key}>
+                                    {label}
+                                  </option>
+                                ))}
+                              </select>
+                              <button
+                                className={styles.rowButton}
+                                type="submit"
+                              >
+                                Assign
+                              </button>
+                            </form>
+                          </td>
+                          <td data-label="Status">
+                            <span
+                              className={
+                                user.suspended || !activeRoles.length
+                                  ? styles.inactiveBadge
+                                  : styles.activeBadge
+                              }
+                            >
+                              {user.suspended
+                                ? "Suspended"
+                                : activeRoles.length
+                                  ? "Access assigned"
+                                  : "No active role"}
+                            </span>
+                          </td>
+                          <td data-label="Created">
+                            {formatDate(user.createdAt)}
+                          </td>
+                          <td data-label="Actions">
+                            <div className={styles.rowActions}>
+                              <button
+                                aria-expanded={isOpen}
+                                className={styles.rowButton}
+                                onClick={() =>
+                                  setOpenUser(isOpen ? null : user.id)
+                                }
+                                type="button"
+                              >
+                                {isOpen ? "Close" : "Edit"}
+                              </button>
+                              <button
+                                className={styles.rowButton}
+                                onClick={() => void changeSuspension(user)}
+                                type="button"
+                              >
+                                {user.suspended ? "Reactivate" : "Suspend"}
+                              </button>
+                              <button
+                                className={styles.rowButton}
+                                onClick={() => setConfirmDelete([user.id])}
+                                type="button"
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                        {isOpen && (
+                          <tr className={styles.detailRow}>
+                            <td colSpan={6}>
+                              <p className={styles.accountWarning}>
+                                Password changes let another person use this
+                                same account. Activity remains tied to this
+                                account and will not identify who used it.
+                              </p>
+                              <form
+                                className={styles.passwordForm}
+                                onSubmit={(event) => {
+                                  event.preventDefault();
+                                  void changeName(user, event.currentTarget);
+                                }}
+                              >
+                                <label>
+                                  Name shown to others
+                                  <input
+                                    defaultValue={user.name ?? ""}
+                                    maxLength={80}
+                                    name="name"
+                                    placeholder="Full name"
+                                  />
+                                </label>
+                                <button type="submit">Save name</button>
+                              </form>
+                              <form
+                                className={styles.passwordForm}
+                                onSubmit={(event) => {
+                                  event.preventDefault();
+                                  void changePassword(
+                                    user,
+                                    event.currentTarget,
+                                  );
+                                }}
+                              >
+                                <label>
+                                  Set a new password
+                                  <input
+                                    autoComplete="new-password"
+                                    minLength={6}
+                                    name="password"
+                                    placeholder="6+ characters: Aa and 1"
+                                    required
+                                    title={passwordRuleText}
+                                    type="password"
+                                  />
+                                </label>
+                                <label>
+                                  Confirm the new password
+                                  <input
+                                    autoComplete="new-password"
+                                    minLength={6}
+                                    name="confirm"
+                                    placeholder="Type it again"
+                                    required
+                                    type="password"
+                                  />
+                                </label>
+                                <button type="submit">Change password</button>
+                              </form>
+                              <div className={styles.history}>
+                                <strong>
+                                  Role history ({user.assignments.length})
+                                </strong>
+                                {user.assignments.length ? (
+                                  <ul>
+                                    {user.assignments.map((assignment) => (
+                                      <li key={assignment.id}>
+                                        <strong>
+                                          {roleLabel(assignment.roleKey)}
+                                        </strong>{" "}
+                                        assigned{" "}
+                                        {formatDate(assignment.assignedAt)}
+                                        {assignment.revokedAt
+                                          ? `; revoked ${formatDate(assignment.revokedAt)}`
+                                          : "; active"}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                ) : (
+                                  <p>No role history.</p>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           )}
           <div className={styles.pagination}>
