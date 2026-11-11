@@ -9,6 +9,7 @@ import {
   legacyRoleReplacement,
   legacyStaffRoleKeys,
   parseContract,
+  passwordProblem,
   staffCreateInputSchema,
   staffRoleInputSchema,
   staffRoleKeys,
@@ -35,6 +36,16 @@ function currentRoles(roles: StaffRoleKey[]): StaffRoleKey[] {
   return [...new Set(current)];
 }
 const pageSize = 100;
+const uuidPattern =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const deleteRefusals = {
+  self: "You cannot delete your own account",
+  super_admin: "The super admin account cannot be deleted",
+  customer:
+    "This is a customer account: remove it under Customer accounts instead",
+} as const;
+type DeleteRefusal = keyof typeof deleteRefusals;
 
 @Injectable()
 export class AdminStaffService {
@@ -226,6 +237,73 @@ export class AdminStaffService {
     return { user, roleKey, revoked: true };
   }
 
+  /** Deletes one account; says why in a 409 when it cannot be deleted. */
+  async remove(userId: string, actor: AuthenticatedUser) {
+    const reason = await this.deleteAccount(userId, actor.userId);
+    if (reason === "not_found") {
+      throw new NotFoundException("Staff account was not found");
+    }
+    if (reason) throw new ConflictException(deleteRefusals[reason]);
+    return { deleted: true };
+  }
+
+  /** Deletes several; one that cannot be deleted does not stop the rest. */
+  async removeMany(body: unknown, actor: AuthenticatedUser) {
+    const userIds =
+      body && typeof body === "object"
+        ? (body as Record<string, unknown>).userIds
+        : undefined;
+    if (
+      !Array.isArray(userIds) ||
+      userIds.length === 0 ||
+      userIds.length > 50 ||
+      userIds.some((id) => typeof id !== "string" || !uuidPattern.test(id))
+    ) {
+      throw new BadRequestException(
+        "userIds must list between 1 and 50 account ids",
+      );
+    }
+    const deleted: string[] = [];
+    const failed: { userId: string; reason: string }[] = [];
+    for (const userId of new Set(userIds as string[])) {
+      const reason = await this.deleteAccount(userId, actor.userId);
+      if (!reason) deleted.push(userId);
+      else
+        failed.push({
+          userId,
+          reason:
+            reason === "not_found"
+              ? "Account no longer exists"
+              : deleteRefusals[reason],
+        });
+    }
+    return { deleted, failed };
+  }
+
+  private async deleteAccount(
+    userId: string,
+    actorId: string,
+  ): Promise<DeleteRefusal | "not_found" | null> {
+    if (userId === actorId) return "self";
+    const user = await this.auth.getUser(userId);
+    if (!user) return "not_found";
+    const roleKeys = await this.database.getActiveStaffRoles(userId);
+    if (roleKeys.includes("super_admin")) return "super_admin";
+    const memberships = await this.database.listActiveCustomerMemberships();
+    if (memberships.some((membership) => membership.userId === userId)) {
+      return "customer";
+    }
+    const history = await this.database.releaseStaffAccountForDeletion(userId);
+    if (history === "has_history") {
+      // The account row stays so its records keep their place: take its access away.
+      for (const roleKey of roleKeys) {
+        await this.database.revokeStaffRole(userId, roleKey, actorId);
+      }
+    }
+    await this.auth.deleteUser(userId, history === "has_history");
+    return null;
+  }
+
   private async assignRole(
     user: StaffDirectoryUser,
     roleKey: StaffRoleKey,
@@ -258,9 +336,8 @@ export class AdminStaffService {
   }
 
   private validatePassword(password: string) {
-    if (password.length < 12) {
-      throw new BadRequestException("Password must be at least 12 characters");
-    }
+    const problem = passwordProblem(password);
+    if (problem) throw new BadRequestException(problem);
   }
 
   private parseRole(value: unknown): StaffRoleKey {

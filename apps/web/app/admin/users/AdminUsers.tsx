@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { departmentRoleKeys, staffRoleLabels } from "@bjh/contracts";
 import type { HeldStaffRoleKey } from "@bjh/contracts";
+import { passwordProblem, passwordRuleText } from "@bjh/contracts";
 import { authenticatedFetch } from "../../auth/authenticatedFetch";
 import styles from "./adminUsers.module.css";
 import { ErrorPopup } from "../../ErrorPopup";
@@ -50,6 +51,13 @@ function roleLabel(roleKey: string): string {
   return staffRoleLabels[roleKey as RoleKey] ?? roleKey;
 }
 
+/** What the person does now: their active roles, e.g. "Sales". */
+function activeRoleLabels(user: StaffUser): string[] {
+  return user.assignments
+    .filter((assignment) => !assignment.revokedAt)
+    .map((assignment) => roleLabel(assignment.roleKey));
+}
+
 function formatDate(value: string): string {
   return new Intl.DateTimeFormat(undefined, {
     dateStyle: "medium",
@@ -64,12 +72,17 @@ export function AdminUsers() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [roleKey, setRoleKey] = useState<RoleKey>("import_rep");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [creating, setCreating] = useState(false);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [query, setQuery] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState<string[] | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const loadPage = useCallback(async (requestedPage: number) => {
     setLoading(true);
@@ -81,6 +94,7 @@ export function AdminUsers() {
         page: number;
       }>(await authenticatedFetch(`${staffUrl}?page=${requestedPage}`));
       setUsers(result.users);
+      setSelected([]);
       setHasMore(result.hasMore);
       setPage(result.page);
     } catch (cause) {
@@ -99,9 +113,16 @@ export function AdminUsers() {
   async function createAccount(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (saving) return;
-    setSaving(true);
     setError("");
     setNotice("");
+    const problem =
+      passwordProblem(password) ??
+      (password !== confirmPassword ? "The two passwords do not match." : null);
+    if (problem) {
+      setError(problem);
+      return;
+    }
+    setSaving(true);
     try {
       await readResponse(
         await authenticatedFetch(staffUrl, {
@@ -113,6 +134,7 @@ export function AdminUsers() {
       setName("");
       setEmail("");
       setPassword("");
+      setConfirmPassword("");
       setCreating(false);
       setNotice(`Account created for ${email.trim()}. No email was sent.`);
       await loadPage(1);
@@ -126,9 +148,19 @@ export function AdminUsers() {
   }
 
   async function changePassword(user: StaffUser, form: HTMLFormElement) {
-    const nextPassword = String(new FormData(form).get("password") ?? "");
+    const data = new FormData(form);
+    const nextPassword = String(data.get("password") ?? "");
     setError("");
     setNotice("");
+    const problem =
+      passwordProblem(nextPassword) ??
+      (nextPassword !== String(data.get("confirm") ?? "")
+        ? "The two passwords do not match."
+        : null);
+    if (problem) {
+      setError(problem);
+      return;
+    }
     try {
       await readResponse(
         await authenticatedFetch(
@@ -192,6 +224,66 @@ export function AdminUsers() {
           : "Account status could not be changed",
       );
     }
+  }
+
+  const needle = query.trim().toLowerCase();
+  const visibleUsers = needle
+    ? users.filter((user) =>
+        [user.name ?? "", user.email ?? "", ...activeRoleLabels(user)].some(
+          (text) => text.toLowerCase().includes(needle),
+        ),
+      )
+    : users;
+
+  async function deleteAccounts(userIds: string[]) {
+    if (deleting) return;
+    setDeleting(true);
+    setError("");
+    setNotice("");
+    try {
+      const result = await readResponse<{
+        deleted: string[];
+        failed: { userId: string; reason: string }[];
+      }>(
+        await authenticatedFetch(`${staffUrl}/delete`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ userIds }),
+        }),
+      );
+      const label = (id: string) =>
+        users.find((user) => user.id === id)?.email ?? id;
+      if (result.deleted.length) {
+        setNotice(
+          result.deleted.length === 1
+            ? `${label(result.deleted[0])} deleted.`
+            : `${result.deleted.length} accounts deleted.`,
+        );
+      }
+      if (result.failed.length) {
+        setError(
+          result.failed
+            .map((item) => `${label(item.userId)}: ${item.reason}`)
+            .join(" "),
+        );
+      }
+      setConfirmDelete(null);
+      await loadPage(page);
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "Accounts were not deleted",
+      );
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  function toggleSelected(userId: string) {
+    setSelected((current) =>
+      current.includes(userId)
+        ? current.filter((id) => id !== userId)
+        : [...current, userId],
+    );
   }
 
   async function updateRole(user: StaffUser, role: RoleKey) {
@@ -288,11 +380,25 @@ export function AdminUsers() {
                 Initial password
                 <input
                   autoComplete="new-password"
-                  minLength={12}
+                  minLength={6}
                   onChange={(event) => setPassword(event.target.value)}
+                  placeholder="6+ characters: Aa and 1"
                   required
+                  title={passwordRuleText}
                   type="password"
                   value={password}
+                />
+              </label>
+              <label>
+                Confirm password
+                <input
+                  autoComplete="new-password"
+                  minLength={6}
+                  onChange={(event) => setConfirmPassword(event.target.value)}
+                  placeholder="Type it again"
+                  required
+                  type="password"
+                  value={confirmPassword}
                 />
               </label>
               <label>
@@ -336,25 +442,120 @@ export function AdminUsers() {
             <div>
               <h2 id="directory-title">Users and role history</h2>
             </div>
-            <span>{users.length} on this page</span>
+            <span>
+              {needle
+                ? `${visibleUsers.length} of ${users.length} shown`
+                : `${users.length} on this page`}
+            </span>
           </div>
+          <input
+            aria-label="Search staff by name, email or role"
+            className={styles.search}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setSelected([]);
+            }}
+            placeholder="Search by name, email or role (e.g. Sales)"
+            type="search"
+            value={query}
+          />
+          {visibleUsers.length > 0 && (
+            <div className={styles.selectionBar}>
+              <label>
+                <input
+                  checked={
+                    visibleUsers.length > 0 &&
+                    selected.length === visibleUsers.length
+                  }
+                  onChange={(event) =>
+                    setSelected(
+                      event.target.checked
+                        ? visibleUsers.map((user) => user.id)
+                        : [],
+                    )
+                  }
+                  type="checkbox"
+                />
+                Select all on this page
+              </label>
+              {selected.length > 0 && (
+                <>
+                  <span>{selected.length} selected</span>
+                  <button
+                    className={styles.revokeButton}
+                    onClick={() => setConfirmDelete(selected)}
+                    type="button"
+                  >
+                    Delete selected
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+          {confirmDelete && (
+            <div className={styles.confirmPanel} role="alertdialog">
+              <p>
+                Delete{" "}
+                {confirmDelete.length === 1
+                  ? (users.find((user) => user.id === confirmDelete[0])
+                      ?.email ?? "this account")
+                  : `${confirmDelete.length} accounts`}
+                ? They will no longer be able to sign in. An account with jobs,
+                notes or other work recorded under it is hidden and its history
+                kept, as &ldquo;Staff member&rdquo;; any other account is
+                erased. This cannot be undone.
+              </p>
+              <button
+                className={styles.confirmButton}
+                disabled={deleting}
+                onClick={() => void deleteAccounts(confirmDelete)}
+                type="button"
+              >
+                {deleting ? "Deleting…" : "Yes, delete"}
+              </button>
+              <button
+                className={styles.revokeButton}
+                disabled={deleting}
+                onClick={() => setConfirmDelete(null)}
+                type="button"
+              >
+                Cancel
+              </button>
+            </div>
+          )}
           {loading ? (
             <p className={styles.empty} role="status">
               Loading staff accounts…
             </p>
-          ) : users.length === 0 ? (
-            <p className={styles.empty}>No accounts found on this page.</p>
+          ) : visibleUsers.length === 0 ? (
+            <p className={styles.empty}>
+              {needle
+                ? "No one on this page matches your search."
+                : "No accounts found on this page."}
+            </p>
           ) : (
             <div className={styles.userList}>
-              {users.map((user) => {
+              {visibleUsers.map((user) => {
                 const activeRoles = user.assignments.filter(
                   (assignment) => !assignment.revokedAt,
                 );
                 return (
                   <article className={styles.userCard} key={user.id}>
                     <div className={styles.userHeading}>
-                      <div>
+                      <input
+                        aria-label={`Select ${user.email ?? user.id}`}
+                        checked={selected.includes(user.id)}
+                        className={styles.selectBox}
+                        onChange={() => toggleSelected(user.id)}
+                        type="checkbox"
+                      />
+                      <div className={styles.userTitle}>
                         <h3>{user.name || "No name set"}</h3>
+                        <p className={styles.roleTitle}>
+                          {activeRoles.length
+                            ? activeRoleLabels(user).join(" · ")
+                            : "No active role"}
+                        </p>
                         <p>
                           {user.email ?? "Email unavailable"} · Created{" "}
                           {formatDate(user.createdAt)}
@@ -439,8 +640,21 @@ export function AdminUsers() {
                           Set a new password
                           <input
                             autoComplete="new-password"
-                            minLength={12}
+                            minLength={6}
                             name="password"
+                            placeholder="6+ characters: Aa and 1"
+                            required
+                            title={passwordRuleText}
+                            type="password"
+                          />
+                        </label>
+                        <label>
+                          Confirm the new password
+                          <input
+                            autoComplete="new-password"
+                            minLength={6}
+                            name="confirm"
+                            placeholder="Type it again"
                             required
                             type="password"
                           />
@@ -455,6 +669,13 @@ export function AdminUsers() {
                         {user.suspended
                           ? "Reactivate account"
                           : "Suspend account"}
+                      </button>{" "}
+                      <button
+                        className={styles.revokeButton}
+                        onClick={() => setConfirmDelete([user.id])}
+                        type="button"
+                      >
+                        Delete account
                       </button>
                     </details>
                     <details className={styles.history}>
@@ -489,7 +710,10 @@ export function AdminUsers() {
                     >
                       <label>
                         Add a role
-                        <select name="roleKey" defaultValue="import_rep">
+                        <select name="roleKey" defaultValue="" required>
+                          <option disabled value="">
+                            Choose a role…
+                          </option>
                           {assignableRoles.map(([key, label]) => (
                             <option key={key} value={key}>
                               {label}

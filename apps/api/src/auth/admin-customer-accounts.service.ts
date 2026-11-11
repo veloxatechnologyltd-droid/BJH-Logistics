@@ -8,6 +8,7 @@ import {
 import {
   customerAccountCreateInputSchema,
   parseContract,
+  passwordProblem,
 } from "@bjh/contracts";
 import { DatabasePort } from "../database/database.port";
 import type { AuthenticatedUser } from "./supabase-auth-verifier";
@@ -83,9 +84,8 @@ export class AdminCustomerAccountsService {
     const parsed = parseContract(customerAccountCreateInputSchema, body);
     if (!parsed.success) throw new BadRequestException(parsed.message);
     const email = parsed.data.email.toLowerCase();
-    if (parsed.data.password.length < 12) {
-      throw new BadRequestException("Password must be at least 12 characters");
-    }
+    const problem = passwordProblem(parsed.data.password);
+    if (problem) throw new BadRequestException(problem);
     const company = await this.database.findCustomer(parsed.data.companyId);
     if (!company) throw new NotFoundException("Customer company was not found");
     const user = await this.auth.createUser(email, parsed.data.password);
@@ -113,9 +113,8 @@ export class AdminCustomerAccountsService {
       typeof (body as Record<string, unknown>).password === "string"
         ? (body as Record<string, string>).password
         : "";
-    if (password.length < 12) {
-      throw new BadRequestException("Password must be at least 12 characters");
-    }
+    const problem = passwordProblem(password);
+    if (problem) throw new BadRequestException(problem);
     await this.auth.setPassword(userId, password, true);
     return { userId, passwordChanged: true };
   }

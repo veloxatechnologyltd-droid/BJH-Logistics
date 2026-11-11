@@ -9,6 +9,7 @@ import {
   serviceLineKeys,
   serviceLinesForRoles,
   parseContract,
+  passwordProblem,
   pickBankAccounts,
   quoteRequestInputSchema,
   quoteVersionInputSchema,
@@ -315,4 +316,12 @@ test("a document prints the chosen bank accounts, else the defaults, else the fi
   ]);
   assert.deepEqual(ids(pickBankAccounts(marked, "GHS", [])), []);
   assert.deepEqual(ids(pickBankAccounts(marked, "GHS", ["gone"])), []);
+});
+
+test("a password needs 6 characters with upper case, lower case and a number", () => {
+  assert.equal(passwordProblem("Abc123"), null);
+  assert.equal(passwordProblem("Longer-Password-9"), null);
+  for (const weak of ["Ab1de", "abcdef1", "ABCDEF1", "Abcdefg", "123456", ""]) {
+    assert.match(passwordProblem(weak) ?? "", /^Password must have at least 6/);
+  }
 });

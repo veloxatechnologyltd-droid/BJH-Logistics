@@ -20,7 +20,7 @@ let baseUrl: string;
 let company: string;
 
 const CREATED_USER_ID = "50000000-0000-4000-8000-000000000005";
-const password = "secure-example-password";
+const password = "Secure-Example-1";
 
 function call(path: string, token: string, init: RequestInit = {}) {
   const headers = new Headers(init.headers);
@@ -133,7 +133,7 @@ test("the super admin creates a customer account linked to a company, with no st
     [
       { email: "a@example.test", password: "short", companyId: company },
       400,
-      "Password must be at least 12 characters",
+      "Password must have at least 6 characters, with an upper-case letter, a lower-case letter and a number",
     ],
     [{ email: "a@example.test", password }, 400, "companyId is required"],
     [
