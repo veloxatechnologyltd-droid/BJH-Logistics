@@ -70,6 +70,12 @@ const staffNav: NavGroup[] = [
     heading: "SALES",
     items: [
       { href: "/customers/leads", label: "Leads", icon: "leads" },
+      {
+        href: "/campaigns",
+        label: "Campaigns",
+        icon: "campaigns",
+        roles: ["super_admin", "sales_rep", "customer_service_rep"],
+      },
       { href: "/customers", label: "Customers", icon: "customers" },
     ],
   },

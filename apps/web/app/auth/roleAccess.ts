@@ -50,3 +50,13 @@ export const canWorkQuotes = (roles: string[]) =>
     "import_rep",
     "export_rep",
   ]);
+
+/**
+ * Lead-generation campaigns: sales, customer service and the super admin, as in
+ * the API (decision L3). The legacy air and sea roles do not keep this one: the
+ * API never granted it to them.
+ */
+export const canUseLeadGeneration = (roles: string[]) =>
+  roles.some((role) =>
+    ["super_admin", "sales_rep", "customer_service_rep"].includes(role),
+  );
