@@ -7,6 +7,8 @@ import {
   contactLinks,
   extractEmails,
   extractPhones,
+  homeExcerpt,
+  EXCERPT_CHARS,
 } from "../src/leads/website-contacts";
 import type { FetchedPage, PageFetcher } from "../src/leads/public-web-fetcher";
 
@@ -243,4 +245,30 @@ test("the stub finder gives each synthetic site its own info address and fetches
   assert.equal(result.status, "email_found");
   assert.equal(result.emails[0].address, "info@synthetic-business-1.example");
   assert.equal((await stub.find("nonsense")).status, "failed");
+});
+
+test("the excerpt is the visible words of the home page only, cut short", async () => {
+  const { fetcher } = fetcherFor({
+    "https://synthetic-traders.example/": HOME,
+  });
+  const result = await new PublicWebsiteContactFinder(fetcher).find(
+    "https://synthetic-traders.example/",
+  );
+  assert.match(result.excerpt!, /^Synthetic Traders About Products Contact us/);
+  assert.match(result.excerpt!, /Welcome\. Order 2024-11-05 ref 1111111\./);
+  // No scripts, styles, tags or one-line breaks come through.
+  assert.doesNotMatch(result.excerpt!, /ld\+json|background|<|>|\n/);
+
+  const long = homeExcerpt(`<p>${"word ".repeat(2000)}</p>`)!;
+  assert.equal(long.length, EXCERPT_CHARS);
+  assert.equal(homeExcerpt("<script>var a = 1;</script>  <p> </p>"), null);
+
+  const unreadable = await new PublicWebsiteContactFinder(
+    fetcherFor({}).fetcher,
+  ).find("https://synthetic-traders.example/");
+  assert.equal(unreadable.excerpt, null);
+  assert.equal(
+    (await new StubWebsiteContactFinder().find("https://a.example")).excerpt,
+    null,
+  );
 });

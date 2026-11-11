@@ -57,6 +57,18 @@ import {
   AssistantService,
 } from "./assistant/assistant.service";
 import { claudeFromEnvironment } from "./ai/claude";
+import { createBusinessSearchProvider } from "./leads/apify-business-search";
+import { BUSINESS_SEARCH_PROVIDER } from "./leads/business-search";
+import type { BusinessSearchProvider } from "./leads/business-search";
+import { LeadRunPipeline } from "./leads/lead-run-pipeline.service";
+import {
+  PROSPECT_SCORER,
+  createProspectScorer,
+} from "./leads/prospect-scoring";
+import {
+  WEBSITE_CONTACT_FINDER,
+  createWebsiteContactFinder,
+} from "./leads/website-contacts";
 import { ChatService } from "./chat/chat.service";
 import { TeamChatController } from "./team-chat/team-chat.controller";
 import { TeamChatService } from "./team-chat/team-chat.service";
@@ -199,6 +211,18 @@ import { PushService } from "./push/push.service";
     SettingsService,
     CustomersService,
     LeadsService,
+    {
+      provide: BUSINESS_SEARCH_PROVIDER,
+      useFactory: () => createBusinessSearchProvider(process.env),
+    },
+    {
+      provide: WEBSITE_CONTACT_FINDER,
+      inject: [BUSINESS_SEARCH_PROVIDER],
+      useFactory: (search: BusinessSearchProvider) =>
+        createWebsiteContactFinder(search.name),
+    },
+    { provide: PROSPECT_SCORER, useFactory: () => createProspectScorer() },
+    LeadRunPipeline,
     JobsService,
     ClientJobReportService,
     JobAssignmentsService,

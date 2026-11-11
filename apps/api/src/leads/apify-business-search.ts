@@ -39,8 +39,20 @@ export function minimumStarsFor(minRating: number | null): string | null {
   return STAR_STEPS.find(([step]) => minRating >= step)?.[1] ?? null;
 }
 
-/** The Apify call failed; the message is safe to show staff (no secrets, no raw body). */
-export class ApifyError extends Error {}
+/**
+ * The Apify call failed; the message is safe to show staff (no secrets, no raw body).
+ * `retryable`: a busy service, a server problem or a network failure that a later
+ * attempt may get past. A rejected token, no credit, an unknown actor or a bad
+ * request will fail the same way again.
+ */
+export class ApifyError extends Error {
+  constructor(
+    message: string,
+    readonly retryable = false,
+  ) {
+    super(message);
+  }
+}
 
 function problemFor(status: number, errorType: string | null): string {
   if (status === 401 || status === 403) {
@@ -179,13 +191,16 @@ export class ApifyBusinessSearchProvider implements BusinessSearchProvider {
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
     } catch {
-      throw new ApifyError("Apify could not be reached");
+      throw new ApifyError("Apify could not be reached", true);
     }
     const body: unknown = await response.json().catch(() => null);
     if (!response.ok) {
       const type = (body as { error?: { type?: unknown } } | null)?.error?.type;
       throw new ApifyError(
         problemFor(response.status, typeof type === "string" ? type : null),
+        response.status === 408 ||
+          response.status === 429 ||
+          response.status >= 500,
       );
     }
     if (!wrapped) return body as T;

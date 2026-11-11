@@ -1,7 +1,7 @@
 BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT extensions.plan(39);
+SELECT extensions.plan(41);
 
 -- Staff only: no client role holds any grant, row level security is on, and a
 -- signed-in customer's database role is refused outright.
@@ -274,6 +274,18 @@ SELECT extensions.throws_ok(
     WHERE source_id = 'stub-place-2'$$,
   '23505', NULL,
   'one lead can be the promotion of only one prospect'
+);
+
+-- The home-page excerpt kept for scoring is bounded, and never an empty string.
+SELECT extensions.throws_ok(
+  $$UPDATE app.prospect SET website_excerpt = repeat('x', 3001) WHERE source_id = 'stub-place-2'$$,
+  '23514', NULL,
+  'a website excerpt over 3000 characters is refused'
+);
+SELECT extensions.throws_ok(
+  $$UPDATE app.prospect SET website_excerpt = '' WHERE source_id = 'stub-place-2'$$,
+  '23514', NULL,
+  'an empty website excerpt is refused (it is null or text)'
 );
 
 -- Deleting a campaign removes its runs and prospects but never its leads.

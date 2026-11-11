@@ -1,4 +1,13 @@
 import type { KnownBusinessRow } from "../leads/duplicate-check";
+import type {
+  ClaimedLeadRun,
+  FitScore,
+  LeadRunStep,
+  NewProspect,
+  ProspectEnrichment,
+  ProspectToEnrich,
+  ProspectToScore,
+} from "../leads/lead-run";
 import { Inject, Injectable, OnModuleDestroy } from "@nestjs/common";
 import type {
   JobReportQuery,
@@ -6735,6 +6744,299 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
         sourceId: row.source_id === null ? null : String(row.source_id),
       })),
     ];
+  }
+
+  async claimLeadRun(
+    claimId: string,
+    leaseSeconds: number,
+  ): Promise<ClaimedLeadRun | null> {
+    const claimed = await this.pool.query(
+      `WITH due AS (
+         SELECT run_id, claimed_at IS NOT NULL AS taken_over
+         FROM app.lead_campaign_run
+         WHERE status IN ('queued', 'running')
+           AND next_attempt_at <= clock_timestamp()
+         ORDER BY created_at
+         LIMIT 1
+         FOR UPDATE SKIP LOCKED
+       )
+       UPDATE app.lead_campaign_run run
+       SET status = 'running',
+           current_step = CASE WHEN run.status = 'queued' THEN 'searching' ELSE run.current_step END,
+           started_at = COALESCE(run.started_at, clock_timestamp()),
+           claimed_at = clock_timestamp(),
+           claimed_by = $1,
+           -- A lease: if this worker dies, the run is claimable again when it runs out.
+           next_attempt_at = clock_timestamp() + make_interval(secs => $2::int),
+           attempt_count = run.attempt_count + CASE WHEN due.taken_over THEN 1 ELSE 0 END,
+           updated_at = clock_timestamp()
+       FROM due
+       WHERE run.run_id = due.run_id
+       RETURNING run.run_id, run.campaign_id, run.current_step, run.target_count,
+                 run.provider_run_id, run.provider_dataset_id, run.attempt_count`,
+      [claimId, leaseSeconds],
+    );
+    const run = claimed.rows[0];
+    if (!run) return null;
+    const campaign = await this.pool.query(
+      `SELECT target_service, target_industry, target_location, search_keywords,
+              excluded_keywords, min_rating, require_website, ideal_customer_profile,
+              disqualifiers, qualification_threshold
+       FROM app.lead_campaign WHERE campaign_id = $1::uuid`,
+      [run.campaign_id],
+    );
+    const row = campaign.rows[0];
+    return {
+      runId: String(run.run_id),
+      claimId,
+      step: run.current_step as LeadRunStep,
+      targetCount: Number(run.target_count),
+      providerRunId:
+        run.provider_run_id === null ? null : String(run.provider_run_id),
+      providerDatasetId:
+        run.provider_dataset_id === null
+          ? null
+          : String(run.provider_dataset_id),
+      attemptCount: Number(run.attempt_count),
+      campaign: {
+        campaignId: String(run.campaign_id),
+        targetService: String(row.target_service),
+        targetIndustry: String(row.target_industry),
+        targetLocation: String(row.target_location),
+        searchKeywords: row.search_keywords as string[],
+        excludedKeywords: row.excluded_keywords as string[],
+        minRating: row.min_rating === null ? null : Number(row.min_rating),
+        requireWebsite: row.require_website === true,
+        idealCustomerProfile:
+          row.ideal_customer_profile === null
+            ? null
+            : String(row.ideal_customer_profile),
+        disqualifiers:
+          row.disqualifiers === null ? null : String(row.disqualifiers),
+        qualificationThreshold: Number(row.qualification_threshold),
+      },
+    };
+  }
+
+  async releaseLeadRun(
+    run: { runId: string; claimId: string },
+    update: {
+      step?: LeadRunStep;
+      providerRunId?: string;
+      providerDatasetId?: string;
+      attemptCount: number;
+      nextInSeconds: number;
+    },
+  ): Promise<boolean> {
+    const result = await this.pool.query(
+      `UPDATE app.lead_campaign_run
+       SET current_step = COALESCE($3, current_step),
+           provider_run_id = COALESCE($4, provider_run_id),
+           provider_dataset_id = COALESCE($5, provider_dataset_id),
+           attempt_count = $6,
+           claimed_at = NULL,
+           claimed_by = NULL,
+           next_attempt_at = clock_timestamp() + make_interval(secs => $7::int),
+           updated_at = clock_timestamp()
+       WHERE run_id = $1::uuid AND claimed_by = $2 AND status = 'running'`,
+      [
+        run.runId,
+        run.claimId,
+        update.step ?? null,
+        update.providerRunId ?? null,
+        update.providerDatasetId ?? null,
+        update.attemptCount,
+        update.nextInSeconds,
+      ],
+    );
+    return result.rowCount === 1;
+  }
+
+  async failLeadRun(
+    run: { runId: string; claimId: string },
+    message: string,
+  ): Promise<boolean> {
+    const result = await this.pool.query(
+      `UPDATE app.lead_campaign_run
+       SET status = 'failed', current_step = 'failed', error_message = $3,
+           finished_at = clock_timestamp(), claimed_at = NULL, claimed_by = NULL,
+           updated_at = clock_timestamp()
+       WHERE run_id = $1::uuid AND claimed_by = $2 AND status = 'running'`,
+      [run.runId, run.claimId, message.slice(0, 1000) || "The run failed"],
+    );
+    return result.rowCount === 1;
+  }
+
+  async finishLeadRun(
+    run: { runId: string; claimId: string },
+    qualificationThreshold: number,
+  ): Promise<boolean> {
+    const result = await this.pool.query(
+      `UPDATE app.lead_campaign_run
+       SET status = 'ready', current_step = 'ready',
+           qualified_count = (SELECT count(*) FROM app.prospect
+                              WHERE run_id = $1::uuid AND score >= $3),
+           disqualified_count = (SELECT count(*) FROM app.prospect
+                                 WHERE run_id = $1::uuid AND score < $3),
+           failed_count = (SELECT count(*) FROM app.prospect
+                           WHERE run_id = $1::uuid AND enrichment_status = 'failed'),
+           finished_at = clock_timestamp(), claimed_at = NULL, claimed_by = NULL,
+           updated_at = clock_timestamp()
+       WHERE run_id = $1::uuid AND claimed_by = $2 AND status = 'running'`,
+      [run.runId, run.claimId, qualificationThreshold],
+    );
+    return result.rowCount === 1;
+  }
+
+  async storeFoundProspects(
+    run: { runId: string; campaignId: string; claimId: string },
+    prospects: NewProspect[],
+    counts: { found: number; duplicates: number },
+  ): Promise<boolean> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      // The claim is checked first, inside the transaction: a worker that lost its
+      // lease stores nothing.
+      const held = await client.query(
+        `SELECT 1 FROM app.lead_campaign_run
+         WHERE run_id = $1::uuid AND claimed_by = $2 AND status = 'running'
+         FOR UPDATE`,
+        [run.runId, run.claimId],
+      );
+      if (held.rowCount !== 1) {
+        await client.query("ROLLBACK");
+        return false;
+      }
+      let stored = 0;
+      for (const { prospectId, business, duplicate } of prospects) {
+        const inserted = await client.query(
+          `INSERT INTO app.prospect (
+             prospect_id, campaign_id, run_id, business_name, website, address,
+             phones, emails, rating, category, source, source_id, normalized_name,
+             normalized_domain, normalized_phone, duplicate_kind, duplicate_ref,
+             duplicate_reason)
+           VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7::text[], $8::text[],
+                   $9, $10, $11, $12, $13, $14, $15, $16, $17::uuid, $18)
+           ON CONFLICT (campaign_id, source, source_id) WHERE source_id IS NOT NULL
+           DO NOTHING`,
+          [
+            prospectId,
+            run.campaignId,
+            run.runId,
+            business.businessName,
+            business.website,
+            business.address,
+            business.phones,
+            business.emails,
+            business.rating,
+            business.category,
+            business.source,
+            business.sourceId,
+            business.normalizedName,
+            business.normalizedDomain,
+            business.normalizedPhone,
+            duplicate?.kind ?? null,
+            duplicate?.ref ?? null,
+            duplicate?.reason ?? null,
+          ],
+        );
+        stored += inserted.rowCount ?? 0;
+      }
+      await client.query(
+        `UPDATE app.lead_campaign_run
+         SET found_count = $3, stored_count = $4, duplicate_count = $5,
+             current_step = 'enriching', attempt_count = 0,
+             claimed_at = NULL, claimed_by = NULL,
+             next_attempt_at = clock_timestamp(), updated_at = clock_timestamp()
+         WHERE run_id = $1::uuid AND claimed_by = $2`,
+        [run.runId, run.claimId, counts.found, stored, counts.duplicates],
+      );
+      await client.query("COMMIT");
+      return true;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async listProspectsToEnrich(
+    runId: string,
+    limit: number,
+  ): Promise<ProspectToEnrich[]> {
+    const result = await this.pool.query(
+      `SELECT prospect_id, website, emails, phones FROM app.prospect
+       WHERE run_id = $1::uuid AND enrichment_status = 'pending'
+       ORDER BY created_at, prospect_id LIMIT $2`,
+      [runId, limit],
+    );
+    return result.rows.map((row) => ({
+      prospectId: String(row.prospect_id),
+      website: row.website === null ? null : String(row.website),
+      emails: row.emails as string[],
+      phones: row.phones as string[],
+    }));
+  }
+
+  async saveProspectEnrichment(
+    prospectId: string,
+    enrichment: ProspectEnrichment,
+  ): Promise<void> {
+    await this.pool.query(
+      `UPDATE app.prospect
+       SET enrichment_status = $2, enrichment_error = $3, emails = $4::text[],
+           phones = $5::text[], website_excerpt = $6, enriched_at = clock_timestamp()
+       WHERE prospect_id = $1::uuid AND enrichment_status = 'pending'`,
+      [
+        prospectId,
+        enrichment.status,
+        enrichment.error?.slice(0, 500) ?? null,
+        enrichment.emails,
+        enrichment.phones,
+        enrichment.excerpt,
+      ],
+    );
+  }
+
+  async listProspectsToScore(
+    runId: string,
+    limit: number,
+  ): Promise<ProspectToScore[]> {
+    const result = await this.pool.query(
+      `SELECT prospect_id, business_name, category, address, website, rating,
+              cardinality(emails) > 0 AS has_email,
+              cardinality(phones) > 0 AS has_phone, website_excerpt
+       FROM app.prospect
+       WHERE run_id = $1::uuid AND score IS NULL
+       ORDER BY created_at, prospect_id LIMIT $2`,
+      [runId, limit],
+    );
+    return result.rows.map((row) => ({
+      prospectId: String(row.prospect_id),
+      prospect: {
+        businessName: String(row.business_name),
+        category: row.category === null ? null : String(row.category),
+        address: row.address === null ? null : String(row.address),
+        website: row.website === null ? null : String(row.website),
+        rating: row.rating === null ? null : Number(row.rating),
+        hasEmail: row.has_email === true,
+        hasPhone: row.has_phone === true,
+        websiteText:
+          row.website_excerpt === null ? null : String(row.website_excerpt),
+      },
+    }));
+  }
+
+  async saveProspectScore(prospectId: string, fit: FitScore): Promise<void> {
+    await this.pool.query(
+      `UPDATE app.prospect
+       SET score = $2, score_reason = $3, score_method = $4,
+           scored_at = clock_timestamp(), website_excerpt = NULL
+       WHERE prospect_id = $1::uuid AND score IS NULL`,
+      [prospectId, fit.score, fit.reason, fit.method],
+    );
   }
 
   async listLeads(): Promise<LeadRecord[]> {

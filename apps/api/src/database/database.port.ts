@@ -1,5 +1,14 @@
 import type { KnownBusinessRow } from "../leads/duplicate-check";
 import type {
+  ClaimedLeadRun,
+  FitScore,
+  LeadRunStep,
+  NewProspect,
+  ProspectEnrichment,
+  ProspectToEnrich,
+  ProspectToScore,
+} from "../leads/lead-run";
+import type {
   JobReportQuery,
   TeamKey,
   TeamTagKind,
@@ -2336,6 +2345,64 @@ export abstract class DatabasePort {
    * campaign. Raw values; the check normalises them.
    */
   abstract listKnownBusinesses(campaignId: string): Promise<KnownBusinessRow[]>;
+  /**
+   * Claims the oldest campaign run that is due (queued, or running with its lease
+   * or wait over) for `leaseSeconds`, or null. A queued run starts: it becomes
+   * running at the searching step. A run whose earlier claim was never released
+   * (the worker died) counts that as a failed attempt.
+   */
+  abstract claimLeadRun(
+    claimId: string,
+    leaseSeconds: number,
+  ): Promise<ClaimedLeadRun | null>;
+  /**
+   * Gives a claimed run back, optionally moving it on and saving the provider's ids,
+   * due again in `nextInSeconds`. False when the claim is no longer this worker's.
+   */
+  abstract releaseLeadRun(
+    run: { runId: string; claimId: string },
+    update: {
+      step?: LeadRunStep;
+      providerRunId?: string;
+      providerDatasetId?: string;
+      attemptCount: number;
+      nextInSeconds: number;
+    },
+  ): Promise<boolean>;
+  /** Ends a claimed run as failed; `message` is safe to show staff. */
+  abstract failLeadRun(
+    run: { runId: string; claimId: string },
+    message: string,
+  ): Promise<boolean>;
+  /** Ends a claimed run as ready and counts its qualified, disqualified and failed prospects. */
+  abstract finishLeadRun(
+    run: { runId: string; claimId: string },
+    qualificationThreshold: number,
+  ): Promise<boolean>;
+  /**
+   * In one transaction: stores the found businesses, records the run's counts and
+   * moves it to the enriching step, due at once. Nothing is stored when the claim
+   * is no longer this worker's (false).
+   */
+  abstract storeFoundProspects(
+    run: { runId: string; campaignId: string; claimId: string },
+    prospects: NewProspect[],
+    counts: { found: number; duplicates: number },
+  ): Promise<boolean>;
+  abstract listProspectsToEnrich(
+    runId: string,
+    limit: number,
+  ): Promise<ProspectToEnrich[]>;
+  abstract saveProspectEnrichment(
+    prospectId: string,
+    enrichment: ProspectEnrichment,
+  ): Promise<void>;
+  abstract listProspectsToScore(
+    runId: string,
+    limit: number,
+  ): Promise<ProspectToScore[]>;
+  /** Stores the score, its reason and method, and drops the website excerpt. */
+  abstract saveProspectScore(prospectId: string, fit: FitScore): Promise<void>;
   abstract listLeads(): Promise<LeadRecord[]>;
   abstract findLead(id: string): Promise<LeadRecord | null>;
   /** Fails with "duplicate_request" or "unknown_reference" instead of throwing. */

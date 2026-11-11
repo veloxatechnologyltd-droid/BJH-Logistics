@@ -197,7 +197,7 @@ test("results come from the dataset, mapped and filtered like the stub's", async
 });
 
 test("every failure is a safe message: no token, no raw body", async () => {
-  const cases: Array<[Parameters<typeof fakeFetch>[0], RegExp]> = [
+  const cases: Array<[Parameters<typeof fakeFetch>[0], RegExp, boolean]> = [
     [
       [
         {
@@ -206,25 +206,32 @@ test("every failure is a safe message: no token, no raw body", async () => {
         },
       ],
       /did not accept the token/,
+      false,
     ],
-    [[{ status: 402, body: { error: { type: "x" } } }], /no credit left/],
-    [[{ status: 404, body: {} }], /APIFY_ACTOR_ID/],
-    [[{ status: 429, body: {} }], /busy/],
+    [
+      [{ status: 402, body: { error: { type: "x" } } }],
+      /no credit left/,
+      false,
+    ],
+    [[{ status: 404, body: {} }], /APIFY_ACTOR_ID/, false],
+    [[{ status: 429, body: {} }], /busy/, true],
     [
       [{ status: 500, body: { error: { type: "internal-error" } } }],
       /failed \(500: internal-error\)/,
+      true,
     ],
-    [["network-error"], /could not be reached/],
-    [[{ body: { data: {} } }], /did not return a run id/],
-    [[{ body: "not wrapped" }], /unexpected shape/],
+    [["network-error"], /could not be reached/, true],
+    [[{ body: { data: {} } }], /did not return a run id/, false],
+    [[{ body: "not wrapped" }], /unexpected shape/, false],
   ];
-  for (const [answers, message] of cases) {
+  for (const [answers, message, retryable] of cases) {
     const { fetch } = fakeFetch(answers);
     await assert.rejects(
       provider(fetch).start(query),
       (error: unknown) =>
         error instanceof ApifyError &&
         message.test(error.message) &&
+        error.retryable === retryable &&
         !error.message.includes(TOKEN),
     );
   }

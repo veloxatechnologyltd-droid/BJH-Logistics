@@ -59,8 +59,10 @@ export type SearchProgress =
 /**
  * Finds businesses for a campaign. A search can take minutes, so it is three calls
  * that the run pipeline makes on separate ticks, keeping `providerRunId` and
- * `datasetId` on the run between them. Any call may throw (network, quota); the
- * message is safe to show staff and never contains a secret.
+ * `datasetId` on the run between them. Any call may throw (network, quota). An error
+ * with a boolean `retryable` has a message that is safe to show staff and never
+ * contains a secret: `true` is tried again later, `false` fails the run at once. Any
+ * other error is tried again and shown to staff only as an unexpected problem.
  */
 export interface BusinessSearchProvider {
   /** "apify", or "stub" when no search account is configured. */

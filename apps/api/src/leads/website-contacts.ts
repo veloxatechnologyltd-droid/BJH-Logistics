@@ -4,6 +4,7 @@ import {
   normalizePhoneKey,
   parseWebsite,
 } from "./business-normalize";
+import { PublicWebPageFetcher } from "./public-web-fetcher";
 import type { FetchedPage, PageFetcher } from "./public-web-fetcher";
 
 /**
@@ -30,9 +31,19 @@ export interface WebsiteContacts {
   /** International form where possible, best first, at most three. */
   phones: string[];
   pagesChecked: number;
+  /**
+   * The visible text of the home page, cut short, for the AI fit score (1.5). It is
+   * the website's own words and untrusted: only ever passed on as data.
+   */
+  excerpt: string | null;
   /** Safe to show staff; set when status is "failed". */
   error: string | null;
 }
+
+/** How much of a home page is kept for the fit score. */
+export const EXCERPT_CHARS = 3000;
+
+export const WEBSITE_CONTACT_FINDER = Symbol("WEBSITE_CONTACT_FINDER");
 
 export interface WebsiteContactFinder {
   find(website: string): Promise<WebsiteContacts>;
@@ -147,6 +158,11 @@ function decodeCloudflare(hex: string): string | null {
     decoded += String.fromCharCode(parseInt(hex.slice(i, i + 2), 16) ^ key);
   }
   return decoded;
+}
+
+/** The home page's words for the AI fit score: cut to `EXCERPT_CHARS`, null when there are none. */
+export function homeExcerpt(html: string): string | null {
+  return visibleText(html).trim().slice(0, EXCERPT_CHARS) || null;
 }
 
 function visibleText(html: string): string {
@@ -385,6 +401,7 @@ export class PublicWebsiteContactFinder implements WebsiteContactFinder {
       emails,
       phones,
       pagesChecked: pages.length,
+      excerpt: homeExcerpt(home.html),
       error: null,
     };
   }
@@ -399,7 +416,14 @@ export class PublicWebsiteContactFinder implements WebsiteContactFinder {
 }
 
 function failed(error: string, pagesChecked: number): WebsiteContacts {
-  return { status: "failed", emails: [], phones: [], pagesChecked, error };
+  return {
+    status: "failed",
+    emails: [],
+    phones: [],
+    pagesChecked,
+    excerpt: null,
+    error,
+  };
 }
 
 /** The ranked emails and phones across every page read. */
@@ -467,7 +491,20 @@ export class StubWebsiteContactFinder implements WebsiteContactFinder {
       emails: [{ address: `info@${domain}`, score: 80, foundOn: website }],
       phones: [],
       pagesChecked: 1,
+      excerpt: null,
       error: null,
     };
   }
+}
+
+/**
+ * The synthetic finder when the search is synthetic too (its websites do not exist),
+ * otherwise the one that reads real websites.
+ */
+export function createWebsiteContactFinder(
+  searchProviderName: string,
+): WebsiteContactFinder {
+  return searchProviderName === "stub"
+    ? new StubWebsiteContactFinder()
+    : new PublicWebsiteContactFinder(new PublicWebPageFetcher());
 }
