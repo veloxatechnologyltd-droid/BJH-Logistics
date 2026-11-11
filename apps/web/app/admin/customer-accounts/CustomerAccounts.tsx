@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
+import { passwordProblem, passwordRuleText } from "@bjh/contracts";
 import { authenticatedFetch } from "../../auth/authenticatedFetch";
 import { listCustomers } from "../../customers/customerApi";
 import type { CustomerCompany } from "../../customers/customerApi";
@@ -56,6 +57,7 @@ export function CustomerAccounts() {
   const [creating, setCreating] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [companyId, setCompanyId] = useState("");
   const [extraCompany, setExtraCompany] = useState<Record<string, string>>({});
 
@@ -107,6 +109,12 @@ export function CustomerAccounts() {
     if (saving) return;
     setSaving(true);
     await run(async () => {
+      const problem =
+        passwordProblem(password) ??
+        (password !== confirmPassword
+          ? "The two passwords do not match."
+          : null);
+      if (problem) throw new Error(problem);
       await readResponse(
         await authenticatedFetch(
           accountsUrl,
@@ -115,6 +123,7 @@ export function CustomerAccounts() {
       );
       setEmail("");
       setPassword("");
+      setConfirmPassword("");
       setCreating(false);
     }, `Account created for ${email.trim()}. No email was sent: give the sign-in details to the customer directly.`);
     setSaving(false);
@@ -211,11 +220,25 @@ export function CustomerAccounts() {
                 Initial password
                 <input
                   autoComplete="new-password"
-                  minLength={12}
+                  minLength={6}
                   onChange={(event) => setPassword(event.target.value)}
+                  placeholder="6+ characters: Aa and 1"
                   required
+                  title={passwordRuleText}
                   type="password"
                   value={password}
+                />
+              </label>
+              <label>
+                Confirm password
+                <input
+                  autoComplete="new-password"
+                  minLength={6}
+                  onChange={(event) => setConfirmPassword(event.target.value)}
+                  placeholder="Type it again"
+                  required
+                  type="password"
+                  value={confirmPassword}
                 />
               </label>
               <button disabled={saving || !companyId} type="submit">
@@ -544,11 +567,16 @@ export function CustomerAccounts() {
                       onSubmit={(event) => {
                         event.preventDefault();
                         const form = event.currentTarget;
-                        const next = String(
-                          new FormData(form).get("password") ?? "",
-                        );
+                        const data = new FormData(form);
+                        const next = String(data.get("password") ?? "");
                         void run(
                           async () => {
+                            const problem =
+                              passwordProblem(next) ??
+                              (next !== String(data.get("confirm") ?? "")
+                                ? "The two passwords do not match."
+                                : null);
+                            if (problem) throw new Error(problem);
                             await readResponse(
                               await authenticatedFetch(
                                 `${accountsUrl}/${encodeURIComponent(account.id)}/password`,
@@ -565,8 +593,21 @@ export function CustomerAccounts() {
                         Set a new password
                         <input
                           autoComplete="new-password"
-                          minLength={12}
+                          minLength={6}
                           name="password"
+                          placeholder="6+ characters: Aa and 1"
+                          required
+                          title={passwordRuleText}
+                          type="password"
+                        />
+                      </label>
+                      <label>
+                        Confirm the new password
+                        <input
+                          autoComplete="new-password"
+                          minLength={6}
+                          name="confirm"
+                          placeholder="Type it again"
                           required
                           type="password"
                         />

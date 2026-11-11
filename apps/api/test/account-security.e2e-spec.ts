@@ -52,7 +52,7 @@ test("passwords the admin sets are temporary", async () => {
     method: "POST",
     body: JSON.stringify({
       email: "new-rep@example.test",
-      password: "admin-chosen-password",
+      password: "Admin-Chosen-1",
       roleKey: "import_rep",
     }),
   });
@@ -62,7 +62,7 @@ test("passwords the admin sets are temporary", async () => {
     TEST_SUPER_ADMIN_TOKEN,
     {
       method: "PATCH",
-      body: JSON.stringify({ password: "another-admin-password" }),
+      body: JSON.stringify({ password: "Another-Admin-1" }),
     },
   );
   assert.equal(reset.status, 200);
@@ -103,12 +103,18 @@ test("an account on a temporary password can do nothing but replace it", async (
     { method: "POST", body: JSON.stringify({ password: "short" }) },
   );
   assert.equal(short.status, 400);
+  const lowerCaseOnly = await call(
+    "/api/v1/auth/password",
+    TEST_SUPER_ADMIN_PENDING_PASSWORD_TOKEN,
+    { method: "POST", body: JSON.stringify({ password: "alllowercase1" }) },
+  );
+  assert.equal(lowerCaseOnly.status, 400);
 
   testPasswordWrites.length = 0;
   const changed = await call(
     "/api/v1/auth/password",
     TEST_SUPER_ADMIN_PENDING_PASSWORD_TOKEN,
-    { method: "POST", body: JSON.stringify({ password: "my-own-password-1" }) },
+    { method: "POST", body: JSON.stringify({ password: "My-Own-Pass-1" }) },
   );
   assert.equal(changed.status, 201);
   assert.deepEqual(testPasswordWrites, [
@@ -120,7 +126,7 @@ test("changing your own password needs a signed-in account", async () => {
   const anonymous = await fetch(`${baseUrl}/api/v1/auth/password`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ password: "my-own-password-1" }),
+    body: JSON.stringify({ password: "My-Own-Pass-1" }),
   });
   assert.equal(anonymous.status, 401);
 });

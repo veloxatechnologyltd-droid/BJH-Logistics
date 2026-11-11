@@ -334,6 +334,20 @@ export const staffRoleInputSchema = z.object(
 );
 export type StaffRoleInput = z.infer<typeof staffRoleInputSchema>;
 
+/** The one password rule: the API enforces it and the screens show it. */
+export const passwordRuleText =
+  "At least 6 characters, with an upper-case letter, a lower-case letter and a number";
+
+/** Null when the password is acceptable, otherwise what is wrong with it. */
+export function passwordProblem(password: string): string | null {
+  return password.length >= 6 &&
+    /[a-z]/.test(password) &&
+    /[A-Z]/.test(password) &&
+    /[0-9]/.test(password)
+    ? null
+    : `Password must have ${passwordRuleText.charAt(0).toLowerCase()}${passwordRuleText.slice(1)}`;
+}
+
 export const passwordResetRequestSchema = z.object(
   {
     email: z

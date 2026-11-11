@@ -27,6 +27,7 @@ const staffToken = "test-staff-token";
 
 let application: INestApplication;
 let baseUrl: string;
+const deletions: { userId: string; keepHistory: boolean }[] = [];
 let createdAccount: { email: string; password: string } | null;
 const originalWebOrigin = process.env.WEB_ORIGIN;
 
@@ -84,6 +85,10 @@ const directory: StaffAuthDirectory = {
   async setSuspended(userId, suspended, roles = []) {
     const user = users.get(userId);
     if (user) users.set(userId, { ...user, suspended, suspendedRoles: roles });
+  },
+  async deleteUser(userId, keepHistory) {
+    users.delete(userId);
+    deletions.push({ userId, keepHistory });
   },
   async createRecoveryCode() {
     return null;
@@ -143,14 +148,14 @@ test("super admin creates an account directly with a password and role", async (
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       email: " new@example.test ",
-      password: "secure-example-password",
+      password: "Secure-Example-1",
       roleKey: "export_rep",
       name: "  Ama Mensah ",
     }),
   });
   assert.equal(response.status, 201);
   assert.equal(createdAccount?.email, "new@example.test");
-  assert.equal(createdAccount?.password, "secure-example-password");
+  assert.equal(createdAccount?.password, "Secure-Example-1");
   const data = (await response.json()) as {
     assignment: { roleKey: string; assignedBy: string };
   };
@@ -237,4 +242,131 @@ test("admin API rejects unsupported roles and protects the last super admin", as
     { method: "DELETE" },
   );
   assert.equal(revokeLastAdmin.status, 409);
+});
+
+const removableId = "50000000-0000-4000-8000-000000000004";
+const busyId = "50000000-0000-4000-8000-000000000005";
+
+function addDirectoryUser(id: string, email: string) {
+  users.set(id, {
+    id,
+    email,
+    createdAt: "2026-09-28T10:00:00.000Z",
+    invitedAt: null,
+    suspended: false,
+    suspendedRoles: [],
+  });
+}
+
+test("super admin deletes staff accounts; refuses themselves, the super admin and non-admins", async () => {
+  addDirectoryUser(removableId, "removable@example.test");
+  addDirectoryUser(busyId, "busy@example.test");
+  await testPostgresPool.query(
+    `INSERT INTO app.push_subscription (user_id, endpoint, p256dh, auth)
+     VALUES ($1::uuid, 'https://push.example.test/removable', 'p', 'a')`,
+    [removableId],
+  );
+  await testPostgresPool.query(
+    `INSERT INTO app.lead (company_name, created_by) VALUES ('Acme', $1::uuid)`,
+    [busyId],
+  );
+
+  assert.equal(
+    (
+      await call(`/api/v1/admin/staff/${removableId}`, staffToken, {
+        method: "DELETE",
+      })
+    ).status,
+    403,
+  );
+  const own = await call(`/api/v1/admin/staff/${adminId}`, adminToken, {
+    method: "DELETE",
+  });
+  assert.equal(own.status, 409);
+  assert.equal(
+    (await call(`/api/v1/admin/staff/${removableId}`, adminToken)).status,
+    404,
+  );
+
+  const removed = await call(`/api/v1/admin/staff/${removableId}`, adminToken, {
+    method: "DELETE",
+  });
+  assert.equal(removed.status, 200);
+  assert.ok(!users.has(removableId));
+  assert.deepEqual(deletions.at(-1), {
+    userId: removableId,
+    keepHistory: false,
+  });
+  const subscriptions = await testPostgresPool.query(
+    "SELECT 1 FROM app.push_subscription WHERE user_id = $1::uuid",
+    [removableId],
+  );
+  assert.equal(subscriptions.rows.length, 0);
+  assert.equal(
+    (
+      await call(`/api/v1/admin/staff/${removableId}`, adminToken, {
+        method: "DELETE",
+      })
+    ).status,
+    404,
+  );
+});
+
+test("bulk delete removes what it can and reports why the rest stayed", async () => {
+  addDirectoryUser(removableId, "removable@example.test");
+  const bulk = (body: unknown) =>
+    call("/api/v1/admin/staff/delete", adminToken, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  assert.equal((await bulk({ userIds: [] })).status, 400);
+  assert.equal((await bulk({ userIds: ["not-an-id"] })).status, 400);
+
+  const response = await bulk({ userIds: [removableId, adminId] });
+  assert.equal(response.status, 201);
+  const result = (await response.json()) as {
+    deleted: string[];
+    failed: { userId: string; reason: string }[];
+  };
+  assert.deepEqual(result.deleted, [removableId]);
+  assert.deepEqual(
+    result.failed.map((item) => item.userId),
+    [adminId],
+  );
+  assert.ok(users.has(adminId));
+});
+
+test("an account with recorded work is kept in the database, only its access is removed", async () => {
+  const assigned = await call(
+    `/api/v1/admin/staff/${busyId}/roles`,
+    adminToken,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ roleKey: "import_rep" }),
+    },
+  );
+  assert.equal(assigned.status, 201);
+  deletions.length = 0;
+  const removed = await call(`/api/v1/admin/staff/${busyId}`, adminToken, {
+    method: "DELETE",
+  });
+  assert.equal(removed.status, 200);
+  assert.deepEqual(deletions, [{ userId: busyId, keepHistory: true }]);
+  assert.deepEqual(
+    await testPostgresPool
+      .query(
+        `SELECT 1 FROM app.staff_role_assignment
+         WHERE user_id = $1::uuid AND revoked_at IS NULL`,
+        [busyId],
+      )
+      .then((result) => result.rows),
+    [],
+  );
+  const lead = await testPostgresPool.query(
+    "SELECT 1 FROM app.lead WHERE created_by = $1::uuid",
+    [busyId],
+  );
+  assert.equal(lead.rows.length, 1);
 });

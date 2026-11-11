@@ -67,6 +67,19 @@ export class AdminStaffController {
     return this.staff.assign(userId, body, request.authUser!);
   }
 
+  @Post("delete")
+  removeMany(@Body() body: unknown, @Req() request: AuthenticatedRequest) {
+    return this.staff.removeMany(body, request.authUser!);
+  }
+
+  @Delete(":userId")
+  remove(
+    @Param("userId") userId: string,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.staff.remove(userId, request.authUser!);
+  }
+
   @Delete(":userId/roles/:roleKey")
   revoke(
     @Param("userId") userId: string,

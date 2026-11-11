@@ -1,5 +1,6 @@
 "use client";
 
+import { passwordProblem, passwordRuleText } from "@bjh/contracts";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
@@ -42,6 +43,7 @@ export function SignInForm() {
   const [mode, setMode] = useState<AuthMode>("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -87,6 +89,7 @@ export function SignInForm() {
     setNotice("");
     setCodeStep(false);
     setCode("");
+    setConfirmPassword("");
     setMode(next);
   }
 
@@ -136,6 +139,15 @@ export function SignInForm() {
           "If an account uses this email, a code to set a new password is on its way. Copy it from the email and paste it below.",
         );
         return;
+      }
+
+      if (mode !== "signin") {
+        const problem =
+          passwordProblem(password) ??
+          (password !== confirmPassword
+            ? "The two passwords do not match."
+            : null);
+        if (problem) throw new Error(problem);
       }
 
       const result =
@@ -257,17 +269,31 @@ export function SignInForm() {
           <label htmlFor="auth-password">
             {mode === "signin"
               ? "Password"
-              : "Password (at least 12 characters)"}
+              : `Password (${passwordRuleText.toLowerCase()})`}
             <input
               autoComplete={
                 mode === "signin" ? "current-password" : "new-password"
               }
               id="auth-password"
-              minLength={mode === "signin" ? undefined : 12}
+              minLength={mode === "signin" ? undefined : 6}
               onChange={(event) => setPassword(event.target.value)}
               required
               type="password"
               value={password}
+            />
+          </label>
+        )}
+        {(mode === "signup" || mode === "bootstrap") && (
+          <label htmlFor="auth-confirm-password">
+            Type the password again
+            <input
+              autoComplete="new-password"
+              id="auth-confirm-password"
+              minLength={6}
+              onChange={(event) => setConfirmPassword(event.target.value)}
+              required
+              type="password"
+              value={confirmPassword}
             />
           </label>
         )}

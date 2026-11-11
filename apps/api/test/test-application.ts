@@ -236,6 +236,8 @@ const testUsers = new Map<string, StaffDirectoryUser>(
   ]),
 );
 
+const testDeletions: { userId: string; keepHistory: boolean }[] = [];
+
 const testStaffDirectory: StaffAuthDirectory = {
   async listUsers() {
     return [...testUsers.values()];
@@ -267,6 +269,10 @@ const testStaffDirectory: StaffAuthDirectory = {
     const user = testUsers.get(userId);
     if (user)
       testUsers.set(userId, { ...user, suspended, suspendedRoles: roles });
+  },
+  async deleteUser(userId, keepHistory) {
+    testUsers.delete(userId);
+    testDeletions.push({ userId, keepHistory });
   },
   async createRecoveryCode(email) {
     const user = [...testUsers.values()].find((item) => item.email === email);

@@ -7475,6 +7475,53 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     }
   }
 
+  async releaseStaffAccountForDeletion(
+    userId: string,
+  ): Promise<"no_history" | "has_history"> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      // Every column that points at the account without cascading would block
+      // a hard delete; push subscriptions are housekeeping, not history.
+      const references = await client.query(
+        `SELECT format('%I.%I', n.nspname, c.relname) AS relation,
+                format('%I', a.attname) AS column_name
+         FROM pg_constraint k
+         JOIN pg_class c ON c.oid = k.conrelid
+         JOIN pg_namespace n ON n.oid = c.relnamespace
+         JOIN pg_attribute a ON a.attrelid = k.conrelid AND a.attnum = k.conkey[1]
+         WHERE k.contype = 'f'
+           AND k.confrelid = 'auth.users'::regclass
+           AND k.confdeltype IN ('a', 'r')
+           AND n.nspname <> 'auth'
+           AND k.conrelid <> 'app.push_subscription'::regclass`,
+      );
+      let used = false;
+      if (references.rows.length > 0) {
+        const checks = references.rows.map(
+          (row) =>
+            `EXISTS (SELECT 1 FROM ${row.relation} WHERE ${row.column_name} = $1::uuid)`,
+        );
+        const found = await client.query(
+          `SELECT (${checks.join(" OR ")}) AS used`,
+          [userId],
+        );
+        used = Boolean(found.rows[0].used);
+      }
+      await client.query(
+        "DELETE FROM app.push_subscription WHERE user_id = $1::uuid",
+        [userId],
+      );
+      await client.query("COMMIT");
+      return used ? "has_history" : "no_history";
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   private toQuoteRequest(row: Record<string, unknown>): QuoteRequestRecord {
     return {
       id: String(row.request_id),

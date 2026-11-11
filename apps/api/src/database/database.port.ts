@@ -2410,4 +2410,12 @@ export abstract class DatabasePort {
     roleKey: StaffRoleKey,
     revokedBy: string,
   ): Promise<"revoked" | "not_found" | "last_super_admin">;
+  /**
+   * Before an account is deleted: removes its browser push subscriptions and
+   * says whether anything else in the system records that person (jobs, notes,
+   * invoices...). With history the account row must stay so it keeps its place.
+   */
+  abstract releaseStaffAccountForDeletion(
+    userId: string,
+  ): Promise<"no_history" | "has_history">;
 }
