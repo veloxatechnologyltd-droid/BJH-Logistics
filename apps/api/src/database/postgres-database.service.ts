@@ -1,3 +1,4 @@
+import type { KnownBusinessRow } from "../leads/duplicate-check";
 import { Inject, Injectable, OnModuleDestroy } from "@nestjs/common";
 import type {
   JobReportQuery,
@@ -6670,6 +6671,70 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       updatedAt: this.toIsoString(row.updated_at),
       stageChangedAt: this.toIsoString(row.stage_changed_at),
     };
+  }
+
+  async listKnownBusinesses(campaignId: string): Promise<KnownBusinessRow[]> {
+    const [customers, leads, prospects] = await Promise.all([
+      this.pool.query(
+        `SELECT company.company_id AS id, company.company_name,
+                company.trading_name, company.website, company.company_email,
+                company.phone,
+                COALESCE(array_agg(contact.email) FILTER (WHERE contact.email IS NOT NULL), '{}') AS contact_emails,
+                COALESCE(array_agg(contact.phone) FILTER (WHERE contact.phone IS NOT NULL), '{}') AS contact_phones
+         FROM app.customer_company company
+         LEFT JOIN app.customer_contact contact
+           ON contact.company_id = company.company_id
+         GROUP BY company.company_id`,
+      ),
+      this.pool.query(
+        `SELECT lead_id AS id, company_name, email, phone FROM app.lead`,
+      ),
+      this.pool.query(
+        `SELECT prospect_id AS id, business_name, website, emails, phones,
+                source, source_id
+         FROM app.prospect WHERE campaign_id = $1::uuid`,
+        [campaignId],
+      ),
+    ]);
+    const present = (values: unknown[]) =>
+      values.filter((value): value is string => typeof value === "string");
+    const list = (value: unknown) =>
+      Array.isArray(value) ? present(value) : [];
+    return [
+      ...customers.rows.map((row): KnownBusinessRow => ({
+        kind: "customer",
+        id: String(row.id),
+        label: String(row.company_name),
+        names: present([row.company_name, row.trading_name]),
+        websites: present([row.website]),
+        emails: present([row.company_email, ...list(row.contact_emails)]),
+        phones: present([row.phone, ...list(row.contact_phones)]),
+        source: null,
+        sourceId: null,
+      })),
+      ...leads.rows.map((row): KnownBusinessRow => ({
+        kind: "lead",
+        id: String(row.id),
+        label: String(row.company_name),
+        names: [String(row.company_name)],
+        websites: [],
+        emails: present([row.email]),
+        phones: present([row.phone]),
+        source: null,
+        sourceId: null,
+      })),
+      ...prospects.rows.map((row): KnownBusinessRow => ({
+        kind: "prospect",
+        id: String(row.id),
+        label: String(row.business_name),
+        names: [String(row.business_name)],
+        websites: present([row.website]),
+        emails: list(row.emails),
+        phones: list(row.phones),
+        source: String(row.source),
+        sourceId: row.source_id === null ? null : String(row.source_id),
+      })),
+    ];
   }
 
   async listLeads(): Promise<LeadRecord[]> {

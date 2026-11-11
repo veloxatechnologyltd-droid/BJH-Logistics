@@ -109,3 +109,37 @@ export function normalizePhoneKey(
   const digits = phone.replace(/\D+/g, "");
   return digits.length >= 7 ? digits : null;
 }
+
+/** Mailbox providers whose domain says nothing about which business an address belongs to. */
+const FREE_MAIL_HOSTS = new Set([
+  "gmail.com",
+  "googlemail.com",
+  "yahoo.com",
+  "yahoo.co.uk",
+  "ymail.com",
+  "hotmail.com",
+  "hotmail.co.uk",
+  "outlook.com",
+  "live.com",
+  "msn.com",
+  "icloud.com",
+  "me.com",
+  "aol.com",
+  "proton.me",
+  "protonmail.com",
+  "mail.com",
+]);
+
+/**
+ * The domain of a business email address ("info@acme.com" is "acme.com"), or null
+ * for a free mailbox or something that is not an address.
+ */
+export function normalizeEmailDomain(
+  email: string | null | undefined,
+): string | null {
+  const address = email?.trim().toLowerCase();
+  const at = address ? address.lastIndexOf("@") : -1;
+  if (!address || at < 1) return null;
+  const host = address.slice(at + 1);
+  return FREE_MAIL_HOSTS.has(host) ? null : normalizeDomain(host);
+}

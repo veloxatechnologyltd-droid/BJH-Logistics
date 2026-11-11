@@ -1,3 +1,4 @@
+import type { KnownBusinessRow } from "../leads/duplicate-check";
 import type {
   JobReportQuery,
   TeamKey,
@@ -2329,6 +2330,12 @@ export abstract class DatabasePort {
   abstract listCustomerInsights(
     companyId: string | null,
   ): Promise<CustomerInsightRecord[]>;
+  /**
+   * Every record the duplicate check compares a found business with: all customers
+   * (company, trading name, website, contacts), all leads, and the prospects of one
+   * campaign. Raw values; the check normalises them.
+   */
+  abstract listKnownBusinesses(campaignId: string): Promise<KnownBusinessRow[]>;
   abstract listLeads(): Promise<LeadRecord[]>;
   abstract findLead(id: string): Promise<LeadRecord | null>;
   /** Fails with "duplicate_request" or "unknown_reference" instead of throwing. */
