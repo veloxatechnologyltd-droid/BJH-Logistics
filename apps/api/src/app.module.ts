@@ -82,6 +82,8 @@ import { ClientJobReportsController } from "./jobs/client-job-report.controller"
 import { ClientJobReportService } from "./jobs/client-job-report.service";
 import { CustomersController } from "./customers/customers.controller";
 import { CustomersService } from "./customers/customers.service";
+import { CampaignsController } from "./leads/campaigns.controller";
+import { CampaignsService } from "./leads/campaigns.service";
 import { LeadsController } from "./leads/leads.controller";
 import { LeadsService } from "./leads/leads.service";
 import { QuoteRequestsController } from "./quotations/quote-requests.controller";
@@ -163,6 +165,7 @@ import { PushService } from "./push/push.service";
     SettingsController,
     CustomersController,
     LeadsController,
+    CampaignsController,
     JobsController,
     ClientJobReportsController,
     JobAssignmentsController,
@@ -211,6 +214,7 @@ import { PushService } from "./push/push.service";
     SettingsService,
     CustomersService,
     LeadsService,
+    CampaignsService,
     {
       provide: BUSINESS_SEARCH_PROVIDER,
       useFactory: () => createBusinessSearchProvider(process.env),

@@ -45,6 +45,7 @@ export const sourceLabels: Record<LeadSource, string> = {
   phone: "Phone",
   email: "Email",
   other: "Other",
+  campaign: "Campaign",
 };
 
 const apiBaseUrl =

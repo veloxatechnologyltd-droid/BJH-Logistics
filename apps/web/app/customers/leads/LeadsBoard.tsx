@@ -2,8 +2,12 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import type { LeadSource, LeadStage, LeadUpdateInput } from "@bjh/contracts";
-import { leadSourceKeys, leadStageKeys } from "@bjh/contracts";
+import type {
+  LeadCreateSource,
+  LeadStage,
+  LeadUpdateInput,
+} from "@bjh/contracts";
+import { leadCreateSourceKeys, leadStageKeys } from "@bjh/contracts";
 import { listCustomers } from "../customerApi";
 import type { CustomerCompany } from "../customerApi";
 import {
@@ -43,7 +47,7 @@ const emptyForm = {
   contactName: "",
   email: "",
   phone: "",
-  source: "other" as LeadSource,
+  source: "other" as LeadCreateSource,
   nextFollowUp: "",
   notes: "",
 };
@@ -301,12 +305,12 @@ export function LeadsBoard() {
                   onChange={(event) =>
                     setForm({
                       ...form,
-                      source: event.target.value as LeadSource,
+                      source: event.target.value as LeadCreateSource,
                     })
                   }
                   value={form.source}
                 >
-                  {leadSourceKeys
+                  {leadCreateSourceKeys
                     .filter((source) => source !== "quote_request")
                     .map((source) => (
                       <option key={source} value={source}>

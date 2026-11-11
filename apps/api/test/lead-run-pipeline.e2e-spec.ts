@@ -529,21 +529,21 @@ test("the scorer gets the campaign's rules and the website excerpt, and it is dr
       };
     },
   };
-  const runId = await queueRun(await campaign({ threshold: 80 }), 2);
+  const runId = await queueRun(await campaign({ threshold: 77 }), 2);
   const row = await drive(pipelineWith({ finder, scorer }), runId);
   assert.equal(row.status, "ready");
   assert.equal(seen.length, 2);
   for (const call of seen) {
-    assert.equal(call.threshold, 80);
+    assert.equal(call.threshold, 77);
     assert.equal(call.prospect.websiteText, "We import rice for supermarkets.");
     assert.equal(call.prospect.hasEmail, true);
   }
   const rows = await prospects(runId);
   assert.ok(rows.every((r) => r.score === 77 && r.score_method === "ai"));
   assert.ok(rows.every((r) => r.website_excerpt === null));
-  // 77 is below this campaign's threshold of 80.
-  assert.equal(row.qualified_count, 0);
-  assert.equal(row.disqualified_count, 2);
+  // A score exactly on the campaign's threshold of 77 qualifies.
+  assert.equal(row.qualified_count, 2);
+  assert.equal(row.disqualified_count, 0);
 });
 
 test("a scorer that breaks does not stop the run: the rules score is used", async () => {

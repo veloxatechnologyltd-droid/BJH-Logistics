@@ -66,6 +66,7 @@ const sourceLabels: Record<string, string> = {
   phone: "Phone",
   email: "Email",
   other: "Other",
+  campaign: "Campaign",
 };
 const requestSourceLabels: Record<string, string> = {
   portal: "Client portal",

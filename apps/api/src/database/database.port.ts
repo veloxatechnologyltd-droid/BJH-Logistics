@@ -1,5 +1,15 @@
 import type { KnownBusinessRow } from "../leads/duplicate-check";
 import type {
+  LeadCampaignChange,
+  LeadCampaignRecord,
+  LeadRunRecord,
+  NewLeadCampaign,
+  ProspectFilter,
+  ProspectRecord,
+  PromoteResult,
+  StartRunResult,
+} from "../leads/campaigns";
+import type {
   ClaimedLeadRun,
   FitScore,
   LeadRunStep,
@@ -2403,6 +2413,54 @@ export abstract class DatabasePort {
   ): Promise<ProspectToScore[]>;
   /** Stores the score, its reason and method, and drops the website excerpt. */
   abstract saveProspectScore(prospectId: string, fit: FitScore): Promise<void>;
+  abstract createLeadCampaign(
+    input: NewLeadCampaign,
+  ): Promise<LeadCampaignRecord>;
+  abstract listLeadCampaigns(): Promise<LeadCampaignRecord[]>;
+  abstract findLeadCampaign(id: string): Promise<LeadCampaignRecord | null>;
+  /** Null when the campaign does not exist. Archiving also cancels a queued or running run. */
+  abstract updateLeadCampaign(
+    id: string,
+    change: LeadCampaignChange,
+  ): Promise<LeadCampaignRecord | null>;
+  /** Removes the campaign with its runs and prospects; leads made from it stay. */
+  abstract deleteLeadCampaign(id: string): Promise<boolean>;
+  /**
+   * Queues a run for an active campaign that has none queued or running; it will
+   * find at most the campaign's maximum number of prospects.
+   */
+  abstract startLeadRun(
+    campaignId: string,
+    userId: string,
+  ): Promise<StartRunResult>;
+  /** Cancels a queued or running run. Null when it is not found; "over" when it already ended. */
+  abstract cancelLeadRun(
+    campaignId: string,
+    runId: string,
+  ): Promise<LeadRunRecord | "over" | null>;
+  /** Newest first. */
+  abstract listLeadRuns(
+    campaignId: string,
+    limit: number,
+  ): Promise<LeadRunRecord[]>;
+  abstract findLeadRun(
+    campaignId: string,
+    runId: string,
+  ): Promise<LeadRunRecord | null>;
+  abstract listProspects(
+    campaignId: string,
+    filter: ProspectFilter,
+  ): Promise<{ items: ProspectRecord[]; total: number }>;
+  /**
+   * Makes a lead from a prospect of this campaign: owner the person who adds it,
+   * stage new, source campaign, with an activity noting where it came from. Doing it
+   * again for the same prospect changes nothing and returns the same lead.
+   */
+  abstract promoteProspect(
+    campaignId: string,
+    prospectId: string,
+    userId: string,
+  ): Promise<PromoteResult>;
   abstract listLeads(): Promise<LeadRecord[]>;
   abstract findLead(id: string): Promise<LeadRecord | null>;
   /** Fails with "duplicate_request" or "unknown_reference" instead of throwing. */

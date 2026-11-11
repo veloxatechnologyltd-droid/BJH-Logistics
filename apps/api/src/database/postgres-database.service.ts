@@ -1,5 +1,15 @@
 import type { KnownBusinessRow } from "../leads/duplicate-check";
 import type {
+  LeadCampaignChange,
+  LeadCampaignRecord,
+  LeadRunRecord,
+  NewLeadCampaign,
+  ProspectFilter,
+  ProspectRecord,
+  PromoteResult,
+  StartRunResult,
+} from "../leads/campaigns";
+import type {
   ClaimedLeadRun,
   FitScore,
   LeadRunStep,
@@ -6756,6 +6766,10 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
          FROM app.lead_campaign_run
          WHERE status IN ('queued', 'running')
            AND next_attempt_at <= clock_timestamp()
+           -- A paused or archived campaign does no work; its run waits for it to be active.
+           AND EXISTS (SELECT 1 FROM app.lead_campaign campaign
+                       WHERE campaign.campaign_id = lead_campaign_run.campaign_id
+                         AND campaign.status = 'active')
          ORDER BY created_at
          LIMIT 1
          FOR UPDATE SKIP LOCKED
@@ -7037,6 +7051,471 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
        WHERE prospect_id = $1::uuid AND score IS NULL`,
       [prospectId, fit.score, fit.reason, fit.method],
     );
+  }
+
+  private readonly campaignSelect = `
+    SELECT campaign.*, author.email AS created_by_email,
+           NULLIF(btrim(author.raw_user_meta_data->>'full_name'), '') AS created_by_name_text,
+           (SELECT count(*) FROM app.prospect p
+             WHERE p.campaign_id = campaign.campaign_id) AS prospect_count,
+           (SELECT count(*) FROM app.prospect p
+             WHERE p.campaign_id = campaign.campaign_id
+               AND p.promoted_lead_id IS NOT NULL) AS promoted_count,
+           CASE WHEN latest.run_id IS NULL THEN NULL ELSE to_jsonb(latest) END AS latest_run
+    FROM app.lead_campaign campaign
+    LEFT JOIN auth.users author ON author.id = campaign.created_by
+    LEFT JOIN LATERAL (
+      SELECT * FROM app.lead_campaign_run run
+      WHERE run.campaign_id = campaign.campaign_id
+      ORDER BY run.created_at DESC LIMIT 1
+    ) latest ON true`;
+
+  private mapLeadRun(row: Record<string, unknown>): LeadRunRecord {
+    const time = (value: unknown) =>
+      value === null || value === undefined ? null : this.toIsoString(value);
+    return {
+      id: String(row.run_id),
+      campaignId: String(row.campaign_id),
+      status: String(row.status) as LeadRunRecord["status"],
+      step: String(row.current_step),
+      targetCount: Number(row.target_count),
+      foundCount: Number(row.found_count),
+      storedCount: Number(row.stored_count),
+      duplicateCount: Number(row.duplicate_count),
+      qualifiedCount: Number(row.qualified_count),
+      disqualifiedCount: Number(row.disqualified_count),
+      failedCount: Number(row.failed_count),
+      errorMessage:
+        row.error_message === null ? null : String(row.error_message),
+      startedAt: time(row.started_at),
+      finishedAt: time(row.finished_at),
+      createdAt: this.toIsoString(row.created_at),
+    };
+  }
+
+  private mapLeadCampaign(row: Record<string, unknown>): LeadCampaignRecord {
+    const text = (value: unknown) =>
+      value === null || value === undefined ? null : String(value);
+    return {
+      id: String(row.campaign_id),
+      name: String(row.name),
+      status: String(row.status) as LeadCampaignRecord["status"],
+      targetService: String(row.target_service),
+      targetIndustry: String(row.target_industry),
+      targetLocation: String(row.target_location),
+      searchKeywords: row.search_keywords as string[],
+      excludedKeywords: row.excluded_keywords as string[],
+      minRating: row.min_rating === null ? null : Number(row.min_rating),
+      requireWebsite: row.require_website === true,
+      idealCustomerProfile: text(row.ideal_customer_profile),
+      disqualifiers: text(row.disqualifiers),
+      qualificationThreshold: Number(row.qualification_threshold),
+      maxProspects: Number(row.max_prospects),
+      createdBy: String(row.created_by),
+      createdByName: row.created_by_email
+        ? staffDisplayName({
+            name: text(row.created_by_name_text),
+            email: String(row.created_by_email),
+          })
+        : null,
+      createdAt: this.toIsoString(row.created_at),
+      updatedAt: this.toIsoString(row.updated_at),
+      prospectCount: Number(row.prospect_count),
+      promotedCount: Number(row.promoted_count),
+      latestRun: row.latest_run
+        ? this.mapLeadRun(row.latest_run as Record<string, unknown>)
+        : null,
+    };
+  }
+
+  async createLeadCampaign(
+    input: NewLeadCampaign,
+  ): Promise<LeadCampaignRecord> {
+    await this.pool.query(
+      `INSERT INTO app.lead_campaign
+         (campaign_id, name, target_service, target_industry, target_location,
+          search_keywords, excluded_keywords, min_rating, require_website,
+          ideal_customer_profile, disqualifiers, qualification_threshold,
+          max_prospects, created_by)
+       VALUES ($1::uuid, $2, $3, $4, $5, $6::text[], $7::text[], $8, $9, $10, $11,
+               $12, $13, $14::uuid)`,
+      [
+        input.id,
+        input.name,
+        input.targetService,
+        input.targetIndustry,
+        input.targetLocation,
+        input.searchKeywords,
+        input.excludedKeywords,
+        input.minRating,
+        input.requireWebsite,
+        input.idealCustomerProfile,
+        input.disqualifiers,
+        input.qualificationThreshold,
+        input.maxProspects,
+        input.createdBy,
+      ],
+    );
+    return (await this.findLeadCampaign(input.id))!;
+  }
+
+  async listLeadCampaigns(): Promise<LeadCampaignRecord[]> {
+    const result = await this.pool.query(
+      `${this.campaignSelect} ORDER BY campaign.created_at DESC, campaign.campaign_id`,
+    );
+    return result.rows.map((row) => this.mapLeadCampaign(row));
+  }
+
+  async findLeadCampaign(id: string): Promise<LeadCampaignRecord | null> {
+    const result = await this.pool.query(
+      `${this.campaignSelect} WHERE campaign.campaign_id = $1::uuid`,
+      [id],
+    );
+    return result.rows[0] ? this.mapLeadCampaign(result.rows[0]) : null;
+  }
+
+  async updateLeadCampaign(
+    id: string,
+    change: LeadCampaignChange,
+  ): Promise<LeadCampaignRecord | null> {
+    const columns: Record<keyof LeadCampaignChange, string> = {
+      name: "name",
+      status: "status",
+      targetService: "target_service",
+      targetIndustry: "target_industry",
+      targetLocation: "target_location",
+      searchKeywords: "search_keywords",
+      excludedKeywords: "excluded_keywords",
+      minRating: "min_rating",
+      requireWebsite: "require_website",
+      idealCustomerProfile: "ideal_customer_profile",
+      disqualifiers: "disqualifiers",
+      qualificationThreshold: "qualification_threshold",
+      maxProspects: "max_prospects",
+    };
+    const values: unknown[] = [id];
+    const sets: string[] = [];
+    for (const key of Object.keys(columns) as Array<keyof LeadCampaignChange>) {
+      if (change[key] === undefined) continue;
+      values.push(change[key]);
+      sets.push(`${columns[key]} = $${values.length}`);
+    }
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const updated = await client.query(
+        `UPDATE app.lead_campaign
+         SET ${[...sets, "updated_at = clock_timestamp()"].join(", ")}
+         WHERE campaign_id = $1::uuid`,
+        values,
+      );
+      if (updated.rowCount === 0) {
+        await client.query("ROLLBACK");
+        return null;
+      }
+      if (change.status === "archived") {
+        // An archived campaign has nothing left to run.
+        await client.query(
+          `UPDATE app.lead_campaign_run
+           SET status = 'cancelled', current_step = 'cancelled',
+               finished_at = clock_timestamp(), claimed_at = NULL, claimed_by = NULL,
+               updated_at = clock_timestamp()
+           WHERE campaign_id = $1::uuid AND status IN ('queued', 'running')`,
+          [id],
+        );
+      }
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+    return this.findLeadCampaign(id);
+  }
+
+  async deleteLeadCampaign(id: string): Promise<boolean> {
+    const result = await this.pool.query(
+      `DELETE FROM app.lead_campaign WHERE campaign_id = $1::uuid`,
+      [id],
+    );
+    return result.rowCount === 1;
+  }
+
+  async startLeadRun(
+    campaignId: string,
+    userId: string,
+  ): Promise<StartRunResult> {
+    const campaign = await this.pool.query(
+      `SELECT status, max_prospects FROM app.lead_campaign WHERE campaign_id = $1::uuid`,
+      [campaignId],
+    );
+    if (!campaign.rows[0]) return "not_found";
+    if (campaign.rows[0].status !== "active") return "not_active";
+    try {
+      const run = await this.pool.query(
+        `INSERT INTO app.lead_campaign_run (campaign_id, target_count, created_by)
+         VALUES ($1::uuid, $2, $3::uuid) RETURNING *`,
+        [campaignId, campaign.rows[0].max_prospects, userId],
+      );
+      return this.mapLeadRun(run.rows[0]);
+    } catch (error) {
+      // One run waiting or in progress per campaign (a unique index).
+      if ((error as { code?: string }).code === "23505") {
+        return "already_running";
+      }
+      throw error;
+    }
+  }
+
+  async cancelLeadRun(
+    campaignId: string,
+    runId: string,
+  ): Promise<LeadRunRecord | "over" | null> {
+    const cancelled = await this.pool.query(
+      `UPDATE app.lead_campaign_run
+       SET status = 'cancelled', current_step = 'cancelled',
+           finished_at = clock_timestamp(), claimed_at = NULL, claimed_by = NULL,
+           updated_at = clock_timestamp()
+       WHERE run_id = $1::uuid AND campaign_id = $2::uuid
+         AND status IN ('queued', 'running')
+       RETURNING *`,
+      [runId, campaignId],
+    );
+    if (cancelled.rows[0]) return this.mapLeadRun(cancelled.rows[0]);
+    return (await this.findLeadRun(campaignId, runId)) ? "over" : null;
+  }
+
+  async listLeadRuns(
+    campaignId: string,
+    limit: number,
+  ): Promise<LeadRunRecord[]> {
+    const result = await this.pool.query(
+      `SELECT * FROM app.lead_campaign_run WHERE campaign_id = $1::uuid
+       ORDER BY created_at DESC, run_id LIMIT $2`,
+      [campaignId, limit],
+    );
+    return result.rows.map((row) => this.mapLeadRun(row));
+  }
+
+  async findLeadRun(
+    campaignId: string,
+    runId: string,
+  ): Promise<LeadRunRecord | null> {
+    const result = await this.pool.query(
+      `SELECT * FROM app.lead_campaign_run
+       WHERE run_id = $1::uuid AND campaign_id = $2::uuid`,
+      [runId, campaignId],
+    );
+    return result.rows[0] ? this.mapLeadRun(result.rows[0]) : null;
+  }
+
+  async listProspects(
+    campaignId: string,
+    filter: ProspectFilter,
+  ): Promise<{ items: ProspectRecord[]; total: number }> {
+    const values: unknown[] = [campaignId];
+    const where = ["prospect.campaign_id = $1::uuid"];
+    const add = (
+      condition: (placeholder: string) => string,
+      value: unknown,
+    ) => {
+      values.push(value);
+      where.push(condition(`$${values.length}`));
+    };
+    const threshold = `(SELECT qualification_threshold FROM app.lead_campaign
+                         WHERE campaign_id = $1::uuid)`;
+    if (filter.runId) add((p) => `prospect.run_id = ${p}::uuid`, filter.runId);
+    if (filter.search) {
+      add(
+        (p) => `prospect.business_name ILIKE '%' || ${p} || '%'`,
+        filter.search.replace(/[\\%_]/g, "\\$&"),
+      );
+    }
+    if (filter.minScore !== undefined) {
+      add((p) => `prospect.score >= ${p}`, filter.minScore);
+    }
+    if (filter.qualified === true) {
+      where.push(`prospect.score >= ${threshold}`);
+    } else if (filter.qualified === false) {
+      where.push(`prospect.score < ${threshold}`);
+    }
+    if (filter.duplicate !== undefined) {
+      where.push(
+        filter.duplicate
+          ? "prospect.duplicate_kind IS NOT NULL"
+          : "prospect.duplicate_kind IS NULL",
+      );
+    }
+    if (filter.enrichment) {
+      add((p) => `prospect.enrichment_status = ${p}`, filter.enrichment);
+    }
+    if (filter.promoted !== undefined) {
+      where.push(
+        filter.promoted
+          ? "prospect.promoted_lead_id IS NOT NULL"
+          : "prospect.promoted_lead_id IS NULL",
+      );
+    }
+    const condition = where.join(" AND ");
+    const total = await this.pool.query(
+      `SELECT count(*) AS total FROM app.prospect prospect WHERE ${condition}`,
+      values,
+    );
+    values.push(filter.limit, filter.offset);
+    const result = await this.pool.query(
+      `SELECT prospect.* FROM app.prospect prospect WHERE ${condition}
+       ORDER BY prospect.score DESC NULLS LAST, prospect.created_at DESC,
+                prospect.prospect_id
+       LIMIT $${values.length - 1} OFFSET $${values.length}`,
+      values,
+    );
+    return {
+      items: result.rows.map((row) => this.mapProspect(row)),
+      total: Number(total.rows[0].total),
+    };
+  }
+
+  private mapProspect(row: Record<string, unknown>): ProspectRecord {
+    const text = (value: unknown) =>
+      value === null || value === undefined ? null : String(value);
+    const time = (value: unknown) =>
+      value === null || value === undefined ? null : this.toIsoString(value);
+    return {
+      id: String(row.prospect_id),
+      campaignId: String(row.campaign_id),
+      runId: text(row.run_id),
+      businessName: String(row.business_name),
+      website: text(row.website),
+      address: text(row.address),
+      phones: row.phones as string[],
+      emails: row.emails as string[],
+      rating: row.rating === null ? null : Number(row.rating),
+      category: text(row.category),
+      source: String(row.source) as ProspectRecord["source"],
+      duplicateKind: text(
+        row.duplicate_kind,
+      ) as ProspectRecord["duplicateKind"],
+      duplicateRef: text(row.duplicate_ref),
+      duplicateReason: text(row.duplicate_reason),
+      enrichmentStatus: String(
+        row.enrichment_status,
+      ) as ProspectRecord["enrichmentStatus"],
+      enrichmentError: text(row.enrichment_error),
+      score: row.score === null ? null : Number(row.score),
+      scoreReason: text(row.score_reason),
+      scoreMethod: text(row.score_method) as ProspectRecord["scoreMethod"],
+      scoredAt: time(row.scored_at),
+      promotedLeadId: text(row.promoted_lead_id),
+      promotedAt: time(row.promoted_at),
+      createdAt: this.toIsoString(row.created_at),
+    };
+  }
+
+  async promoteProspect(
+    campaignId: string,
+    prospectId: string,
+    userId: string,
+  ): Promise<PromoteResult> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      // Locking the prospect makes a double click or two people at once safe.
+      const found = await client.query(
+        `SELECT prospect.*, campaign.name AS campaign_name
+         FROM app.prospect prospect
+         JOIN app.lead_campaign campaign ON campaign.campaign_id = prospect.campaign_id
+         WHERE prospect.prospect_id = $1::uuid AND prospect.campaign_id = $2::uuid
+         FOR UPDATE OF prospect`,
+        [prospectId, campaignId],
+      );
+      const row = found.rows[0];
+      if (!row) {
+        await client.query("ROLLBACK");
+        return { outcome: "not_found" };
+      }
+      if (row.promoted_lead_id) {
+        await client.query("COMMIT");
+        return {
+          outcome: "already_promoted",
+          leadId: String(row.promoted_lead_id),
+        };
+      }
+      const prospect = this.mapProspect(row);
+      const campaignName = String(row.campaign_name);
+      const email = prospect.emails.find(
+        (value) => value.length >= 3 && value.length <= 254,
+      );
+      const phone = prospect.phones.find(
+        (value) => value.length >= 5 && value.length <= 40,
+      );
+      const scored =
+        prospect.score === null
+          ? "Not scored."
+          : `Fit score ${prospect.score} of 100 (${prospect.scoreMethod === "ai" ? "AI" : "simple rules"}): ${prospect.scoreReason}`;
+      const notes = [
+        `Found by the campaign "${campaignName}".`,
+        scored,
+        prospect.website ? `Website: ${prospect.website}` : null,
+        prospect.address ? `Address: ${prospect.address}` : null,
+        prospect.category ? `Category: ${prospect.category}` : null,
+        prospect.rating !== null
+          ? `Public rating: ${prospect.rating} of 5`
+          : null,
+        prospect.emails.length > 1
+          ? `Other emails: ${prospect.emails.filter((value) => value !== email).join(", ")}`
+          : null,
+        prospect.phones.length > 1
+          ? `Other phones: ${prospect.phones.filter((value) => value !== phone).join(", ")}`
+          : null,
+        prospect.duplicateReason
+          ? `Possible duplicate: ${prospect.duplicateReason}`
+          : null,
+        prospect.source === "stub" ? "Sample data, not a real business." : null,
+      ]
+        .filter((line): line is string => line !== null)
+        .join("\n")
+        .slice(0, 2000);
+      const lead = await client.query(
+        `INSERT INTO app.lead
+           (company_name, email, phone, source, stage, owner_id, notes,
+            campaign_id, created_by)
+         VALUES ($1, $2, $3, 'campaign', 'new', $4::uuid, $5, $6::uuid, $4::uuid)
+         RETURNING lead_id`,
+        [
+          prospect.businessName.slice(0, 160),
+          email ?? null,
+          phone ?? null,
+          userId,
+          notes,
+          campaignId,
+        ],
+      );
+      const leadId = String(lead.rows[0].lead_id);
+      await client.query(
+        `INSERT INTO app.lead_activity (lead_id, kind, note, occurred_at, created_by)
+         VALUES ($1::uuid, 'note', $2, clock_timestamp(), $3::uuid)`,
+        [
+          leadId,
+          `Added from the campaign "${campaignName}".`.slice(0, 2000),
+          userId,
+        ],
+      );
+      await client.query(
+        `UPDATE app.prospect
+         SET promoted_lead_id = $2::uuid, promoted_at = clock_timestamp(),
+             promoted_by = $3::uuid
+         WHERE prospect_id = $1::uuid`,
+        [prospectId, leadId, userId],
+      );
+      await client.query("COMMIT");
+      return { outcome: "promoted", leadId };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async listLeads(): Promise<LeadRecord[]> {
