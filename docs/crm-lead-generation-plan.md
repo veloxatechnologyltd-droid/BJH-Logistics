@@ -35,7 +35,7 @@ Answered by Evans 2026-11-11:
 | L1 | Apify account and budget | **BJH's own Apify account** ($30–60/month quoted); token in the API env | First real search, until BJH creates the account and supplies the token (stub until then) |
 | L2 | Outreach sending mailbox | **New `sales@bjhlogistics.com` on `mail.bjhlogistics.com`**, used only for outreach and its replies | Phase 2 real sends, until the mailbox exists |
 | L3 | Who sees the lead-generation screens | **Sales rep, customer service rep and super admin** | — |
-| L4 | B2B cold email under Ghana's Data Protection Act, 2012 (Act 843) | **Evans is asking BJH**; everything is built, real sends wait for confirmation | First real send |
+| L4 | B2B cold email under Ghana's Data Protection Act, 2012 (Act 843) | **Settled 2026-11-12** (Evans, in session): BJH's lawyer confirmed it; BJH will send the emails. The confirmation itself is not in this repository. | — (unsubscribe and suppression stay in the build regardless, 2.1 and 2.6) |
 
 ## Checklist
 
@@ -89,7 +89,7 @@ Mark an item done only with code, tests and evidence (test output, browser check
   - Checked on screen (local stack on 3011 and 3012, servers stopped afterwards): as sales rep the Leads board shows "Campaign · Leads board check" as a working link to that campaign (which shows the business as "In Leads") and "Campaign · The campaign was deleted" for the two older sample leads; as an import rep the campaign name is plain text with no link; phone width has no sideways scroll. The real Sales PDF for 1 to 12 Nov was downloaded with the signed-in session and read as text and as an image: the "Campaign" bar (3) equals the table rows (2 + 1), the logged-leads table names each campaign, and the page keeps the report style (one blue).
   - Not changed: the sales summary numbers at the top of the Leads board, and a per-campaign funnel (found, qualified, contacted, replied, quoted, won): that is 4.1.
 
-### Phase 2 — Approved outreach (needs L2; real sends need L4)
+### Phase 2 — Approved outreach (real sends need L2, the outreach mailbox; L4 is settled)
 
 - [ ] 2.1 Migration: `app.outreach_draft` (lead, recipient, subject, body, type initial/follow-up/reply, status pending/approved/rejected/sent), `app.outreach_send` queue (claim columns, scheduled at, attempts, provider id, unsubscribe token), `app.suppression` (email/phone, reason, source, active), sender limits (daily cap, min spacing, atomic counter).
 - [ ] 2.2 Approved company facts for drafting (Settings, super admin) and campaign offer/tone/CTA.
