@@ -1,16 +1,12 @@
 import PDFDocument from "pdfkit";
 import { drawLogo } from "../assets/logo";
 import { renderDeliveryDocumentPdf } from "./delivery-document-pdf";
+import { renderHouseBlPdf } from "./house-bl-pdf";
 import {
   transportDocumentFields,
   transportDocumentTitles,
 } from "@bjh/contracts";
-import {
-  parseBlContainers,
-  parseTableRows,
-  sumBlContainerWeights,
-  sumTableColumn,
-} from "@bjh/contracts";
+import { parseTableRows, sumTableColumn } from "@bjh/contracts";
 import type { BusinessSettings } from "@bjh/contracts";
 import type {
   JobRecord,
@@ -41,12 +37,7 @@ const CERTIFICATION =
 const CERTIFICATION_SPACE = 52;
 
 /** Fields that get the full width of the page rather than half of it. */
-const fullWidth = new Set([
-  "containers",
-  "goods",
-  "shipmentLines",
-  "handlingInformation",
-]);
+const fullWidth = new Set(["goods", "shipmentLines", "handlingInformation"]);
 
 export interface TransportDocumentPdfInput {
   document: TransportDocumentRecord;
@@ -72,7 +63,9 @@ export function renderTransportDocumentPdf(
   input: TransportDocumentPdfInput,
   options: { compress?: boolean } = {},
 ): Promise<Buffer> {
-  // These two have their own one-page layouts, drawn like BJH's samples.
+  // These have their own layouts, drawn like BJH's samples.
+  if (input.document.kind === "house_bl")
+    return renderHouseBlPdf(input, options);
   if (
     input.document.kind === "delivery_order" ||
     input.document.kind === "proof_of_delivery"
@@ -238,78 +231,6 @@ export function renderTransportDocumentPdf(
     doc.y = y + height;
   };
 
-  // A house B/L lists its containers as a table with the total weight.
-  const drawContainerTable = (rows: ReturnType<typeof parseBlContainers>) => {
-    const columns = [
-      { title: "Container no.", x: left + 10, w: width * 0.45, align: "left" },
-      {
-        title: "Seal no.",
-        x: left + width * 0.5,
-        w: width * 0.25,
-        align: "left",
-      },
-      {
-        title: "Weight (kg)",
-        x: left + width * 0.75,
-        w: width * 0.25 - 10,
-        align: "right",
-      },
-    ] as const;
-    const total = sumBlContainerWeights(rows);
-    // 12000.5 prints as 12,000.5; text that is not a number prints as typed.
-    const shown = (weight: string) => {
-      const value = Number(weight.replace(/,/g, ""));
-      return weight.trim() !== "" && Number.isFinite(value)
-        ? value.toLocaleString("en-US", { maximumFractionDigits: 3 })
-        : weight;
-    };
-    const rowHeight = 16;
-    const headerRow = () => {
-      // Text moves doc.y, so each row works from the y it started at.
-      const y = doc.y;
-      doc.rect(left, y, width, rowHeight).fillAndStroke("#eef4fb", BORDER);
-      doc.font("Helvetica-Bold").fontSize(LABEL).fillColor(MUTED);
-      for (const column of columns) {
-        doc.text(column.title.toUpperCase(), column.x, y + 4, {
-          width: column.w,
-          align: column.align,
-          characterSpacing: 0.4,
-          lineBreak: false,
-        });
-      }
-      doc.y = y + rowHeight;
-    };
-    const line = (cells: string[], bold = false) => {
-      if (doc.y + rowHeight > bottom()) {
-        doc.addPage();
-        headerRow();
-      }
-      const y = doc.y;
-      doc
-        .lineWidth(0.8)
-        .strokeColor(BORDER)
-        .rect(left, y, width, rowHeight)
-        .stroke();
-      doc
-        .font(bold ? "Helvetica-Bold" : "Helvetica")
-        .fontSize(BODY)
-        .fillColor(INK);
-      columns.forEach((column, index) => {
-        doc.text(cells[index], column.x, y + 3, {
-          width: column.w,
-          align: column.align,
-          lineBreak: false,
-        });
-      });
-      doc.y = y + rowHeight;
-    };
-    if (doc.y + rowHeight * 3 > bottom()) doc.addPage();
-    headerRow();
-    for (const row of rows) line([row.number, row.seal, shown(row.weightKg)]);
-    if (total !== null && rows.length > 1)
-      line(["Total", "", shown(total)], true);
-  };
-
   // A manifest's shipment lines: numbered rows under a header, then a total row.
   const drawColumnsTable = (field: Definition, reserveAfter: number) => {
     const columns = field.columns ?? [];
@@ -448,15 +369,6 @@ export function renderTransportDocumentPdf(
           field,
           field === definitions[definitions.length - 1] ? lastReserve : 0,
         );
-        continue;
-      }
-      if (
-        document.kind === "house_bl" &&
-        field.key === "containers" &&
-        document.fields.containers
-      ) {
-        flush();
-        drawContainerTable(parseBlContainers(document.fields.containers));
         continue;
       }
       // On the landscape sheet the handling information is a third column.

@@ -2,8 +2,17 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import type { LeadSource, LeadStage, LeadUpdateInput } from "@bjh/contracts";
-import { leadSourceKeys, leadStageKeys } from "@bjh/contracts";
+import type {
+  LeadCreateSource,
+  LeadPipeline,
+  LeadStage,
+  LeadUpdateInput,
+} from "@bjh/contracts";
+import {
+  leadCreateSourceKeys,
+  leadOpenStageKeys,
+  leadStagesFor,
+} from "@bjh/contracts";
 import { listCustomers } from "../customerApi";
 import type { CustomerCompany } from "../customerApi";
 import {
@@ -21,12 +30,12 @@ import ui from "../../jobs/jobs.module.css";
 import styles from "../customerDirectory.module.css";
 import { ErrorPopup } from "../../ErrorPopup";
 import { useStaffAccess } from "../../auth/useStaffAccess";
-import { canWorkClientDesk } from "../../auth/roleAccess";
+import { canUseLeadGeneration, canWorkClientDesk } from "../../auth/roleAccess";
+import { leadCampaignNote } from "../../campaigns/campaignView";
 
-type Filter = "open" | "won" | "lost" | "all";
+type Filter = "open" | "overdue" | "won" | "lost" | "all";
 
-const isOpen = (stage: LeadStage) =>
-  stage === "new" || stage === "contacted" || stage === "quoted";
+const isOpen = (stage: LeadStage) => leadOpenStageKeys.includes(stage);
 
 const shortDate = (value: string) =>
   new Date(`${value}T00:00:00`).toLocaleDateString("en-GH", {
@@ -43,20 +52,31 @@ const emptyForm = {
   contactName: "",
   email: "",
   phone: "",
-  source: "other" as LeadSource,
+  source: "other" as LeadCreateSource,
   nextFollowUp: "",
   notes: "",
 };
 
-/** Prospects from first contact to customer. Stages are few; nothing moves on its own. */
-export function LeadsBoard() {
+/**
+ * Prospects from first contact to customer, for one pipeline: "manual" (added
+ * by staff) or "generated" (found by a campaign). The two are never shown
+ * together. Stages are few; nothing moves on its own.
+ */
+export function LeadsBoard({
+  pipeline = "manual",
+}: {
+  pipeline?: LeadPipeline;
+}) {
+  const stages = leadStagesFor(pipeline);
   const { roles } = useStaffAccess();
   const canConvert = canWorkClientDesk(roles);
+  const canUseCampaigns = canUseLeadGeneration(roles);
   const [leads, setLeads] = useState<Lead[] | null>(null);
   const [summary, setSummary] = useState<SalesSummary | null>(null);
   const [customers, setCustomers] = useState<CustomerCompany[]>([]);
   const [error, setError] = useState("");
   const [filter, setFilter] = useState<Filter>("open");
+  const [search, setSearch] = useState("");
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [busy, setBusy] = useState(false);
@@ -69,17 +89,17 @@ export function LeadsBoard() {
   const [wonCompany, setWonCompany] = useState("");
 
   useEffect(() => {
-    listLeads()
+    listLeads(pipeline)
       .then(setLeads)
       .catch((cause) => setError(message(cause, "Leads could not be loaded")));
-    getSalesSummary()
+    getSalesSummary(pipeline)
       .then(setSummary)
       .catch(() => undefined);
     // Customers only enrich the page; the board works without them.
     listCustomers("")
       .then(setCustomers)
       .catch(() => undefined);
-  }, []);
+  }, [pipeline]);
 
   const count = (stage: LeadStage) =>
     (leads ?? []).filter((lead) => lead.stage === stage).length;
@@ -87,13 +107,24 @@ export function LeadsBoard() {
   const overdue = (leads ?? []).filter((lead) => lead.followUpOverdue).length;
   const decided = count("won") + count("lost");
 
-  const shown = (leads ?? []).filter((lead) =>
-    filter === "all"
-      ? true
-      : filter === "open"
-        ? isOpen(lead.stage)
-        : lead.stage === filter,
-  );
+  const words = search.trim().toLowerCase();
+  const shown = (leads ?? [])
+    .filter((lead) =>
+      filter === "all"
+        ? true
+        : filter === "open"
+          ? isOpen(lead.stage)
+          : filter === "overdue"
+            ? lead.followUpOverdue
+            : lead.stage === filter,
+    )
+    .filter(
+      (lead) =>
+        words === "" ||
+        [lead.companyName, lead.contactName, lead.email, lead.campaignName]
+          .filter(Boolean)
+          .some((text) => String(text).toLowerCase().includes(words)),
+    );
 
   function replace(saved: Lead) {
     setLeads((current) =>
@@ -188,11 +219,21 @@ export function LeadsBoard() {
           </div>
         </section>
       )}
-      <section className={styles.overview} aria-label="Lead overview">
+      <section
+        className={styles.overview}
+        aria-label={`${pipeline === "generated" ? "Campaign" : "Manual"} lead overview`}
+      >
         <div className={styles.metric}>
           <span>Open leads</span>
           <strong>{leads ? openCount : "—"}</strong>
-          <small>New, contacted or quoted</small>
+          <small>
+            {leads
+              ? stages
+                  .filter((stage) => isOpen(stage))
+                  .map((stage) => `${stageLabels[stage]} ${count(stage)}`)
+                  .join(" · ")
+              : "Not won or lost yet"}
+          </small>
         </div>
         <div className={styles.metric}>
           <span>Follow-ups overdue</span>
@@ -224,23 +265,36 @@ export function LeadsBoard() {
       <section className={styles.directory} aria-label="Leads">
         <div className={styles.searchHeader}>
           <div className={ui.segmented} role="group" aria-label="Show">
-            {(["open", "won", "lost", "all"] as const).map((option) => (
-              <button
-                aria-pressed={filter === option}
-                className={filter === option ? ui.segmentActive : ""}
-                key={option}
-                onClick={() => setFilter(option)}
-                type="button"
-              >
-                {option === "open"
-                  ? "Open"
-                  : option === "all"
-                    ? "All"
-                    : stageLabels[option]}
-              </button>
-            ))}
+            {(["open", "overdue", "won", "lost", "all"] as const).map(
+              (option) => (
+                <button
+                  aria-pressed={filter === option}
+                  className={filter === option ? ui.segmentActive : ""}
+                  key={option}
+                  onClick={() => setFilter(option)}
+                  type="button"
+                >
+                  {option === "open"
+                    ? "Open"
+                    : option === "overdue"
+                      ? `Overdue${overdue > 0 ? ` (${overdue})` : ""}`
+                      : option === "all"
+                        ? "All"
+                        : stageLabels[option]}
+                </button>
+              ),
+            )}
           </div>
-          {!adding && (
+          <input
+            aria-label="Search leads by company, contact, email or campaign"
+            className={ui.searchInput}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search leads"
+            style={{ flex: "1 1 180px", margin: 0 }}
+            type="search"
+            value={search}
+          />
+          {!adding && pipeline === "manual" && (
             <button
               className={ui.button}
               onClick={() => setAdding(true)}
@@ -301,12 +355,12 @@ export function LeadsBoard() {
                   onChange={(event) =>
                     setForm({
                       ...form,
-                      source: event.target.value as LeadSource,
+                      source: event.target.value as LeadCreateSource,
                     })
                   }
                   value={form.source}
                 >
-                  {leadSourceKeys
+                  {leadCreateSourceKeys
                     .filter((source) => source !== "quote_request")
                     .map((source) => (
                       <option key={source} value={source}>
@@ -487,14 +541,17 @@ export function LeadsBoard() {
                         }
                         value={lead.stage}
                       >
-                        {leadStageKeys.map((stage) => (
+                        {stages.map((stage) => (
                           <option key={stage} value={stage}>
                             {stageLabels[stage]}
                           </option>
                         ))}
                       </select>
                     </td>
-                    <td data-label="Source">{sourceLabels[lead.source]}</td>
+                    <td data-label="Source">
+                      {sourceLabels[lead.source]}
+                      <CampaignNote canOpen={canUseCampaigns} lead={lead} />
+                    </td>
                     <td data-label="Owner">
                       {lead.ownerName ?? "Unassigned"}{" "}
                       <button
@@ -540,5 +597,22 @@ export function LeadsBoard() {
         )}
       </section>
     </>
+  );
+}
+
+/** Under a campaign lead's source: the campaign that found it. */
+function CampaignNote({ lead, canOpen }: { lead: Lead; canOpen: boolean }) {
+  const note = leadCampaignNote(lead, canOpen);
+  if (!note) return null;
+  return (
+    <span className={styles.tradingName}>
+      {note.href ? (
+        <Link className={ui.textButton} href={note.href}>
+          {note.text}
+        </Link>
+      ) : (
+        note.text
+      )}
+    </span>
   );
 }

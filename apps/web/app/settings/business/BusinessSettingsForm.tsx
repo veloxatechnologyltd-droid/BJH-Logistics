@@ -82,6 +82,9 @@ export function BusinessSettingsForm() {
   const [quoteTerms, setQuoteTerms] = useState("");
   const [channels, setChannels] = useState<"email" | "sms" | "both">("both");
   const [knowledge, setKnowledge] = useState("");
+  const [salesDailyCap, setSalesDailyCap] = useState("");
+  const [salesGapSeconds, setSalesGapSeconds] = useState("");
+  const [campaignDailyCap, setCampaignDailyCap] = useState("");
 
   const selectedCurrencies = currencies.split(/[\s,]+/).filter(Boolean);
   // The popular ones, plus any other code already saved in Settings.
@@ -142,6 +145,11 @@ export function BusinessSettingsForm() {
     setTimeline(settings.quoteDefaults.timeline ?? "");
     setQuoteTerms(settings.quoteDefaults.terms.join("\n"));
     setKnowledge(settings.assistant?.knowledge ?? "");
+    setSalesDailyCap(String(settings.salesEmailLimits?.dailyCap ?? ""));
+    setSalesGapSeconds(String(settings.salesEmailLimits?.gapSeconds ?? ""));
+    setCampaignDailyCap(
+      String(settings.salesEmailLimits?.campaignDailyCap ?? ""),
+    );
   }, []);
 
   const load = useCallback(async () => {
@@ -173,6 +181,13 @@ export function BusinessSettingsForm() {
     const rates = taxes.map((row) => toBasisPoints(row.rate));
     if (rates.some((rate) => Number.isNaN(rate))) {
       setError("Tax rates must be percentages such as 15 or 2.5");
+      return;
+    }
+    if (
+      [salesDailyCap, salesGapSeconds, campaignDailyCap].some(Boolean) &&
+      ![salesDailyCap, salesGapSeconds, campaignDailyCap].every(Boolean)
+    ) {
+      setError("Set all three sales email limits to enable sending");
       return;
     }
     try {
@@ -211,6 +226,15 @@ export function BusinessSettingsForm() {
           terms: toLines(quoteTerms),
         },
         assistant: { knowledge },
+        ...(salesDailyCap && salesGapSeconds && campaignDailyCap
+          ? {
+              salesEmailLimits: {
+                dailyCap: Number(salesDailyCap),
+                gapSeconds: Number(salesGapSeconds),
+                campaignDailyCap: Number(campaignDailyCap),
+              },
+            }
+          : {}),
       });
       fill(saved);
       setNotice(`Saved as revision ${saved.revisionNumber}.`);
@@ -490,6 +514,44 @@ export function BusinessSettingsForm() {
                     <option value="email">Email only</option>
                     <option value="sms">SMS only</option>
                   </select>
+                </label>
+
+                <h2>Sales email sending limits</h2>
+                <p>
+                  Set all three values before the sales send worker can dispatch
+                  queued mail.
+                </p>
+                <label className={styles.field}>
+                  Maximum messages per UTC day
+                  <input
+                    min="1"
+                    max="500"
+                    type="number"
+                    value={salesDailyCap}
+                    onChange={(event) => setSalesDailyCap(event.target.value)}
+                  />
+                </label>
+                <label className={styles.field}>
+                  Maximum messages per campaign per UTC day
+                  <input
+                    min="1"
+                    max="500"
+                    type="number"
+                    value={campaignDailyCap}
+                    onChange={(event) =>
+                      setCampaignDailyCap(event.target.value)
+                    }
+                  />
+                </label>
+                <label className={styles.field}>
+                  Minimum seconds between messages
+                  <input
+                    min="1"
+                    max="3600"
+                    type="number"
+                    value={salesGapSeconds}
+                    onChange={(event) => setSalesGapSeconds(event.target.value)}
+                  />
                 </label>
 
                 <h2>Quote defaults</h2>

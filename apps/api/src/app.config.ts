@@ -30,6 +30,13 @@ interface LoggedResponse {
   on(event: "finish", listener: () => void): unknown;
 }
 
+export function safeLoggedPath(path: string): string {
+  return path.replace(
+    /^(\/api\/v1\/sales\/unsubscribe\/)[^/]+$/,
+    "$1[redacted]",
+  );
+}
+
 function requestLogger(): (
   request: LoggedRequest,
   response: LoggedResponse,
@@ -42,7 +49,7 @@ function requestLogger(): (
       logger.log(
         JSON.stringify({
           method: request.method,
-          path: request.path,
+          path: safeLoggedPath(request.path),
           status: response.statusCode,
           durationMs: Date.now() - startedAt,
         }),

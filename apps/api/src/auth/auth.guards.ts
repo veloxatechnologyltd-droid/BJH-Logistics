@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
+  NotFoundException,
   UnauthorizedException,
   mixin,
 } from "@nestjs/common";
@@ -245,6 +246,49 @@ export const quoteDeskRoles: StaffRoleKey[] = [
   "import_rep",
   "export_rep",
 ];
+
+/** Lead generation (campaigns, prospects): sales and customer service, and the boss (decision L3). */
+export const leadGenerationRoles: StaffRoleKey[] = [
+  "super_admin",
+  "sales_rep",
+  "customer_service_rep",
+];
+
+/**
+ * Who may use the CRM (Sales hub, campaigns). `CRM_ACCESS` is `admin` (the
+ * super admin only; also when unset or unrecognised), `everyone` (the
+ * lead-generation roles above) or `off`. Read on every request, so the value
+ * set in the host takes effect when the API restarts.
+ */
+export function crmRoles(
+  environment: NodeJS.ProcessEnv = process.env,
+): StaffRoleKey[] {
+  const mode = environment.CRM_ACCESS?.trim().toLowerCase();
+  if (mode === "off") return [];
+  if (mode === "everyone") return leadGenerationRoles;
+  return ["super_admin"];
+}
+
+/** Whether the CRM is on for someone with these roles; the menu uses it. */
+export function crmVisibleTo(roles: readonly string[]): boolean {
+  const allowed = crmRoles();
+  return roles.some((role) => (allowed as string[]).includes(role));
+}
+
+/**
+ * Runs after the role guard. A role the CRM is not open to gets "not found",
+ * as if the pages and endpoints did not exist.
+ */
+@Injectable()
+export class CrmAccessGuard implements CanActivate {
+  canActivate(context: ExecutionContext): boolean {
+    const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
+    if (!crmVisibleTo(request.staffRoles ?? [])) {
+      throw new NotFoundException("Not found");
+    }
+    return true;
+  }
+}
 
 /**
  * Requires one of `allowed` from staff. With `customers: true` a customer

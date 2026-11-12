@@ -6,6 +6,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   Req,
   UseGuards,
 } from "@nestjs/common";
@@ -24,14 +25,15 @@ import { LeadsService } from "./leads.service";
 export class LeadsController {
   constructor(@Inject(LeadsService) private readonly leads: LeadsService) {}
 
+  /** `?pipeline=manual` or `generated` keeps the two kinds of lead apart. */
   @Get()
-  list() {
-    return this.leads.list();
+  list(@Query("pipeline") pipeline?: string) {
+    return this.leads.list(pipeline);
   }
 
   @Get("summary")
-  summary() {
-    return this.leads.summary();
+  summary(@Query("pipeline") pipeline?: string) {
+    return this.leads.summary(pipeline);
   }
 
   @Get(":id/activities")

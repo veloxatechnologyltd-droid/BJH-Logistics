@@ -84,3 +84,11 @@ The structural notes above do not authorize copying client-specific values or ge
 - A document keeps one currency from quote through invoice and payments. A job that needs several currencies gets one invoice per currency. Amounts are never converted or totalled across currencies; balances and dashboards list each currency separately.
 - Settings no longer has a default currency; quote, invoice and charge forms all open unselected (Evans, 2026-10-04). Cedi tax/levy display on USD/EUR invoices is out of scope for now.
 - Unresolved (client): margin comparison of USD/EUR quotes against GHS actuals; payments received in a currency other than the invoice's. These block dependent behaviour, not current work.
+
+## Sales email workspace (2026-11-12, Evans)
+
+- The dedicated account is `sales@bjhlogistics.com`; the setup screen confirms `bjhlogistics.com` for SMTP (465) and IMAP (993). It remains separate from quote and inquiry accounts.
+- Sync incoming and sent mail for the whole sales mailbox, including messages sent outside the platform. Track send attempts and mailbox replies; SMTP acceptance must not be presented as confirmed delivery. Open/click tracking is not included.
+- Staff may send messages they composed themselves with an explicit Send action. AI-generated outreach must be approved by a person before sending. Broadcasts may target selected campaigns, individually selected addresses, or both.
+- The email workspace is staff-only and uses the existing Sales hub roles: sales rep, customer service rep and super admin. Customers do not see mailbox messages.
+- Existing CRM plan exclusions for admin broadcasts are superseded by this decision; newsletter automation remains out of scope.

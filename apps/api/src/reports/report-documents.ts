@@ -55,6 +55,8 @@ const statusLabels: Record<string, string> = {
 const stageLabels: Record<LeadStage, string> = {
   new: "New",
   contacted: "Contacted",
+  replied: "Replied",
+  interested: "Interested",
   quoted: "Quoted",
   won: "Won",
   lost: "Lost",
@@ -66,6 +68,7 @@ const sourceLabels: Record<string, string> = {
   phone: "Phone",
   email: "Email",
   other: "Other",
+  campaign: "Campaign",
 };
 const requestSourceLabels: Record<string, string> = {
   portal: "Client portal",
@@ -133,7 +136,7 @@ export function salesPipelineDocument(input: {
   today: string;
   sales: Pick<
     SalesServiceReportRecord,
-    "newLeads" | "leadsBySource" | "pipeline"
+    "newLeads" | "leadsBySource" | "leadsByCampaign" | "pipeline"
   > & { converted: number; convertedCompanies: string[] };
   leads: LeadRecord[];
 }): ReportDocument {
@@ -183,6 +186,21 @@ export function salesPipelineDocument(input: {
         ]),
         empty: "No leads were logged in these dates.",
       },
+      { kind: "heading", text: "Leads from campaigns" },
+      {
+        kind: "table",
+        columns: [
+          left("Campaign", 4),
+          right("New leads", 1.5),
+          right("Won so far", 1.5),
+        ],
+        rows: sales.leadsByCampaign.map((entry) => [
+          entry.campaign,
+          String(entry.newLeads),
+          String(entry.won),
+        ]),
+        empty: "No leads came from a campaign in these dates.",
+      },
       { kind: "heading", text: "Pipeline today" },
       {
         kind: "bars",
@@ -225,7 +243,7 @@ export function salesPipelineDocument(input: {
         columns: [
           left("Company", 3),
           left("Contact", 2),
-          left("Source", 1.5),
+          left("Source", 2.5),
           left("Stage", 1.2),
           left("Owner", 2),
           left("Logged", 1.3),
@@ -233,7 +251,10 @@ export function salesPipelineDocument(input: {
         rows: logged.map((lead) => [
           lead.companyName,
           lead.contactName ?? "-",
-          sourceLabels[lead.source] ?? lead.source,
+          // A lead from a campaign says which one (or that it was deleted).
+          lead.source === "campaign"
+            ? `Campaign: ${lead.campaignName ?? "deleted"}`
+            : (sourceLabels[lead.source] ?? lead.source),
           stageLabels[lead.stage],
           lead.ownerName ?? "Unassigned",
           day(lead.createdAt),

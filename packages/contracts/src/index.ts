@@ -1375,6 +1375,13 @@ export const businessSettingsSchema = z
         .nullish()
         .transform((value) => value ?? undefined)
         .optional(),
+      salesEmailLimits: z
+        .object({
+          dailyCap: z.number().int().min(1).max(500),
+          gapSeconds: z.number().int().min(1).max(3600),
+          campaignDailyCap: z.number().int().min(1).max(500),
+        })
+        .optional(),
     },
     objectError("A settings object is required"),
   )
@@ -2342,6 +2349,16 @@ export interface TransportDocumentField {
   group: string;
 }
 
+/** One container on a house B/L: its own goods, packages, weight and volume. */
+const blContainerColumns: TableColumn[] = [
+  { key: "number", label: "Container number", width: 1.5 },
+  { key: "seal", label: "Seal no.", width: 0.8 },
+  { key: "goods", label: "Goods", multiline: true, width: 1.7 },
+  { key: "packages", label: "Packages", sum: true, width: 1.1 },
+  { key: "grossWeight", label: "Gross wt. (kg)", sum: true, width: 1.1 },
+  { key: "volume", label: "Volume (CBM)", sum: true, width: 1 },
+];
+
 const line = (key: string, label: string, group: string) => ({
   key,
   label,
@@ -2362,33 +2379,50 @@ export const transportDocumentFields: Record<
   TransportDocumentKind,
   TransportDocumentField[]
 > = {
+  // Laid out like the Promasidor sample BJH's client sent: one row per
+  // container, each with its own goods, packages, weight and volume.
   house_bl: [
-    block("shipper", "Shipper", "Parties"),
-    block("forwardingAgent", "Forwarding agent", "Parties"),
-    block("consignee", "Consignee", "Parties"),
-    line("masterReference", "MBL / booking no.", "Parties"),
+    block("shipper", "Shipper / exporter", "Parties"),
+    block("consignee", "Consignee (name and address)", "Parties"),
     block("notifyParty", "Notify party", "Parties"),
-    block("deliveryAgent", "Port delivery agent", "Parties"),
+    line("masterReference", "Master B/L no.", "Parties"),
     line("portOfLoading", "Port of loading", "Route"),
     line("portOfDischarge", "Port of discharge", "Route"),
-    line("placeOfReceipt", "Place of receipt", "Route"),
-    line("placeOfDelivery", "Final place of delivery", "Route"),
     line("vessel", "Vessel", "Route"),
     line("voyage", "Voyage", "Route"),
-    block("containers", "Containers, seals and weights", "Cargo"),
-    block(
-      "goods",
-      "Number and kind of packages, description of goods",
-      "Cargo",
+    line(
+      "containerSize",
+      "Container quantity / size (e.g. 5 x 40 ft)",
+      "Route",
     ),
-    line("grossWeight", "Gross weight (kg)", "Cargo"),
-    line("measurement", "Measurement (CBM)", "Cargo"),
-    line("freightTerms", "Freight (prepaid or collect)", "Terms"),
-    line("containerStatus", "Container status (FCL/LCL)", "Terms"),
+    block("goods", "Description of goods", "Cargo"),
+    {
+      key: "containers",
+      label: "Containers",
+      group: "Cargo",
+      columns: blContainerColumns,
+    },
+    line("freightTerms", "Freight terms / payable at", "Terms"),
     line("shippedOnBoard", "Shipped on board date", "Terms"),
     line("placeAndDateOfIssue", "Place and date of issue", "Terms"),
     line("originals", "Number of original bills of lading", "Terms"),
-    line("signatory", "Signed for the shipper by", "Terms"),
+    // From before the Promasidor layout; printed only when filled in.
+    block("forwardingAgent", "Forwarding agent", "Other details (optional)"),
+    block("deliveryAgent", "Port delivery agent", "Other details (optional)"),
+    line("placeOfReceipt", "Place of receipt", "Other details (optional)"),
+    line(
+      "placeOfDelivery",
+      "Final place of delivery",
+      "Other details (optional)",
+    ),
+    line(
+      "containerStatus",
+      "Container status (FCL/LCL)",
+      "Other details (optional)",
+    ),
+    line("grossWeight", "Gross weight (kg)", "Other details (optional)"),
+    line("measurement", "Measurement (CBM)", "Other details (optional)"),
+    line("signatory", "Signed for the shipper by", "Other details (optional)"),
   ],
   house_awb: [
     block("shipper", "Shipper", "Parties"),
@@ -2651,43 +2685,11 @@ export function sumTableColumn(rows: TableRow[], key: string): string | null {
   );
 }
 
-/** One container on a house B/L: number, optional seal and weight in kg. */
+/** One container as the house B/L once stored it: number, optional seal and weight in kg. */
 export interface BlContainer {
   number: string;
   seal: string;
   weightKg: string;
-}
-
-/**
- * The B/L's `containers` text holds one container per line, such as
- * `MSKU1234567 | Seal 12345 | 12500 kg`; seal and weight are left out when empty.
- */
-export function formatBlContainers(containers: BlContainer[]): string {
-  return containers
-    .filter((item) => item.number.trim())
-    .map((item) =>
-      [
-        item.number.trim(),
-        item.seal.trim() && `Seal ${item.seal.trim()}`,
-        item.weightKg.trim() && `${item.weightKg.trim()} kg`,
-      ]
-        .filter(Boolean)
-        .join(" | "),
-    )
-    .join("\n");
-}
-
-/** The container weights added up, or null when no row has a readable weight. */
-export function sumBlContainerWeights(
-  containers: BlContainer[],
-): string | null {
-  const weights = containers
-    .filter((item) => item.weightKg.trim() !== "")
-    .map((item) => Number(item.weightKg.replace(/,/g, "").trim()))
-    .filter((value) => Number.isFinite(value) && value >= 0);
-  if (weights.length === 0) return null;
-  const total = weights.reduce((sum, value) => sum + value, 0);
-  return String(Math.round(total * 1000) / 1000);
 }
 
 /** Reads the text back into rows; older lines such as `MSKU1234567, seal 12345` still load. */
@@ -2710,6 +2712,36 @@ export function parseBlContainers(text: string): BlContainer[] {
       }
       return row;
     });
+}
+
+/**
+ * The rows of a table field of a document. A house B/L saved before each
+ * container had its own goods holds its containers as text, one per line
+ * (`MSKU1234567 | Seal A100 | 12500 kg`); those load as rows with the weight
+ * in the gross weight column.
+ */
+export function parseDocumentTableRows(
+  kind: TransportDocumentKind,
+  field: TransportDocumentField,
+  value: string | undefined,
+): TableRow[] {
+  const columns = field.columns ?? [];
+  const text = (value ?? "").trim();
+  if (
+    kind === "house_bl" &&
+    field.key === "containers" &&
+    !text.startsWith("[")
+  ) {
+    return parseBlContainers(text).map((item) => ({
+      number: item.number,
+      seal: item.seal,
+      goods: "",
+      packages: "",
+      grossWeight: item.weightKg,
+      volume: "",
+    }));
+  }
+  return parseTableRows(value, columns);
 }
 
 /**
@@ -2754,13 +2786,47 @@ export function cleanTransportDocumentFields(
 export const leadStageKeys = [
   "new",
   "contacted",
+  "replied",
+  "interested",
   "quoted",
   "won",
   "lost",
 ] as const;
 export type LeadStage = (typeof leadStageKeys)[number];
 
-export const leadSourceKeys = [
+/**
+ * Two pipelines that are never mixed. A lead found by a campaign is
+ * "generated"; every other lead is "manual". The pipeline comes from the
+ * lead's source, which is set once: a lead cannot be logged by hand as
+ * "campaign", and the source cannot be changed afterwards.
+ */
+export const leadPipelineKeys = ["manual", "generated"] as const;
+export type LeadPipeline = (typeof leadPipelineKeys)[number];
+
+export function leadPipelineOf(source: string): LeadPipeline {
+  return source === "campaign" ? "generated" : "manual";
+}
+
+/** The stages of each pipeline, in order. Replied and Interested are for generated leads only. */
+export function leadStagesFor(pipeline: LeadPipeline): readonly LeadStage[] {
+  return pipeline === "generated"
+    ? leadStageKeys
+    : leadStageKeys.filter(
+        (stage) => stage !== "replied" && stage !== "interested",
+      );
+}
+
+/** A lead that is neither won nor lost. */
+export const leadOpenStageKeys: readonly LeadStage[] = [
+  "new",
+  "contacted",
+  "replied",
+  "interested",
+  "quoted",
+];
+
+/** Sources a person can pick when logging a lead; "campaign" leads only come from promoting a prospect. */
+export const leadCreateSourceKeys = [
   "quote_request",
   "referral",
   "walk_in",
@@ -2768,6 +2834,8 @@ export const leadSourceKeys = [
   "email",
   "other",
 ] as const;
+export type LeadCreateSource = (typeof leadCreateSourceKeys)[number];
+export const leadSourceKeys = [...leadCreateSourceKeys, "campaign"] as const;
 export type LeadSource = (typeof leadSourceKeys)[number];
 
 const leadDateField = (field: string) =>
@@ -2796,7 +2864,9 @@ export const leadCreateInputSchema = z.object(
     email: leadEmailField,
     phone: phoneField,
     source: z
-      .enum(leadSourceKeys, { error: "source is not a supported lead source" })
+      .enum(leadCreateSourceKeys, {
+        error: "source is not a supported lead source",
+      })
       .default("other"),
     notes: optionalText("notes", 2000),
     nextFollowUp: leadDateField("nextFollowUp"),
@@ -2863,6 +2933,190 @@ export const leadActivityInputSchema = z.object(
   },
   objectError("An activity object is required"),
 );
+
+/** Lead-generation campaigns (plan: docs/crm-lead-generation-plan.md). */
+export const campaignStatusKeys = ["active", "paused", "archived"] as const;
+export type CampaignStatus = (typeof campaignStatusKeys)[number];
+
+const keywordList = (field: string, most: number) =>
+  z
+    .array(requiredText(field, 100), {
+      error: `${field} must be a list of words or phrases`,
+    })
+    .max(most, { error: `${field} can have at most ${most} entries` })
+    .transform((words) => [...new Set(words)]);
+
+const campaignFields = {
+  name: requiredText("name", 160),
+  targetService: requiredText("targetService", 160),
+  targetIndustry: requiredText("targetIndustry", 160),
+  targetLocation: requiredText("targetLocation", 160),
+  searchKeywords: keywordList("searchKeywords", 20),
+  excludedKeywords: keywordList("excludedKeywords", 50),
+  minRating: z
+    .number({ error: "minRating must be a number from 0 to 5" })
+    .min(0, { error: "minRating must be a number from 0 to 5" })
+    .max(5, { error: "minRating must be a number from 0 to 5" })
+    .refine((value) => Math.abs(value * 10 - Math.round(value * 10)) < 1e-9, {
+      error: "minRating can have one decimal place",
+    })
+    .nullish()
+    .transform((value) => value ?? null),
+  requireWebsite: z.boolean({ error: "requireWebsite must be true or false" }),
+  idealCustomerProfile: optionalText("idealCustomerProfile", 2000),
+  disqualifiers: optionalText("disqualifiers", 2000),
+  generateEmails: z.boolean({ error: "generateEmails must be true or false" }),
+  emailContext: optionalText("emailContext", 2000),
+  emailCta: optionalText("emailCta", 500),
+  qualificationThreshold: z
+    .number({
+      error: "qualificationThreshold must be a whole number from 0 to 100",
+    })
+    .int({
+      error: "qualificationThreshold must be a whole number from 0 to 100",
+    })
+    .min(0, {
+      error: "qualificationThreshold must be a whole number from 0 to 100",
+    })
+    .max(100, {
+      error: "qualificationThreshold must be a whole number from 0 to 100",
+    }),
+  maxProspects: z
+    .number({ error: "maxProspects must be a whole number from 1 to 500" })
+    .int({ error: "maxProspects must be a whole number from 1 to 500" })
+    .min(1, { error: "maxProspects must be a whole number from 1 to 500" })
+    .max(500, { error: "maxProspects must be a whole number from 1 to 500" }),
+};
+
+/** What to find and how to judge it; what is left out takes the usual value (set by the API). */
+export const campaignCreateInputSchema = z
+  .object(
+    {
+      name: campaignFields.name,
+      targetService: campaignFields.targetService,
+      targetIndustry: campaignFields.targetIndustry,
+      targetLocation: campaignFields.targetLocation,
+      searchKeywords: campaignFields.searchKeywords.optional(),
+      excludedKeywords: campaignFields.excludedKeywords.optional(),
+      minRating: campaignFields.minRating,
+      requireWebsite: campaignFields.requireWebsite.optional(),
+      idealCustomerProfile: campaignFields.idealCustomerProfile,
+      disqualifiers: campaignFields.disqualifiers,
+      generateEmails: campaignFields.generateEmails.optional(),
+      emailContext: campaignFields.emailContext,
+      emailCta: campaignFields.emailCta,
+      qualificationThreshold: campaignFields.qualificationThreshold.optional(),
+      maxProspects: campaignFields.maxProspects.optional(),
+    },
+    objectError("A campaign object is required"),
+  )
+  .refine(
+    (value) => !value.generateEmails || (value.emailContext && value.emailCta),
+    { error: "To write emails, give the email context and the call to action" },
+  );
+export type CampaignCreateInput = z.infer<typeof campaignCreateInputSchema>;
+
+/** Any subset of the fields, and the status (pause, resume or archive). */
+export const campaignUpdateInputSchema = z
+  .object(
+    {
+      ...campaignFields,
+      status: z.enum(campaignStatusKeys, {
+        error: `status must be one of ${campaignStatusKeys.join(", ")}`,
+      }),
+    },
+    objectError("A campaign update object is required"),
+  )
+  .partial()
+  .refine((value) => Object.keys(value).length > 0, {
+    error: "Nothing to update",
+  });
+export type CampaignUpdateInput = z.infer<typeof campaignUpdateInputSchema>;
+
+/** The prospects to add to the leads board, at most 100 at a time. */
+export const prospectPromoteInputSchema = z.object(
+  {
+    prospectIds: z
+      .array(uuidField("prospectIds"), {
+        error: "prospectIds must be a list of prospect IDs",
+      })
+      .min(1, { error: "Choose at least one prospect" })
+      .max(100, { error: "At most 100 prospects can be added at a time" })
+      .transform((ids) => [...new Set(ids)]),
+  },
+  objectError("A prospectIds list is required"),
+);
+export type ProspectPromoteInput = z.infer<typeof prospectPromoteInputSchema>;
+
+/** Sales hub: prospects to dismiss from the lead pool (or bring back), at most 200 at a time. */
+export const poolDismissInputSchema = z.object(
+  {
+    prospectIds: z
+      .array(uuidField("prospectIds"), {
+        error: "prospectIds must be a list of prospect IDs",
+      })
+      .min(1, { error: "Choose at least one business" })
+      .max(200, { error: "At most 200 businesses can be changed at a time" })
+      .transform((ids) => [...new Set(ids)]),
+    dismissed: z.boolean({ error: "dismissed must be true or false" }),
+  },
+  objectError("prospectIds and dismissed are required"),
+);
+export type PoolDismissInput = z.infer<typeof poolDismissInputSchema>;
+
+/** Prospects to draft an outreach email for. Drafting is a paid AI call, so the batch is small. */
+export const outreachDraftCreateInputSchema = z.object(
+  {
+    prospectIds: z
+      .array(uuidField("prospectIds"), {
+        error: "prospectIds must be a list of prospect IDs",
+      })
+      .min(1, { error: "Choose at least one business" })
+      .max(20, { error: "At most 20 emails can be drafted at a time" })
+      .transform((ids) => [...new Set(ids)]),
+  },
+  objectError("A prospectIds list is required"),
+);
+export type OutreachDraftCreateInput = z.infer<
+  typeof outreachDraftCreateInputSchema
+>;
+
+/** A person's edit of a pending draft. */
+export const outreachDraftEditInputSchema = z.object(
+  {
+    recipientEmail: emailField,
+    subject: requiredText("subject", 200),
+    body: requiredText("body", 5000),
+  },
+  objectError("recipientEmail, subject and body are required"),
+);
+export type OutreachDraftEditInput = z.infer<
+  typeof outreachDraftEditInputSchema
+>;
+
+export const outreachDraftRejectInputSchema = z.object(
+  { reason: optionalText("reason", 500) },
+  objectError("The rejection must be a JSON object"),
+);
+export type OutreachDraftRejectInput = z.infer<
+  typeof outreachDraftRejectInputSchema
+>;
+
+export const outreachDraftBatchInputSchema = z.object(
+  {
+    draftIds: z
+      .array(uuidField("draftIds"), {
+        error: "draftIds must be a list of draft IDs",
+      })
+      .min(1, { error: "Choose at least one draft" })
+      .max(50, { error: "At most 50 drafts can be approved at a time" })
+      .transform((ids) => [...new Set(ids)]),
+  },
+  objectError("A draftIds list is required"),
+);
+export type OutreachDraftBatchInput = z.infer<
+  typeof outreachDraftBatchInputSchema
+>;
 
 /** Support requests (Evans, 2026-11-03): a problem, a feature wish or a question. */
 export const supportRequestKinds = ["problem", "feature", "question"] as const;

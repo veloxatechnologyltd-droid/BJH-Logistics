@@ -1,4 +1,41 @@
 import type {
+  NewOutreachDraft,
+  OutreachDraftFilter,
+  OutreachDraftRecord,
+  OutreachDraftStatus,
+  PoolFilter,
+  PoolProspect,
+  ClaimedSalesEmailSend,
+  NewSalesEmailSend,
+  SalesEmailSendRequestResult,
+  ProspectDraftingInfo,
+  SalesEmailFilter,
+  SalesEmailMessage,
+  SalesOverview,
+  SyncedSalesEmail,
+  SalesEmailAttachment,
+} from "../sales/sales";
+import type { KnownBusinessRow } from "../leads/duplicate-check";
+import type {
+  LeadCampaignChange,
+  LeadCampaignRecord,
+  LeadRunRecord,
+  NewLeadCampaign,
+  ProspectFilter,
+  ProspectRecord,
+  PromoteResult,
+  StartRunResult,
+} from "../leads/campaigns";
+import type {
+  ClaimedLeadRun,
+  FitScore,
+  LeadRunStep,
+  NewProspect,
+  ProspectEnrichment,
+  ProspectToEnrich,
+  ProspectToScore,
+} from "../leads/lead-run";
+import type {
   JobReportQuery,
   TeamKey,
   TeamTagKind,
@@ -1047,6 +1084,9 @@ export interface LeadRecord {
   quoteRequestId: string | null;
   customerCompanyId: string | null;
   customerCompanyName: string | null;
+  /** The campaign that found it; null for a lead made by hand, or when the campaign was deleted. */
+  campaignId: string | null;
+  campaignName: string | null;
   createdAt: string;
   updatedAt: string;
   stageChangedAt: string;
@@ -1073,6 +1113,11 @@ export interface SalesPeriodRecord {
 export interface SalesServiceReportRecord {
   newLeads: number;
   leadsBySource: Record<string, number>;
+  /**
+   * New leads from a campaign, per campaign, with how many of them are won now. Leads
+   * whose campaign was deleted are one row, named "A campaign that was deleted".
+   */
+  leadsByCampaign: Array<{ campaign: string; newLeads: number; won: number }>;
   /** Every lead today, by stage: the pipeline. */
   pipeline: Record<string, number>;
   requestsBySource: Record<string, number>;
@@ -2329,6 +2374,247 @@ export abstract class DatabasePort {
   abstract listCustomerInsights(
     companyId: string | null,
   ): Promise<CustomerInsightRecord[]>;
+  /**
+   * Every record the duplicate check compares a found business with: all customers
+   * (company, trading name, website, contacts), all leads, and the prospects of one
+   * campaign. Raw values; the check normalises them.
+   */
+  abstract listKnownBusinesses(campaignId: string): Promise<KnownBusinessRow[]>;
+  /**
+   * Claims the oldest campaign run that is due (queued, or running with its lease
+   * or wait over) for `leaseSeconds`, or null. A queued run starts: it becomes
+   * running at the searching step. A run whose earlier claim was never released
+   * (the worker died) counts that as a failed attempt.
+   */
+  abstract claimLeadRun(
+    claimId: string,
+    leaseSeconds: number,
+  ): Promise<ClaimedLeadRun | null>;
+  /**
+   * Gives a claimed run back, optionally moving it on and saving the provider's ids,
+   * due again in `nextInSeconds`. False when the claim is no longer this worker's.
+   */
+  abstract releaseLeadRun(
+    run: { runId: string; claimId: string },
+    update: {
+      step?: LeadRunStep;
+      providerRunId?: string;
+      providerDatasetId?: string;
+      attemptCount: number;
+      nextInSeconds: number;
+    },
+  ): Promise<boolean>;
+  /** Ends a claimed run as failed; `message` is safe to show staff. */
+  abstract failLeadRun(
+    run: { runId: string; claimId: string },
+    message: string,
+  ): Promise<boolean>;
+  /** Ends a claimed run as ready. */
+  abstract finishLeadRun(run: {
+    runId: string;
+    claimId: string;
+  }): Promise<boolean>;
+  /** Saves how many of the run's prospects are qualified, disqualified and failed to be read. */
+  abstract saveLeadRunQualification(
+    runId: string,
+    qualificationThreshold: number,
+  ): Promise<void>;
+  /**
+   * Qualified businesses of the run that have an email address and no draft yet (of any
+   * status), skipping duplicates of what BJH already has and any set aside.
+   */
+  abstract listProspectsToDraft(
+    runId: string,
+    qualificationThreshold: number,
+    limit: number,
+  ): Promise<ProspectDraftingInfo[]>;
+  /**
+   * In one transaction: stores the found businesses, records the run's counts and
+   * moves it to the enriching step, due at once. Nothing is stored when the claim
+   * is no longer this worker's (false).
+   */
+  abstract storeFoundProspects(
+    run: { runId: string; campaignId: string; claimId: string },
+    prospects: NewProspect[],
+    counts: { found: number; duplicates: number },
+  ): Promise<boolean>;
+  abstract listProspectsToEnrich(
+    runId: string,
+    limit: number,
+  ): Promise<ProspectToEnrich[]>;
+  abstract saveProspectEnrichment(
+    prospectId: string,
+    enrichment: ProspectEnrichment,
+  ): Promise<void>;
+  abstract listProspectsToScore(
+    runId: string,
+    limit: number,
+  ): Promise<ProspectToScore[]>;
+  /** Stores the score, its reason and method, and drops the website excerpt. */
+  abstract saveProspectScore(prospectId: string, fit: FitScore): Promise<void>;
+  abstract createLeadCampaign(
+    input: NewLeadCampaign,
+  ): Promise<LeadCampaignRecord>;
+  abstract listLeadCampaigns(): Promise<LeadCampaignRecord[]>;
+  abstract findLeadCampaign(id: string): Promise<LeadCampaignRecord | null>;
+  /** Null when the campaign does not exist. Archiving also cancels a queued or running run. */
+  abstract updateLeadCampaign(
+    id: string,
+    change: LeadCampaignChange,
+  ): Promise<LeadCampaignRecord | null>;
+  /** Removes the campaign with its runs and prospects; leads made from it stay. */
+  abstract deleteLeadCampaign(id: string): Promise<boolean>;
+  /**
+   * Queues a run for an active campaign that has none queued or running; it will
+   * find at most the campaign's maximum number of prospects.
+   */
+  abstract startLeadRun(
+    campaignId: string,
+    userId: string,
+  ): Promise<StartRunResult>;
+  /** Cancels a queued or running run. Null when it is not found; "over" when it already ended. */
+  abstract cancelLeadRun(
+    campaignId: string,
+    runId: string,
+  ): Promise<LeadRunRecord | "over" | null>;
+  /** Newest first. */
+  abstract listLeadRuns(
+    campaignId: string,
+    limit: number,
+  ): Promise<LeadRunRecord[]>;
+  abstract findLeadRun(
+    campaignId: string,
+    runId: string,
+  ): Promise<LeadRunRecord | null>;
+  abstract listProspects(
+    campaignId: string,
+    filter: ProspectFilter,
+  ): Promise<{ items: ProspectRecord[]; total: number }>;
+  /** One prospect of this campaign; null when there is none with that id in it. */
+  abstract findProspect(
+    campaignId: string,
+    prospectId: string,
+  ): Promise<ProspectRecord | null>;
+  /**
+   * Makes a lead from a prospect of this campaign: owner the person who adds it,
+   * stage new, source campaign, with an activity noting where it came from. Doing it
+   * again for the same prospect changes nothing and returns the same lead.
+   */
+  abstract promoteProspect(
+    campaignId: string,
+    prospectId: string,
+    userId: string,
+  ): Promise<PromoteResult>;
+  /** The lead pool: prospects of every campaign, one page, with the total that match. */
+  abstract listPoolProspects(
+    filter: PoolFilter,
+  ): Promise<{ items: PoolProspect[]; total: number }>;
+  /** Sets aside (or brings back) prospects; returns how many changed. Prospects already added to leads are left alone. */
+  abstract setProspectsDismissed(
+    prospectIds: string[],
+    dismissed: boolean,
+    userId: string,
+  ): Promise<number>;
+  /** What drafting needs for each prospect that exists, in the order asked. */
+  abstract findProspectsForDrafting(
+    prospectIds: string[],
+  ): Promise<ProspectDraftingInfo[]>;
+  /** "open_draft_exists" when the prospect already has a pending or approved draft. */
+  abstract createOutreachDraft(
+    draft: NewOutreachDraft,
+  ): Promise<OutreachDraftRecord | "open_draft_exists">;
+  abstract listOutreachDrafts(filter: OutreachDraftFilter): Promise<{
+    items: OutreachDraftRecord[];
+    total: number;
+    counts: Record<OutreachDraftStatus, number>;
+  }>;
+  abstract findOutreachDraft(id: string): Promise<OutreachDraftRecord | null>;
+  /** Only a pending draft can be edited. */
+  abstract editOutreachDraft(
+    id: string,
+    change: { recipientEmail: string; subject: string; body: string },
+  ): Promise<OutreachDraftRecord | "not_found" | "not_pending">;
+  /** Only a pending draft can be decided; the first decision stands. */
+  abstract decideOutreachDraft(
+    id: string,
+    decision:
+      { status: "approved" } | { status: "rejected"; reason: string | null },
+    userId: string,
+  ): Promise<OutreachDraftRecord | "not_found" | "not_pending">;
+  abstract listSalesEmailMessages(filter: SalesEmailFilter): Promise<{
+    items: SalesEmailMessage[];
+    total: number;
+  }>;
+  abstract listSalesEmailFolders(): Promise<string[]>;
+  abstract findSalesEmailMessage(id: string): Promise<SalesEmailMessage | null>;
+  abstract listSalesEmailThread(id: string): Promise<SalesEmailMessage[]>;
+  abstract storeSyncedSalesEmail(
+    email: SyncedSalesEmail,
+  ): Promise<{ id: string; inserted: boolean }>;
+  abstract hasSalesEmailAttachment(
+    emailId: string,
+    partIndex: number,
+  ): Promise<boolean>;
+  abstract saveSalesEmailAttachment(input: {
+    id: string;
+    emailId: string;
+    partIndex: number;
+    filename: string;
+    sizeBytes: number;
+    objectKey: string | null;
+  }): Promise<void>;
+  abstract listSalesEmailAttachments(
+    emailId: string,
+  ): Promise<SalesEmailAttachment[]>;
+  abstract findSalesEmailAttachment(
+    emailId: string,
+    attachmentId: string,
+  ): Promise<(SalesEmailAttachment & { objectKey: string | null }) | null>;
+  abstract getSalesEmailSyncCursor(folder: string): Promise<{
+    uidValidity: string;
+    lastUid: number;
+  } | null>;
+  abstract acquireSalesEmailSyncLock(): Promise<(() => Promise<void>) | null>;
+  abstract saveSalesEmailSyncCursor(cursor: {
+    folder: string;
+    uidValidity: string;
+    lastUid: number;
+  }): Promise<void>;
+  abstract listCampaignRecipientEmails(
+    campaignIds: string[],
+  ): Promise<string[]>;
+  abstract listSuppressedSalesEmails(emails: string[]): Promise<string[]>;
+  abstract suppressSalesEmail(input: {
+    email: string;
+    reason: "unsubscribe" | "manual" | "bounce";
+  }): Promise<void>;
+  abstract queueSalesEmailMessage(
+    send: NewSalesEmailSend,
+  ): Promise<"queued" | "suppressed" | "draft_already_sent">;
+  abstract retrySalesEmailMessage(
+    id: string,
+  ): Promise<"queued" | "suppressed" | "not_failed">;
+  abstract findSalesEmailSendRequest(
+    id: string,
+  ): Promise<SalesEmailSendRequestResult | null>;
+  abstract queueSalesEmailComposition(input: {
+    requestId: string;
+    payloadHash: string;
+    createdBy: string;
+    initialSuppressed: number;
+    sends: NewSalesEmailSend[];
+  }): Promise<SalesEmailSendRequestResult>;
+  abstract claimSalesEmailMessages(
+    limit: number,
+  ): Promise<ClaimedSalesEmailSend[]>;
+  abstract setSalesEmailSendingBody(id: string, body: string): Promise<void>;
+  abstract finishSalesEmailMessage(input: {
+    id: string;
+    status: "accepted" | "failed" | "unknown" | "stubbed";
+    messageId?: string | null;
+    error?: string | null;
+  }): Promise<void>;
+  abstract getSalesOverview(): Promise<SalesOverview>;
   abstract listLeads(): Promise<LeadRecord[]>;
   abstract findLead(id: string): Promise<LeadRecord | null>;
   /** Fails with "duplicate_request" or "unknown_reference" instead of throwing. */
@@ -2337,6 +2623,8 @@ export abstract class DatabasePort {
       LeadRecord,
       | "ownerName"
       | "customerCompanyName"
+      | "campaignId"
+      | "campaignName"
       | "updatedAt"
       | "stageChangedAt"
       | "createdAt"

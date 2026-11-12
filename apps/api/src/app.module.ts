@@ -42,10 +42,12 @@ import { NotificationsService } from "./notifications/notifications.service";
 import {
   EMAIL_PROVIDER,
   INQUIRY_EMAIL_PROVIDER,
+  OUTREACH_EMAIL_PROVIDER,
   REPLY_EMAIL_PROVIDER,
   createReplySender,
   SMS_PROVIDER,
   createEmailProvider,
+  createOutreachEmailProvider,
   createInquiryEmailProvider,
   createSmsProvider,
 } from "./notifications/providers";
@@ -57,6 +59,18 @@ import {
   AssistantService,
 } from "./assistant/assistant.service";
 import { claudeFromEnvironment } from "./ai/claude";
+import { createBusinessSearchProvider } from "./leads/apify-business-search";
+import { BUSINESS_SEARCH_PROVIDER } from "./leads/business-search";
+import type { BusinessSearchProvider } from "./leads/business-search";
+import { LeadRunPipeline } from "./leads/lead-run-pipeline.service";
+import {
+  PROSPECT_SCORER,
+  createProspectScorer,
+} from "./leads/prospect-scoring";
+import {
+  WEBSITE_CONTACT_FINDER,
+  createWebsiteContactFinder,
+} from "./leads/website-contacts";
 import { ChatService } from "./chat/chat.service";
 import { TeamChatController } from "./team-chat/team-chat.controller";
 import { TeamChatService } from "./team-chat/team-chat.service";
@@ -70,8 +84,18 @@ import { ClientJobReportsController } from "./jobs/client-job-report.controller"
 import { ClientJobReportService } from "./jobs/client-job-report.service";
 import { CustomersController } from "./customers/customers.controller";
 import { CustomersService } from "./customers/customers.service";
+import { CampaignsController } from "./leads/campaigns.controller";
+import { CampaignsService } from "./leads/campaigns.service";
 import { LeadsController } from "./leads/leads.controller";
 import { LeadsService } from "./leads/leads.service";
+import {
+  OUTREACH_DRAFTER,
+  createOutreachDrafter,
+} from "./sales/outreach-drafting";
+import { SalesController } from "./sales/sales.controller";
+import { SalesUnsubscribeController } from "./sales/sales-unsubscribe.controller";
+import { SalesService } from "./sales/sales.service";
+import { SalesMailboxService } from "./sales/sales-mailbox.service";
 import { QuoteRequestsController } from "./quotations/quote-requests.controller";
 import { QuoteRequestsService } from "./quotations/quote-requests.service";
 import { SettingsController } from "./settings/settings.controller";
@@ -151,6 +175,9 @@ import { PushService } from "./push/push.service";
     SettingsController,
     CustomersController,
     LeadsController,
+    CampaignsController,
+    SalesController,
+    SalesUnsubscribeController,
     JobsController,
     ClientJobReportsController,
     JobAssignmentsController,
@@ -199,6 +226,22 @@ import { PushService } from "./push/push.service";
     SettingsService,
     CustomersService,
     LeadsService,
+    CampaignsService,
+    {
+      provide: BUSINESS_SEARCH_PROVIDER,
+      useFactory: () => createBusinessSearchProvider(process.env),
+    },
+    {
+      provide: WEBSITE_CONTACT_FINDER,
+      inject: [BUSINESS_SEARCH_PROVIDER],
+      useFactory: (search: BusinessSearchProvider) =>
+        createWebsiteContactFinder(search.name),
+    },
+    { provide: PROSPECT_SCORER, useFactory: () => createProspectScorer() },
+    SalesService,
+    SalesMailboxService,
+    { provide: OUTREACH_DRAFTER, useFactory: () => createOutreachDrafter() },
+    LeadRunPipeline,
     JobsService,
     ClientJobReportService,
     JobAssignmentsService,
@@ -223,6 +266,10 @@ import { PushService } from "./push/push.service";
     {
       provide: EMAIL_PROVIDER,
       useFactory: () => createEmailProvider(process.env),
+    },
+    {
+      provide: OUTREACH_EMAIL_PROVIDER,
+      useFactory: () => createOutreachEmailProvider(process.env),
     },
     {
       provide: INQUIRY_EMAIL_PROVIDER,

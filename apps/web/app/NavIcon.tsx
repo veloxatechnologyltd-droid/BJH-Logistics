@@ -99,6 +99,13 @@ const paths = {
       <path d="M3 4.5h18l-7 8V19l-4 1.5v-8z" />
     </>
   ),
+  campaigns: (
+    <>
+      <circle cx="12" cy="12" r="8" />
+      <circle cx="12" cy="12" r="3.5" />
+      <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
+    </>
+  ),
   reports: (
     <>
       <path d="M4 20h16" />

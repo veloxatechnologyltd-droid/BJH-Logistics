@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { canUseAssistant, canWorkFinance } from "./roleAccess.ts";
+import {
+  canUseAssistant,
+  canUseLeadGeneration,
+  canWorkFinance,
+} from "./roleAccess.ts";
 
 test("finance screens are for the super admin, finance and customer service", () => {
   for (const role of ["super_admin", "finance_rep", "customer_service_rep"]) {
@@ -39,4 +43,21 @@ test("Bra Evans is for the super admin and customer service only, as in the API"
     assert.equal(canUseAssistant([role]), false, role);
   }
   assert.equal(canUseAssistant([]), false);
+});
+
+test("campaigns are for sales, customer service and the super admin, as in the API", () => {
+  for (const role of ["super_admin", "sales_rep", "customer_service_rep"]) {
+    assert.equal(canUseLeadGeneration([role]), true, role);
+  }
+  for (const role of [
+    "import_rep",
+    "export_rep",
+    "finance_rep",
+    "air_import_rep",
+    "sea_export_rep",
+  ]) {
+    assert.equal(canUseLeadGeneration([role]), false, role);
+  }
+  assert.equal(canUseLeadGeneration([]), false);
+  assert.equal(canUseLeadGeneration(["import_rep", "sales_rep"]), true);
 });

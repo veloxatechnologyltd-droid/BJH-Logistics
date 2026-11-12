@@ -9,14 +9,27 @@ import {
   isUuid,
   leadActivityInputSchema,
   leadCreateInputSchema,
+  leadOpenStageKeys,
+  leadPipelineKeys,
+  leadPipelineOf,
+  leadStagesFor,
   leadUpdateInputSchema,
   parseContract,
-  type LeadStage,
+  type LeadPipeline,
 } from "@bjh/contracts";
 import { randomUUID } from "node:crypto";
 import { DatabasePort, LeadRecord } from "../database/database.port";
 
-const openStages: LeadStage[] = ["new", "contacted", "quoted"];
+const openStages = leadOpenStageKeys;
+
+/** `?pipeline=manual|generated`; absent means every lead (used by reports, never by the boards). */
+function parsePipeline(value: unknown): LeadPipeline | undefined {
+  if (value === undefined) return undefined;
+  if (leadPipelineKeys.includes(value as LeadPipeline)) {
+    return value as LeadPipeline;
+  }
+  throw new BadRequestException("pipeline must be manual or generated");
+}
 
 @Injectable()
 export class LeadsService {
@@ -34,10 +47,11 @@ export class LeadsService {
     };
   }
 
-  async list() {
-    return (await this.database.listLeads()).map((lead) =>
-      this.withOverdue(lead),
-    );
+  async list(pipeline?: unknown) {
+    const only = parsePipeline(pipeline);
+    return (await this.database.listLeads())
+      .filter((lead) => !only || leadPipelineOf(lead.source) === only)
+      .map((lead) => this.withOverdue(lead));
   }
 
   async create(input: unknown, userId: string) {
@@ -107,6 +121,11 @@ export class LeadsService {
       throw new BadRequestException("owner must be an active staff member");
     }
 
+    if (!leadStagesFor(leadPipelineOf(current.source)).includes(next.stage)) {
+      throw new BadRequestException(
+        `A ${leadPipelineOf(current.source)} lead cannot be moved to ${next.stage}`,
+      );
+    }
     if (next.stage === "lost") {
       const reason = change.lostReason ?? current.lostReason;
       if (!reason) throw new BadRequestException("A lost lead needs a reason");
@@ -166,7 +185,8 @@ export class LeadsService {
    * Monday) and this month, and open leads whose follow-up is due. Days are
    * Ghana days (UTC).
    */
-  async summary() {
+  async summary(pipeline?: unknown) {
+    const only = parsePipeline(pipeline);
     const now = new Date();
     const today = now.toISOString().slice(0, 10);
     const tomorrow = new Date(now.getTime() + 86_400_000)
@@ -178,11 +198,37 @@ export class LeadsService {
       .toISOString()
       .slice(0, 10);
     const monthStart = `${today.slice(0, 7)}-01`;
-    const [thisWeek, thisMonth, leads] = await Promise.all([
+    const [weekAll, monthAll, allLeads] = await Promise.all([
       this.database.salesPeriod(monday, tomorrow),
       this.database.salesPeriod(monthStart, tomorrow),
       this.database.listLeads(),
     ]);
+    const leads = allLeads.filter(
+      (lead) => !only || leadPipelineOf(lead.source) === only,
+    );
+    // For one pipeline, count its own leads: logged in the period, and won in it.
+    const period = (from: string, all: typeof weekAll) => {
+      if (!only) return all;
+      const day = (value: string) => value.slice(0, 10);
+      const won = leads.filter(
+        (lead) =>
+          lead.stage === "won" &&
+          day(lead.stageChangedAt) >= from &&
+          day(lead.stageChangedAt) < tomorrow,
+      );
+      return {
+        newLeads: leads.filter(
+          (lead) =>
+            day(lead.createdAt) >= from && day(lead.createdAt) < tomorrow,
+        ).length,
+        converted: won.length,
+        convertedCompanies: won.map(
+          (lead) => lead.customerCompanyName ?? lead.companyName,
+        ),
+      };
+    };
+    const thisWeek = period(monday, weekAll);
+    const thisMonth = period(monthStart, monthAll);
     const open = leads.filter((lead) => openStages.includes(lead.stage));
     return {
       thisWeek,

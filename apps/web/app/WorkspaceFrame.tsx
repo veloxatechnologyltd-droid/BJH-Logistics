@@ -27,8 +27,12 @@ type NavItem = {
   label: string;
   icon: NavIconName;
   exact?: boolean;
+  /** Other pages that belong under this item, so it stays highlighted on them. */
+  alsoMatches?: string[];
   /** Only these staff roles see the item; everyone when absent. */
   roles?: string[];
+  /** Shown only where the CRM is switched on for this person (CRM_ACCESS on the API). */
+  crm?: boolean;
 };
 
 type NavGroup = { heading?: string; items: NavItem[] };
@@ -69,6 +73,14 @@ const staffNav: NavGroup[] = [
   {
     heading: "SALES",
     items: [
+      {
+        href: "/sales",
+        label: "Sales",
+        icon: "campaigns",
+        alsoMatches: ["/campaigns"],
+        roles: ["super_admin", "sales_rep", "customer_service_rep"],
+        crm: true,
+      },
       { href: "/customers/leads", label: "Leads", icon: "leads" },
       { href: "/customers", label: "Customers", icon: "customers" },
     ],
@@ -120,13 +132,18 @@ const staffNav: NavGroup[] = [
 ];
 
 /** The staff menu as this person sees it; groups left empty disappear. */
-function visibleGroups(groups: NavGroup[], roles: string[]): NavGroup[] {
+function visibleGroups(
+  groups: NavGroup[],
+  roles: string[],
+  crm: boolean,
+): NavGroup[] {
   return groups
     .map((group) => ({
       ...group,
       items: group.items.filter(
         (item) =>
-          !item.roles || item.roles.some((role) => roles.includes(role)),
+          (!item.crm || crm) &&
+          (!item.roles || item.roles.some((role) => roles.includes(role))),
       ),
     }))
     .filter((group) => group.items.length > 0);
@@ -143,7 +160,7 @@ function activeHref(pathname: string, groups: NavGroup[]): string | undefined {
   }
   return groups
     .flatMap((group) => group.items)
-    .filter((entry) => matches(pathname, entry.href, entry.exact))
+    .filter((entry) => matchesItem(pathname, entry))
     .sort((a, b) => b.href.length - a.href.length)[0]?.href;
 }
 
@@ -323,6 +340,10 @@ const matches = (pathname: string, href: string, exact?: boolean) =>
     ? pathname === href
     : pathname === href || pathname.startsWith(`${href}/`);
 
+const matchesItem = (pathname: string, item: NavItem) =>
+  matches(pathname, item.href, item.exact) ||
+  (item.alsoMatches ?? []).some((href) => matches(pathname, href));
+
 /** The page's place in the workspace, from the menu it was reached by. */
 function pageCrumb(
   pathname: string,
@@ -340,7 +361,7 @@ function pageCrumb(
   }
   const item = groups
     .flatMap((group) => group.items)
-    .filter((entry) => matches(pathname, entry.href, entry.exact))
+    .filter((entry) => matchesItem(pathname, entry))
     .sort((a, b) => b.href.length - a.href.length)[0];
   return { label: item?.label ?? "Overview", underSettings: false };
 }
@@ -352,6 +373,7 @@ export function WorkspaceFrame({ children }: { children: ReactNode }) {
     isCustomer,
     isSuperAdmin,
     roles,
+    crm,
     status,
     mustChangePassword,
     twoFactorRequired,
@@ -468,7 +490,7 @@ export function WorkspaceFrame({ children }: { children: ReactNode }) {
   // Until the access check answers we do not know whose menu this is. Showing
   // the staff one meanwhile made customers see it flash on every refresh.
   const resolving = status === "loading";
-  const groups = isCustomer ? customerNav : visibleGroups(staffNav, roles);
+  const groups = isCustomer ? customerNav : visibleGroups(staffNav, roles, crm);
   const crumb = pageCrumb(pathname, groups, isCustomer);
   const current = activeHref(pathname, groups);
 

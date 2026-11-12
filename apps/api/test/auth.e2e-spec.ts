@@ -72,6 +72,7 @@ test("the first authenticated user can claim the only super-admin role", async (
     userId: TEST_SUPER_ADMIN_ID,
     email: "admin@example.test",
     roles: ["super_admin"],
+    crm: true,
     mustChangePassword: false,
     twoFactorRequired: false,
   });

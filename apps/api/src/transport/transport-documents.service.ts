@@ -95,14 +95,16 @@ export class TransportDocumentsService {
       : undefined;
     const first = (kindOfReference: ShipmentReferenceRecord["kind"]) =>
       references.find((item) => item.kind === kindOfReference)?.value;
-    const containers = references
-      .filter((item) => item.kind === "container")
-      .map((item) =>
-        item.sealNumber
-          ? `${item.value} | Seal ${item.sealNumber}`
-          : item.value,
-      )
-      .join("\n");
+    // One row per container; goods, packages, weight and volume are typed.
+    const boxes = references.filter((item) => item.kind === "container");
+    const containers = boxes.length
+      ? JSON.stringify(
+          boxes.map((item) => ({
+            number: item.value,
+            seal: item.sealNumber ?? "",
+          })),
+        )
+      : undefined;
 
     const fields: Record<string, string | undefined> = {
       shipper: partyText(parties, "shipper"),
@@ -114,7 +116,11 @@ export class TransportDocumentsService {
     if (kind === "house_bl") {
       fields.deliveryAgent = partyText(parties, "agent");
       fields.masterReference = first("master_bl") ?? first("booking");
-      fields.containers = containers || undefined;
+      fields.containers = containers;
+      fields.vessel = job.vessel ?? undefined;
+      fields.portOfLoading = job.portOfLoading ?? undefined;
+      fields.portOfDischarge = job.portOfDischarge ?? undefined;
+      fields.goods = job.goodsDescription ?? undefined;
     } else if (kind === "sea_manifest") {
       // One manifest per container, so the container number is its number.
       fields.masterReference = first("master_bl") ?? first("booking");
@@ -127,7 +133,6 @@ export class TransportDocumentsService {
     } else if (kind === "delivery_order" || kind === "proof_of_delivery") {
       // Both start from the bill of lading; the number follows the B/L's.
       const blNumber = first("house_bl") ?? first("master_bl");
-      const boxes = references.filter((item) => item.kind === "container");
       fields.blNumber = blNumber;
       fields.vesselVoyage = job.vessel ?? undefined;
       fields.portOfLoading = job.portOfLoading ?? undefined;

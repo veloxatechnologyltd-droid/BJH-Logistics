@@ -15,6 +15,8 @@ type StaffAccessState = {
   mustChangePassword: boolean;
   /** The super admin still has to finish the second sign-in step. */
   twoFactorRequired: boolean;
+  /** The CRM (Sales hub, campaigns) is switched on for this person. */
+  crm: boolean;
 };
 
 const none = {
@@ -22,6 +24,7 @@ const none = {
   companies: [],
   mustChangePassword: false,
   twoFactorRequired: false,
+  crm: false,
 };
 
 const initial: StaffAccessState = { status: "loading", ...none };
@@ -41,6 +44,7 @@ async function fetchAccess(apiBase: string): Promise<Access> {
     companies?: unknown;
     mustChangePassword?: unknown;
     twoFactorRequired?: unknown;
+    crm?: unknown;
   };
   return {
     roles: Array.isArray(session.roles)
@@ -51,6 +55,7 @@ async function fetchAccess(apiBase: string): Promise<Access> {
       : [],
     mustChangePassword: session.mustChangePassword === true,
     twoFactorRequired: session.twoFactorRequired === true,
+    crm: session.crm === true,
   };
 }
 

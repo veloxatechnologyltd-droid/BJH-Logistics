@@ -1,3 +1,44 @@
+import type {
+  NewOutreachDraft,
+  OutreachDraftFilter,
+  OutreachDraftRecord,
+  OutreachDraftStatus,
+  PoolFilter,
+  PoolProspect,
+  ProspectDraftingInfo,
+  ClaimedSalesEmailSend,
+  NewSalesEmailSend,
+  SalesEmailSendRequestResult,
+  SalesEmailFilter,
+  SalesEmailMessage,
+  SalesEmailAttachment,
+  SalesOverview,
+  SyncedSalesEmail,
+} from "../sales/sales";
+import type { KnownBusinessRow } from "../leads/duplicate-check";
+import {
+  socialLinksAsText,
+  socialLinksFromStored,
+} from "../leads/social-links";
+import type {
+  LeadCampaignChange,
+  LeadCampaignRecord,
+  LeadRunRecord,
+  NewLeadCampaign,
+  ProspectFilter,
+  ProspectRecord,
+  PromoteResult,
+  StartRunResult,
+} from "../leads/campaigns";
+import type {
+  ClaimedLeadRun,
+  FitScore,
+  LeadRunStep,
+  NewProspect,
+  ProspectEnrichment,
+  ProspectToEnrich,
+  ProspectToScore,
+} from "../leads/lead-run";
 import { Inject, Injectable, OnModuleDestroy } from "@nestjs/common";
 import type {
   JobReportQuery,
@@ -162,7 +203,7 @@ export interface PostgresQueryResult {
 
 export interface PostgresClient {
   query(queryText: string, values?: unknown[]): Promise<PostgresQueryResult>;
-  release(): void;
+  release(error?: Error): void;
 }
 
 export interface PostgresPool {
@@ -3728,7 +3769,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
            lost_reason = NULL,
            stage_changed_at = clock_timestamp(),
            updated_at = clock_timestamp()
-       WHERE stage IN ('new', 'contacted', 'quoted')
+       WHERE stage IN ('new', 'contacted', 'replied', 'interested', 'quoted')
          AND (customer_company_id = $1::uuid
            OR ($2::uuid IS NOT NULL AND quote_request_id = $2::uuid))`,
       [companyId, quoteRequestId],
@@ -3742,7 +3783,8 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
        SET stage = 'quoted',
            stage_changed_at = clock_timestamp(),
            updated_at = clock_timestamp()
-       WHERE stage IN ('new', 'contacted') AND customer_company_id = $1::uuid`,
+       WHERE stage IN ('new', 'contacted', 'replied', 'interested')
+         AND customer_company_id = $1::uuid`,
       [companyId],
     );
     return result.rowCount ?? 0;
@@ -3784,7 +3826,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
   ): Promise<SalesServiceReportRecord> {
     const result = await this.pool.query(
       `WITH period_leads AS (
-         SELECT source FROM app.lead
+         SELECT source, campaign_id, stage FROM app.lead
          WHERE (created_at AT TIME ZONE 'UTC')::date BETWEEN $1::date AND $2::date
        ),
        period_requests AS (
@@ -3808,6 +3850,18 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
          (SELECT coalesce(json_object_agg(source, n), '{}'::json)
           FROM (SELECT source, count(*) AS n FROM period_leads GROUP BY source) AS x
          ) AS leads_by_source,
+         (SELECT coalesce(json_agg(json_build_object(
+                    'campaign', x.name, 'newLeads', x.n, 'won', x.won)
+                  ORDER BY x.n DESC, x.name), '[]'::json)
+          FROM (SELECT coalesce(campaign.name, 'A campaign that was deleted') AS name,
+                       count(*) AS n,
+                       count(*) FILTER (WHERE lead.stage = 'won') AS won
+                FROM period_leads AS lead
+                LEFT JOIN app.lead_campaign AS campaign
+                  ON campaign.campaign_id = lead.campaign_id
+                WHERE lead.source = 'campaign'
+                GROUP BY campaign.campaign_id, campaign.name) AS x
+         ) AS leads_by_campaign,
          (SELECT coalesce(json_object_agg(stage, n), '{}'::json)
           FROM (SELECT stage, count(*) AS n FROM app.lead GROUP BY stage) AS x
          ) AS pipeline,
@@ -3849,6 +3903,13 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     return {
       newLeads: Number(row.new_leads),
       leadsBySource: counts(row.leads_by_source),
+      leadsByCampaign: (
+        (row.leads_by_campaign as Array<Record<string, unknown>>) ?? []
+      ).map((entry) => ({
+        campaign: String(entry.campaign),
+        newLeads: Number(entry.newLeads),
+        won: Number(entry.won),
+      })),
       pipeline: counts(row.pipeline),
       requestsBySource: counts(row.requests_by_source),
       inquiries: Number(row.inquiries),
@@ -6636,11 +6697,13 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
            to_char(lead.next_follow_up, 'YYYY-MM-DD') AS next_follow_up_text,
            lead.notes, lead.lost_reason, lead.quote_request_id,
            lead.customer_company_id, company.company_name AS customer_company_name,
+           lead.campaign_id, campaign.name AS campaign_name,
            lead.created_at, lead.updated_at, lead.stage_changed_at
     FROM app.lead lead
     LEFT JOIN auth.users owner ON owner.id = lead.owner_id
     LEFT JOIN app.customer_company company
-      ON company.company_id = lead.customer_company_id`;
+      ON company.company_id = lead.customer_company_id
+    LEFT JOIN app.lead_campaign campaign ON campaign.campaign_id = lead.campaign_id`;
 
   private mapLead(row: Record<string, unknown>): LeadRecord {
     const optional = (value: unknown) =>
@@ -6666,10 +6729,1405 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       quoteRequestId: optional(row.quote_request_id),
       customerCompanyId: optional(row.customer_company_id),
       customerCompanyName: optional(row.customer_company_name),
+      campaignId: optional(row.campaign_id),
+      campaignName: optional(row.campaign_name),
       createdAt: this.toIsoString(row.created_at),
       updatedAt: this.toIsoString(row.updated_at),
       stageChangedAt: this.toIsoString(row.stage_changed_at),
     };
+  }
+
+  async listKnownBusinesses(campaignId: string): Promise<KnownBusinessRow[]> {
+    const [customers, leads, prospects] = await Promise.all([
+      this.pool.query(
+        `SELECT company.company_id AS id, company.company_name,
+                company.trading_name, company.website, company.company_email,
+                company.phone,
+                COALESCE(array_agg(contact.email) FILTER (WHERE contact.email IS NOT NULL), '{}') AS contact_emails,
+                COALESCE(array_agg(contact.phone) FILTER (WHERE contact.phone IS NOT NULL), '{}') AS contact_phones
+         FROM app.customer_company company
+         LEFT JOIN app.customer_contact contact
+           ON contact.company_id = company.company_id
+         GROUP BY company.company_id`,
+      ),
+      this.pool.query(
+        `SELECT lead_id AS id, company_name, email, phone FROM app.lead`,
+      ),
+      this.pool.query(
+        `SELECT prospect_id AS id, business_name, website, emails, phones,
+                source, source_id
+         FROM app.prospect WHERE campaign_id = $1::uuid`,
+        [campaignId],
+      ),
+    ]);
+    const present = (values: unknown[]) =>
+      values.filter((value): value is string => typeof value === "string");
+    const list = (value: unknown) =>
+      Array.isArray(value) ? present(value) : [];
+    return [
+      ...customers.rows.map((row): KnownBusinessRow => ({
+        kind: "customer",
+        id: String(row.id),
+        label: String(row.company_name),
+        names: present([row.company_name, row.trading_name]),
+        websites: present([row.website]),
+        emails: present([row.company_email, ...list(row.contact_emails)]),
+        phones: present([row.phone, ...list(row.contact_phones)]),
+        source: null,
+        sourceId: null,
+      })),
+      ...leads.rows.map((row): KnownBusinessRow => ({
+        kind: "lead",
+        id: String(row.id),
+        label: String(row.company_name),
+        names: [String(row.company_name)],
+        websites: [],
+        emails: present([row.email]),
+        phones: present([row.phone]),
+        source: null,
+        sourceId: null,
+      })),
+      ...prospects.rows.map((row): KnownBusinessRow => ({
+        kind: "prospect",
+        id: String(row.id),
+        label: String(row.business_name),
+        names: [String(row.business_name)],
+        websites: present([row.website]),
+        emails: list(row.emails),
+        phones: list(row.phones),
+        source: String(row.source),
+        sourceId: row.source_id === null ? null : String(row.source_id),
+      })),
+    ];
+  }
+
+  async claimLeadRun(
+    claimId: string,
+    leaseSeconds: number,
+  ): Promise<ClaimedLeadRun | null> {
+    const claimed = await this.pool.query(
+      `WITH due AS (
+         SELECT run_id, claimed_at IS NOT NULL AS taken_over
+         FROM app.lead_campaign_run
+         WHERE status IN ('queued', 'running')
+           AND next_attempt_at <= clock_timestamp()
+           -- A paused or archived campaign does no work; its run waits for it to be active.
+           AND EXISTS (SELECT 1 FROM app.lead_campaign campaign
+                       WHERE campaign.campaign_id = lead_campaign_run.campaign_id
+                         AND campaign.status = 'active')
+         ORDER BY created_at
+         LIMIT 1
+         FOR UPDATE SKIP LOCKED
+       )
+       UPDATE app.lead_campaign_run run
+       SET status = 'running',
+           current_step = CASE WHEN run.status = 'queued' THEN 'searching' ELSE run.current_step END,
+           started_at = COALESCE(run.started_at, clock_timestamp()),
+           claimed_at = clock_timestamp(),
+           claimed_by = $1,
+           -- A lease: if this worker dies, the run is claimable again when it runs out.
+           next_attempt_at = clock_timestamp() + make_interval(secs => $2::int),
+           attempt_count = run.attempt_count + CASE WHEN due.taken_over THEN 1 ELSE 0 END,
+           updated_at = clock_timestamp()
+       FROM due
+       WHERE run.run_id = due.run_id
+       RETURNING run.run_id, run.campaign_id, run.created_by, run.current_step, run.target_count,
+                 run.provider_run_id, run.provider_dataset_id, run.attempt_count`,
+      [claimId, leaseSeconds],
+    );
+    const run = claimed.rows[0];
+    if (!run) return null;
+    const campaign = await this.pool.query(
+      `SELECT target_service, target_industry, target_location, search_keywords,
+              excluded_keywords, min_rating, require_website, ideal_customer_profile,
+              disqualifiers, qualification_threshold, generate_emails
+       FROM app.lead_campaign WHERE campaign_id = $1::uuid`,
+      [run.campaign_id],
+    );
+    const row = campaign.rows[0];
+    return {
+      runId: String(run.run_id),
+      claimId,
+      createdBy: String(run.created_by),
+      step: run.current_step as LeadRunStep,
+      targetCount: Number(run.target_count),
+      providerRunId:
+        run.provider_run_id === null ? null : String(run.provider_run_id),
+      providerDatasetId:
+        run.provider_dataset_id === null
+          ? null
+          : String(run.provider_dataset_id),
+      attemptCount: Number(run.attempt_count),
+      campaign: {
+        campaignId: String(run.campaign_id),
+        targetService: String(row.target_service),
+        targetIndustry: String(row.target_industry),
+        targetLocation: String(row.target_location),
+        searchKeywords: row.search_keywords as string[],
+        excludedKeywords: row.excluded_keywords as string[],
+        minRating: row.min_rating === null ? null : Number(row.min_rating),
+        requireWebsite: row.require_website === true,
+        idealCustomerProfile:
+          row.ideal_customer_profile === null
+            ? null
+            : String(row.ideal_customer_profile),
+        disqualifiers:
+          row.disqualifiers === null ? null : String(row.disqualifiers),
+        qualificationThreshold: Number(row.qualification_threshold),
+        generateEmails: row.generate_emails === true,
+      },
+    };
+  }
+
+  async releaseLeadRun(
+    run: { runId: string; claimId: string },
+    update: {
+      step?: LeadRunStep;
+      providerRunId?: string;
+      providerDatasetId?: string;
+      attemptCount: number;
+      nextInSeconds: number;
+    },
+  ): Promise<boolean> {
+    const result = await this.pool.query(
+      `UPDATE app.lead_campaign_run
+       SET current_step = COALESCE($3, current_step),
+           provider_run_id = COALESCE($4, provider_run_id),
+           provider_dataset_id = COALESCE($5, provider_dataset_id),
+           attempt_count = $6,
+           claimed_at = NULL,
+           claimed_by = NULL,
+           next_attempt_at = clock_timestamp() + make_interval(secs => $7::int),
+           updated_at = clock_timestamp()
+       WHERE run_id = $1::uuid AND claimed_by = $2 AND status = 'running'`,
+      [
+        run.runId,
+        run.claimId,
+        update.step ?? null,
+        update.providerRunId ?? null,
+        update.providerDatasetId ?? null,
+        update.attemptCount,
+        update.nextInSeconds,
+      ],
+    );
+    return result.rowCount === 1;
+  }
+
+  async failLeadRun(
+    run: { runId: string; claimId: string },
+    message: string,
+  ): Promise<boolean> {
+    const result = await this.pool.query(
+      `UPDATE app.lead_campaign_run
+       SET status = 'failed', current_step = 'failed', error_message = $3,
+           finished_at = clock_timestamp(), claimed_at = NULL, claimed_by = NULL,
+           updated_at = clock_timestamp()
+       WHERE run_id = $1::uuid AND claimed_by = $2 AND status = 'running'`,
+      [run.runId, run.claimId, message.slice(0, 1000) || "The run failed"],
+    );
+    return result.rowCount === 1;
+  }
+
+  async finishLeadRun(run: {
+    runId: string;
+    claimId: string;
+  }): Promise<boolean> {
+    const result = await this.pool.query(
+      `UPDATE app.lead_campaign_run
+       SET status = 'ready', current_step = 'ready',
+           finished_at = clock_timestamp(), claimed_at = NULL, claimed_by = NULL,
+           updated_at = clock_timestamp()
+       WHERE run_id = $1::uuid AND claimed_by = $2 AND status = 'running'`,
+      [run.runId, run.claimId],
+    );
+    return result.rowCount === 1;
+  }
+
+  async saveLeadRunQualification(
+    runId: string,
+    qualificationThreshold: number,
+  ): Promise<void> {
+    await this.pool.query(
+      `UPDATE app.lead_campaign_run
+       SET qualified_count = (SELECT count(*) FROM app.prospect
+                              WHERE run_id = $1::uuid AND score >= $2),
+           disqualified_count = (SELECT count(*) FROM app.prospect
+                                 WHERE run_id = $1::uuid AND score < $2),
+           failed_count = (SELECT count(*) FROM app.prospect
+                           WHERE run_id = $1::uuid AND enrichment_status = 'failed'),
+           updated_at = clock_timestamp()
+       WHERE run_id = $1::uuid`,
+      [runId, qualificationThreshold],
+    );
+  }
+
+  async listProspectsToDraft(
+    runId: string,
+    qualificationThreshold: number,
+    limit: number,
+  ): Promise<ProspectDraftingInfo[]> {
+    const result = await this.pool.query(
+      `SELECT prospect.prospect_id, prospect.business_name, prospect.category,
+              prospect.address, prospect.emails,
+              campaign.target_service, campaign.target_industry,
+              campaign.target_location, campaign.email_context, campaign.email_cta
+       FROM app.prospect prospect
+       JOIN app.lead_campaign campaign ON campaign.campaign_id = prospect.campaign_id
+       WHERE prospect.run_id = $1::uuid
+         AND prospect.score >= $2
+         AND prospect.duplicate_kind IS NULL
+         AND prospect.dismissed_at IS NULL
+         AND cardinality(prospect.emails) > 0
+         AND NOT EXISTS (SELECT 1 FROM app.outreach_draft draft
+                         WHERE draft.prospect_id = prospect.prospect_id)
+       ORDER BY prospect.score DESC, prospect.created_at, prospect.prospect_id
+       LIMIT $3`,
+      [runId, qualificationThreshold, limit],
+    );
+    return result.rows.map((row) => ({
+      prospectId: String(row.prospect_id),
+      businessName: String(row.business_name),
+      category: row.category === null ? null : String(row.category),
+      address: row.address === null ? null : String(row.address),
+      emails: row.emails as string[],
+      dismissed: false,
+      campaign: {
+        targetService: String(row.target_service),
+        targetIndustry: String(row.target_industry),
+        targetLocation: String(row.target_location),
+        emailContext:
+          row.email_context === null ? null : String(row.email_context),
+        callToAction: row.email_cta === null ? null : String(row.email_cta),
+      },
+    }));
+  }
+
+  async storeFoundProspects(
+    run: { runId: string; campaignId: string; claimId: string },
+    prospects: NewProspect[],
+    counts: { found: number; duplicates: number },
+  ): Promise<boolean> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      // The claim is checked first, inside the transaction: a worker that lost its
+      // lease stores nothing.
+      const held = await client.query(
+        `SELECT 1 FROM app.lead_campaign_run
+         WHERE run_id = $1::uuid AND claimed_by = $2 AND status = 'running'
+         FOR UPDATE`,
+        [run.runId, run.claimId],
+      );
+      if (held.rowCount !== 1) {
+        await client.query("ROLLBACK");
+        return false;
+      }
+      let stored = 0;
+      for (const { prospectId, business, duplicate } of prospects) {
+        const inserted = await client.query(
+          `INSERT INTO app.prospect (
+             prospect_id, campaign_id, run_id, business_name, website, address,
+             phones, emails, rating, category, source, source_id, normalized_name,
+             normalized_domain, normalized_phone, duplicate_kind, duplicate_ref,
+             duplicate_reason, social_links)
+           VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7::text[], $8::text[],
+                   $9, $10, $11, $12, $13, $14, $15, $16, $17::uuid, $18, $19::jsonb)
+           ON CONFLICT (campaign_id, source, source_id) WHERE source_id IS NOT NULL
+           DO NOTHING`,
+          [
+            prospectId,
+            run.campaignId,
+            run.runId,
+            business.businessName,
+            business.website,
+            business.address,
+            business.phones,
+            business.emails,
+            business.rating,
+            business.category,
+            business.source,
+            business.sourceId,
+            business.normalizedName,
+            business.normalizedDomain,
+            business.normalizedPhone,
+            duplicate?.kind ?? null,
+            duplicate?.ref ?? null,
+            duplicate?.reason ?? null,
+            JSON.stringify(business.socialLinks),
+          ],
+        );
+        stored += inserted.rowCount ?? 0;
+      }
+      await client.query(
+        `UPDATE app.lead_campaign_run
+         SET found_count = $3, stored_count = $4, duplicate_count = $5,
+             current_step = 'enriching', attempt_count = 0,
+             claimed_at = NULL, claimed_by = NULL,
+             next_attempt_at = clock_timestamp(), updated_at = clock_timestamp()
+         WHERE run_id = $1::uuid AND claimed_by = $2`,
+        [run.runId, run.claimId, counts.found, stored, counts.duplicates],
+      );
+      await client.query("COMMIT");
+      return true;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async listProspectsToEnrich(
+    runId: string,
+    limit: number,
+  ): Promise<ProspectToEnrich[]> {
+    const result = await this.pool.query(
+      `SELECT prospect_id, website, emails, phones FROM app.prospect
+       WHERE run_id = $1::uuid AND enrichment_status = 'pending'
+       ORDER BY created_at, prospect_id LIMIT $2`,
+      [runId, limit],
+    );
+    return result.rows.map((row) => ({
+      prospectId: String(row.prospect_id),
+      website: row.website === null ? null : String(row.website),
+      emails: row.emails as string[],
+      phones: row.phones as string[],
+    }));
+  }
+
+  async saveProspectEnrichment(
+    prospectId: string,
+    enrichment: ProspectEnrichment,
+  ): Promise<void> {
+    await this.pool.query(
+      `UPDATE app.prospect
+       SET enrichment_status = $2, enrichment_error = $3, emails = $4::text[],
+           phones = $5::text[], website_excerpt = $6, enriched_at = clock_timestamp()
+       WHERE prospect_id = $1::uuid AND enrichment_status = 'pending'`,
+      [
+        prospectId,
+        enrichment.status,
+        enrichment.error?.slice(0, 500) ?? null,
+        enrichment.emails,
+        enrichment.phones,
+        enrichment.excerpt,
+      ],
+    );
+  }
+
+  async listProspectsToScore(
+    runId: string,
+    limit: number,
+  ): Promise<ProspectToScore[]> {
+    const result = await this.pool.query(
+      `SELECT prospect_id, business_name, category, address, website, rating,
+              cardinality(emails) > 0 AS has_email,
+              cardinality(phones) > 0 AS has_phone, website_excerpt
+       FROM app.prospect
+       WHERE run_id = $1::uuid AND score IS NULL
+       ORDER BY created_at, prospect_id LIMIT $2`,
+      [runId, limit],
+    );
+    return result.rows.map((row) => ({
+      prospectId: String(row.prospect_id),
+      prospect: {
+        businessName: String(row.business_name),
+        category: row.category === null ? null : String(row.category),
+        address: row.address === null ? null : String(row.address),
+        website: row.website === null ? null : String(row.website),
+        rating: row.rating === null ? null : Number(row.rating),
+        hasEmail: row.has_email === true,
+        hasPhone: row.has_phone === true,
+        websiteText:
+          row.website_excerpt === null ? null : String(row.website_excerpt),
+      },
+    }));
+  }
+
+  async saveProspectScore(prospectId: string, fit: FitScore): Promise<void> {
+    await this.pool.query(
+      `UPDATE app.prospect
+       SET score = $2, score_reason = $3, score_method = $4,
+           scored_at = clock_timestamp(), website_excerpt = NULL
+       WHERE prospect_id = $1::uuid AND score IS NULL`,
+      [prospectId, fit.score, fit.reason, fit.method],
+    );
+  }
+
+  private readonly campaignSelect = `
+    SELECT campaign.*, author.email AS created_by_email,
+           NULLIF(btrim(author.raw_user_meta_data->>'full_name'), '') AS created_by_name_text,
+           (SELECT count(*) FROM app.prospect p
+             WHERE p.campaign_id = campaign.campaign_id) AS prospect_count,
+           (SELECT count(*) FROM app.prospect p
+             WHERE p.campaign_id = campaign.campaign_id
+               AND p.promoted_lead_id IS NOT NULL) AS promoted_count,
+           CASE WHEN latest.run_id IS NULL THEN NULL ELSE to_jsonb(latest) END AS latest_run
+    FROM app.lead_campaign campaign
+    LEFT JOIN auth.users author ON author.id = campaign.created_by
+    LEFT JOIN LATERAL (
+      SELECT * FROM app.lead_campaign_run run
+      WHERE run.campaign_id = campaign.campaign_id
+      ORDER BY run.created_at DESC LIMIT 1
+    ) latest ON true`;
+
+  private mapLeadRun(row: Record<string, unknown>): LeadRunRecord {
+    const time = (value: unknown) =>
+      value === null || value === undefined ? null : this.toIsoString(value);
+    return {
+      id: String(row.run_id),
+      campaignId: String(row.campaign_id),
+      status: String(row.status) as LeadRunRecord["status"],
+      step: String(row.current_step),
+      targetCount: Number(row.target_count),
+      foundCount: Number(row.found_count),
+      storedCount: Number(row.stored_count),
+      duplicateCount: Number(row.duplicate_count),
+      qualifiedCount: Number(row.qualified_count),
+      disqualifiedCount: Number(row.disqualified_count),
+      failedCount: Number(row.failed_count),
+      errorMessage:
+        row.error_message === null ? null : String(row.error_message),
+      startedAt: time(row.started_at),
+      finishedAt: time(row.finished_at),
+      createdAt: this.toIsoString(row.created_at),
+    };
+  }
+
+  private mapLeadCampaign(row: Record<string, unknown>): LeadCampaignRecord {
+    const text = (value: unknown) =>
+      value === null || value === undefined ? null : String(value);
+    return {
+      id: String(row.campaign_id),
+      name: String(row.name),
+      status: String(row.status) as LeadCampaignRecord["status"],
+      targetService: String(row.target_service),
+      targetIndustry: String(row.target_industry),
+      targetLocation: String(row.target_location),
+      searchKeywords: row.search_keywords as string[],
+      excludedKeywords: row.excluded_keywords as string[],
+      minRating: row.min_rating === null ? null : Number(row.min_rating),
+      requireWebsite: row.require_website === true,
+      idealCustomerProfile: text(row.ideal_customer_profile),
+      disqualifiers: text(row.disqualifiers),
+      generateEmails: row.generate_emails === true,
+      emailContext: text(row.email_context),
+      emailCta: text(row.email_cta),
+      qualificationThreshold: Number(row.qualification_threshold),
+      maxProspects: Number(row.max_prospects),
+      createdBy: String(row.created_by),
+      createdByName: row.created_by_email
+        ? staffDisplayName({
+            name: text(row.created_by_name_text),
+            email: String(row.created_by_email),
+          })
+        : null,
+      createdAt: this.toIsoString(row.created_at),
+      updatedAt: this.toIsoString(row.updated_at),
+      prospectCount: Number(row.prospect_count),
+      promotedCount: Number(row.promoted_count),
+      latestRun: row.latest_run
+        ? this.mapLeadRun(row.latest_run as Record<string, unknown>)
+        : null,
+    };
+  }
+
+  async createLeadCampaign(
+    input: NewLeadCampaign,
+  ): Promise<LeadCampaignRecord> {
+    await this.pool.query(
+      `INSERT INTO app.lead_campaign
+         (campaign_id, name, target_service, target_industry, target_location,
+          search_keywords, excluded_keywords, min_rating, require_website,
+          ideal_customer_profile, disqualifiers, generate_emails, email_context,
+          email_cta, qualification_threshold, max_prospects, created_by)
+       VALUES ($1::uuid, $2, $3, $4, $5, $6::text[], $7::text[], $8, $9, $10, $11,
+               $12, $13, $14, $15, $16, $17::uuid)`,
+      [
+        input.id,
+        input.name,
+        input.targetService,
+        input.targetIndustry,
+        input.targetLocation,
+        input.searchKeywords,
+        input.excludedKeywords,
+        input.minRating,
+        input.requireWebsite,
+        input.idealCustomerProfile,
+        input.disqualifiers,
+        input.generateEmails,
+        input.emailContext,
+        input.emailCta,
+        input.qualificationThreshold,
+        input.maxProspects,
+        input.createdBy,
+      ],
+    );
+    return (await this.findLeadCampaign(input.id))!;
+  }
+
+  async listLeadCampaigns(): Promise<LeadCampaignRecord[]> {
+    const result = await this.pool.query(
+      `${this.campaignSelect} ORDER BY campaign.created_at DESC, campaign.campaign_id`,
+    );
+    return result.rows.map((row) => this.mapLeadCampaign(row));
+  }
+
+  async findLeadCampaign(id: string): Promise<LeadCampaignRecord | null> {
+    const result = await this.pool.query(
+      `${this.campaignSelect} WHERE campaign.campaign_id = $1::uuid`,
+      [id],
+    );
+    return result.rows[0] ? this.mapLeadCampaign(result.rows[0]) : null;
+  }
+
+  async updateLeadCampaign(
+    id: string,
+    change: LeadCampaignChange,
+  ): Promise<LeadCampaignRecord | null> {
+    const columns: Record<keyof LeadCampaignChange, string> = {
+      name: "name",
+      status: "status",
+      targetService: "target_service",
+      targetIndustry: "target_industry",
+      targetLocation: "target_location",
+      searchKeywords: "search_keywords",
+      excludedKeywords: "excluded_keywords",
+      minRating: "min_rating",
+      requireWebsite: "require_website",
+      idealCustomerProfile: "ideal_customer_profile",
+      disqualifiers: "disqualifiers",
+      generateEmails: "generate_emails",
+      emailContext: "email_context",
+      emailCta: "email_cta",
+      qualificationThreshold: "qualification_threshold",
+      maxProspects: "max_prospects",
+    };
+    const values: unknown[] = [id];
+    const sets: string[] = [];
+    for (const key of Object.keys(columns) as Array<keyof LeadCampaignChange>) {
+      if (change[key] === undefined) continue;
+      values.push(change[key]);
+      sets.push(`${columns[key]} = $${values.length}`);
+    }
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const updated = await client.query(
+        `UPDATE app.lead_campaign
+         SET ${[...sets, "updated_at = clock_timestamp()"].join(", ")}
+         WHERE campaign_id = $1::uuid`,
+        values,
+      );
+      if (updated.rowCount === 0) {
+        await client.query("ROLLBACK");
+        return null;
+      }
+      if (change.status === "archived") {
+        // An archived campaign has nothing left to run.
+        await client.query(
+          `UPDATE app.lead_campaign_run
+           SET status = 'cancelled', current_step = 'cancelled',
+               finished_at = clock_timestamp(), claimed_at = NULL, claimed_by = NULL,
+               updated_at = clock_timestamp()
+           WHERE campaign_id = $1::uuid AND status IN ('queued', 'running')`,
+          [id],
+        );
+      }
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+    return this.findLeadCampaign(id);
+  }
+
+  async deleteLeadCampaign(id: string): Promise<boolean> {
+    const result = await this.pool.query(
+      `DELETE FROM app.lead_campaign WHERE campaign_id = $1::uuid`,
+      [id],
+    );
+    return result.rowCount === 1;
+  }
+
+  async startLeadRun(
+    campaignId: string,
+    userId: string,
+  ): Promise<StartRunResult> {
+    const campaign = await this.pool.query(
+      `SELECT status, max_prospects FROM app.lead_campaign WHERE campaign_id = $1::uuid`,
+      [campaignId],
+    );
+    if (!campaign.rows[0]) return "not_found";
+    if (campaign.rows[0].status !== "active") return "not_active";
+    try {
+      const run = await this.pool.query(
+        `INSERT INTO app.lead_campaign_run (campaign_id, target_count, created_by)
+         VALUES ($1::uuid, $2, $3::uuid) RETURNING *`,
+        [campaignId, campaign.rows[0].max_prospects, userId],
+      );
+      return this.mapLeadRun(run.rows[0]);
+    } catch (error) {
+      // One run waiting or in progress per campaign (a unique index).
+      if ((error as { code?: string }).code === "23505") {
+        return "already_running";
+      }
+      throw error;
+    }
+  }
+
+  async cancelLeadRun(
+    campaignId: string,
+    runId: string,
+  ): Promise<LeadRunRecord | "over" | null> {
+    const cancelled = await this.pool.query(
+      `UPDATE app.lead_campaign_run
+       SET status = 'cancelled', current_step = 'cancelled',
+           finished_at = clock_timestamp(), claimed_at = NULL, claimed_by = NULL,
+           updated_at = clock_timestamp()
+       WHERE run_id = $1::uuid AND campaign_id = $2::uuid
+         AND status IN ('queued', 'running')
+       RETURNING *`,
+      [runId, campaignId],
+    );
+    if (cancelled.rows[0]) return this.mapLeadRun(cancelled.rows[0]);
+    return (await this.findLeadRun(campaignId, runId)) ? "over" : null;
+  }
+
+  async listLeadRuns(
+    campaignId: string,
+    limit: number,
+  ): Promise<LeadRunRecord[]> {
+    const result = await this.pool.query(
+      `SELECT * FROM app.lead_campaign_run WHERE campaign_id = $1::uuid
+       ORDER BY created_at DESC, run_id LIMIT $2`,
+      [campaignId, limit],
+    );
+    return result.rows.map((row) => this.mapLeadRun(row));
+  }
+
+  async findLeadRun(
+    campaignId: string,
+    runId: string,
+  ): Promise<LeadRunRecord | null> {
+    const result = await this.pool.query(
+      `SELECT * FROM app.lead_campaign_run
+       WHERE run_id = $1::uuid AND campaign_id = $2::uuid`,
+      [runId, campaignId],
+    );
+    return result.rows[0] ? this.mapLeadRun(result.rows[0]) : null;
+  }
+
+  async listProspects(
+    campaignId: string,
+    filter: ProspectFilter,
+  ): Promise<{ items: ProspectRecord[]; total: number }> {
+    const values: unknown[] = [campaignId];
+    const where = ["prospect.campaign_id = $1::uuid"];
+    const add = (
+      condition: (placeholder: string) => string,
+      value: unknown,
+    ) => {
+      values.push(value);
+      where.push(condition(`$${values.length}`));
+    };
+    const threshold = `(SELECT qualification_threshold FROM app.lead_campaign
+                         WHERE campaign_id = $1::uuid)`;
+    if (filter.runId) add((p) => `prospect.run_id = ${p}::uuid`, filter.runId);
+    if (filter.search) {
+      add(
+        (p) => `prospect.business_name ILIKE '%' || ${p} || '%'`,
+        filter.search.replace(/[\\%_]/g, "\\$&"),
+      );
+    }
+    if (filter.minScore !== undefined) {
+      add((p) => `prospect.score >= ${p}`, filter.minScore);
+    }
+    if (filter.qualified === true) {
+      where.push(`prospect.score >= ${threshold}`);
+    } else if (filter.qualified === false) {
+      where.push(`prospect.score < ${threshold}`);
+    }
+    if (filter.duplicate !== undefined) {
+      where.push(
+        filter.duplicate
+          ? "prospect.duplicate_kind IS NOT NULL"
+          : "prospect.duplicate_kind IS NULL",
+      );
+    }
+    if (filter.enrichment) {
+      add((p) => `prospect.enrichment_status = ${p}`, filter.enrichment);
+    }
+    if (filter.promoted !== undefined) {
+      where.push(
+        filter.promoted
+          ? "prospect.promoted_lead_id IS NOT NULL"
+          : "prospect.promoted_lead_id IS NULL",
+      );
+    }
+    const condition = where.join(" AND ");
+    const total = await this.pool.query(
+      `SELECT count(*) AS total FROM app.prospect prospect WHERE ${condition}`,
+      values,
+    );
+    values.push(filter.limit, filter.offset);
+    const result = await this.pool.query(
+      `SELECT prospect.* FROM app.prospect prospect WHERE ${condition}
+       ORDER BY prospect.score DESC NULLS LAST, prospect.created_at DESC,
+                prospect.prospect_id
+       LIMIT $${values.length - 1} OFFSET $${values.length}`,
+      values,
+    );
+    return {
+      items: result.rows.map((row) => this.mapProspect(row)),
+      total: Number(total.rows[0].total),
+    };
+  }
+
+  async findProspect(
+    campaignId: string,
+    prospectId: string,
+  ): Promise<ProspectRecord | null> {
+    const result = await this.pool.query(
+      `SELECT * FROM app.prospect
+       WHERE campaign_id = $1::uuid AND prospect_id = $2::uuid`,
+      [campaignId, prospectId],
+    );
+    return result.rows[0] ? this.mapProspect(result.rows[0]) : null;
+  }
+
+  private mapProspect(row: Record<string, unknown>): ProspectRecord {
+    const text = (value: unknown) =>
+      value === null || value === undefined ? null : String(value);
+    const time = (value: unknown) =>
+      value === null || value === undefined ? null : this.toIsoString(value);
+    return {
+      id: String(row.prospect_id),
+      campaignId: String(row.campaign_id),
+      runId: text(row.run_id),
+      businessName: String(row.business_name),
+      website: text(row.website),
+      address: text(row.address),
+      phones: row.phones as string[],
+      emails: row.emails as string[],
+      socialLinks: socialLinksFromStored(row.social_links),
+      rating: row.rating === null ? null : Number(row.rating),
+      category: text(row.category),
+      source: String(row.source) as ProspectRecord["source"],
+      duplicateKind: text(
+        row.duplicate_kind,
+      ) as ProspectRecord["duplicateKind"],
+      duplicateRef: text(row.duplicate_ref),
+      duplicateReason: text(row.duplicate_reason),
+      enrichmentStatus: String(
+        row.enrichment_status,
+      ) as ProspectRecord["enrichmentStatus"],
+      enrichmentError: text(row.enrichment_error),
+      score: row.score === null ? null : Number(row.score),
+      scoreReason: text(row.score_reason),
+      scoreMethod: text(row.score_method) as ProspectRecord["scoreMethod"],
+      scoredAt: time(row.scored_at),
+      promotedLeadId: text(row.promoted_lead_id),
+      promotedAt: time(row.promoted_at),
+      createdAt: this.toIsoString(row.created_at),
+    };
+  }
+
+  // ── Sales hub: lead pool, outreach drafts, overview ───────────────────────
+
+  async listPoolProspects(
+    filter: PoolFilter,
+  ): Promise<{ items: PoolProspect[]; total: number }> {
+    const values: unknown[] = [];
+    const where: string[] = [];
+    const add = (
+      condition: (placeholder: string) => string,
+      value: unknown,
+    ) => {
+      values.push(value);
+      where.push(condition(`$${values.length}`));
+    };
+    if (filter.campaignId) {
+      add((p) => `prospect.campaign_id = ${p}::uuid`, filter.campaignId);
+    }
+    if (filter.status === "new") {
+      where.push(
+        "prospect.dismissed_at IS NULL AND prospect.promoted_lead_id IS NULL",
+      );
+    } else if (filter.status === "added") {
+      where.push("prospect.promoted_lead_id IS NOT NULL");
+    } else if (filter.status === "dismissed") {
+      where.push("prospect.dismissed_at IS NOT NULL");
+    }
+    if (filter.minScore !== undefined) {
+      add((p) => `prospect.score >= ${p}`, filter.minScore);
+    }
+    if (filter.hasEmail !== undefined) {
+      where.push(
+        filter.hasEmail
+          ? "cardinality(prospect.emails) > 0"
+          : "cardinality(prospect.emails) = 0",
+      );
+    }
+    if (filter.duplicate !== undefined) {
+      where.push(
+        filter.duplicate
+          ? "prospect.duplicate_kind IS NOT NULL"
+          : "prospect.duplicate_kind IS NULL",
+      );
+    }
+    if (filter.search) {
+      add(
+        (p) =>
+          `(prospect.business_name ILIKE '%' || ${p} || '%'
+            OR prospect.category ILIKE '%' || ${p} || '%'
+            OR prospect.address ILIKE '%' || ${p} || '%')`,
+        filter.search.replace(/[\\%_]/g, "\\$&"),
+      );
+    }
+    const condition = where.length > 0 ? where.join(" AND ") : "true";
+    const order =
+      filter.sort === "name"
+        ? "prospect.business_name ASC, prospect.prospect_id"
+        : filter.sort === "newest"
+          ? "prospect.created_at DESC, prospect.prospect_id"
+          : "prospect.score DESC NULLS LAST, prospect.created_at DESC, prospect.prospect_id";
+    const total = await this.pool.query(
+      `SELECT count(*) AS total FROM app.prospect prospect WHERE ${condition}`,
+      values,
+    );
+    values.push(filter.limit, filter.offset);
+    const result = await this.pool.query(
+      `SELECT prospect.*, campaign.name AS campaign_name,
+              campaign.qualification_threshold AS campaign_threshold,
+              (SELECT draft.status FROM app.outreach_draft draft
+                WHERE draft.prospect_id = prospect.prospect_id
+                ORDER BY draft.created_at DESC LIMIT 1) AS draft_status
+       FROM app.prospect prospect
+       JOIN app.lead_campaign campaign ON campaign.campaign_id = prospect.campaign_id
+       WHERE ${condition}
+       ORDER BY ${order}
+       LIMIT $${values.length - 1} OFFSET $${values.length}`,
+      values,
+    );
+    return {
+      items: result.rows.map((row) => ({
+        ...this.mapProspect(row),
+        campaignName: String(row.campaign_name),
+        qualificationThreshold: Number(row.campaign_threshold),
+        dismissedAt:
+          row.dismissed_at === null ? null : this.toIsoString(row.dismissed_at),
+        draftStatus: (row.draft_status ?? null) as PoolProspect["draftStatus"],
+      })),
+      total: Number(total.rows[0].total),
+    };
+  }
+
+  async setProspectsDismissed(
+    prospectIds: string[],
+    dismissed: boolean,
+    userId: string,
+  ): Promise<number> {
+    // Dismissing skips what is already dismissed or already a lead; restoring skips what is not dismissed.
+    const result = await this.pool.query(
+      `UPDATE app.prospect
+       SET dismissed_at = CASE WHEN $2::boolean THEN clock_timestamp() END,
+           dismissed_by = CASE WHEN $2::boolean THEN $3::uuid END,
+           updated_at = clock_timestamp()
+       WHERE prospect_id = ANY($1::uuid[])
+         AND promoted_lead_id IS NULL
+         AND (dismissed_at IS NULL) = $2::boolean`,
+      [prospectIds, dismissed, userId],
+    );
+    return result.rowCount ?? 0;
+  }
+
+  async findProspectsForDrafting(
+    prospectIds: string[],
+  ): Promise<ProspectDraftingInfo[]> {
+    const result = await this.pool.query(
+      `SELECT prospect.prospect_id, prospect.business_name, prospect.category,
+              prospect.address, prospect.emails,
+              prospect.dismissed_at IS NOT NULL AS dismissed,
+              campaign.target_service, campaign.target_industry,
+              campaign.target_location, campaign.email_context, campaign.email_cta
+       FROM app.prospect prospect
+       JOIN app.lead_campaign campaign ON campaign.campaign_id = prospect.campaign_id
+       WHERE prospect.prospect_id = ANY($1::uuid[])`,
+      [prospectIds],
+    );
+    return result.rows.map((row) => ({
+      prospectId: String(row.prospect_id),
+      businessName: String(row.business_name),
+      category: row.category === null ? null : String(row.category),
+      address: row.address === null ? null : String(row.address),
+      emails: row.emails as string[],
+      dismissed: row.dismissed === true,
+      campaign: {
+        targetService: String(row.target_service),
+        targetIndustry: String(row.target_industry),
+        targetLocation: String(row.target_location),
+        emailContext:
+          row.email_context === null ? null : String(row.email_context),
+        callToAction: row.email_cta === null ? null : String(row.email_cta),
+      },
+    }));
+  }
+
+  private readonly outreachDraftSelect = `
+    SELECT draft.*, prospect.business_name, prospect.category, prospect.address,
+           prospect.website, prospect.score, prospect.score_reason,
+           prospect.campaign_id, campaign.name AS campaign_name,
+           COALESCE(NULLIF(btrim(author.raw_user_meta_data->>'full_name'), ''), author.email) AS created_by_name,
+           COALESCE(NULLIF(btrim(decider.raw_user_meta_data->>'full_name'), ''), decider.email) AS decided_by_name
+    FROM app.outreach_draft draft
+    JOIN app.prospect prospect ON prospect.prospect_id = draft.prospect_id
+    JOIN app.lead_campaign campaign ON campaign.campaign_id = prospect.campaign_id
+    LEFT JOIN auth.users author ON author.id = draft.created_by
+    LEFT JOIN auth.users decider ON decider.id = draft.decided_by`;
+
+  private mapOutreachDraft(row: Record<string, unknown>): OutreachDraftRecord {
+    const text = (value: unknown) =>
+      value === null || value === undefined ? null : String(value);
+    return {
+      id: String(row.draft_id),
+      prospectId: String(row.prospect_id),
+      businessName: String(row.business_name),
+      category: text(row.category),
+      address: text(row.address),
+      website: text(row.website),
+      score: row.score === null ? null : Number(row.score),
+      scoreReason: text(row.score_reason),
+      campaignId: String(row.campaign_id),
+      campaignName: String(row.campaign_name),
+      recipientEmail: String(row.recipient_email),
+      subject: String(row.subject),
+      body: String(row.body),
+      status: String(row.status) as OutreachDraftStatus,
+      method: String(row.method) as OutreachDraftRecord["method"],
+      edited: row.edited === true,
+      rejectedReason: text(row.rejected_reason),
+      createdByName: text(row.created_by_name),
+      decidedByName: text(row.decided_by_name),
+      decidedAt:
+        row.decided_at === null || row.decided_at === undefined
+          ? null
+          : this.toIsoString(row.decided_at),
+      createdAt: this.toIsoString(row.created_at),
+    };
+  }
+
+  async createOutreachDraft(
+    draft: NewOutreachDraft,
+  ): Promise<OutreachDraftRecord | "open_draft_exists"> {
+    try {
+      await this.pool.query(
+        `INSERT INTO app.outreach_draft
+           (draft_id, prospect_id, recipient_email, subject, body, method, created_by)
+         VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7::uuid)`,
+        [
+          draft.id,
+          draft.prospectId,
+          draft.recipientEmail,
+          draft.subject,
+          draft.body,
+          draft.method,
+          draft.createdBy,
+        ],
+      );
+    } catch (error) {
+      if ((error as { code?: string }).code === "23505") {
+        return "open_draft_exists";
+      }
+      throw error;
+    }
+    return (await this.findOutreachDraft(draft.id))!;
+  }
+
+  async findOutreachDraft(id: string): Promise<OutreachDraftRecord | null> {
+    const result = await this.pool.query(
+      `${this.outreachDraftSelect} WHERE draft.draft_id = $1::uuid`,
+      [id],
+    );
+    return result.rows[0] ? this.mapOutreachDraft(result.rows[0]) : null;
+  }
+
+  async listOutreachDrafts(filter: OutreachDraftFilter) {
+    const values: unknown[] = [];
+    const conditions: string[] = [];
+    if (filter.status) {
+      values.push(filter.status);
+      conditions.push(`draft.status = $${values.length}`);
+    }
+    if (filter.prospectId) {
+      values.push(filter.prospectId);
+      conditions.push(`draft.prospect_id = $${values.length}::uuid`);
+    }
+    const condition = conditions.length > 0 ? conditions.join(" AND ") : "true";
+    const total = await this.pool.query(
+      `SELECT count(*) AS total FROM app.outreach_draft draft WHERE ${condition}`,
+      values,
+    );
+    values.push(filter.limit, filter.offset);
+    // Waiting drafts oldest first (the queue); decided ones newest first.
+    const result = await this.pool.query(
+      `${this.outreachDraftSelect} WHERE ${condition}
+       ORDER BY CASE WHEN draft.status = 'pending' THEN draft.created_at END ASC,
+                draft.decided_at DESC NULLS LAST, draft.draft_id
+       LIMIT $${values.length - 1} OFFSET $${values.length}`,
+      values,
+    );
+    const counted = await this.pool.query(
+      `SELECT status, count(*) AS total FROM app.outreach_draft GROUP BY status`,
+    );
+    const counts: Record<OutreachDraftStatus, number> = {
+      pending: 0,
+      approved: 0,
+      rejected: 0,
+    };
+    for (const row of counted.rows) {
+      counts[String(row.status) as OutreachDraftStatus] = Number(row.total);
+    }
+    return {
+      items: result.rows.map((row) => this.mapOutreachDraft(row)),
+      total: Number(total.rows[0].total),
+      counts,
+    };
+  }
+
+  async editOutreachDraft(
+    id: string,
+    change: { recipientEmail: string; subject: string; body: string },
+  ): Promise<OutreachDraftRecord | "not_found" | "not_pending"> {
+    const updated = await this.pool.query(
+      `UPDATE app.outreach_draft
+       SET edited = edited OR (recipient_email, subject, body)
+                              IS DISTINCT FROM ($2::text, $3::text, $4::text),
+           recipient_email = $2, subject = $3, body = $4,
+           updated_at = clock_timestamp()
+       WHERE draft_id = $1::uuid AND status = 'pending'
+       RETURNING draft_id`,
+      [id, change.recipientEmail, change.subject, change.body],
+    );
+    if (updated.rowCount === 0) {
+      return (await this.findOutreachDraft(id)) ? "not_pending" : "not_found";
+    }
+    return (await this.findOutreachDraft(id))!;
+  }
+
+  async decideOutreachDraft(
+    id: string,
+    decision:
+      { status: "approved" } | { status: "rejected"; reason: string | null },
+    userId: string,
+  ): Promise<OutreachDraftRecord | "not_found" | "not_pending"> {
+    const updated = await this.pool.query(
+      `UPDATE app.outreach_draft
+       SET status = $2, rejected_reason = $3, decided_by = $4::uuid,
+           decided_at = clock_timestamp(), updated_at = clock_timestamp()
+       WHERE draft_id = $1::uuid AND status = 'pending'
+       RETURNING draft_id`,
+      [
+        id,
+        decision.status,
+        decision.status === "rejected" ? decision.reason : null,
+        userId,
+      ],
+    );
+    if (updated.rowCount === 0) {
+      return (await this.findOutreachDraft(id)) ? "not_pending" : "not_found";
+    }
+    return (await this.findOutreachDraft(id))!;
+  }
+
+  async getSalesOverview(): Promise<SalesOverview> {
+    const open = "('new', 'contacted', 'replied', 'interested', 'quoted')";
+    const [
+      prospects,
+      leads,
+      drafts,
+      followUps,
+      activity,
+      campaigns,
+      pipelines,
+    ] = await Promise.all([
+      this.pool.query(
+        `SELECT count(*) AS found,
+                  count(*) FILTER (WHERE prospect.score >= campaign.qualification_threshold) AS good_fit,
+                  count(*) FILTER (WHERE prospect.promoted_lead_id IS NOT NULL) AS added,
+                  count(*) FILTER (WHERE prospect.dismissed_at IS NULL
+                                     AND prospect.promoted_lead_id IS NULL) AS waiting,
+                  count(*) FILTER (WHERE prospect.dismissed_at IS NULL
+                                     AND prospect.promoted_lead_id IS NULL
+                                     AND prospect.score >= campaign.qualification_threshold) AS waiting_good_fit,
+                  count(*) FILTER (WHERE prospect.dismissed_at IS NULL
+                                     AND prospect.promoted_lead_id IS NULL
+                                     AND cardinality(prospect.emails) > 0) AS waiting_with_email,
+                  count(*) FILTER (WHERE prospect.dismissed_at IS NOT NULL) AS dismissed,
+                  count(*) FILTER (WHERE lead.stage IN ('contacted', 'replied', 'interested', 'quoted', 'won')) AS contacted,
+                  count(*) FILTER (WHERE lead.stage IN ('quoted', 'won')) AS quoted,
+                  count(*) FILTER (WHERE lead.stage = 'won') AS won
+           FROM app.prospect prospect
+           JOIN app.lead_campaign campaign ON campaign.campaign_id = prospect.campaign_id
+           LEFT JOIN app.lead lead ON lead.lead_id = prospect.promoted_lead_id`,
+      ),
+      this.pool.query(
+        `SELECT count(*) FILTER (WHERE stage IN ${open}) AS open,
+                  count(*) FILTER (WHERE stage IN ${open}
+                                     AND next_follow_up <= current_date) AS follow_ups_due,
+                  count(*) FILTER (WHERE stage = 'won') AS won,
+                  count(*) FILTER (WHERE stage = 'lost') AS lost
+           FROM app.lead
+           WHERE source = 'campaign'`,
+      ),
+      this.pool.query(
+        `SELECT status, count(*) AS total FROM app.outreach_draft GROUP BY status`,
+      ),
+      this.pool.query(
+        `SELECT lead.lead_id, lead.company_name, lead.stage,
+                  lead.next_follow_up::text AS next_follow_up,
+                  lead.next_follow_up < current_date AS overdue,
+                  COALESCE(NULLIF(btrim(owner.raw_user_meta_data->>'full_name'), ''), owner.email) AS owner_name
+           FROM app.lead lead
+           LEFT JOIN auth.users owner ON owner.id = lead.owner_id
+           WHERE lead.source = 'campaign'
+             AND lead.stage IN ${open} AND lead.next_follow_up <= current_date
+           ORDER BY lead.next_follow_up, lead.created_at LIMIT 8`,
+      ),
+      this.pool.query(
+        `SELECT activity.lead_id, lead.company_name, activity.kind, activity.note,
+                  activity.occurred_at,
+                  COALESCE(NULLIF(btrim(author.raw_user_meta_data->>'full_name'), ''), author.email) AS by_name
+           FROM app.lead_activity activity
+           JOIN app.lead lead ON lead.lead_id = activity.lead_id
+           LEFT JOIN auth.users author ON author.id = activity.created_by
+           WHERE lead.source = 'campaign'
+           ORDER BY activity.occurred_at DESC, activity.activity_id LIMIT 8`,
+      ),
+      this.pool.query(
+        `SELECT campaign.campaign_id, campaign.name, campaign.status,
+                  count(prospect.prospect_id) AS found,
+                  count(prospect.prospect_id) FILTER (WHERE prospect.score >= campaign.qualification_threshold) AS good_fit,
+                  count(prospect.prospect_id) FILTER (WHERE prospect.promoted_lead_id IS NOT NULL) AS added
+           FROM app.lead_campaign campaign
+           LEFT JOIN app.prospect prospect ON prospect.campaign_id = campaign.campaign_id
+           WHERE campaign.status <> 'archived'
+           GROUP BY campaign.campaign_id
+           ORDER BY campaign.created_at DESC LIMIT 6`,
+      ),
+      // The two pipelines side by side, never added together.
+      this.pool.query(
+        `SELECT CASE WHEN source = 'campaign' THEN 'generated' ELSE 'manual' END AS pipeline,
+                  stage, count(*) AS total,
+                  avg(extract(epoch FROM stage_changed_at - created_at) / 86400)
+                    FILTER (WHERE stage = 'won') AS days_to_win
+           FROM app.lead
+           GROUP BY 1, 2`,
+      ),
+    ]);
+    const p = prospects.rows[0];
+    const l = leads.rows[0];
+    const draftCounts: Record<OutreachDraftStatus, number> = {
+      pending: 0,
+      approved: 0,
+      rejected: 0,
+    };
+    for (const row of drafts.rows) {
+      draftCounts[String(row.status) as OutreachDraftStatus] = Number(
+        row.total,
+      );
+    }
+    return {
+      pool: {
+        waiting: Number(p.waiting),
+        goodFit: Number(p.waiting_good_fit),
+        withEmail: Number(p.waiting_with_email),
+        dismissed: Number(p.dismissed),
+      },
+      funnel: {
+        found: Number(p.found),
+        goodFit: Number(p.good_fit),
+        addedToLeads: Number(p.added),
+        contacted: Number(p.contacted),
+        quoted: Number(p.quoted),
+        won: Number(p.won),
+      },
+      leads: {
+        open: Number(l.open),
+        followUpsDue: Number(l.follow_ups_due),
+        won: Number(l.won),
+        lost: Number(l.lost),
+      },
+      pipelines: this.pipelinePerformance(pipelines.rows),
+      drafts: draftCounts,
+      followUps: followUps.rows.map((row) => ({
+        leadId: String(row.lead_id),
+        companyName: String(row.company_name),
+        stage: String(row.stage),
+        ownerName: row.owner_name === null ? null : String(row.owner_name),
+        nextFollowUp: String(row.next_follow_up),
+        overdue: row.overdue === true,
+      })),
+      recentActivity: activity.rows.map((row) => ({
+        leadId: String(row.lead_id),
+        companyName: String(row.company_name),
+        kind: String(row.kind),
+        note: String(row.note),
+        occurredAt: this.toIsoString(row.occurred_at),
+        byName: row.by_name === null ? null : String(row.by_name),
+      })),
+      campaigns: campaigns.rows.map((row) => ({
+        id: String(row.campaign_id),
+        name: String(row.name),
+        status: String(row.status),
+        found: Number(row.found),
+        goodFit: Number(row.good_fit),
+        added: Number(row.added),
+      })),
+    };
+  }
+
+  /** Counts per stage for each pipeline, with the wins, losses and days to win. */
+  private pipelinePerformance(
+    rows: Array<Record<string, unknown>>,
+  ): SalesOverview["pipelines"] {
+    const empty = () => ({
+      total: 0,
+      open: 0,
+      won: 0,
+      lost: 0,
+      avgDaysToWin: null as number | null,
+      byStage: {} as Record<string, number>,
+    });
+    const result = { manual: empty(), generated: empty() };
+    for (const row of rows) {
+      const side =
+        row.pipeline === "generated" ? result.generated : result.manual;
+      const stage = String(row.stage);
+      const count = Number(row.total);
+      side.total += count;
+      side.byStage[stage] = count;
+      if (stage === "won") {
+        side.won = count;
+        side.avgDaysToWin =
+          row.days_to_win === null
+            ? null
+            : Math.round(Number(row.days_to_win) * 10) / 10;
+      } else if (stage === "lost") side.lost = count;
+      else side.open += count;
+    }
+    return result;
+  }
+
+  async promoteProspect(
+    campaignId: string,
+    prospectId: string,
+    userId: string,
+  ): Promise<PromoteResult> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      // Locking the prospect makes a double click or two people at once safe.
+      const found = await client.query(
+        `SELECT prospect.*, campaign.name AS campaign_name
+         FROM app.prospect prospect
+         JOIN app.lead_campaign campaign ON campaign.campaign_id = prospect.campaign_id
+         WHERE prospect.prospect_id = $1::uuid AND prospect.campaign_id = $2::uuid
+         FOR UPDATE OF prospect`,
+        [prospectId, campaignId],
+      );
+      const row = found.rows[0];
+      if (!row) {
+        await client.query("ROLLBACK");
+        return { outcome: "not_found" };
+      }
+      if (row.promoted_lead_id) {
+        await client.query("COMMIT");
+        return {
+          outcome: "already_promoted",
+          leadId: String(row.promoted_lead_id),
+        };
+      }
+      const prospect = this.mapProspect(row);
+      const campaignName = String(row.campaign_name);
+      const email = prospect.emails.find(
+        (value) => value.length >= 3 && value.length <= 254,
+      );
+      const phone = prospect.phones.find(
+        (value) => value.length >= 5 && value.length <= 40,
+      );
+      const scored =
+        prospect.score === null
+          ? "Not scored."
+          : `Fit score ${prospect.score} of 100 (${prospect.scoreMethod === "ai" ? "AI" : "simple rules"}): ${prospect.scoreReason}`;
+      const notes = [
+        `Found by the campaign "${campaignName}".`,
+        scored,
+        prospect.website ? `Website: ${prospect.website}` : null,
+        prospect.address ? `Address: ${prospect.address}` : null,
+        prospect.category ? `Category: ${prospect.category}` : null,
+        prospect.rating !== null
+          ? `Public rating: ${prospect.rating} of 5`
+          : null,
+        prospect.emails.length > 1
+          ? `Other emails: ${prospect.emails.filter((value) => value !== email).join(", ")}`
+          : null,
+        prospect.phones.length > 1
+          ? `Other phones: ${prospect.phones.filter((value) => value !== phone).join(", ")}`
+          : null,
+        socialLinksAsText(prospect.socialLinks)
+          ? `Social media: ${socialLinksAsText(prospect.socialLinks)}`
+          : null,
+        prospect.duplicateReason
+          ? `Possible duplicate: ${prospect.duplicateReason}`
+          : null,
+        prospect.source === "stub" ? "Sample data, not a real business." : null,
+      ]
+        .filter((line): line is string => line !== null)
+        .join("\n")
+        .slice(0, 2000);
+      const lead = await client.query(
+        `INSERT INTO app.lead
+           (company_name, email, phone, source, stage, owner_id, notes,
+            campaign_id, created_by)
+         VALUES ($1, $2, $3, 'campaign', 'new', $4::uuid, $5, $6::uuid, $4::uuid)
+         RETURNING lead_id`,
+        [
+          prospect.businessName.slice(0, 160),
+          email ?? null,
+          phone ?? null,
+          userId,
+          notes,
+          campaignId,
+        ],
+      );
+      const leadId = String(lead.rows[0].lead_id);
+      await client.query(
+        `INSERT INTO app.lead_activity (lead_id, kind, note, occurred_at, created_by)
+         VALUES ($1::uuid, 'note', $2, clock_timestamp(), $3::uuid)`,
+        [
+          leadId,
+          `Added from the campaign "${campaignName}".`.slice(0, 2000),
+          userId,
+        ],
+      );
+      await client.query(
+        `UPDATE app.prospect
+         SET promoted_lead_id = $2::uuid, promoted_at = clock_timestamp(),
+             promoted_by = $3::uuid
+         WHERE prospect_id = $1::uuid`,
+        [prospectId, leadId, userId],
+      );
+      await client.query("COMMIT");
+      return { outcome: "promoted", leadId };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async listLeads(): Promise<LeadRecord[]> {
@@ -7666,6 +9124,763 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       }
     }
     return [...customers.values()];
+  }
+
+  async listSalesEmailMessages(filter: SalesEmailFilter) {
+    const values: unknown[] = [];
+    const where: string[] = [];
+    if (filter.folder) {
+      values.push(filter.folder);
+      where.push(
+        `EXISTS (SELECT 1 FROM app.sales_email_folder_membership folder
+         WHERE folder.email_id = message.email_id AND folder.folder_path = $${values.length})`,
+      );
+    }
+    if (filter.search) {
+      values.push(`%${filter.search}%`);
+      where.push(
+        `(subject ILIKE $${values.length} OR body_text ILIKE $${values.length} OR from_email ILIKE $${values.length})`,
+      );
+    }
+    const condition = where.length ? where.join(" AND ") : "true";
+    const total = await this.pool.query(
+      `SELECT count(*) AS total FROM app.sales_email_message message WHERE ${condition}`,
+      values,
+    );
+    const rows = await this.pool.query(
+      `SELECT email_id, folder_path, direction, source, send_status, message_id,
+              in_reply_to, references_ids, from_name, from_email, to_recipients, cc_recipients,
+              subject, left(body_text, 240) AS body_text,
+              received_at, accepted_at, created_at, error,
+              length(body_text) > 240 AS body_truncated
+       FROM app.sales_email_message message WHERE ${condition}
+       ORDER BY COALESCE(message.received_at, message.accepted_at, message.created_at) DESC
+       LIMIT $${values.length + 1} OFFSET $${values.length + 2}`,
+      [...values, filter.limit, filter.offset],
+    );
+    const text = (value: unknown) =>
+      value === null || value === undefined ? null : String(value);
+    const addresses = (value: unknown) =>
+      (Array.isArray(value) ? value : []) as SalesEmailMessage["to"];
+    return {
+      total: Number(total.rows[0]?.total ?? 0),
+      items: rows.rows.map((row) => ({
+        id: String(row.email_id),
+        folder: filter.folder ?? text(row.folder_path),
+        direction: String(row.direction) as SalesEmailMessage["direction"],
+        source: String(row.source) as SalesEmailMessage["source"],
+        sendStatus: String(row.send_status) as SalesEmailMessage["sendStatus"],
+        messageId: text(row.message_id),
+        inReplyTo: text(row.in_reply_to),
+        references: row.references_ids as string[],
+        fromName: text(row.from_name),
+        fromEmail: String(row.from_email),
+        to: addresses(row.to_recipients),
+        cc: addresses(row.cc_recipients),
+        subject: String(row.subject),
+        body: String(row.body_text),
+        bodyTruncated: row.body_truncated === true,
+        receivedAt:
+          row.received_at === null ? null : this.toIsoString(row.received_at),
+        acceptedAt:
+          row.accepted_at === null ? null : this.toIsoString(row.accepted_at),
+        createdAt: this.toIsoString(row.created_at),
+        error: text(row.error),
+      })),
+    };
+  }
+
+  async listSalesEmailFolders(): Promise<string[]> {
+    const result = await this.pool.query(
+      `SELECT folder_path FROM app.sales_email_folder_membership
+       GROUP BY folder_path ORDER BY folder_path`,
+    );
+    return result.rows.map((row) => String(row.folder_path));
+  }
+
+  async findSalesEmailMessage(id: string): Promise<SalesEmailMessage | null> {
+    const result = await this.pool.query(
+      `SELECT email_id, folder_path, direction, source, send_status, message_id,
+              in_reply_to, references_ids, from_name, from_email, to_recipients, cc_recipients,
+              subject, body_text, received_at, accepted_at, created_at, error,
+              false AS body_truncated
+       FROM app.sales_email_message WHERE email_id = $1::uuid`,
+      [id],
+    );
+    const row = result.rows[0];
+    if (!row) return null;
+    const text = (value: unknown) =>
+      value === null || value === undefined ? null : String(value);
+    const addresses = (value: unknown) =>
+      (Array.isArray(value) ? value : []) as SalesEmailMessage["to"];
+    return {
+      id: String(row.email_id),
+      folder: text(row.folder_path),
+      direction: String(row.direction) as SalesEmailMessage["direction"],
+      source: String(row.source) as SalesEmailMessage["source"],
+      sendStatus: String(row.send_status) as SalesEmailMessage["sendStatus"],
+      messageId: text(row.message_id),
+      inReplyTo: text(row.in_reply_to),
+      references: row.references_ids as string[],
+      fromName: text(row.from_name),
+      fromEmail: String(row.from_email),
+      to: addresses(row.to_recipients),
+      cc: addresses(row.cc_recipients),
+      subject: String(row.subject),
+      body: String(row.body_text),
+      bodyTruncated: false,
+      receivedAt:
+        row.received_at === null ? null : this.toIsoString(row.received_at),
+      acceptedAt:
+        row.accepted_at === null ? null : this.toIsoString(row.accepted_at),
+      createdAt: this.toIsoString(row.created_at),
+      error: text(row.error),
+    };
+  }
+
+  async listSalesEmailThread(id: string): Promise<SalesEmailMessage[]> {
+    const result = await this.pool.query(
+      `WITH root AS (
+         SELECT COALESCE(references_ids[1], in_reply_to, message_id) AS message_id
+         FROM app.sales_email_message WHERE email_id = $1::uuid
+       )
+       SELECT email.email_id, email.folder_path, email.direction, email.source,
+              email.send_status, email.message_id, email.in_reply_to,
+              email.references_ids, email.from_name, email.from_email,
+              email.to_recipients, email.cc_recipients, email.subject,
+              email.body_text, email.received_at, email.accepted_at,
+              email.created_at, email.error
+       FROM app.sales_email_message email CROSS JOIN root
+       WHERE email.email_id = $1::uuid
+          OR (root.message_id IS NOT NULL AND (
+            email.message_id = root.message_id
+            OR email.in_reply_to = root.message_id
+            OR email.references_ids @> ARRAY[root.message_id]
+          ))
+       ORDER BY COALESCE(email.received_at, email.accepted_at, email.created_at), email.email_id
+       LIMIT 100`,
+      [id],
+    );
+    return result.rows.map((row) => ({
+      id: String(row.email_id),
+      folder: row.folder_path === null ? null : String(row.folder_path),
+      direction: String(row.direction) as SalesEmailMessage["direction"],
+      source: String(row.source) as SalesEmailMessage["source"],
+      sendStatus: String(row.send_status) as SalesEmailMessage["sendStatus"],
+      messageId: row.message_id === null ? null : String(row.message_id),
+      inReplyTo: row.in_reply_to === null ? null : String(row.in_reply_to),
+      references: row.references_ids as string[],
+      fromName: row.from_name === null ? null : String(row.from_name),
+      fromEmail: String(row.from_email),
+      to: row.to_recipients as SalesEmailMessage["to"],
+      cc: row.cc_recipients as SalesEmailMessage["cc"],
+      subject: String(row.subject),
+      body: String(row.body_text),
+      bodyTruncated: false,
+      receivedAt:
+        row.received_at === null ? null : this.toIsoString(row.received_at),
+      acceptedAt:
+        row.accepted_at === null ? null : this.toIsoString(row.accepted_at),
+      createdAt: this.toIsoString(row.created_at),
+      error: row.error === null ? null : String(row.error),
+    }));
+  }
+
+  async storeSyncedSalesEmail(
+    email: SyncedSalesEmail,
+  ): Promise<{ id: string; inserted: boolean }> {
+    const result = await this.pool.query(
+      `INSERT INTO app.sales_email_message
+         (folder_path, uid_validity, mailbox_uid, message_id, in_reply_to,
+          references_ids, direction, source, send_status, from_name, from_email,
+          to_recipients, cc_recipients, subject, body_text, received_at)
+       VALUES ($1, $2::bigint, $3::bigint, $4, $5, $6::text[], $7, 'mailbox',
+               'mailbox', $8, $9, $10::jsonb, $11::jsonb, $12, $13, $14::timestamptz)
+       ON CONFLICT DO NOTHING
+       RETURNING email_id`,
+      [
+        email.folder,
+        email.uidValidity,
+        email.uid,
+        email.messageId,
+        email.inReplyTo,
+        email.references,
+        email.direction,
+        email.fromName,
+        email.fromEmail,
+        JSON.stringify(email.to),
+        JSON.stringify(email.cc),
+        email.subject,
+        email.body,
+        email.receivedAt,
+      ],
+    );
+    if (result.rows[0]) {
+      const emailId = String(result.rows[0].email_id);
+      await this.pool.query(
+        `INSERT INTO app.sales_email_folder_membership
+           (folder_path, uid_validity, mailbox_uid, email_id)
+         VALUES ($1, $2::bigint, $3::bigint, $4::uuid)
+         ON CONFLICT DO NOTHING`,
+        [email.folder, email.uidValidity, email.uid, emailId],
+      );
+      return { id: emailId, inserted: true };
+    }
+    const existing = await this.pool.query(
+      `SELECT email_id FROM app.sales_email_message
+       WHERE (folder_path = $1 AND uid_validity = $2::bigint AND mailbox_uid = $3::bigint)
+          OR ($4::text IS NOT NULL AND message_id = $4)
+       LIMIT 1`,
+      [email.folder, email.uidValidity, email.uid, email.messageId],
+    );
+    if (!existing.rows[0])
+      throw new Error("Synced sales email conflict could not be found");
+    const emailId = String(existing.rows[0].email_id);
+    await this.pool.query(
+      `INSERT INTO app.sales_email_folder_membership
+         (folder_path, uid_validity, mailbox_uid, email_id)
+       VALUES ($1, $2::bigint, $3::bigint, $4::uuid)
+       ON CONFLICT DO NOTHING`,
+      [email.folder, email.uidValidity, email.uid, emailId],
+    );
+    return { id: emailId, inserted: false };
+  }
+
+  async hasSalesEmailAttachment(
+    emailId: string,
+    partIndex: number,
+  ): Promise<boolean> {
+    const result = await this.pool.query(
+      `SELECT 1 FROM app.sales_email_attachment WHERE email_id = $1::uuid AND part_index = $2`,
+      [emailId, partIndex],
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async saveSalesEmailAttachment(input: {
+    id: string;
+    emailId: string;
+    partIndex: number;
+    filename: string;
+    sizeBytes: number;
+    objectKey: string | null;
+  }): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO app.sales_email_attachment
+         (attachment_id, email_id, part_index, filename, size_bytes, object_key)
+       VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6)
+       ON CONFLICT (email_id, part_index) DO NOTHING`,
+      [
+        input.id,
+        input.emailId,
+        input.partIndex,
+        input.filename,
+        input.sizeBytes,
+        input.objectKey,
+      ],
+    );
+  }
+
+  async listSalesEmailAttachments(
+    emailId: string,
+  ): Promise<SalesEmailAttachment[]> {
+    const result = await this.pool.query(
+      `SELECT attachment_id, filename, size_bytes, object_key FROM app.sales_email_attachment
+       WHERE email_id = $1::uuid ORDER BY part_index`,
+      [emailId],
+    );
+    return result.rows.map((row) => ({
+      id: String(row.attachment_id),
+      filename: String(row.filename),
+      sizeBytes: Number(row.size_bytes),
+      available: row.object_key !== null,
+    }));
+  }
+
+  async findSalesEmailAttachment(
+    emailId: string,
+    attachmentId: string,
+  ): Promise<(SalesEmailAttachment & { objectKey: string | null }) | null> {
+    const result = await this.pool.query(
+      `SELECT attachment_id, filename, size_bytes, object_key
+       FROM app.sales_email_attachment WHERE email_id = $1::uuid AND attachment_id = $2::uuid`,
+      [emailId, attachmentId],
+    );
+    const row = result.rows[0];
+    return row
+      ? {
+          id: String(row.attachment_id),
+          filename: String(row.filename),
+          sizeBytes: Number(row.size_bytes),
+          objectKey: row.object_key === null ? null : String(row.object_key),
+          available: row.object_key !== null,
+        }
+      : null;
+  }
+
+  async getSalesEmailSyncCursor(folder: string) {
+    const result = await this.pool.query(
+      `SELECT uid_validity, last_uid FROM app.sales_email_sync_cursor WHERE folder_path = $1`,
+      [folder],
+    );
+    const row = result.rows[0];
+    return row
+      ? { uidValidity: String(row.uid_validity), lastUid: Number(row.last_uid) }
+      : null;
+  }
+
+  async acquireSalesEmailSyncLock(): Promise<(() => Promise<void>) | null> {
+    const client = await this.pool.connect();
+    try {
+      const result = await client.query(
+        "SELECT pg_try_advisory_lock(684321, 2) AS acquired",
+      );
+      if (result.rows[0]?.acquired !== true) {
+        client.release();
+        return null;
+      }
+      return async () => {
+        try {
+          const unlocked = await client.query(
+            "SELECT pg_advisory_unlock(684321, 2) AS unlocked",
+          );
+          if (unlocked.rows[0]?.unlocked !== true) {
+            throw new Error("Sales mailbox sync lock was not held");
+          }
+          client.release();
+        } catch (error) {
+          client.release(
+            error instanceof Error
+              ? error
+              : new Error("Could not release lock"),
+          );
+          throw error;
+        }
+      };
+    } catch (error) {
+      client.release(error instanceof Error ? error : new Error("Lock failed"));
+      throw error;
+    }
+  }
+
+  async saveSalesEmailSyncCursor(cursor: {
+    folder: string;
+    uidValidity: string;
+    lastUid: number;
+  }): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO app.sales_email_sync_cursor (folder_path, uid_validity, last_uid)
+       VALUES ($1, $2::bigint, $3::bigint)
+       ON CONFLICT (folder_path) DO UPDATE SET
+         uid_validity = EXCLUDED.uid_validity,
+         last_uid = CASE WHEN app.sales_email_sync_cursor.uid_validity = EXCLUDED.uid_validity
+                         THEN GREATEST(app.sales_email_sync_cursor.last_uid, EXCLUDED.last_uid)
+                         ELSE EXCLUDED.last_uid END,
+         synced_at = clock_timestamp()`,
+      [cursor.folder, cursor.uidValidity, cursor.lastUid],
+    );
+  }
+
+  async listCampaignRecipientEmails(campaignIds: string[]): Promise<string[]> {
+    if (campaignIds.length === 0) return [];
+    const result = await this.pool.query(
+      `SELECT DISTINCT lower(btrim(email)) AS email
+       FROM app.prospect prospect
+       JOIN app.lead_campaign campaign
+         ON campaign.campaign_id = prospect.campaign_id AND campaign.status = 'active'
+       CROSS JOIN LATERAL unnest(prospect.emails) AS email
+       WHERE prospect.campaign_id = ANY($1::uuid[])
+         AND prospect.dismissed_at IS NULL
+         AND length(btrim(email)) BETWEEN 3 AND 254
+       ORDER BY email`,
+      [campaignIds],
+    );
+    return result.rows.map((row) => String(row.email));
+  }
+
+  async listSuppressedSalesEmails(emails: string[]): Promise<string[]> {
+    if (emails.length === 0) return [];
+    const result = await this.pool.query(
+      `SELECT lower(email) AS email FROM app.sales_email_suppression
+       WHERE lower(email) = ANY($1::text[])`,
+      [emails.map((email) => email.toLowerCase())],
+    );
+    return result.rows.map((row) => String(row.email));
+  }
+
+  async suppressSalesEmail(input: {
+    email: string;
+    reason: "unsubscribe" | "manual" | "bounce";
+  }): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO app.sales_email_suppression (email, reason)
+       VALUES (lower($1), $2)
+       ON CONFLICT (email) DO NOTHING`,
+      [input.email, input.reason],
+    );
+  }
+
+  async queueSalesEmailMessage(
+    send: NewSalesEmailSend,
+  ): Promise<"queued" | "suppressed" | "draft_already_sent"> {
+    const suppressed = await this.listSuppressedSalesEmails([
+      send.recipientEmail,
+    ]);
+    if (suppressed.length) return "suppressed";
+    const result = await this.pool.query(
+      `INSERT INTO app.sales_email_message
+         (email_id, direction, source, send_status, from_email, to_recipients,
+          subject, body_text, created_by, draft_id, campaign_ids, in_reply_to, references_ids)
+       VALUES ($1::uuid, 'outgoing', 'platform', 'queued', $2,
+               $3::jsonb, $4, $5, $6::uuid, $7::uuid, $8::uuid[], $9, $10::text[])
+       ON CONFLICT DO NOTHING
+       RETURNING email_id`,
+      [
+        send.id,
+        send.fromEmail,
+        JSON.stringify([{ name: null, email: send.recipientEmail }]),
+        send.subject,
+        send.body,
+        send.createdBy,
+        send.draftId ?? null,
+        send.campaignIds,
+        send.inReplyTo ?? null,
+        send.references ?? [],
+      ],
+    );
+    if (result.rowCount) return "queued";
+    return send.draftId ? "draft_already_sent" : "queued";
+  }
+
+  async retrySalesEmailMessage(
+    id: string,
+  ): Promise<"queued" | "suppressed" | "not_failed"> {
+    const retried = await this.pool.query(
+      `UPDATE app.sales_email_message message
+       SET send_status = 'queued', error = NULL, message_id = NULL,
+           send_started_at = NULL, accepted_at = NULL
+       WHERE message.email_id = $1::uuid AND message.source = 'platform'
+         AND message.send_status = 'failed'
+         AND NOT EXISTS (
+           SELECT 1 FROM app.sales_email_suppression suppression
+           WHERE lower(suppression.email) = lower(message.to_recipients->0->>'email')
+         )
+       RETURNING message.email_id`,
+      [id],
+    );
+    if (retried.rowCount) return "queued";
+    const blocked = await this.pool.query(
+      `SELECT 1 FROM app.sales_email_message message
+       JOIN app.sales_email_suppression suppression
+         ON lower(suppression.email) = lower(message.to_recipients->0->>'email')
+       WHERE message.email_id = $1::uuid AND message.source = 'platform'
+         AND message.send_status = 'failed'`,
+      [id],
+    );
+    return blocked.rowCount ? "suppressed" : "not_failed";
+  }
+
+  async findSalesEmailSendRequest(
+    id: string,
+  ): Promise<SalesEmailSendRequestResult | null> {
+    const result = await this.pool.query(
+      `SELECT payload_hash, queued_count, suppressed_count
+       FROM app.sales_email_send_request WHERE request_id = $1::uuid`,
+      [id],
+    );
+    const row = result.rows[0];
+    return row
+      ? {
+          payloadHash: String(row.payload_hash),
+          queued: Number(row.queued_count),
+          suppressed: Number(row.suppressed_count),
+        }
+      : null;
+  }
+
+  async queueSalesEmailComposition(input: {
+    requestId: string;
+    payloadHash: string;
+    createdBy: string;
+    initialSuppressed: number;
+    sends: NewSalesEmailSend[];
+  }): Promise<SalesEmailSendRequestResult> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        `SELECT pg_advisory_xact_lock(hashtext('sales_email_send_request'), hashtext($1))`,
+        [input.requestId],
+      );
+      const existing = await client.query(
+        `SELECT payload_hash, queued_count, suppressed_count
+         FROM app.sales_email_send_request WHERE request_id = $1::uuid`,
+        [input.requestId],
+      );
+      if (existing.rows[0]) {
+        await client.query("COMMIT");
+        const row = existing.rows[0];
+        return {
+          payloadHash: String(row.payload_hash),
+          queued: Number(row.queued_count),
+          suppressed: Number(row.suppressed_count),
+        };
+      }
+      await client.query(
+        `INSERT INTO app.sales_email_send_request (request_id, created_by, payload_hash)
+         VALUES ($1::uuid, $2::uuid, $3)`,
+        [input.requestId, input.createdBy, input.payloadHash],
+      );
+      let queued = 0;
+      let suppressed = input.initialSuppressed;
+      for (const send of input.sends) {
+        const blocked = await client.query(
+          `SELECT 1 FROM app.sales_email_suppression WHERE lower(email) = lower($1)`,
+          [send.recipientEmail],
+        );
+        if (blocked.rowCount) {
+          suppressed += 1;
+          continue;
+        }
+        await client.query(
+          `INSERT INTO app.sales_email_message
+             (email_id, direction, source, send_status, from_email, to_recipients,
+              subject, body_text, created_by, campaign_ids, in_reply_to,
+              references_ids, send_request_id)
+           VALUES ($1::uuid, 'outgoing', 'platform', 'queued', $2, $3::jsonb,
+                   $4, $5, $6::uuid, $7::uuid[], $8, $9::text[], $10::uuid)`,
+          [
+            send.id,
+            send.fromEmail,
+            JSON.stringify([{ name: null, email: send.recipientEmail }]),
+            send.subject,
+            send.body,
+            send.createdBy,
+            send.campaignIds,
+            send.inReplyTo ?? null,
+            send.references ?? [],
+            input.requestId,
+          ],
+        );
+        queued += 1;
+      }
+      await client.query(
+        `UPDATE app.sales_email_send_request
+         SET queued_count = $2, suppressed_count = $3 WHERE request_id = $1::uuid`,
+        [input.requestId, queued, suppressed],
+      );
+      await client.query("COMMIT");
+      return { payloadHash: input.payloadHash, queued, suppressed };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async claimSalesEmailMessages(
+    limit: number,
+  ): Promise<ClaimedSalesEmailSend[]> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SELECT pg_advisory_xact_lock(684321, 1)");
+      await client.query(
+        `WITH stale_attempts AS (
+           UPDATE app.sales_email_send_attempt
+           SET status = 'unknown', finished_at = clock_timestamp(),
+               error = 'Worker stopped before recording the provider result'
+           WHERE status = 'sending'
+             AND started_at < clock_timestamp() - interval '10 minutes'
+           RETURNING email_id
+         )
+         UPDATE app.sales_email_message message
+         SET send_status = 'unknown',
+             error = 'Worker stopped before recording the provider result'
+         FROM stale_attempts
+         WHERE message.email_id = stale_attempts.email_id
+           AND message.send_status = 'sending'`,
+      );
+      await client.query(
+        `UPDATE app.sales_email_message email
+       SET send_status = 'failed', error = 'Recipient is suppressed'
+       WHERE email.send_status = 'queued'
+         AND EXISTS (
+           SELECT 1 FROM app.sales_email_suppression suppression
+           WHERE lower(suppression.email) = lower(email.to_recipients->0->>'email')
+         )`,
+      );
+      const result = await client.query(
+        `WITH limits AS (
+           SELECT (settings->'salesEmailLimits'->>'dailyCap')::int AS daily_cap,
+                  (settings->'salesEmailLimits'->>'gapSeconds')::int AS gap_seconds,
+                  (settings->'salesEmailLimits'->>'campaignDailyCap')::int AS campaign_daily_cap
+           FROM app.business_settings_revision
+           -- A later save that leaves the limit fields blank must not pause
+           -- sending: use the latest revision that sets them.
+           WHERE settings->'salesEmailLimits' IS NOT NULL
+           ORDER BY revision_number DESC LIMIT 1
+         ), selected AS (
+         SELECT candidate.email_id FROM app.sales_email_message candidate
+         WHERE candidate.send_status = 'queued'
+           AND EXISTS (SELECT 1 FROM limits WHERE daily_cap BETWEEN 1 AND 500
+             AND gap_seconds BETWEEN 1 AND 3600
+             AND campaign_daily_cap BETWEEN 1 AND 500)
+           AND (
+             SELECT count(*) FROM app.sales_email_send_attempt attempt
+             JOIN app.sales_email_message sent ON sent.email_id = attempt.email_id
+             WHERE sent.source = 'platform'
+               AND attempt.started_at >= date_trunc('day', clock_timestamp() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
+           ) < (SELECT daily_cap FROM limits)
+           AND NOT EXISTS (
+             SELECT 1 FROM app.sales_email_send_attempt attempt
+             JOIN app.sales_email_message sent ON sent.email_id = attempt.email_id
+             WHERE sent.source = 'platform'
+               AND attempt.started_at > clock_timestamp() -
+                 make_interval(secs => (SELECT gap_seconds FROM limits))
+           )
+           AND NOT EXISTS (
+             SELECT 1 FROM unnest(candidate.campaign_ids) AS campaign_id(id)
+             WHERE (
+               SELECT count(*) FROM app.sales_email_send_attempt attempt
+               JOIN app.sales_email_message sent ON sent.email_id = attempt.email_id
+               WHERE sent.source = 'platform'
+                 AND attempt.started_at >= date_trunc('day', clock_timestamp() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
+                 AND campaign_id.id = ANY(sent.campaign_ids)
+             ) >= (SELECT campaign_daily_cap FROM limits)
+           )
+         ORDER BY candidate.created_at
+         FOR UPDATE SKIP LOCKED
+         LIMIT LEAST($1, 1)
+       )
+       UPDATE app.sales_email_message email
+       SET send_status = 'sending', send_started_at = clock_timestamp()
+       FROM selected
+       WHERE email.email_id = selected.email_id
+       RETURNING email.email_id, email.to_recipients, email.subject, email.body_text,
+                 email.in_reply_to, email.references_ids`,
+        [limit],
+      );
+      await client.query(
+        `INSERT INTO app.sales_email_send_attempt (email_id, started_at, status)
+         SELECT email_id, send_started_at, 'sending'
+         FROM app.sales_email_message WHERE email_id = ANY($1::uuid[])`,
+        [result.rows.map((row) => String(row.email_id))],
+      );
+      await client.query("COMMIT");
+      return result.rows.map((row) => ({
+        id: String(row.email_id),
+        recipientEmail: String(
+          (row.to_recipients as Array<{ email: string }>)[0]?.email,
+        ),
+        subject: String(row.subject),
+        body: String(row.body_text),
+        inReplyTo: row.in_reply_to === null ? null : String(row.in_reply_to),
+        references: row.references_ids as string[],
+      }));
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async setSalesEmailSendingBody(id: string, body: string): Promise<void> {
+    await this.pool.query(
+      `UPDATE app.sales_email_message SET body_text = $2
+       WHERE email_id = $1::uuid AND send_status = 'sending'`,
+      [id, body],
+    );
+  }
+
+  async finishSalesEmailMessage(input: {
+    id: string;
+    status: "accepted" | "failed" | "unknown" | "stubbed";
+    messageId?: string | null;
+    error?: string | null;
+  }): Promise<void> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const finished = await client.query(
+        `UPDATE app.sales_email_message
+       SET send_status = $2,
+           -- A copy filed in Sent may already hold this Message-ID (unique);
+           -- keep the status either way rather than failing the whole finish.
+           message_id = COALESCE(
+             CASE WHEN $3::text IS NOT NULL AND NOT EXISTS (
+                    SELECT 1 FROM app.sales_email_message other
+                    WHERE other.message_id = $3::text AND other.email_id <> $1::uuid)
+                  THEN $3::text END,
+             message_id),
+           accepted_at = CASE WHEN $2 = 'accepted' THEN clock_timestamp() END,
+           error = $4
+       WHERE email_id = $1::uuid AND send_status = 'sending'
+       RETURNING draft_id, campaign_ids, to_recipients, subject, created_by`,
+        [input.id, input.status, input.messageId ?? null, input.error ?? null],
+      );
+      const message = finished.rows[0];
+      if (message) {
+        await client.query(
+          `UPDATE app.sales_email_send_attempt
+           SET status = $2, finished_at = clock_timestamp(), error = $3,
+               provider_message_id = $4
+           WHERE email_id = $1::uuid AND status = 'sending'`,
+          [
+            input.id,
+            input.status,
+            input.error ?? null,
+            input.messageId ?? null,
+          ],
+        );
+      }
+      if (message && input.status === "accepted") {
+        const recipient = (message.to_recipients as Array<{ email: string }>)[0]
+          ?.email;
+        const leads = await client.query(
+          `SELECT DISTINCT prospect.promoted_lead_id AS lead_id
+           FROM app.prospect prospect
+           WHERE prospect.promoted_lead_id IS NOT NULL
+             AND (
+               ($1::uuid IS NOT NULL
+                AND prospect.prospect_id = (SELECT draft.prospect_id FROM app.outreach_draft draft
+                                            WHERE draft.draft_id = $1::uuid))
+               OR ($1::uuid IS NULL AND prospect.campaign_id = ANY($2::uuid[])
+                   AND EXISTS (SELECT 1 FROM unnest(prospect.emails) address
+                               WHERE lower(address) = lower($3)))
+             )
+           LIMIT 2`,
+          [message.draft_id, message.campaign_ids, recipient],
+        );
+        if (leads.rows.length === 1) {
+          const leadId = String(leads.rows[0].lead_id);
+          await client.query(
+            `UPDATE app.lead
+             SET stage = 'contacted', stage_changed_at = clock_timestamp(),
+                 updated_at = clock_timestamp()
+             WHERE lead_id = $1::uuid AND stage = 'new'`,
+            [leadId],
+          );
+          await client.query(
+            `INSERT INTO app.lead_activity (lead_id, kind, note, created_by)
+             VALUES ($1::uuid, 'email', $2, $3::uuid)`,
+            [
+              leadId,
+              `Sales email accepted by SMTP: ${String(message.subject)}`,
+              message.created_by,
+            ],
+          );
+        }
+      }
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   private toIsoString(value: unknown): string {
