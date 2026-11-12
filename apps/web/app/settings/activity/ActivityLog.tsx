@@ -6,6 +6,7 @@ import { authenticatedFetch } from "../../auth/authenticatedFetch";
 import adminStyles from "../../admin/users/adminUsers.module.css";
 import styles from "./activityLog.module.css";
 import { ErrorPopup } from "../../ErrorPopup";
+import { describeAction, describeResult } from "./activityLabels";
 
 const apiBaseUrl =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:3001/api";
@@ -29,6 +30,17 @@ type ActivityPage = {
   entries: ActivityEntry[];
 };
 
+type Filters = { actor: string; entity: string; from: string; to: string };
+
+const noFilters: Filters = { actor: "", entity: "", from: "", to: "" };
+
+/** A date-time box value (local time, minute precision) as an ISO instant. */
+function toIso(value: string, endOfMinute: boolean): string {
+  const date = new Date(value);
+  if (endOfMinute) date.setSeconds(59, 999);
+  return date.toISOString();
+}
+
 function formatDate(value: string): string {
   return new Intl.DateTimeFormat(undefined, {
     dateStyle: "medium",
@@ -42,53 +54,69 @@ export function ActivityLog() {
   const [pageSize, setPageSize] = useState(50);
   const [actor, setActor] = useState("");
   const [entity, setEntity] = useState("");
-  const [applied, setApplied] = useState({ actor: "", entity: "" });
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [applied, setApplied] = useState<Filters>(noFilters);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
 
-  const load = useCallback(
-    async (nextPage: number, filters: { actor: string; entity: string }) => {
-      setLoading(true);
-      setError("");
-      try {
-        const query = new URLSearchParams({ page: String(nextPage) });
-        if (filters.actor.trim()) query.set("actor", filters.actor.trim());
-        if (filters.entity.trim()) query.set("entity", filters.entity.trim());
-        const response = await authenticatedFetch(`${activityUrl}?${query}`);
-        if (!response.ok) {
-          const body = (await response.json().catch(() => null)) as {
-            message?: string | string[];
-          } | null;
-          throw new Error(
-            (Array.isArray(body?.message)
-              ? body.message.join(", ")
-              : body?.message) ?? "The activity log could not be loaded",
-          );
-        }
-        const result = (await response.json()) as ActivityPage;
-        setEntries(result.entries);
-        setPage(result.page);
-        setPageSize(result.pageSize);
-      } catch (cause) {
-        setError(
-          cause instanceof Error ? cause.message : "The activity log failed",
+  const load = useCallback(async (nextPage: number, filters: Filters) => {
+    setLoading(true);
+    setError("");
+    try {
+      const query = new URLSearchParams({ page: String(nextPage) });
+      if (filters.actor.trim()) query.set("actor", filters.actor.trim());
+      if (filters.entity.trim()) query.set("entity", filters.entity.trim());
+      if (filters.from) query.set("from", toIso(filters.from, false));
+      if (filters.to) query.set("to", toIso(filters.to, true));
+      const response = await authenticatedFetch(`${activityUrl}?${query}`);
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as {
+          message?: string | string[];
+        } | null;
+        throw new Error(
+          (Array.isArray(body?.message)
+            ? body.message.join(", ")
+            : body?.message) ?? "The activity log could not be loaded",
         );
-      } finally {
-        setLoading(false);
       }
-    },
-    [],
-  );
+      const result = (await response.json()) as ActivityPage;
+      setEntries(result.entries);
+      setPage(result.page);
+      setPageSize(result.pageSize);
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "The activity log failed",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    void load(1, { actor: "", entity: "" });
+    void load(1, noFilters);
   }, [load]);
 
   function applyFilters(event: FormEvent) {
     event.preventDefault();
-    const filters = { actor, entity };
+    if (from && to && new Date(from) > new Date(to)) {
+      setError(
+        "The “From” date and time must be before the “To” date and time",
+      );
+      return;
+    }
+    const filters = { actor, entity, from, to };
     setApplied(filters);
     void load(1, filters);
+  }
+
+  function clearFilters() {
+    setActor("");
+    setEntity("");
+    setFrom("");
+    setTo("");
+    setApplied(noFilters);
+    void load(1, noFilters);
   }
 
   return (
@@ -117,7 +145,26 @@ export function ActivityLog() {
               value={entity}
             />
           </label>
+          <label>
+            From (date and time)
+            <input
+              onChange={(event) => setFrom(event.target.value)}
+              type="datetime-local"
+              value={from}
+            />
+          </label>
+          <label>
+            To (date and time)
+            <input
+              onChange={(event) => setTo(event.target.value)}
+              type="datetime-local"
+              value={to}
+            />
+          </label>
           <button type="submit">Apply filters</button>
+          <button onClick={clearFilters} type="button">
+            Clear
+          </button>
         </form>
 
         <ErrorPopup message={error} />
@@ -130,7 +177,7 @@ export function ActivityLog() {
                 <th>Action</th>
                 <th>Record</th>
                 <th>Result</th>
-                <th>IP</th>
+                <th>IP address</th>
               </tr>
             </thead>
             <tbody>
@@ -141,16 +188,21 @@ export function ActivityLog() {
                     {entry.actorName ?? entry.actorUserId}
                   </td>
                   <td data-label="Action" data-wide>
-                    {entry.method} {entry.route}
+                    {describeAction(entry.method, entry.route)}
                   </td>
                   <td data-label="Record" data-wide>
                     {entry.entityId ?? "—"}
                   </td>
                   <td
-                    className={entry.statusCode >= 400 ? styles.denied : ""}
+                    className={
+                      describeResult(entry.statusCode).failed
+                        ? styles.denied
+                        : ""
+                    }
                     data-label="Result"
+                    title={`Status ${entry.statusCode}`}
                   >
-                    {entry.statusCode}
+                    {describeResult(entry.statusCode).text}
                   </td>
                   <td data-label="IP">{entry.clientIp ?? "—"}</td>
                 </tr>
