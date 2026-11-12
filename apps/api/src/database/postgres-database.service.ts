@@ -3804,7 +3804,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
   ): Promise<SalesServiceReportRecord> {
     const result = await this.pool.query(
       `WITH period_leads AS (
-         SELECT source FROM app.lead
+         SELECT source, campaign_id, stage FROM app.lead
          WHERE (created_at AT TIME ZONE 'UTC')::date BETWEEN $1::date AND $2::date
        ),
        period_requests AS (
@@ -3828,6 +3828,18 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
          (SELECT coalesce(json_object_agg(source, n), '{}'::json)
           FROM (SELECT source, count(*) AS n FROM period_leads GROUP BY source) AS x
          ) AS leads_by_source,
+         (SELECT coalesce(json_agg(json_build_object(
+                    'campaign', x.name, 'newLeads', x.n, 'won', x.won)
+                  ORDER BY x.n DESC, x.name), '[]'::json)
+          FROM (SELECT coalesce(campaign.name, 'A campaign that was deleted') AS name,
+                       count(*) AS n,
+                       count(*) FILTER (WHERE lead.stage = 'won') AS won
+                FROM period_leads AS lead
+                LEFT JOIN app.lead_campaign AS campaign
+                  ON campaign.campaign_id = lead.campaign_id
+                WHERE lead.source = 'campaign'
+                GROUP BY campaign.campaign_id, campaign.name) AS x
+         ) AS leads_by_campaign,
          (SELECT coalesce(json_object_agg(stage, n), '{}'::json)
           FROM (SELECT stage, count(*) AS n FROM app.lead GROUP BY stage) AS x
          ) AS pipeline,
@@ -3869,6 +3881,13 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     return {
       newLeads: Number(row.new_leads),
       leadsBySource: counts(row.leads_by_source),
+      leadsByCampaign: (
+        (row.leads_by_campaign as Array<Record<string, unknown>>) ?? []
+      ).map((entry) => ({
+        campaign: String(entry.campaign),
+        newLeads: Number(entry.newLeads),
+        won: Number(entry.won),
+      })),
       pipeline: counts(row.pipeline),
       requestsBySource: counts(row.requests_by_source),
       inquiries: Number(row.inquiries),
@@ -6656,11 +6675,13 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
            to_char(lead.next_follow_up, 'YYYY-MM-DD') AS next_follow_up_text,
            lead.notes, lead.lost_reason, lead.quote_request_id,
            lead.customer_company_id, company.company_name AS customer_company_name,
+           lead.campaign_id, campaign.name AS campaign_name,
            lead.created_at, lead.updated_at, lead.stage_changed_at
     FROM app.lead lead
     LEFT JOIN auth.users owner ON owner.id = lead.owner_id
     LEFT JOIN app.customer_company company
-      ON company.company_id = lead.customer_company_id`;
+      ON company.company_id = lead.customer_company_id
+    LEFT JOIN app.lead_campaign campaign ON campaign.campaign_id = lead.campaign_id`;
 
   private mapLead(row: Record<string, unknown>): LeadRecord {
     const optional = (value: unknown) =>
@@ -6686,6 +6707,8 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       quoteRequestId: optional(row.quote_request_id),
       customerCompanyId: optional(row.customer_company_id),
       customerCompanyName: optional(row.customer_company_name),
+      campaignId: optional(row.campaign_id),
+      campaignName: optional(row.campaign_name),
       createdAt: this.toIsoString(row.created_at),
       updatedAt: this.toIsoString(row.updated_at),
       stageChangedAt: this.toIsoString(row.stage_changed_at),

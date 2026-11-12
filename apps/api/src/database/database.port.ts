@@ -1067,6 +1067,9 @@ export interface LeadRecord {
   quoteRequestId: string | null;
   customerCompanyId: string | null;
   customerCompanyName: string | null;
+  /** The campaign that found it; null for a lead made by hand, or when the campaign was deleted. */
+  campaignId: string | null;
+  campaignName: string | null;
   createdAt: string;
   updatedAt: string;
   stageChangedAt: string;
@@ -1093,6 +1096,11 @@ export interface SalesPeriodRecord {
 export interface SalesServiceReportRecord {
   newLeads: number;
   leadsBySource: Record<string, number>;
+  /**
+   * New leads from a campaign, per campaign, with how many of them are won now. Leads
+   * whose campaign was deleted are one row, named "A campaign that was deleted".
+   */
+  leadsByCampaign: Array<{ campaign: string; newLeads: number; won: number }>;
   /** Every lead today, by stage: the pipeline. */
   pipeline: Record<string, number>;
   requestsBySource: Record<string, number>;
@@ -2469,6 +2477,8 @@ export abstract class DatabasePort {
       LeadRecord,
       | "ownerName"
       | "customerCompanyName"
+      | "campaignId"
+      | "campaignName"
       | "updatedAt"
       | "stageChangedAt"
       | "createdAt"

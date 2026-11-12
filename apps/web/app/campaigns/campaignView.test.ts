@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   isActiveRun,
+  leadCampaignNote,
   joinWords,
   parseWords,
   prospectQuery,
@@ -164,4 +165,36 @@ test("a website is a link only when it is a plain web address", () => {
   ]) {
     assert.equal(safeWebUrl(value), null, String(value));
   }
+});
+
+test("a campaign lead says which campaign it came from, as a link only for those who may open it", () => {
+  const found = {
+    source: "campaign",
+    campaignId: "c-1",
+    campaignName: "Food importers in Accra",
+  };
+  assert.deepEqual(leadCampaignNote(found, true), {
+    text: "Food importers in Accra",
+    href: "/campaigns/c-1",
+  });
+  assert.deepEqual(leadCampaignNote(found, false), {
+    text: "Food importers in Accra",
+    href: null,
+  });
+  // The campaign was deleted: the lead stays, and says so.
+  assert.deepEqual(
+    leadCampaignNote(
+      { source: "campaign", campaignId: null, campaignName: null },
+      true,
+    ),
+    { text: "The campaign was deleted", href: null },
+  );
+  // Any other source has nothing to add.
+  assert.equal(
+    leadCampaignNote(
+      { source: "walk_in", campaignId: null, campaignName: null },
+      true,
+    ),
+    null,
+  );
 });

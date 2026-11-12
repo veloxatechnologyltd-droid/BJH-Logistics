@@ -19,6 +19,8 @@ import { POSTGRES_POOL } from "../src/database/postgres-database.service";
 import type { PostgresPool } from "../src/database/postgres-database.service";
 import { BUSINESS_SEARCH_PROVIDER } from "../src/leads/business-search";
 import { StubBusinessSearchProvider } from "../src/leads/business-search";
+import { ReportPdfService } from "../src/reports/report-pdf.service";
+import type { ReportBlock } from "../src/reports/report-pdf";
 import { LeadRunPipeline } from "../src/leads/lead-run-pipeline.service";
 import { RulesProspectScorer } from "../src/leads/prospect-scoring";
 import { StubWebsiteContactFinder } from "../src/leads/website-contacts";
@@ -602,6 +604,16 @@ test("chosen prospects become leads once, with an activity, and repeating change
     board.find((item) => item.id === lead.lead_id)?.source,
     "campaign",
   );
+  // The board says which campaign found it.
+  const onBoard = (await (await call("/api/v1/leads", admin)).json()) as Array<{
+    id: string;
+    campaignId: string | null;
+    campaignName: string | null;
+  }>;
+  const found = onBoard.find((item) => item.id === lead.lead_id)!;
+  assert.equal(found.campaignId, campaign.id);
+  assert.equal(found.campaignName, campaign.name);
+
   const activities = (await (
     await call(`/api/v1/leads/${lead.lead_id}/activities`, admin)
   ).json()) as Array<{ kind: string; note: string; createdBy: string }>;
@@ -742,4 +754,173 @@ test("deleting a campaign removes its runs and prospects but keeps the leads mad
   ).rows[0];
   assert.equal(lead.source, "campaign");
   assert.equal(lead.campaign_id, null);
+  // On the board it is still a campaign lead, but the campaign's name is gone.
+  const onBoard = (await (await call("/api/v1/leads", admin)).json()) as Array<{
+    id: string;
+    source: string;
+    campaignId: string | null;
+    campaignName: string | null;
+  }>;
+  const kept = onBoard.find((item) => item.id === leadId)!;
+  assert.deepEqual(
+    [kept.source, kept.campaignId, kept.campaignName],
+    ["campaign", null, null],
+  );
+});
+
+type TableBlock = Extract<ReportBlock, { kind: "table" }>;
+type BarsBlock = Extract<ReportBlock, { kind: "bars" }>;
+
+test("the Sales report counts new leads by campaign, with won ones, and keeps a deleted campaign's leads apart", async () => {
+  const day = new Date().toISOString().slice(0, 10);
+  const sales = async () =>
+    (
+      await application
+        .get(ReportPdfService)
+        .document({ type: "sales-pipeline", from: day, to: day }, {}, [
+          "super_admin",
+        ])
+    ).document.blocks;
+  const tableWith = (blocks: ReportBlock[], first: string) =>
+    blocks.find(
+      (block): block is TableBlock =>
+        block.kind === "table" && block.columns[0].header === first,
+    )!;
+  const row = (blocks: ReportBlock[], name: string) =>
+    tableWith(blocks, "Campaign").rows.find((entry) => entry[0] === name);
+
+  const a = await newCampaign({ name: "Report campaign A", maxProspects: 3 });
+  const b = await newCampaign({ name: "Report campaign B", maxProspects: 2 });
+  const leadIds: Record<string, string[]> = { a: [], b: [] };
+  for (const [key, campaign, count] of [
+    ["a", a, 2],
+    ["b", b, 1],
+  ] as const) {
+    await send("POST", `/api/v1/campaigns/${campaign.id}/runs`, admin);
+    await runToEnd(pipeline(), campaign.id);
+    const chosen = (await prospects(campaign.id)).items.slice(0, count);
+    const promoted = (await (
+      await send(
+        "POST",
+        `/api/v1/campaigns/${campaign.id}/prospects/promote`,
+        admin,
+        { prospectIds: chosen.map((item) => item.id) },
+      )
+    ).json()) as { results: Array<{ leadId: string }> };
+    leadIds[key] = promoted.results.map((entry) => entry.leadId);
+  }
+
+  // A lead logged by hand is not a campaign lead and must not appear among them.
+  assert.equal(
+    (
+      await send("POST", "/api/v1/leads", admin, {
+        companyName: "Walk-in Synthetic Ltd",
+        source: "walk_in",
+      })
+    ).status,
+    201,
+  );
+
+  // One of A's leads becomes a customer: it counts as won.
+  const customerId = randomUUID();
+  await database.createCustomer({
+    id: customerId,
+    companyName: "Report Won Customer Ltd",
+    tradingName: null,
+    website: null,
+    phone: null,
+    companyEmail: null,
+    createdAt: new Date().toISOString(),
+    contacts: [],
+  });
+  assert.equal(
+    (
+      await send("PATCH", `/api/v1/leads/${leadIds.a[0]}`, admin, {
+        stage: "won",
+        customerCompanyId: customerId,
+      })
+    ).status,
+    200,
+  );
+
+  const before = await sales();
+  assert.deepEqual(row(before, "Report campaign A"), [
+    "Report campaign A",
+    "2",
+    "1",
+  ]);
+  assert.deepEqual(row(before, "Report campaign B"), [
+    "Report campaign B",
+    "1",
+    "0",
+  ]);
+  const deletedBefore = Number(
+    row(before, "A campaign that was deleted")?.[1] ?? 0,
+  );
+  // The source chart and this table agree on how many leads came from campaigns.
+  const campaignLeads = (blocks: ReportBlock[]) =>
+    tableWith(blocks, "Campaign").rows.reduce(
+      (sum, entry) => sum + Number(entry[1]),
+      0,
+    );
+  const bars = (blocks: ReportBlock[]) =>
+    blocks.find(
+      (block): block is BarsBlock =>
+        block.kind === "bars" && block.rows.some((r) => r[0] === "Campaign"),
+    )!;
+  assert.equal(
+    bars(before).rows.find((entry) => entry[0] === "Campaign")![1],
+    campaignLeads(before),
+  );
+  const loggedTable = before.find(
+    (block): block is TableBlock =>
+      block.kind === "table" &&
+      block.columns.some((column) => column.header === "Logged"),
+  )!;
+  assert.ok(
+    loggedTable.rows.some(
+      (entry) => entry[2] === "Campaign: Report campaign A",
+    ),
+  );
+
+  // Deleting campaign B: its lead is kept, counted under "deleted", and no longer under B.
+  assert.equal(
+    (await call(`/api/v1/campaigns/${b.id}`, admin, { method: "DELETE" }))
+      .status,
+    200,
+  );
+  const after = await sales();
+  assert.equal(row(after, "Report campaign B"), undefined);
+  assert.equal(
+    Number(row(after, "A campaign that was deleted")![1]),
+    deletedBefore + 1,
+  );
+  assert.deepEqual(row(after, "Report campaign A"), [
+    "Report campaign A",
+    "2",
+    "1",
+  ]);
+  assert.equal(
+    bars(after).rows.find((entry) => entry[0] === "Campaign")![1],
+    campaignLeads(after),
+  );
+  const loggedAfter = after.find(
+    (block): block is TableBlock =>
+      block.kind === "table" &&
+      block.columns.some((column) => column.header === "Logged"),
+  )!;
+  assert.ok(loggedAfter.rows.some((entry) => entry[2] === "Campaign: deleted"));
+
+  // And the real PDF still draws.
+  const pdf = await call(
+    `/api/v1/reports/pdf?type=sales-pipeline&from=${day}&to=${day}`,
+    admin,
+  );
+  assert.equal(pdf.status, 200);
+  assert.equal(
+    Buffer.from(await pdf.arrayBuffer())
+      .subarray(0, 5)
+      .toString(),
+    "%PDF-",
+  );
 });

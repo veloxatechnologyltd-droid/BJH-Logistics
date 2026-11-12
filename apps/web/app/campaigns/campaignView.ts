@@ -149,3 +149,25 @@ export function safeWebUrl(value: string | null): string | null {
     return null;
   }
 }
+
+/**
+ * For the Leads board: which campaign a lead came from. Null for any other source. A link
+ * only when this person may open campaigns; a deleted campaign is said so.
+ */
+export function leadCampaignNote(
+  lead: {
+    source: string;
+    campaignId: string | null;
+    campaignName: string | null;
+  },
+  canOpen: boolean,
+): { text: string; href: string | null } | null {
+  if (lead.source !== "campaign") return null;
+  if (!lead.campaignId || !lead.campaignName) {
+    return { text: "The campaign was deleted", href: null };
+  }
+  return {
+    text: lead.campaignName,
+    href: canOpen ? `/campaigns/${lead.campaignId}` : null,
+  };
+}

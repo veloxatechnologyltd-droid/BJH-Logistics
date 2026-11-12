@@ -25,7 +25,8 @@ import ui from "../../jobs/jobs.module.css";
 import styles from "../customerDirectory.module.css";
 import { ErrorPopup } from "../../ErrorPopup";
 import { useStaffAccess } from "../../auth/useStaffAccess";
-import { canWorkClientDesk } from "../../auth/roleAccess";
+import { canUseLeadGeneration, canWorkClientDesk } from "../../auth/roleAccess";
+import { leadCampaignNote } from "../../campaigns/campaignView";
 
 type Filter = "open" | "won" | "lost" | "all";
 
@@ -56,6 +57,7 @@ const emptyForm = {
 export function LeadsBoard() {
   const { roles } = useStaffAccess();
   const canConvert = canWorkClientDesk(roles);
+  const canUseCampaigns = canUseLeadGeneration(roles);
   const [leads, setLeads] = useState<Lead[] | null>(null);
   const [summary, setSummary] = useState<SalesSummary | null>(null);
   const [customers, setCustomers] = useState<CustomerCompany[]>([]);
@@ -498,7 +500,10 @@ export function LeadsBoard() {
                         ))}
                       </select>
                     </td>
-                    <td data-label="Source">{sourceLabels[lead.source]}</td>
+                    <td data-label="Source">
+                      {sourceLabels[lead.source]}
+                      <CampaignNote canOpen={canUseCampaigns} lead={lead} />
+                    </td>
                     <td data-label="Owner">
                       {lead.ownerName ?? "Unassigned"}{" "}
                       <button
@@ -544,5 +549,22 @@ export function LeadsBoard() {
         )}
       </section>
     </>
+  );
+}
+
+/** Under a campaign lead's source: the campaign that found it. */
+function CampaignNote({ lead, canOpen }: { lead: Lead; canOpen: boolean }) {
+  const note = leadCampaignNote(lead, canOpen);
+  if (!note) return null;
+  return (
+    <span className={styles.tradingName}>
+      {note.href ? (
+        <Link className={ui.textButton} href={note.href}>
+          {note.text}
+        </Link>
+      ) : (
+        note.text
+      )}
+    </span>
   );
 }

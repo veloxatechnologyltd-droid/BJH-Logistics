@@ -23,6 +23,9 @@ export type Lead = {
   quoteRequestId: string | null;
   customerCompanyId: string | null;
   customerCompanyName: string | null;
+  /** The campaign that found it; null for a lead made by hand, or when the campaign was deleted. */
+  campaignId: string | null;
+  campaignName: string | null;
   createdAt: string;
   updatedAt: string;
   stageChangedAt: string;
