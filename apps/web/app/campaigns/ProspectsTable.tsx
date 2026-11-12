@@ -228,7 +228,10 @@ export function ProspectsTable({ campaign, refreshKey, onChanged }: Props) {
       )}
       {items && items.length > 0 && (
         <div className={`${styles.tableScroll} ${own.prospectsScroll}`}>
-          <table className={styles.customerTable} data-cards>
+          <table
+            className={`${styles.customerTable} ${own.prospectsTable}`}
+            data-cards
+          >
             <thead>
               <tr>
                 <th className={own.pick} scope="col">

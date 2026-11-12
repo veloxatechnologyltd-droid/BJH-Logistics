@@ -26,15 +26,21 @@
   overflow: auto;
 }
 
-.prospectsScroll .customerTable {
+.prospectsTable {
   min-width: 1250px;
 }
 
-.prospectsScroll .customerTable thead th {
+.prospectsTable thead th {
   position: sticky;
   top: 0;
   z-index: 1;
   background: #f6f9fc;
+  white-space: nowrap;
+}
+
+.prospectsTable td {
+  padding-top: 18px;
+  padding-bottom: 18px;
 }
 
 .nameLink {
@@ -477,6 +483,14 @@
 
 .cellLine + .cellLine {
   margin-top: 4px;
+}
+
+/* In the wide table a phone number or email stays on one line; the table scrolls instead. */
+@media (min-width: 901px) {
+  .prospectsTable .cellLine {
+    overflow-wrap: normal;
+    white-space: nowrap;
+  }
 }
 
 .detailGrid {
