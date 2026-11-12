@@ -1,5 +1,12 @@
 Maintain a file called MEMORY.md. After any significant decision, about direction, format, content, approach, or strategy, add an entry:
 
+## 2026-11-12, Dashboard "Latest jobs" replaced by Quick actions; customers tab "Directory" renamed "Customers"
+
+**What was decided:** Evans (relaying the client): the Overview's "Latest jobs" panel becomes one-click shortcut buttons: Invoices (`/invoices`), Quotes (`/quotes`), Receipts (`/finance/receipts#receipts-title`), Payments (`/finance/receipts`), Reports (`/reports`). Invoices, Receipts and Payments show only to people who may work finance (`canWorkFinance`, as in the menu); Quotes and Reports show to all staff. New `payments` card icon in `NavIcon.tsx`. The Customers page tab "Directory" is now "Customers" (`CustomerTabs.tsx`; route unchanged). Files: `apps/web/app/overview/OverviewDashboard.tsx`, `overview.module.css`, `NavIcon.tsx`, `customers/CustomerTabs.tsx`.
+**Why:** Faster access to the pages staff use most; "Directory" was unclear next to "Overview" and "Leads".
+**What was rejected:** Keeping both panels (the client asked to replace); inventing a separate receipts page (receipts and payments share one page today).
+**Open:** (a) Receipts and Payments open the same page; Receipts jumps to the list, which may not scroll there because the list loads after the page. Say if a separate receipts view is wanted. (b) Not seen in a browser (no local web server running); web `tsc` and eslint pass. (c) The Latest jobs list is gone from the Overview; "Jobs" and the stage chart still link to jobs.
+
 ## 2026-11-12, Business settings grouped into four tabs; revision history list removed
 
 **What was decided:** Business settings is one form with four tabs: Company (issuer), Finance (currencies, payment terms, tax lines, bank accounts), Quotes & numbering (prefixes, quote defaults), Messaging (customer message channels, sales email limits, email assistant). One "Save settings" saves everything; all panels stay mounted so edits survive switching tabs; an invalid required field on another tab opens that tab. Evans also asked for the "Revision history" list to be removed (system logs already cover changes): gone, with the unused `listSettingsRevisions` web call. The "Revision N" line in the header stays; the API `/revisions` route and stored revisions are untouched. Files: `apps/web/app/settings/business/`.

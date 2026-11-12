@@ -45,6 +45,12 @@ const paths = {
       <path d="M9 8h6M9 12h6" />
     </>
   ),
+  payments: (
+    <>
+      <rect x="2.5" y="5.5" width="19" height="13" rx="2" />
+      <path d="M2.5 10h19M6 15h4" />
+    </>
+  ),
   tasks: (
     <>
       <rect x="3.5" y="3.5" width="17" height="17" rx="3" />

@@ -9,7 +9,6 @@ import {
   listJobs,
   listTasks,
   roleLabels,
-  serviceLineLabels,
   statusLabels,
   taskKindLabels,
 } from "../jobs/jobApi";
@@ -44,6 +43,30 @@ const stages = [
   { key: "closed", color: "#94a3b8" },
   { key: "cancelled", color: "#dc2626" },
 ] as const;
+
+/** One-click shortcuts. Money pages are finance's, as in the menu. */
+const quickActions: Array<{
+  label: string;
+  href: string;
+  icon: NavIconName;
+  finance?: boolean;
+}> = [
+  { label: "Invoices", href: "/invoices", icon: "invoices", finance: true },
+  { label: "Quotes", href: "/quotes", icon: "quotes" },
+  {
+    label: "Receipts",
+    href: "/finance/receipts#receipts-title",
+    icon: "documents",
+    finance: true,
+  },
+  {
+    label: "Payments",
+    href: "/finance/receipts",
+    icon: "payments",
+    finance: true,
+  },
+  { label: "Reports", href: "/reports", icon: "reports" },
+];
 
 function formatDate(value: string) {
   return new Date(value).toLocaleDateString("en-GH", {
@@ -483,40 +506,24 @@ export function OverviewDashboard() {
       <section className={styles.grid} aria-label="Recent work">
         <article className={styles.panel}>
           <div className={styles.panelHeading}>
-            <h2>Latest jobs</h2>
-            <Link className={styles.panelLink} href="/jobs">
-              All jobs <span aria-hidden="true">→</span>
-            </Link>
+            <h2>Quick actions</h2>
           </div>
-          {jobs.state !== "ready" ? (
-            unavailable(jobs, "job files")
-          ) : jobList.length === 0 ? (
-            <p className={styles.empty}>New job files will appear here.</p>
-          ) : (
-            <div className={styles.list}>
-              {jobList.slice(0, 5).map((job) => (
+          <div className={styles.quickActions}>
+            {quickActions
+              .filter((action) => finance || !action.finance)
+              .map((action) => (
                 <Link
-                  className={styles.row}
-                  href={`/jobs/${job.id}`}
-                  key={job.id}
+                  className={styles.quickAction}
+                  href={action.href}
+                  key={action.label}
                 >
-                  <span className={styles.rowMain}>
-                    <strong>{job.fileNumber}</strong>
-                    <span>
-                      {job.customerCompanyName} ·{" "}
-                      {serviceLineLabels[job.serviceLine]}
-                    </span>
+                  <span className={styles.metricIcon} aria-hidden="true">
+                    <NavIcon name={action.icon} />
                   </span>
-                  <span className={styles.pill}>
-                    {statusLabels[job.status]}
-                  </span>
-                  <time className={styles.date} dateTime={job.openedAt}>
-                    {formatDate(job.openedAt)}
-                  </time>
+                  <strong>{action.label}</strong>
                 </Link>
               ))}
-            </div>
-          )}
+          </div>
         </article>
 
         <article className={styles.panel}>

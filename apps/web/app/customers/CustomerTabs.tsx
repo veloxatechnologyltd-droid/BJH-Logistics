@@ -3,7 +3,7 @@ import styles from "../jobs/jobs.module.css";
 
 const tabs = [
   { href: "/customers", label: "Overview" },
-  { href: "/customers/directory", label: "Directory" },
+  { href: "/customers/directory", label: "Customers" },
   { href: "/customers/leads", label: "Leads" },
 ];
 
