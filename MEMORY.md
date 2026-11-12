@@ -1,5 +1,12 @@
 Maintain a file called MEMORY.md. After any significant decision, about direction, format, content, approach, or strategy, add an entry:
 
+## 2026-11-12, Activity log: plain-language actions and a date/time range filter
+
+**What was decided:** The Activity log (Settings, super admin) now shows each action as a sentence ("Recorded a milestone on a job" instead of `POST /api/v1/jobs/:id/milestones`) and the result as words (Done / Not allowed / Not found / Something went wrong) with the status code kept as a hover title. The wording lives in `apps/web/app/settings/activity/activityLabels.ts`, a lookup of every current API route; a route not in the table falls back to "Viewed/Edited/... <topic>". Filters gained "From" and "To" date-and-time boxes (local time, inclusive, "To" runs to the end of that minute) and a Clear button, using the API's existing `from`/`to` parameters.
+**Why:** Evans found the log too technical to read and too hard to search without a time range.
+**What was rejected:** Storing the wording in the database or changing the API (the stored route stays exact for audit; wording can improve without a migration). Hiding routine background requests (team-chat unread polling, 304 replies) was not done because it was not asked for. Those entries still fill much of the log.
+**Open:** (a) A new API route needs a line in `activityLabels.ts`, or it shows the generic fallback. (b) The "User ID" and "Record ID" filters still need raw IDs; a name picker would be friendlier. (c) Not yet seen in a browser: the local web dev server on :3002 was hung.
+
 ## 2026-11-12, Scraped-businesses table scrolls both ways (fix)
 
 **What was decided:** Evans (screenshot of the Campaign results table): rows looked squeezed; make the table scrollable horizontally and vertically. The scroll rules (min-width 1250px, 72vh height, sticky header) already existed in `campaigns.module.css` but targeted `.customerTable`, which CSS modules hash per file, so they never matched the table (its class comes from `customerDirectory.module.css`). The table now carries its own `prospectsTable` class; phone and email stay on one line on desktop and rows have more padding. Phones keep the card layout.
