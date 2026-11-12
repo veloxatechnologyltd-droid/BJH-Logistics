@@ -36,7 +36,5 @@ async function send<T>(
 
 export const getSettings = () =>
   send<{ current: SettingsRevision | null }>("", "GET");
-export const listSettingsRevisions = () =>
-  send<SettingsRevision[]>("/revisions", "GET");
 export const saveSettings = (settings: unknown) =>
   send<SettingsRevision>("", "PUT", settings);
