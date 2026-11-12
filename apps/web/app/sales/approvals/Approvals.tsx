@@ -189,7 +189,9 @@ export function Approvals() {
               ? "No emails are waiting"
               : status === "approved"
                 ? "Nothing approved yet"
-                : "Nothing rejected"}
+                : status === "rejected"
+                  ? "Nothing rejected"
+                  : "Nothing sent yet"}
           </h2>
           <p>
             {status === "pending"
@@ -280,6 +282,7 @@ function DraftCard(props: {
     body: draft.body,
   });
   const [reason, setReason] = useState("");
+  const [sentExpanded, setSentExpanded] = useState(false);
 
   // Opening the editor starts from what is saved now.
   useEffect(() => {
@@ -293,12 +296,29 @@ function DraftCard(props: {
   }, [editing, draft.recipientEmail, draft.subject, draft.body]);
 
   const pending = draft.status === "pending";
+  const sent = draft.sendStatus === "accepted" && draft.sentAt !== null;
 
   return (
     <article
-      className={styles.draft}
+      className={`${styles.draft}${sent && !sentExpanded ? ` ${styles.sentCollapsed}` : sent ? ` ${styles.sentDraft}` : ""}`}
       aria-label={`Email to ${draft.businessName}`}
     >
+      {sent && (
+        <button
+          aria-expanded={sentExpanded}
+          className={styles.sentSummary}
+          onClick={() => setSentExpanded((expanded) => !expanded)}
+          type="button"
+        >
+          <strong>{draft.businessName}</strong>
+          <span className={styles.sentSubject}>{draft.subject}</span>
+          <span className={styles.sentDate}>Sent {when(draft.sentAt!)}</span>
+          <span aria-hidden="true" className={styles.sentChevron}>
+            {sentExpanded ? "▾" : "▸"}
+          </span>
+        </button>
+      )}
+
       <div className={styles.draftTop}>
         {pending && (
           <input
@@ -332,7 +352,7 @@ function DraftCard(props: {
               Rejected
             </span>
           )}
-          {draft.sentAt && (
+          {!sent && draft.sentAt && (
             <span className={styles.pillStrong}>Sent {when(draft.sentAt)}</span>
           )}
         </div>

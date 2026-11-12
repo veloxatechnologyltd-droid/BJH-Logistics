@@ -2177,3 +2177,10 @@ Read MEMORY.md at the start of every session before doing anything. Never contra
 **Why:** Approval records a decision and queues a message; staff need to find completed sends from the same workflow without treating a queue or provider handoff as confirmed delivery.
 **What was rejected:** Treating every approved draft as sent, or counting stubbed local sends. Provider acceptance is the strongest current sent evidence; actual delivery is not known.
 **Evidence:** Sales e2e 19/19, API and web typecheck, ESLint and formatting pass on the clean release branch. No real email sent; SMTP and signed-in browser acceptance remain open.
+
+## 2026-11-12, Collapse sent outreach emails in Approvals
+
+**What was decided:** On Sales Approvals > Sent, each accepted email is a one-line expandable row showing the business, subject and provider acceptance time. Expanding reveals the existing full message and approval details; other queues remain unchanged.
+**Why:** Sent history will grow, and operators need to scan it without scrolling through each full message.
+**What was rejected:** Making all approval queues compact, which would change the active review flow for waiting drafts.
+**Evidence:** Contracts build; web unit tests 10/10, typecheck, ESLint, production build and `git diff --check` pass. No database migration is needed. Production deployment pending.

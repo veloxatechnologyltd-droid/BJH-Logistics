@@ -626,6 +626,100 @@
   padding: 16px 18px;
 }
 
+.sentDraft,
+.sentCollapsed {
+  padding: 0;
+  overflow: hidden;
+}
+
+.sentDraft {
+  gap: 12px;
+}
+
+.sentCollapsed {
+  gap: 0;
+}
+
+.sentCollapsed > :not(.sentSummary) {
+  display: none;
+}
+
+.sentSummary {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  padding: 14px 18px;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sentSummary strong,
+.sentSubject,
+.sentDate {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sentSummary strong {
+  flex: 0 1 240px;
+  color: #152e47;
+}
+
+.sentSubject {
+  flex: 1 1 auto;
+  color: var(--brand-muted);
+}
+
+.sentDate {
+  flex: 0 0 auto;
+  color: var(--brand-muted);
+  font-size: 0.84rem;
+}
+
+.sentChevron {
+  color: var(--brand-primary);
+  font-size: 1.1rem;
+}
+
+.sentSummary:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: -3px;
+}
+
+.sentDraft > :not(.sentSummary) {
+  margin-right: 18px;
+  margin-left: 18px;
+}
+
+.sentDraft > .draftTop {
+  margin-top: 14px;
+}
+
+.sentDraft > .decisionNote {
+  margin-bottom: 14px;
+}
+
+@media (max-width: 760px) {
+  .sentSummary {
+    gap: 8px;
+  }
+
+  .sentSummary strong {
+    display: none;
+  }
+
+  .sentSubject {
+    flex-basis: 0;
+  }
+}
+
 .draftTop {
   display: flex;
   flex-wrap: wrap;
