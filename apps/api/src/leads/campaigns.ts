@@ -35,6 +35,12 @@ export interface LeadCampaignRecord {
   requireWebsite: boolean;
   idealCustomerProfile: string | null;
   disqualifiers: string | null;
+  /** Whether a search also drafts first emails for the businesses that qualify. */
+  generateEmails: boolean;
+  /** What BJH offers and why it matters to these businesses; written by staff, used by the drafting model. */
+  emailContext: string | null;
+  /** What the email asks the reader to do. */
+  emailCta: string | null;
   qualificationThreshold: number;
   maxProspects: number;
   createdBy: string;
@@ -60,6 +66,9 @@ export type NewLeadCampaign = Pick<
   | "requireWebsite"
   | "idealCustomerProfile"
   | "disqualifiers"
+  | "generateEmails"
+  | "emailContext"
+  | "emailCta"
   | "qualificationThreshold"
   | "maxProspects"
   | "createdBy"

@@ -16,7 +16,8 @@ SELECT extensions.is(
 SELECT extensions.ok(
   (SELECT file_size_limit FROM storage.buckets WHERE id = 'job-documents') <= 26214400
   AND (SELECT allowed_mime_types FROM storage.buckets WHERE id = 'job-documents')
-      <@ ARRAY['application/pdf', 'image/png', 'image/jpeg'],
+      <@ ARRAY['application/pdf', 'image/png', 'image/jpeg',
+               'application/octet-stream'],  -- sales email attachments (20261118000600)
   'the bucket limits size and file types'
 );
 SELECT extensions.ok(

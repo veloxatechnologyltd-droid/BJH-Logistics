@@ -11,6 +11,7 @@ const tabs = [
   { href: "/sales/pool", label: "Lead pool" },
   { href: "/sales/pipeline", label: "Pipeline" },
   { href: "/sales/approvals", label: "Approvals", badge: true },
+  { href: "/sales/email", label: "Email" },
   { href: "/campaigns", label: "Campaigns" },
 ];
 

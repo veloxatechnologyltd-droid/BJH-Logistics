@@ -5,8 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { ErrorPopup } from "../ErrorPopup";
 import { listProspects, promoteProspects } from "./campaignApi";
 import type { Campaign, Prospect, ProspectFilter } from "./campaignApi";
-import { safeWebUrl, scoreMethodLabel } from "./campaignView";
-import { SocialLinkList } from "../sales/SocialLinkList";
+import { safeWebUrl } from "./campaignView";
 import ui from "../jobs/jobs.module.css";
 import styles from "../customers/customerDirectory.module.css";
 import own from "./campaigns.module.css";
@@ -29,13 +28,6 @@ const views = [
   filter: ProspectFilter;
 }>;
 type ViewKey = (typeof views)[number]["key"];
-
-const contactNote: Record<Prospect["enrichmentStatus"], string> = {
-  pending: "Website not read yet",
-  email_found: "",
-  email_missing: "No email found on their website",
-  failed: "Their website could not be read",
-};
 
 const message = (cause: unknown, fallback: string) =>
   cause instanceof Error ? cause.message : fallback;
@@ -235,7 +227,7 @@ export function ProspectsTable({ campaign, refreshKey, onChanged }: Props) {
         </div>
       )}
       {items && items.length > 0 && (
-        <div className={styles.tableScroll}>
+        <div className={`${styles.tableScroll} ${own.prospectsScroll}`}>
           <table className={styles.customerTable} data-cards>
             <thead>
               <tr>
@@ -254,7 +246,10 @@ export function ProspectsTable({ campaign, refreshKey, onChanged }: Props) {
                 </th>
                 <th scope="col">Business</th>
                 <th scope="col">Fit</th>
-                <th scope="col">Contact</th>
+                <th scope="col">Email</th>
+                <th scope="col">Phone</th>
+                <th scope="col">Address</th>
+                <th scope="col">Website</th>
                 <th scope="col">Leads</th>
               </tr>
             </thead>
@@ -262,6 +257,7 @@ export function ProspectsTable({ campaign, refreshKey, onChanged }: Props) {
               {items.map((item) => (
                 <ProspectRow
                   chosen={picked.has(item.id)}
+                  campaignId={campaign.id}
                   item={item}
                   key={item.id}
                   onToggle={() => toggle(item.id)}
@@ -302,16 +298,17 @@ export function ProspectsTable({ campaign, refreshKey, onChanged }: Props) {
 }
 
 function ProspectRow({
+  campaignId,
   item,
   chosen,
   onToggle,
 }: {
+  campaignId: string;
   item: Prospect;
   chosen: boolean;
   onToggle: () => void;
 }) {
   const site = safeWebUrl(item.website);
-  const emails = item.emails.slice(0, 2);
   return (
     <tr>
       <td className={own.pick}>
@@ -325,75 +322,53 @@ function ProspectRow({
         )}
       </td>
       <th scope="row">
-        {item.businessName}
-        <span className={styles.tradingName}>
-          {[item.category, item.address].filter(Boolean).join(" · ") ||
-            "No details"}
-        </span>
-        {item.website && (
-          <span className={styles.tradingName}>
-            {site ? (
-              <a
-                className={own.siteLink}
-                href={site}
-                rel="noopener noreferrer"
-                target="_blank"
-              >
-                {item.website}
-              </a>
-            ) : (
-              item.website
-            )}
-          </span>
-        )}
-        <span className={own.tags}>
-          {item.source === "stub" && (
-            <span className={ui.badge}>Sample data</span>
-          )}
-          {item.duplicateKind && (
-            <span className={ui.badge}>Possible duplicate</span>
-          )}
-        </span>
-        {item.duplicateReason && (
-          <span className={own.reason}>{item.duplicateReason}</span>
-        )}
+        <Link
+          className={own.nameLink}
+          href={`/campaigns/${campaignId}/businesses/${item.id}`}
+        >
+          {item.businessName}
+        </Link>
       </th>
-      <td data-label="Fit" data-wide>
+      <td data-label="Fit">
         {item.score === null ? (
           "Not scored yet"
         ) : (
-          <>
-            <span className={own.score}>{item.score}</span>
-            <span className={own.scoreMethod}>
-              {scoreMethodLabel(item.scoreMethod)}
-            </span>
-            {item.scoreReason && (
-              <span className={own.reason}>{item.scoreReason}</span>
-            )}
-          </>
+          <span className={own.score}>{item.score}</span>
         )}
       </td>
-      <td data-label="Contact">
-        {emails.length > 0 || item.phones.length > 0 ? (
-          <>
-            {emails.map((email) => (
-              <span className={styles.tradingName} key={email}>
+      <td data-label="Email">
+        {item.emails.length > 0
+          ? item.emails.slice(0, 2).map((email) => (
+              <span className={own.cellLine} key={email}>
                 {email}
               </span>
-            ))}
-            {item.phones[0] && (
-              <span className={styles.tradingName}>{item.phones[0]}</span>
-            )}
-            {emails.length === 0 && (
-              <span className={styles.tradingName}>
-                {contactNote[item.enrichmentStatus]}
+            ))
+          : "—"}
+      </td>
+      <td data-label="Phone">
+        {item.phones.length > 0
+          ? item.phones.slice(0, 2).map((phone) => (
+              <span className={own.cellLine} key={phone}>
+                {phone}
               </span>
-            )}
-          </>
+            ))
+          : "—"}
+      </td>
+      <td data-label="Address">{item.address ?? "—"}</td>
+      <td data-label="Website">
+        {site ? (
+          <a
+            aria-label={`Visit the website of ${item.businessName}`}
+            className={own.siteLink}
+            href={site}
+            rel="noopener noreferrer"
+            target="_blank"
+          >
+            Visit
+          </a>
         ) : (
-          contactNote[item.enrichmentStatus] || "None found"
+          "—"
         )}
-        <SocialLinkList links={item.socialLinks} />
       </td>
       <td data-label="Leads">
         {item.promotedLeadId ? (

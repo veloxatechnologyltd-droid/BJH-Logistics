@@ -13,6 +13,7 @@ import {
   UseGuards,
 } from "@nestjs/common";
 import {
+  CrmAccessGuard,
   StaffRolesGuard,
   SupabaseIdentityGuard,
   leadGenerationRoles,
@@ -22,7 +23,11 @@ import { CampaignsService } from "./campaigns.service";
 
 /** Campaigns, runs and prospects are internal sales records: sales, customer service and the super admin. */
 @Controller("api/v1/campaigns")
-@UseGuards(SupabaseIdentityGuard, StaffRolesGuard(leadGenerationRoles))
+@UseGuards(
+  SupabaseIdentityGuard,
+  StaffRolesGuard(leadGenerationRoles),
+  CrmAccessGuard,
+)
 export class CampaignsController {
   constructor(
     @Inject(CampaignsService) private readonly campaigns: CampaignsService,
@@ -83,6 +88,11 @@ export class CampaignsController {
   @Get(":id/prospects")
   prospects(@Param("id") id: string, @Query() query: Record<string, unknown>) {
     return this.campaigns.prospects(id, query);
+  }
+
+  @Get(":id/prospects/:prospectId")
+  prospect(@Param("id") id: string, @Param("prospectId") prospectId: string) {
+    return this.campaigns.prospect(id, prospectId);
   }
 
   @Post(":id/prospects/promote")

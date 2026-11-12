@@ -30,8 +30,8 @@ export function SalesFrame({ children }: { children: ReactNode }) {
         <div>
           <h1 className={styles.hubTitle}>Sales</h1>
           <p className={styles.hubLead}>
-            Find businesses to sell to, approve the emails written for them, and
-            follow each one until it becomes a customer.
+            Find businesses, manage the sales mailbox, approve outreach, and
+            follow leads until they become customers.
           </p>
         </div>
       </header>

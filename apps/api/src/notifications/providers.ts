@@ -7,6 +7,8 @@ export const EMAIL_PROVIDER = Symbol("EMAIL_PROVIDER");
 export const INQUIRY_EMAIL_PROVIDER = Symbol("INQUIRY_EMAIL_PROVIDER");
 /** Sends replies to customers' emails from Henry's mailbox, when it is set up. */
 export const REPLY_EMAIL_PROVIDER = Symbol("REPLY_EMAIL_PROVIDER");
+/** Sends staff sales outreach through the dedicated sales mailbox. */
+export const OUTREACH_EMAIL_PROVIDER = Symbol("OUTREACH_EMAIL_PROVIDER");
 export const SMS_PROVIDER = Symbol("SMS_PROVIDER");
 
 export interface SendResult {
@@ -26,6 +28,8 @@ export interface EmailProvider {
     replyTo?: string;
     /** The customer's Message-ID, so their mail app shows the reply in the same thread. */
     inReplyTo?: string;
+    references?: string[];
+    listUnsubscribeUrl?: string;
     attachments?: Array<{ filename: string; content: Buffer }>;
   }): Promise<SendResult>;
 }
@@ -34,6 +38,10 @@ export interface SmsProvider {
   /** "arkesel", or "stub" when no real SMS account is configured. */
   readonly name: string;
   send(message: { to: string; text: string }): Promise<SendResult>;
+}
+
+export function smtpTransportSecurity(port: number) {
+  return { secure: port === 465, requireTLS: port !== 465 };
 }
 
 /**
@@ -52,6 +60,8 @@ export class RecordingEmailProvider implements EmailProvider {
     replyTo?: string;
     /** The customer's Message-ID, so their mail app shows the reply in the same thread. */
     inReplyTo?: string;
+    references?: string[];
+    listUnsubscribeUrl?: string;
     attachments?: Array<{ filename: string; content: Buffer }>;
   }> = [];
   /** Recipients whose send should fail, for testing retries. */
@@ -68,6 +78,8 @@ export class RecordingEmailProvider implements EmailProvider {
     replyTo?: string;
     /** The customer's Message-ID, so their mail app shows the reply in the same thread. */
     inReplyTo?: string;
+    references?: string[];
+    listUnsubscribeUrl?: string;
     attachments?: Array<{ filename: string; content: Buffer }>;
   }) {
     if (this.failFor.has(message.to)) throw new Error("Stub email failure");
@@ -107,7 +119,10 @@ export class SmtpEmailProvider implements EmailProvider {
     this.transport = nodemailer.createTransport({
       host: options.host,
       port: options.port,
-      secure: options.port === 465,
+      ...smtpTransportSecurity(options.port),
+      connectionTimeout: 30_000,
+      greetingTimeout: 30_000,
+      socketTimeout: 120_000,
       auth:
         options.user && options.password
           ? { user: options.user, pass: options.password }
@@ -127,6 +142,8 @@ export class SmtpEmailProvider implements EmailProvider {
     replyTo?: string;
     /** The customer's Message-ID, so their mail app shows the reply in the same thread. */
     inReplyTo?: string;
+    references?: string[];
+    listUnsubscribeUrl?: string;
     attachments?: Array<{ filename: string; content: Buffer }>;
   }) {
     const info = await this.transport.sendMail({
@@ -134,7 +151,13 @@ export class SmtpEmailProvider implements EmailProvider {
       to: message.to,
       replyTo: message.replyTo,
       inReplyTo: message.inReplyTo,
-      references: message.inReplyTo,
+      references: message.references ?? message.inReplyTo,
+      ...(message.listUnsubscribeUrl
+        ? {
+            list: { unsubscribe: message.listUnsubscribeUrl },
+            headers: { "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" },
+          }
+        : {}),
       subject: message.subject,
       text: message.text,
       html: message.html,
@@ -207,6 +230,26 @@ export function createEmailProvider(
     });
   }
   return new RecordingEmailProvider();
+}
+
+/** The sales mailbox is intentionally separate from quote and customer mail. */
+export function createOutreachEmailProvider(
+  environment: NodeJS.ProcessEnv,
+): EmailProvider {
+  const host = environment.EMAIL_OUTREACH_SMTP_HOST?.trim();
+  const user = environment.EMAIL_OUTREACH_SMTP_USER?.trim();
+  const password = environment.EMAIL_OUTREACH_SMTP_PASSWORD;
+  const from = environment.EMAIL_OUTREACH_FROM?.trim();
+  if (!host || !user || !password || !from) {
+    return new RecordingEmailProvider();
+  }
+  return new SmtpEmailProvider({
+    host,
+    port: Number(environment.EMAIL_OUTREACH_SMTP_PORT ?? 465),
+    user,
+    password,
+    from,
+  });
 }
 
 /** Mail is set up, but not the inquiries sender: refuses rather than send from the wrong address. */

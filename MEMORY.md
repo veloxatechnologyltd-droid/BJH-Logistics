@@ -166,7 +166,7 @@ Maintain a file called MEMORY.md. After any significant decision, about directio
 
 ## 2026-11-01, Job assignment and invoice acceptance built (step 1, part 2)
 
-**What was decided:** (1) **Invoice acceptance:** a client accepts an *issued* invoice once, with the name of the person who agreed. The client does it in the portal (`via: portal`); on the staff side only customer service or the super admin records it (`via: staff`). Drafts cannot be accepted (customers get 404 for them, as drafts are hidden from them). Append-only table `app.invoice_acceptance`. Endpoint `POST /api/v1/jobs/:id/invoices/:invoiceId/accept`; each invoice now carries `acceptance`. (2) **Job team:** one lead at a time plus any assistants (`app.job_assignment`; removing keeps the row as history; nothing is deleted). Only import/export reps whose roles cover the job's line can be assigned; customer service, sales and finance cannot lead. Only customer service or the super admin assigns or removes. Assistants need a lead first. Assigning someone as lead replaces the current lead, and an assistant can be promoted. (3) **Gate:** assignment needs an issued, accepted invoice on the job (a voided one no longer counts). Customer service is refused before that; the super admin may assign earlier only with a written reason, which is stored and shown on the team. (4) Assigning does **not** change who can see the job: every rep on the line still sees it (Evans's Q5 answer). (5) Web: a Team card on the job Overview (staff only) and Accept invoice / Record client acceptance on the invoice. Migration `20261101000007_job_assignment.sql` applied to the local database only.
+**What was decided:** (1) **Invoice acceptance:** a client accepts an _issued_ invoice once, with the name of the person who agreed. The client does it in the portal (`via: portal`); on the staff side only customer service or the super admin records it (`via: staff`). Drafts cannot be accepted (customers get 404 for them, as drafts are hidden from them). Append-only table `app.invoice_acceptance`. Endpoint `POST /api/v1/jobs/:id/invoices/:invoiceId/accept`; each invoice now carries `acceptance`. (2) **Job team:** one lead at a time plus any assistants (`app.job_assignment`; removing keeps the row as history; nothing is deleted). Only import/export reps whose roles cover the job's line can be assigned; customer service, sales and finance cannot lead. Only customer service or the super admin assigns or removes. Assistants need a lead first. Assigning someone as lead replaces the current lead, and an assistant can be promoted. (3) **Gate:** assignment needs an issued, accepted invoice on the job (a voided one no longer counts). Customer service is refused before that; the super admin may assign earlier only with a written reason, which is stored and shown on the team. (4) Assigning does **not** change who can see the job: every rep on the line still sees it (Evans's Q5 answer). (5) Web: a Team card on the job Overview (staff only) and Accept invoice / Record client acceptance on the invoice. Migration `20261101000007_job_assignment.sql` applied to the local database only.
 **Why:** Evans's rules from the client meeting: customer service assigns after the client accepts the invoice; payment is not required; the boss can override.
 **What was rejected:** Restricting job visibility to the assigned people (contradicts Q5); a warning instead of a block (Evans chose the block); letting reps assign each other (customer service assigns, Q6); deleting assignments (history of who worked a job is kept). **Open:** staff names show as email addresses because staff accounts have no display name yet; the Jobs list does not show the lead yet (comes with the Jobs filters step).
 
@@ -1096,7 +1096,6 @@ Read MEMORY.md at the start of every session before doing anything. Never contra
 **Why:** Evans wants the demo to show customers answered at once, with only pricing kept under human control.
 **What was rejected:** Indicative prices in automatic replies (prices nobody checked would leave BJH); always-on sending (a local run on the real mailbox would email customers). **Flagged in session as reversing:** the 2026-10-27 "AI drafts every reply; a person presses Send; automatic sending rejected" decision. **Open:** applying the migration to the hosted database and setting the variable on Render need Evans's explicit go; BJH's agreement to automatic customer emails; whether Render's free plan lets SMTP out.
 
-
 ## 2026-10-28, Messages: "Draft with AI" fills the form; the person sending is the approval
 
 **What was decided:** On Messages > Write a message and on a job's Messages tab, staff can type what a message should say and press **Draft with AI**. Claude (the same Haiku setup as the email replies) writes the subject and body into the form. Nothing is saved or sent: staff edit it and send it the usual way, so the person who sends approves it (Evans said "go ahead" on Option A; no separate super-admin approval). The AI is given only the instruction, the Business-settings knowledge text and, on a job, that one job's file number, customer, service, status, current ETA and references. A message to one or more companies gets no customer data. The job route uses the existing job-scope guard, so a rep can only draft for jobs on their own lines. Endpoints: `POST /api/v1/messages/draft` and `POST /api/v1/jobs/:id/messages/draft`. The feed says `aiDrafting` so the button shows only when a key is set; without one the API answers 503 "AI drafting is not set up", and an AI failure answers 502 with a safe message.
@@ -1203,14 +1202,15 @@ Read MEMORY.md at the start of every session before doing anything. Never contra
 ## 2026-11-03, Client walkthrough fixes (15 items), built locally, not deployed
 
 **What was decided:** Evans took BJH through the platform and brought back 15 fixes; the checklist with status is `docs/client-feedback-2026-11-03.md`. Built on `feat/support-requests` (uncommitted, together with the earlier Get help and role work). Decisions made with Evans this session:
+
 - **Customer replies (1):** every reply to a customer's email, the assistant's and staff's, goes out in one template with Henry's signature block (as he supplied it: Henry Yaw Somuah, BJH Logistics Services Ltd, Height of Greener Pastures Building, Third Floor Suite 6, Meridian Street, Tema Community 1, VAT No. C0000064351, cell +233244058592, henry@bjhlogistics.com, www.bjhlogistics.com), as plain text plus HTML. It is sent from Henry's mailbox when `EMAIL_REPLY_FROM` / `EMAIL_REPLY_SMTP_USER` / `_PASSWORD` are set, with Reply-To set to the mailbox the request came in on (quotes@ or the inquiries mailbox), so the customer's answer still comes back into the platform. Without them, replies keep the old senders. The AI now ends with "Kind regards," and no name. Staff can send any number of further replies after the first one (stored as outbox messages keyed `email-reply:<id>:<uuid>`, no migration).
 - **Assigning (5):** Evans chose "assign once the quote is accepted". This **reverses Q9 of 2026-11-01** (assignment after the client accepts the invoice). Customer service assigns as soon as the job opens; the super admin's override reason is gone.
 - **Payments (10):** Evans chose "credit, applied to later invoices". A payment is one amount for a customer and currency, set against their invoices oldest first (editable). Anything left over, or the whole payment when no invoice is chosen, becomes credit on the account (`app.customer_credit`, its own receipt number). Finance applies it later (an invoice payment with `credit_id` and no receipt of its own) or reverses an unused credit. Statements list the credit once and leave out the payments made from it.
 - **Finance owns billing (10):** invoices, payments and costs are worked only in Finance (new Finance → job billing page `/finance/jobs/<id>`). The job's money tab is read-only with a link to Finance. The pipeline steps "Bill issued" and "Payment recorded" tick themselves and no longer have action links.
 - **Vehicle alerts (3):** Evans did not answer, so the default was used: the super admin gets an in-app notice 14 days before the insurance end, DVLA expiry and next service (last service + N months), and again on the day.
-**Why:** These are the client's requests from the walkthrough. Credit keeps the money a client sent without forcing it onto invoices that do not exist yet.
-**What was rejected:** Sending replies from quotes@ with only Henry's name (Evans asked for his address). A per-payment free amount with no invoice link and no way to apply it later (Evans chose credit that is applied). Keeping the invoice-acceptance gate for assigning. Server-side multi-file upload (the browser now sends the chosen files one after another to the existing endpoint; no group concept).
-**Open:** (a) Henry's mailbox password must be set on Render as `EMAIL_REPLY_SMTP_PASSWORD` (plus `EMAIL_REPLY_FROM`, `EMAIL_REPLY_SMTP_USER`), and one real reply tested. (b) Migrations `20261103000100` (outside driver), `000200` (vehicle papers), `000300` (customer credit) are applied locally only; `000300` was applied with psql because the Supabase CLI hung. The hosted database needs Evans's explicit go. (c) There is no PDF receipt for a credit yet, only its receipt number on the statement and in the customer's email. (d) Replies are not threaded with In-Reply-To headers (the subject keeps "Re:"). (e) The job report is download-only; emailing it from the platform is not built. (f) Not tried in a browser. The signature text says "Height of Greener Pastures Building" as Henry wrote it, while the website says "House of Greener Pastures Building". Henry should confirm which is right.
+  **Why:** These are the client's requests from the walkthrough. Credit keeps the money a client sent without forcing it onto invoices that do not exist yet.
+  **What was rejected:** Sending replies from quotes@ with only Henry's name (Evans asked for his address). A per-payment free amount with no invoice link and no way to apply it later (Evans chose credit that is applied). Keeping the invoice-acceptance gate for assigning. Server-side multi-file upload (the browser now sends the chosen files one after another to the existing endpoint; no group concept).
+  **Open:** (a) Henry's mailbox password must be set on Render as `EMAIL_REPLY_SMTP_PASSWORD` (plus `EMAIL_REPLY_FROM`, `EMAIL_REPLY_SMTP_USER`), and one real reply tested. (b) Migrations `20261103000100` (outside driver), `000200` (vehicle papers), `000300` (customer credit) are applied locally only; `000300` was applied with psql because the Supabase CLI hung. The hosted database needs Evans's explicit go. (c) There is no PDF receipt for a credit yet, only its receipt number on the statement and in the customer's email. (d) Replies are not threaded with In-Reply-To headers (the subject keeps "Re:"). (e) The job report is download-only; emailing it from the platform is not built. (f) Not tried in a browser. The signature text says "Height of Greener Pastures Building" as Henry wrote it, while the website says "House of Greener Pastures Building". Henry should confirm which is right.
 
 ## 2026-11-04, Follow-ups to the walkthrough fixes: job report email, credit receipt, reply threading
 
@@ -1483,14 +1483,12 @@ Read MEMORY.md at the start of every session before doing anything. Never contra
 **What was rejected:** Following Promasidor's layout or offering both (Evans chose sample 1; ETD and gate-in are not built). Deriving everything with no new fields (goods and completion date would be blank). Folding the fields into the voyage endpoint (a PUT that omits them would clear them). Restricting it to super admin, customer service and operations (it has no money, so it follows the Jobs list). Silently cutting a long list: more than 100 jobs is refused with "choose the jobs or a date range".
 **Open:** (a) Hosted migration `20261104000300` needs `db:migrate:production` BEFORE the API is deployed (the job SELECT now reads the columns), and Evans's explicit go; not run. (b) The sample has the BJH logo; the PDF has the issuer name in its place (the only logo file is on the marketing site, `apps/site/public/images/bjh-logo.png`, which the API deploy cannot be assumed to carry): needs a decision. (c) Not emailed to the client (the finance report can be). (d) With no job ticked and no dates, a customer with years of closed jobs gets every one in "Completed jobs" (up to 100); a default window such as the last 30 days is a business rule for Evans/BJH. (e) Not tried in a browser; the two web cards are covered only by `tsc`, eslint and prettier. (f) `20261104000200` was taken by another session's `push_subscription` migration while this was built, so this one is `...000300`. **Checks run:** `corepack pnpm typecheck` (all 4 workspaces), eslint and prettier on the touched files, `pnpm test` (API 134, site 19, web 26, scripts 5), `pnpm test:e2e` 402/402 (7 new in `client-job-report.e2e-spec.ts`), `supabase:test` 334 pgTAP tests, `nest build`. Repo-wide `eslint .` fails only on git-ignored `.playwright-mcp/audit*.js`. `next build` not run (a dev server is using `.next`).
 
-
 ## 2026-11-04, Reports: job-update samples read, old tabs removed, legacy roles no longer shown Finance
 
 **What was decided:** Evans answered "do all" to the three open items of the entry above, which this **supersedes** on its (a), (f3) and "old tabs left as they were". (1) **Samples** (`EVIDENCES/job-update`, read locally only, nothing copied into the repo): the import sample, a "Client Job Report" (Job No., Customer, BL/AWB, Description of goods, Vessel/Flight, ETA, Port of Discharge, Status/Remarks, Completion Date) and the export sample, an "Export Shipment Update" (BL, goods, ETD, ETA, MPS gate in, remarks, then a "Completed jobs" part). The reps' updates are per customer, in those columns, with free-text remarks. The client-facing per-customer PDF is the other session's work (`/api/v1/client-job-reports`, job fields goods/remarks/expected completion, migration `20261104000300`), so it is not duplicated. The internal **Shipment status update** now uses the same columns (Customer and Service are dropped when the update is for one customer or one service, since the title and subtitle say it), shows open jobs as of today and a **Completed jobs** section for the chosen dates, takes an optional `companyId` (the update for that customer: title, file name, no Customer column; unknown id 404, bad id 400) and a Customer picker on its card. Bill numbers list house before master; billing steps never count as a job's "last step" (same rule as the client report). (2) **Old tabs removed** (Evans's yes): `/reports` is now the date range and the PDF reports, no tab strip. Deleted with them: the four tabs' cards, charts and tables, the CSV downloads (job activity, invoices, payments; the PDFs list the same rows), the page's data loading and error popup, `getReports` and `ReportsData` in `jobApi.ts`, and the stylesheet rules only they used. (3) **`canWorkFinance`** no longer treats the four legacy air/sea roles as finance, matching the API (audit S6): reps on those roles no longer see Finance report cards, the Finance menu or cost-document types they could not use; a new `roleAccess.test.ts` pins it.
 **Why:** The samples show what a rep actually sends; matching them makes the report usable as it is. Removing the tabs and the legacy finance allowance ends the page showing things the API refuses (and the 403 popup found in the browser).
 **What was rejected:** A second client-facing PDF (the other session's covers it). ETD and "MPS gate in" columns of the export sample: jobs do not record them. Removing `GET /api/v1/reports`, `ReportsService` and their database methods: not asked, so they stay, now unused by the web. Changing `canWorkQuotes` and `canWorkClientDesk`: not asked.
 **Open:** (a) **Same legacy mismatch remains for quotes:** the API's `quoteDeskRoles` (leads and quotes routes) excludes the legacy roles, but `canWorkQuotes` in `roleAccess.ts` still honours them; say if it should be fixed the same way. (b) The shipment update reads the client-report job fields (`goodsDescription`, `remarks`, `expectedCompletionDate`; migration `20261104000300`, part of the client job report work) **defensively**: until jobs carry them, the goods column, the remark text and the open jobs' completion column are simply left out (a completed job still shows the day it closed), and they appear by themselves once that release is live. So this release needs **no migration** and does not depend on the other work; the production migration is a person's step (runbook) and is not part of it. The local demo data has none of those fields filled in, so with the fields present those columns read "-" there. (c) `GET /api/v1/reports` is dead weight now: remove it? (d) ETD / gate-in for exports would need new job fields. (e) Checks run on a clean checkout of `origin/main` plus only this change (so the other session's unfinished work could not make them pass): `lint`, `format:check`, `typecheck` (all workspaces), unit tests (API 143, site 19, web 25, scripts 5), end-to-end `report-pdf`, `job-report`, `warehouse-road`, `receivables`, `payment-batch`, `deliveries` and `jobs` (59) against the local test database, and `build`; GitHub `verify` runs the rest, including pgTAP (no database change here). Browser (headless Chromium, local stack, three throwaway local accounts): no tab strip; customer service sees 10 cards, the legacy sea rep and the current-role import rep see 7 with no Finance group and no console errors; the Customer picker's id reaches the API; real data rendered to PDF and checked by eye. (f) The three throwaway local accounts from the entry above still exist.
-
 
 ## 2026-11-04, PDF reports released to production (PR #47, merge commit 1270f92)
 
@@ -1514,7 +1512,7 @@ Read MEMORY.md at the start of every session before doing anything. Never contra
 
 ## 2026-11-04, Statements of account: filter by service
 
-**What was decided:** Evans: "we can select the customer, but we cant select the service. so add the service type too." The Statements page has a **Service** picker (All services, or one of the six). `GET /api/v1/finance/statements[/pdf]` takes an optional `serviceLine` (bad value 400). With a service, the statement holds only that service's jobs: their issued invoices and the payments on them. Credit kept on account belongs to no job, so it is left out, and payments made *from* credit onto that service's invoices are shown instead (otherwise those invoices would look unpaid). The opening balance follows the same filter. The PDF has a "Service" cell ("All services" when none) and the file name gains the service (`statement-<customer>-sea-import-<date>.pdf`). No migration.
+**What was decided:** Evans: "we can select the customer, but we cant select the service. so add the service type too." The Statements page has a **Service** picker (All services, or one of the six). `GET /api/v1/finance/statements[/pdf]` takes an optional `serviceLine` (bad value 400). With a service, the statement holds only that service's jobs: their issued invoices and the payments on them. Credit kept on account belongs to no job, so it is left out, and payments made _from_ credit onto that service's invoices are shown instead (otherwise those invoices would look unpaid). The opening balance follows the same filter. The PDF has a "Service" cell ("All services" when none) and the file name gains the service (`statement-<customer>-sea-import-<date>.pdf`). No migration.
 **Why:** Staff send customers a statement per department.
 **What was rejected:** Showing on-account credit in a service statement (it cannot be placed in one service). Limiting the picker to the person's own service lines (statements stay readable by finance roles for the whole account, as before).
 **Open:** (a) No test fixture covers credit applied to a service's invoice; the SQL handles it but only the plain-payment path is tested. (b) Not released. (c) A unit test of the other session's PDF font work (`transport-documents.unit-spec.ts`, house AWB fits on one page) fails in the shared working tree; it has nothing to do with this change.
@@ -1671,6 +1669,7 @@ Read MEMORY.md at the start of every session before doing anything. Never contra
 **Why:** One card per bank, and one look across both documents.
 **What was rejected:** Matching on every field after tidying spacing (would still split if the rows really differ). Keeping the old box on quotes (not what Evans asked for).
 **Open:** (a) NOT committed or released. (b) Account name, SWIFT and branch of the first account in a bank print for the whole card; if a bank's two rows really differ, the second's differences are not shown. Worth checking the two Ecobank rows in Settings. (c) Checked: API tsc, eslint, prettier, unit tests; synthetic invoice rendered and viewed. A quote PDF was covered by its unit test only, not viewed.
+
 ## 2026-11-06, Quote and invoice payment details: one card per bank, two columns
 
 **What was decided:** Evans (screenshot of an invoice): payment section should have only two columns in the United Bank format, and asked why Ecobank was split in two but United kept on one card. Cause: accounts were grouped only when bank name, branch, account name and SWIFT all matched exactly, so two Ecobank rows that differed in some stored detail (likely spacing or branch text) became two cards. Now `byBank` in `apps/api/src/settings/bank-details-pdf.ts` groups by bank name only (trimmed, spaces collapsed, case ignored); the first row's account name, SWIFT and branch are printed. The quote now prints the same table as the invoice (heading "PAYMENT DETAILS", two banks per row, mobile money beneath) instead of the old "BANK PAYMENT DETAILS" box; the old box code (`drawBankDetails` and helpers) is removed as orphaned. Evans then said "push and deploy"; released from worktree `../logistics-payment-details` (branch `fix/payment-details-two-columns`). API only, no migration.
@@ -1692,14 +1691,12 @@ Read MEMORY.md at the start of every session before doing anything. Never contra
 **Why:** A category-based template did not speak to each recipient's actual business and could misstate its work.
 **What was rejected:** Sending the earlier generic batch or guessing company details from a name or category.
 
-
 ## 2026-11-09, WhatsApp lead outreach tracked separately; sample approval before send
 
 **What was decided:** Evans confirmed the selected remaining leads have opted in to WhatsApp. Track this campaign separately from email in `leads/whatsapp-send-ledger.json`, queue current `Contacted=No` rows with phone numbers, hold rows without a number, exclude `Yes`, and record sends, delivery, replies and opt-outs. Keep the original CSV unchanged. Messages should be brief, human and client-focused, without first-person wording. Show a sample and wait for approval before sending.
 **Why:** Email status and WhatsApp status are distinct; the lead list has 142 current `No` rows, of which 130 have phone numbers and 12 do not.
 **What was rejected:** Reusing `Contacted` as a WhatsApp status (it records email outreach), writing send attempts before actual sends, and sending before sample approval.
 **Open:** Sample awaiting Evans's approval. No WhatsApp messages sent yet.
-
 
 ## 2026-11-09, WhatsApp copy leads with time saved and client updates
 
@@ -1708,14 +1705,12 @@ Read MEMORY.md at the start of every session before doing anything. Never contra
 **What was rejected:** Generic product wording and first-person sender language.
 **Open:** Sample approval required before any send.
 
-
 ## 2026-11-09, WhatsApp outreach uses a two-message introduction
 
 **What was decided:** Evans requested a short sender introduction followed by the value message: first, John from Veloxa Technology Ltd.; second, the four-hours-a-day repetitive-work saving, faster automated client updates and communications, and customer-satisfaction benefit. The exact pair is saved in `leads/whatsapp-send-ledger.json` pending approval.
 **Why:** A separate intro makes the recipient and sender clear before the client-focused value message.
 **What was rejected:** Combining the intro and offer into one longer first message.
 **Open:** Wait for Evans to approve the two-message sample before sending.
-
 
 ## 2026-11-10, WhatsApp outreach sending and tracking
 
@@ -1771,6 +1766,7 @@ Read MEMORY.md at the start of every session before doing anything. Never contra
 **What was rejected:** Running Venariq as a linked SaaS (Evans: this is not a SaaS, it must be part of their system); putting raw search results straight into the Leads board (hundreds per search would bury real leads); copying Venariq's auto-send and non-atomic counter.
 **Answers (Evans, same day):** L1 BJH's own Apify account pays for search. L2 outreach sends from a new `sales@bjhlogistics.com` on `mail.bjhlogistics.com`, separate from quote/invoice mail. L3 sales rep, customer service rep and super admin see the lead-generation screens (customer service included, e.g. for replies). L4 Evans is asking BJH about B2B cold email under Ghana Act 843; build continues, real sends wait for confirmation.
 **Open:** BJH to create the Apify account and the sales@ mailbox; BJH's legal confirmation. Nothing built yet.
+
 ## 2026-11-11, Staff section is a table
 
 **What was decided:** The Staff page lists people in a table (select box, Staff name and email, Role, Status, Created, Actions) instead of one card each. The buttons sit on each row: Revoke beside each role, an "Add a role…" box with Assign, and Edit / Suspend (Reactivate) / Delete. Edit opens a row under the person with name, new password (with confirm) and role history. Header box selects everyone shown; the bar "N selected: Delete selected, Clear selection" appears when anyone is ticked. Under 820px each row becomes a card, so no sideways scroll on a phone.
@@ -1806,14 +1802,12 @@ Read MEMORY.md at the start of every session before doing anything. Never contra
 **What was rejected:** Headless-browser rendering (plan: none; Venariq's needs Chrome on the server); the sitemap and robots crawl (many extra requests); Venariq's 10 pages and browser user agent (6 pages, honest agent); picking phones from any digit run (matches dates and ids); an HTML-parsing library (regex is enough for addresses and links; no new dependency); a standalone `fetch` with `redirect: "follow"` (cannot check each hop's address).
 **Open:** (a) Some sites will refuse the plain user agent or need JavaScript to show their email; those prospects end `email_missing` and staff find the contact by hand. (b) Only checked against synthetic HTML, local servers and `example.com`, not against real BJH-target sites; the first real search (L1) should be small and its misses reviewed. (c) Collecting public business addresses is not sending anything, but contacting them is still gated by L4. (d) Checks run: 20 new tests, API unit, e2e, typecheck, lint, format check. (e) Next: 1.5, the AI fit score.
 
-
 ## 2026-11-11, CRM lead generation 1.5: AI fit score (done locally, not deployed)
 
 **What was decided:** `ProspectScorer` in `apps/api/src/leads/prospect-scoring.ts` gives a found business a score 0 to 100 with a reason, stored with `score_method` `ai` or `rules`. Claude (the existing client, structured output) gets the campaign's fit rules plus public facts about the business; the threshold is not sent. Whatever a business or its website says is quoted data (`<`/`>` neutralised so it cannot forge a tag, system prompt says untrusted), and the answer is validated: a number outside 0 to 100 is clamped, a missing score or empty reason makes the answer unusable. Any AI failure or unusable answer, and a missing key or model, gives a deterministic rule-based score (industry 40, location 20, rating 15, contacts 25, disqualifier in name or category = 0, nothing for an unrelated business). "Qualified" is derived (`meetsThreshold`, at or above the campaign threshold), not stored.
 **Why:** The plan needs a score staff can trust and a run that never stops because the AI is down. The page text comes from the open web, so it must not be able to steer the score; clamping bounds the damage if it still does. Venariq's fallback gave 10 points to any business and ignored disqualifiers, which would pass junk.
 **What was rejected:** Sending emails or phone numbers (the score only needs to know whether they exist); telling the model the threshold; applying the rule-based disqualifier check on top of the AI's score (a crude substring match could zero a good prospect); fuzzy industry matching (plural folding is enough); a separate stub scorer (the rules scorer is already the deterministic local and test scorer); changing the 1.4 finder to return page text (outside this item).
 **Open:** (a) The finder does not return page text yet, so `websiteText` is empty until 1.6 decides how to supply a short excerpt; scores then rest on search data. (b) Not tried against the real Claude: no real calls by rule; check the first real campaign's scores and reasons by eye. (c) The existing client also falls back to OpenAI when set up; the request holds public business data and BJH's campaign rules only. (d) Checks run: 12 new unit tests (sabotage checked), format check, lint, typecheck, API unit 232, e2e 426 of 426. (e) Next: 1.6, the run pipeline on the API timer.
-
 
 ## 2026-11-11, CRM lead generation 1.6: run pipeline on the API timer (done locally, not deployed)
 
@@ -1822,14 +1816,12 @@ Read MEMORY.md at the start of every session before doing anything. Never contra
 **What was rejected:** Apify webhooks (the API sleeps on Render's free plan and needs a public endpoint) and `waitForFinish` (60 s cap, would hold a tick); one big blocking run (a restart would lose it); Redis or BullMQ (not in the as-built pattern); keeping the website text on the prospect for good (not needed after scoring); scoring without the website text (the finder change was small and Evans chose it); a separate cost column (not asked; Apify's final cost is only stable about 10 s after a run ends); checking paused or archived campaigns in the pipeline (not decided).
 **Open:** (a) Applied to the **local** database only: `20261112000000_lead_run_pipeline.sql` must be applied to production before this is merged and released (R.2). (b) Nothing tried against the real Apify (no token, L1); the first real search should be small and ask for more than 120 places once to see whether the no-location cap applies; dataset retention is not known. (c) Nothing creates a run yet: starting and cancelling a run come with the API in 1.7. (d) Paused and archived campaigns' runs are still processed. (e) With no Apify token the stub also runs in production: 1.8 must label stub prospects "sample data" (from `prospect.source`) and rules scores (from `score_method`). (f) Checks run: 17 pipeline e2e tests plus unit tests, sabotage checked, format check, lint, typecheck, API unit 233, e2e 443 of 443, pgTAP 384. (g) Next: 1.7, the API (campaigns CRUD, start and cancel a run, list prospects, promote to leads, role guard).
 
-
 ## 2026-11-11, CRM lead generation 1.7: campaigns API (done locally, not deployed)
 
 **What was decided:** `api/v1/campaigns` (`apps/api/src/leads/campaigns.controller.ts` and `.service.ts`): create, read, change, pause, archive and delete campaigns; start, list, read and cancel runs; list prospects with filters (runId, name search, minimum score, qualified, duplicate flag, enrichment status, promoted, paging); promote up to 100 prospects at a time to leads; and `GET /campaigns/config` so the screens can say "sample data" and "scored by rules". Access is sales rep, customer service rep and super admin (L3), by a new `leadGenerationRoles` guard; customers and every other staff role get 403. Promotion makes an `app.lead` with source `campaign` and the campaign link, owned by the person who adds it, stage new, the score, reason and public details in its notes, and an activity, all in one transaction under a lock on the prospect, so adding twice (or two people at once) makes one lead. `'campaign'` is now a lead source in `@bjh/contracts`, but a lead cannot be logged by hand with it (`leadCreateSourceKeys`). The pipeline now skips paused and archived campaigns; archiving cancels a waiting search. This closes the 1.6 open point (d).
 **Why:** Without these routes nothing could start a run or use what it finds. Locking the prospect and returning the same lead makes "Add to leads" safe to press twice. Keeping `campaign` out of manual lead creation means a lead only claims to come from a campaign when it really did.
 **What was rejected:** Letting staff pick `campaign` as a source by hand (it would label leads that no campaign found); blocking promotion of a prospect flagged as a duplicate (the flag is for staff to judge, as decided in 1.3); a per-owner view of campaigns (L3 gives the three roles the whole feature); cancelling a run through a `DELETE` (a cancelled run stays in the history); a prospect status column for "rejected" (not asked).
 **Open:** (a) Any of the three roles can delete a campaign, which removes its prospects for good (leads stay). Decision for Evans: keep that, or restrict deleting to the super admin? (b) Starting a run needs no confirmation of cost: a real Apify search spends BJH's money (capped per run by `APIFY_MAX_CHARGE_USD`); 1.8 should say so on the button. (c) The Leads board still shows no campaign name and the sales report has no per-campaign counts: 1.9. (d) Checks run: 14 new e2e tests, sabotage checked, format check, lint, typecheck, API unit 233, site 19, web 30, scripts 5, e2e 457 of 457. (e) Next: 1.8, the web screens.
-
 
 ## 2026-11-11, CRM lead generation 1.8: campaign screens (done locally, not deployed)
 
@@ -1838,14 +1830,12 @@ Read MEMORY.md at the start of every session before doing anything. Never contra
 **What was rejected:** Hiding Campaigns behind super admin only for delete (Evans); a percentage progress bar (the run keeps no per-step counts, so it would be invented: a step list is honest); five filter pills on a phone (they do not fit: a dropdown there); showing a business's website as a link without checking it (it is text from the open web); the amber of the older sample banner (one blue); a campaign name on the Leads board and per-campaign counts in the sales report (1.9).
 **Open:** (a) Nothing is tried against the real Apify or Claude (no token yet, L1); the confirmation shown before a real search was not seen on screen. (b) Two sample leads, "Synthetic Business 3 Ltd" and "Synthetic Business 9 Ltd" (notes say sample data), remain on the **local** Leads board from the browser check; I did not delete them. (c) No super admin check (one local super admin only). (d) Checks run: web tests 39 (sabotage checked), format check, lint, typecheck, API unit 233, site 19, scripts 5; e2e not re-run (API unchanged since 1.7: 457 of 457). (e) Next: 1.9, the Leads board shows the campaign as the source and the sales report counts leads by campaign.
 
-
 ## 2026-11-12, CRM lead generation 1.9: Leads board and Sales report show the campaign (done locally, not deployed). Phase 1 complete.
 
 **What was decided:** A lead now carries the campaign that found it (`campaignId`, `campaignName` from a join). The Leads board shows it under the source: a link to the campaign for the three lead-generation roles, plain text for other staff, and "The campaign was deleted" when it is gone. The Sales report (the Sales pipeline and conversions PDF) gets a "Leads from campaigns" table (campaign, new leads in the dates, how many are won now), its own row for leads of deleted campaigns, and "Campaign: <name>" in the logged-leads Source column. The other lead sources are unchanged.
 **Why:** The plan asked for the campaign as the source on the board and per-campaign counts in the Sales report, so BJH can see which searches earn leads. A deleted campaign must not make its leads disappear from the report or look like hand-made ones, so they are kept apart under one clear label, which keeps the "Campaign" bar and the table in agreement.
 **What was rejected:** Counting "won" only among leads won inside the dates (it would hide a lead won later; "won so far" says what it is); showing the campaign link to every staff role (the page refuses them); a new report type or screen (the existing Sales PDF is where BJH already looks); a full per-campaign funnel now (found, qualified, contacted, replied, quoted, won) because contacted and replied exist only after Phase 2 and 3: that is 4.1.
 **Open:** (a) Phase 1 is done locally (1.1 to 1.9) on branch `feat/crm-lead-generation`, not merged or deployed. Release needs R.1 (security review), R.2 (apply `20261111000000_lead_campaigns.sql` and `20261112000000_lead_run_pipeline.sql` to production and set `APIFY_API_TOKEN`) and R.3, on Evans's request. (b) The **local** database still holds my test data from the browser checks: the campaign "Leads board check" and three sample leads ("Synthetic Business 2, 3 and 9 Ltd", notes say sample data); I did not delete them. (c) Nothing has run against the real Apify or Claude (L1: Evans will set the account up later). (d) Phase 2 (outreach) needs L2 (mailbox) and its real sends L4 (Act 843). (e) Checks run: format check, lint, typecheck, API unit 235, site 19, web 40, scripts 5, e2e 458 of 458. (f) Next, on Evans's call: release preparation, or Phase 2.
-
 
 ## 2026-11-12, L4 settled: BJH's lawyer confirmed outreach emails are fine
 
@@ -1888,3 +1878,274 @@ Read MEMORY.md at the start of every session before doing anything. Never contra
 **Why:** Evans wants each source's performance visible on its own. Deriving the pipeline from the source avoids a second field that could disagree with it.
 **What was rejected:** An `origin` column (duplicates `source`); one shared board with a filter; moving leads between pipelines; staff-editable stages (not asked; D-L5 names are fixed in code).
 **Open:** (a) **D-L5 stage names** still need Evans's confirmation ("warm lead" was only an example, so not used). (b) The Sales report PDF still counts all leads together (its "Leads from campaigns" table is unchanged) and `salesPeriod` still counts all leads for the no-pipeline summary; per-pipeline report tables and stage-to-stage conversion are not built (plan 4.1). (c) Not tried in a browser: the running dev servers belong to the old `logistics-crm-leads` folder, and restarting the stack was not asked for while memory was short. (d) Migration `20261115000000` is applied to the **local** database only; production needs it before release (R.2). (e) The local Supabase CLI cannot read the root `.env` (two comment lines lost their `#`); I ran it with `--workdir` pointing at a scratch folder and tests with `SUPABASE_WORKDIR` set, and left `.env` alone. Checks run: `lead-pipelines.e2e-spec.ts` (7, sabotage-checked: stage rule off and filter ignored each fail), full API e2e 472 of 472, unit API 252 / site 19 / web 46 / scripts 5, pgTAP `lead_pipeline_stages_test.sql` (4, run directly in the local DB container; the CLI's pgTAP runner found no tests from the scratch folder, so the full pgTAP suite was not rerun), prettier, eslint, typecheck clean.
+
+## 2026-11-12, Campaign flow: one button, a progress-only page while searching, results first when done (local only, not deployed)
+
+**What was decided:** Evans found the campaign flow too many steps and too busy: New campaign > Create campaign > Find businesses > Start the search, with settings, a search card and the table all on screen while it worked. Now: the new-campaign form has one **Find businesses** button that creates the campaign and starts its search, and goes to the campaign page. While a search is queued or running that page shows only the pipeline (Finding businesses, Reading their websites, Scoring the fit; the first step says "N found" once done) and a Cancel button. When the search is over the page shows the one-line result, then the businesses found, then the settings (read-only), then Archive/Delete. The cost note ("a search is charged...") sits under the new button, so pressing it is the confirmation; the campaign page's own Find businesses (a second search) still asks first.
+**Why:** Evans: after filling in the details, show only a pipeline until the leads are done, then the leads.
+**What was rejected:** A percentage bar (the run keeps no per-step counts; steps are honest). A separate page route for progress (the campaign page already polls and switches by run state). An extra confirmation click on the form for a real search (that was the clutter being removed).
+**Open:** (a) If creating works but starting the search fails, the campaign still exists and its page says "No search yet" with Find businesses; the failure is not shown on the form. (b) Browser check on the local stack (demo.cs): form, live pipeline, finished page, and the phone-width pipeline (a faked "running" response in the browser, no server call). One real Apify search of 1 business (Evans agreed) found 1 business (score 38); local campaign "Flow check: 1 importer in Accra" left in the local database. (c) No new unit test: only layout changed; `stepsDone`/`runLabel` already have tests. Checks run: prettier, eslint, web `tsc`, web campaign unit tests (9).
+
+## 2026-11-12, Scraped prospect profile groups company research and outreach
+
+**What was decided:** Redesign the scraped business detail page as a company profile: qualification summary and score rationale, business/location data, actionable contact links, social profiles, duplicate note, and a dedicated outreach-message area. The message area stays empty until a real message exists because the current prospect API has no generated-message data or generation endpoint. Layout stacks at phone widths.
+**Why:** Evans wants scraped business details and generated messages presented together in a mature sales workspace.
+**What was rejected:** Invented message content or a pretend generate action; adding generation behavior and API fields was outside this presentation change.
+**Open:** Browser visual review could not run because the in-app browser was unavailable; the local web typecheck, focused Prettier check and `git diff --check` passed. No tests were run.
+
+**Correction, same date:** The previous entry described the campaign prospect API only and missed the existing Sales outreach-draft service. The prospect profile now calls that service, creates an email draft on request, and loads messages by `prospectId` through the existing draft list endpoint. Approval remains in Sales > Approvals and does not send email. No migration or send path was added. API and web typechecks, focused ESLint/Prettier and `git diff --check` pass; tests and browser visual review remain unrun.
+
+## 2026-11-12, Lead pool links and address column
+
+**What was decided:** In Sales > Lead pool, make the business name open its existing campaign business profile and show the address in its own table column. Keep category under the business name.
+**Why:** The address was mixed into the business identity, and names were not actionable.
+**What was rejected:** Creating a second profile route or moving the website link; the existing business profile route already covers the prospect.
+**Open:** Browser review and tests were not run.
+
+## 2026-11-12, Lead pool website action
+
+**What was decided:** Show the website as a **Visit website** button in each lead-pool business row, opening the verified URL in a new tab.
+**Why:** The raw URL was visually noisy and not an obvious action.
+**What was rejected:** Opening the website in the current tab; users should keep their place in the pool.
+**Open:** Browser review and tests were not run.
+
+**Follow-up:** Evans asked for the Visit website action in a dedicated Website column; the button now sits between Address and Fit.
+
+## 2026-11-12, Lead pool social media column
+
+**What was decided:** Show prospect social links in a separate **Social media** column in Sales > Lead pool, apart from Email.
+**Why:** Keep contact details easier to scan.
+**What was rejected:** Leaving the social links mixed into Email; the request explicitly separates them.
+**Open:** Browser review and tests were not run.
+
+## 2026-11-12, Lead pool horizontal scrolling
+
+**What was decided:** Give the lead-pool table a 1500px minimum width inside its existing horizontal overflow container and keep email and phone values on one line.
+**Why:** At desktop viewport widths the added columns compressed contact values and broke them across many lines.
+**What was rejected:** Shrinking text or hiding columns; horizontal scrolling keeps all lead fields available.
+**Open:** Browser review and tests were not run.
+
+## 2026-11-12, Campaign businesses table scrolling
+
+**What was decided:** Make the campaign detail businesses table scroll vertically and horizontally, with a sticky header, matching the Sales lead pool behavior.
+**Why:** Evans asked for the first leads table to remain usable when all columns need more width than the viewport.
+**What was rejected:** Changing shared customer-directory table styles, which would affect unrelated screens.
+**Open:** Browser review and tests were not run.
+
+## 2026-11-12, Lead pool page size
+
+**What was decided:** Show 10 businesses per Lead pool page and use the existing Previous/Next controls for the rest.
+**Why:** Evans requested a shorter visible list with the remaining rows on the next page.
+**What was rejected:** Loading all rows into one long table.
+**Open:** Browser review and tests were not run.
+
+**Follow-up:** Evans preferred a scrollable table. The pool now requests up to 100 rows and the table wrapper scrolls vertically and horizontally with a sticky header; pagination remains only if the total exceeds 100.
+
+## 2026-11-12, Search pipeline is now five real steps, ending with drafted emails (local only; migration applied to the local database only)
+
+**What was decided:** Evans looked at the progress page (3 steps) and asked for more steps that the system really does, spinning, with a tick when each is done: "qualifying" and "generating tailored email". Checked first: the pipeline only searched (the duplicate check happens inside that step), read websites and scored; it never wrote emails. With Evans's answer ("make them real") the run now goes **searching, enriching, scoring, qualifying, drafting, ready**. _Qualifying_ saves the run's qualified / disqualified / failed counts (this used to happen when the run finished). _Drafting_ writes one **pending** email draft for each qualified business that has an email, is not a duplicate of an existing customer/lead/prospect, is not set aside, and has no draft yet of any status (so a rejected draft is not rewritten). Drafts use the existing Sales drafter (Claude when set up, fixed wording otherwise), carry the person who started the run as author, and wait in Sales > Approvals; nothing is sent. A drafting problem never fails the search (logged; staff can still press Draft emails). Migration `20261116000000` widens the run's step check. The page shows the 5 steps with a spinning ring on the current one and a tick with a small pop on finished ones; if the page learns of several steps at once it ticks them off one by one (about 0.8 s each) and holds "All done" for about a second before showing results. The page now polls every 2 s (was 4 s).
+**Why:** Evans wants the progress to look alive and to match what the system does; showing steps that do not exist would mislead.
+**What was rejected:** Cosmetic steps timed from the three old ones; a separate "Checking duplicates" step (it is part of the finding step, splitting it needs a restructure, so the label stays "Finding businesses"); a cap on drafts per run (not asked; see open); a per-prospect drafting error counting against the run's retry limit.
+**Open:** (a) Each qualified business with an email now costs one Claude call during a search (up to the campaign's maximum); say if a cap is wanted. (b) Production needs migration `20261116000000` before this code is released (R.2). (c) Browser check used a scratch run moved through the steps by SQL (no Apify or Claude call): the local database now has the campaign "UI check: pipeline steps (scratch)" (id `c0ffee00-0000-4000-8000-0000000000a1`) with one finished run; left in place, delete when Evans agrees. A real end-to-end search was not run (it would cost money); the same path is covered by the stub-provider tests. (d) Not committed. Checks run: API unit 252, API e2e 478 of 478 (5 new tests in `lead-run-pipeline.e2e-spec.ts`; sabotage-checked by dropping the duplicate and dismissed filters, two fail), web unit 47, eslint, prettier, API and web `tsc`; browser (local, demo.cs, phone width): all five steps, catch-up ticking, finish hold.
+
+## 2026-11-12, Full sales email workspace scope
+
+**What was decided:** Evans wants a staff-only email workspace for the dedicated `sales@bjhlogistics.com` account. Sync incoming and sent mail including messages sent outside the platform; let staff send their own composed emails; keep AI-written drafts behind explicit human approval; support broadcasts to selected campaigns, individually selected addresses, or both. Mailbox setup shown in the provided screenshot is `bjhlogistics.com`, SMTP 465, IMAP 993. Track provider acceptance separately from delivery; no open/click tracking.
+**Why:** BJH wants campaign outreach and regular human-written email managed and auditable in the same platform.
+**What was rejected:** Platform-only outgoing history; requiring a second approver on a person's own email; limiting broadcasts to only campaigns or only hand-picked addresses; claiming delivery or engagement from SMTP acceptance.
+**Open:** Full-mailbox sync, message store, send queue, composer/broadcast UI, reply/bounce reconciliation and their migrations remain to be implemented. The dedicated SMTP provider factory now reads the separate `EMAIL_OUTREACH_*` settings and is registered, but no send endpoint uses it yet. Credentials are blank and no mailbox connection or real email was attempted. Focused notifications unit tests (15) and API typecheck passed; formatting check for Markdown was not clean and was not rerun after formatting the TypeScript test.
+
+## 2026-11-12, Sales mailbox environment placeholders
+
+**What was decided:** Add the `sales@bjhlogistics.com` mailbox details for SMTP sending and IMAP reply reading to `.env` and `.env.example`: `bjhlogistics.com`, SMTP port 465, IMAP port 993, and the sales address as the account/from address. The mail setup screenshot confirmed the server host. Leave both passwords blank. These are configuration placeholders; no outreach code consumes them yet.
+**Why:** Evans asked to prepare `.env` for the mailbox credentials, which BJH will supply later. The dedicated account stays separate from quote and inquiry mail.
+**What was rejected:** Reusing the quote mailbox, or claiming outreach is wired before the sender and reply reader exist.
+**Open:** Fill the SMTP and IMAP passwords when supplied; implement consumption as part of CRM plan items 2.5 and 3.1.
+
+## 2026-11-12, A campaign chooses leads only or leads plus emails, and carries the email brief (local only; migration applied to the local database only)
+
+**What was decided:** Evans asked for an option per campaign: just find leads, or also write emails, and for staff to give the writer what it needs. New campaign settings `generate_emails` (default false, so existing campaigns stay leads-only), `email_context` (up to 2000 characters: what BJH offers these businesses, why it matters to them, facts it may state, what not to mention) and `email_cta` (up to 500: the one thing the reader is asked to do). Both texts are **required when emails are on**, in the contract, in the API (update is checked as the campaign would be after the change) and by a database check. The new-campaign form has two radio choices ("Find leads only" / "Find leads and write a first email for each good fit"); the second reveals the two text areas with help text and example placeholders. A leads-only search ends after qualifying (4 steps shown); an emails search adds the drafting step (5). The drafting prompt now gets the context and call to action (as staff-written text inside the campaign tag, with closing tags neutralised), may state facts from the context, and ends with the call to action; the fixed wording (no AI) ends with the call to action when there is one. The same context/CTA are used when staff press Draft emails in the Sales hub. The campaign page's settings list shows the choice, context and CTA. Migration `20261117000000`.
+**Why:** Evans wants the choice, and the writer cannot write a useful email without knowing what BJH offers and what to ask for. Making both fields required avoids empty "generic" drafts.
+**What was rejected:** Defaulting new campaigns to emails (the one-click flow should not demand a brief first); extra optional fields (tone, sender name, language: not asked, the signature stays "BJH Logistics sales team"); a different brief per business; letting the model state prices or results on its own (it still may not, unless the staff-written context states them).
+**Open:** (a) The context is free text staff write and the model may repeat claims from it: a person still approves every draft. (b) Production needs migrations `20261116000000` and `20261117000000` before release (R.2). (c) Second scratch run on the local scratch campaign was cancelled so the worker cannot pick it up. Checks run: API unit 254, e2e 481 of 481 (new: brief rules on create/update, leads-only run, drafter receives context and CTA, prompt text), web unit 48, eslint, prettier, API and web `tsc`; browser: form with emails on (phone width), 4-step leads-only pipeline.
+
+## 2026-11-12, Sales email workspace (partial, local only)
+
+**What was decided:** The staff-only Sales Email tab lists and searches mailbox/platform messages; sender-authored messages are previewed and queued per recipient after explicit Send; approving an AI draft queues the edited approved content tied to that draft ID. Read-only IMAP sync reads non-draft folders and tracks cursors. SMTP sending and IMAP sync workers are opt-in and remain off in `.env`. Local-only migrations `20261118000000` and `20261118000100` were applied to the local database.
+**Why:** Evans requested whole-mailbox tracking, staff-composed and broadcast mail, and human approval before AI outreach sends.
+**What was rejected:** Sending from the current workspace while its `.env` database target may be hosted; approval queues the message, while the disabled worker prevents background dispatch here.
+**Open:** Browser acceptance, live IMAP sync, attachments, thread/reply actions, one-click unsubscribe, campaign caps, production migration and deployment remain open. A one-off SMTP setup message was provider-accepted earlier, which does not confirm inbox delivery. This turn's evidence: Sales e2e 7/7, mailbox/provider focused unit tests 17/17, API and web typecheck, Prettier and `git diff --check`.
+
+## 2026-11-12, Tanzania shipping outreach: researched one-to-one emails and explicit send ledger
+
+**What was decided:** Use the approved attention-seeking subject and opening for Tanzania freight prospects, add a verified company detail, describe Veloxa CRM as in development with human approval before AI outreach, and send only to suitable, previously uncontacted addresses. Record Gmail acceptance in a separate ledger and mark source leads contacted; do not call that delivery.
+**Why:** Evans explicitly authorized sending and pipeline updates, and the lead CSV contains 293 rows but only 115 with email addresses, including placeholder and unsuitable contacts.
+**What was rejected:** Sending to missing, placeholder, privacy, regulator or unverified corporate addresses; identical bulk copy; claiming the planned automatic send worker is live.
+**Open:** Continue research and contact checks for remaining email leads; reconcile replies and bounces.
+
+## 2026-11-12, Sales mailbox sync cursor and outgoing status review
+
+**What was decided:** A fetched IMAP message without source now stops the sync before its folder cursor advances, so a later run can retry it. The Email tab labels outgoing messages as Outgoing and shows the separate send status, because provider acceptance is not delivery.
+**Why:** The previous sync silently skipped a source-less fetched item, then saved the end-of-batch UID; the UI called queued messages Sent.
+**What was rejected:** Advancing the cursor past a failed fetch; presenting SMTP acceptance as delivered.
+**Open:** Browser review could not run because the in-app browser was unavailable. Live IMAP acceptance, threads/replies, attachments, one-click unsubscribe, campaign send limits, and release gates remain open.
+
+## 2026-11-12, Provisional sales send limits in local queue
+
+**What was decided:** The sales send worker claims one message at a time through an advisory-locked transaction, with a provisional whole-mailbox limit of 100 starts per UTC day and at least 60 seconds between starts. The cap counts unknown outcomes as starts. The worker remains off.
+**Why:** The earlier worker could claim 20 messages at once without spacing or a daily ceiling; the lock keeps concurrent instances under the same gate.
+**What was rejected:** A limit enforced only in the UI or in one process, which another worker instance could bypass.
+**Open:** Evans's preferred cap and gap are pending; per-campaign limits, replies, attachments, unsubscribe links and browser acceptance remain. Sales E2E 8/8 including the new limit test; no email was sent.
+
+**Correction, same date:** Evans chose to set the cap and gap in Settings. The provisional hard-coded values were replaced by `salesEmailLimits` in Business settings (super-admin save); the worker's database claim reads the latest revision and claims nothing until valid values exist. The local E2E test now checks the unconfigured block and configured limits. No migration was needed or applied.
+
+## 2026-11-12, Sales mailbox reply threading (local only)
+
+**What was decided:** Staff can choose Reply on an incoming message. The composer addresses its sender and queues a single reply with the source Message-ID and reference chain. The API refuses a reply attached to a different sender, an outgoing message or a campaign broadcast. The send worker passes threading headers to SMTP. No mail was sent.
+**Why:** A reply must reach the sender and remain in the same mail thread without trusting client-supplied headers.
+**What was rejected:** A subject-only "Re:" that would create a visually similar but unthreaded message; allowing the browser to supply arbitrary Message-ID headers.
+**Open:** Thread grouping, attachments, unsubscribe links, live mailbox acceptance and browser review remain. Sales E2E 9/9 covers queued headers and refused redirection.
+
+## 2026-11-12, Sales mailbox import count reflects stored rows
+
+**What was decided:** The mailbox insert returns whether a row was added, and sync increments its imported count only for added rows.
+**Why:** Repeated syncs previously reported duplicates as new imports because the insert used `ON CONFLICT DO NOTHING` without checking the result.
+**What was rejected:** Treating a checked UID as a newly imported message when it matched an existing Message-ID or folder UID.
+**Open:** Live IMAP sync, unsubscribe, attachments and browser acceptance remain. Sales E2E 10/10, including duplicate import; no mail sent.
+
+## 2026-11-12, Public sales unsubscribe flow (local only)
+
+**What was decided:** Dispatch appends an opaque, encrypted unsubscribe link to each sales email and stores the exact body; SMTP gets List-Unsubscribe and RFC 8058 one-click headers. Public GET only shows a confirmation form; form or one-click POST suppresses the recipient. Dispatch refuses to claim mail without a public API URL and stable server-only key. Prep failure before calling SMTP is marked failed rather than unknown.
+**Why:** A recipient needs a working opt-out, including from a mail client's one-click action; scanners may GET links, so GET cannot unsubscribe. The sender must not issue messages with broken links.
+**What was rejected:** Email addresses in readable URL tokens, a GET that changes suppression, and sending while the unsubscribe endpoint is unconfigured.
+**Open:** Live mail-client/provider header acceptance, public URL/key configuration, security review, attachments, thread grouping, browser review and production release gates remain. No real email, worker enablement or production migration occurred.
+
+**Follow-up, same date:** The public endpoint serves an HTML confirmation and success page, including form-encoded POST; the send worker checks suppression again immediately before SMTP handoff. Production setup refuses non-HTTPS or malformed public API URLs, and the app request logger redacts unsubscribe tokens from paths. Local focused evidence: Sales E2E 11/11 and mailbox unit 9/9. Provider/mail-client and browser acceptance remain unverified.
+
+## 2026-11-12, Sales mailbox thread view (local only)
+
+**What was decided:** The staff Email detail loads related messages by the earliest References ID, falling back to In-Reply-To or Message-ID, and shows the other messages in a conversation. The API route uses the Sales role guard, returns full bodies for up to 100 messages and shows a UI error if loading fails.
+**Why:** Staff can now see the context of a reply instead of opening each message through mailbox search.
+**What was rejected:** Grouping only by subject (different conversations can share a subject) or trusting a browser-supplied thread ID.
+**Open:** Browser review was unavailable (computer inventory had no browsers); large-thread pagination, attachment handling, live IMAP and release gates remain. Sales E2E 11/11 includes three related messages, other-role denial and missing-message behavior.
+
+## 2026-11-12, Sales mailbox attachment path prepared locally
+
+**What was decided:** Prepare `20261118000200_sales_email_attachments.sql` for private attachment metadata, with bytes under `sales-email/` in the existing private `job-documents` bucket. Sync uses the stored email ID so a retry can finish missing parts. Staff message detail lists files and a Sales-role-only route returns a short-lived signed download. Files above 25 MB individually or 50 MB cumulatively have unavailable metadata rather than blocking the mailbox cursor.
+**Why:** Whole-mailbox management needs access to attached files, and private storage avoids putting raw files in the business database or public web bundle.
+**What was rejected:** Public file URLs, storing large binary files in the message row, and silently omitting oversized attachments.
+**Open:** Migration is prepared but not applied to any database; the attachment E2E case awaits a local migration approval. Live IMAP, browser review, content safety/retention and production release gates remain. Focused attachment unit tests pass with synthetic files; no real mail or production operation occurred.
+
+**Follow-up, same date:** Evans explicitly approved the attachment migration for local Supabase only. `supabase migration list --local` showed only `20261118000200` pending; `supabase migration up --local` applied exactly that file. Sales E2E 12/12, attachment pgTAP 5/5 and focused mailbox unit 11/11 pass with synthetic data. Production schema, actual IMAP and object storage remain untouched/unverified.
+
+## 2026-11-12, Campaign cap and idempotent Send prepared locally
+
+**What was decided:** Evans chose one daily campaign cap in Business settings, applied independently to each campaign. The claim gate checks every campaign ID on a queued message under the same advisory lock as the mailbox cap and gap. A staff Send now carries a UUID request ID; the API hashes the reviewed composition and expected recipients, and a transaction records the send receipt and all per-recipient rows. A retry with the same request ID returns the recorded counts; changed content with that ID is refused. Migration `20261118000300_sales_email_send_request.sql` and its pgTAP test are prepared but not applied.
+**Why:** The previous loop could leave a partially queued broadcast on database failure, and a staff retry after a lost response could duplicate real emails. A campaign cap must be atomic across workers and separate from the whole mailbox cap.
+**What was rejected:** A process-local counter, an arbitrary fixed per-campaign value, and content-only deduplication that would prevent a legitimate repeat send.
+**Open:** The new migration needs explicit local approval before E2E and pgTAP can run. Background workers remain off; no real email or production operation occurred.
+
+## 2026-11-12, Campaign lead activity follows SMTP acceptance
+
+**What was decided:** A platform sales email marks a campaign lead contacted only after SMTP accepts it. The same database transaction adds one email activity with the subject and explicit acceptance wording. An approved draft uses its directly linked prospect; a manual campaign send uses the recipient address only when it resolves to exactly one promoted campaign prospect. Only a lead still at new moves to contacted; failed, stubbed, unknown and ambiguous sends do not change a lead.
+**Why:** The Sales funnel should reflect an attempted contact only when the provider accepted the message, without treating acceptance as delivery or assigning a shared address to the wrong lead. The sending-to-finished transition makes repeated completion idempotent.
+**What was rejected:** Marking a lead contacted when queued, treating SMTP acceptance as delivery, and guessing among multiple leads with the same email address.
+**Evidence:** Focused Sales E2E for acceptance, idempotence, failure and ambiguous matching passed with synthetic data; no email was sent. The broader Sales E2E still needs the pending local send-request migration.
+
+## 2026-11-12, Daily send limits count failed provider attempts
+
+**What was decided:** The mailbox and per-campaign daily caps count every platform message with a send-start timestamp whose status is sending, accepted, failed, unknown or stubbed. A suppressed queued message that never began sending has no send-start timestamp and does not consume the cap.
+**Why:** A provider failure still used a send attempt and must not let the worker exceed a staff-configured limit through repeated failures. The existing send-start field distinguishes attempts from suppression before handoff.
+**What was rejected:** Counting only accepted messages, and counting suppressed messages that never reached the provider.
+**Evidence:** Focused Sales E2E daily and campaign limit tests passed with synthetic failed attempts; no real email was sent.
+
+## 2026-11-12, Retry history remains part of send limits
+
+**What was decided:** Each claimed SMTP attempt gets a durable private attempt row. Daily caps and minimum spacing use attempt timestamps, so retrying a failed message does not erase its earlier attempt from the limits. One Settings campaign cap applies independently to each campaign.
+**Why:** The message row represents current retry state and resets when staff retries; it cannot also serve as a durable attempt ledger.
+**What was rejected:** Keeping only the latest send-start timestamp on the message, which undercounts repeat attempts.
+**Evidence:** Migrations `20261118000300`–`20261118000500` were applied to local Supabase with explicit user approval. Sales E2E passes 17/17; related unit suites, API/web production builds and formatting checks pass; the local pgTAP suite passes 417 assertions across 39 files. The 390 CSS-pixel sign-in layout has no horizontal overflow. Signed-in Email browser review with the existing synthetic Sales account confirmed the workspace and recipient preview; message detail and live IMAP import remain open. No production changes or real mail sends occurred.
+
+## 2026-11-12, Signed-in Sales Email browser review (local only)
+
+**What was decided:** Use the existing synthetic local Sales account for browser review because `okyerevansjohn@gmail.com` is not provisioned in local Supabase. The signed-in browser confirmed the empty mailbox, composer, recipient preview, and phone-width layout. No sync or send action was triggered.
+**Why:** This verifies staff-facing workspace rendering without provisioning the supplied address or sending it a sign-in message.
+**What was rejected:** Creating a new account or emailing a magic link to the supplied Gmail address for this review.
+**Evidence:** The signed-in mailbox had zero messages; the composer and synthetic recipient preview rendered at desktop and 390 CSS pixels. Message-detail browser interactions and live IMAP import remain open. No real email was sent.
+
+## 2026-11-12, Sales send retries replace generated unsubscribe footer
+
+**What was decided:** Before dispatch, remove a prior generated unsubscribe footer only when it matches this API's base URL and token shape, then append the current unsubscribe link once.
+**Why:** A failed send is retried from its stored message body; appending again would accumulate links and alter the saved body on each attempt.
+**What was rejected:** Removing arbitrary text after the unsubscribe marker, which could erase staff-authored content.
+**Evidence:** A focused regression test covers first dispatch and replacement of an existing generated footer. No email was sent.
+
+## 2026-11-12, Sales worker recovers abandoned SMTP claims as unknown
+
+**What was decided:** An attempt still marked `sending` after ten minutes is finalized as `unknown` in both message and durable attempt history when the next worker claim runs. Nodemailer connection, greeting and idle socket timeouts are explicit. Unknown sends are not automatically retried.
+**Why:** A process can exit after claiming work, while SMTP may already have accepted the message. Leaving it `sending` hides the outcome; retrying it risks duplicate mail.
+**What was rejected:** Requeueing stale claims or calling them failed, since neither proves the provider did not accept the message.
+**Evidence:** Local Sales E2E verifies stale status/attempt reconciliation and refusal to retry; unit, typecheck and SMTP provider checks run without sending real email.
+
+## 2026-11-12, Sales IMAP requires TLS and sanitizes connection failures
+
+**What was decided:** IMAP port 993 uses implicit TLS; every other configured port must complete STARTTLS. Reject invalid ports, handle post-connect ImapFlow errors, and return/log only a safe error code rather than the server response text.
+**Why:** Mailbox credentials and message contents must not travel over a downgradeable cleartext connection, and server errors must not leak protocol details to staff or logs.
+**What was rejected:** ImapFlow's opportunistic STARTTLS fallback and echoing raw connection errors to the API caller.
+**Evidence:** ImapFlow official API docs confirm `doSTARTTLS` makes TLS upgrade mandatory and the quick start requires an `error` listener after connect; unit checks cover invalid ports. Live IMAP acceptance remains open.
+
+## 2026-11-12, Serialize Sales mailbox sync across API instances
+
+**What was decided:** Acquire a PostgreSQL session advisory lock before IMAP sync and release it in `finally`; if another API instance holds it, reject the overlapping sync request.
+**Why:** A process-local promise prevents duplicate work only within one instance. Concurrent syncs can race on attachment uploads and folder cursors.
+**What was rejected:** Relying on one API instance as an undocumented deployment constraint.
+**Evidence:** Local Sales E2E acquires the lock on one database session, observes contention on a second, releases it, and confirms a later acquisition succeeds. The lock test uses the local Supabase URL and writes no data.
+
+## 2026-11-12, STOP replies require sender authentication or staff review
+
+**What was decided:** An exact STOP, unsubscribe or remove-me reply from the sales mailbox automatically suppresses its From address only when the receiving mailbox's Authentication-Results show a pass. Failed or unknown sender authentication leaves the email visible without automatic suppression. Sales-authorized staff may explicitly suppress an incoming sender from the Email detail after a confirmation; the action is idempotent and future queued mail is checked again before SMTP handoff.
+**Why:** A forged From address must not let someone suppress another recipient. Unknown-auth mail still needs a staff path for honoring a real opt-out.
+**What was rejected:** Trusting the From header alone and discarding a request merely because its authentication verdict is unknown.
+**Evidence:** Focused mailbox unit suite 12/12 covers pass, fail, unknown, outgoing and non-exact text. Focused Sales E2E 1/1 covers staff access, repeated suppression, detail state, queue suppression, missing and outgoing messages. No real mail was sent.
+
+## 2026-11-12, Preserve folder membership while deduplicating mailbox messages
+
+**What was decided:** Keep one canonical sales email row per Message-ID while recording every folder path, UID validity and UID in a private membership table. Folder filtering and folder discovery use those memberships. Migration `20261118000400_sales_email_folder_membership.sql` backfills existing mailbox rows and is applied to local Supabase only.
+**Why:** A mailbox can contain the same message in more than one folder; global Message-ID deduplication should not make the later folder copy disappear from folder views.
+**What was rejected:** Duplicating entire message and attachment records per folder and dropping Message-ID deduplication, which would duplicate threads.
+**Evidence:** Local Sales E2E and pgTAP cover duplicate folder membership; the full local pgTAP suite passes 417 assertions across 39 files. No production changes or email sends occurred.
+
+## 2026-11-12, Require TLS for SMTP STARTTLS ports
+
+**What was decided:** SMTP port 465 uses implicit TLS; other configured ports use STARTTLS with `requireTLS: true`, so mail dispatch fails if the server does not upgrade the connection.
+**Why:** SMTP credentials and message contents should not fall back to plaintext when a server omits STARTTLS.
+**What was rejected:** Nodemailer's default opportunistic STARTTLS for ports other than 465.
+**Evidence:** Nodemailer official SMTP documentation confirms `requireTLS` requires the STARTTLS upgrade and fails when unsupported. Provider unit suite 16/16 passed; no real email was sent.
+
+## 2026-11-12, Separate explicit SMTP rejection from uncertain handoff
+
+**What was decided:** If Nodemailer reports an SMTP response, record the attempt as failed; if the connection ends without a response after handoff, retain unknown. A permanent error from `RCPT TO` suppresses that recipient with reason bounce. Permanent failures of other commands do not suppress the recipient. Stub provider errors are failed because the stub never sends.
+**Why:** A known rejection is different from a network loss after message data, where delivery cannot be determined. Only recipient-specific permanent rejection is evidence the address itself bounced.
+**What was rejected:** Marking every exception after handoff unknown, and suppressing recipients for sender/authentication/DATA failures.
+**Evidence:** Nodemailer official error documentation specifies `responseCode`, `permanent` and `command`. Mailbox unit suite 13/13 passes synthetic classifications; no real email sent. Live SMTP error shapes remain to verify.
+
+## 2026-11-12, Production never claims mail through the stub provider
+
+**What was decided:** The Sales send worker checks the provider before claiming queued messages and returns without claiming if `NODE_ENV=production` and the provider is the recording stub.
+**Why:** Missing SMTP credentials must not consume queued real messages as locally stubbed sends.
+**What was rejected:** Claiming and marking messages stubbed in production or changing the shared provider factory behavior for non-sales email paths.
+**Evidence:** Focused unit test sets production mode with the stub and proves claim count stays zero; no email was sent.
+
+## 2026-11-12, Retry only known failed email attempts
+
+**What was decided:** Sales staff may explicitly requeue an existing platform message only when its status is failed and its recipient is not suppressed. Retry resets send-attempt fields and reuses the same message row; unknown, accepted, queued and mailbox messages cannot be retried.
+**Why:** Known failures are safe to retry after staff review; unknown SMTP handoff could already have delivered and must not be duplicated.
+**What was rejected:** Requeueing every error, generating a second message row, and retrying suppressed or uncertain messages.
+**Evidence:** Focused Sales E2E passed for role denial, failed-to-queued reset, repeat-click refusal and bounce suppression. Worker remains off and no email was sent.
+
+## 2026-11-12, Code-review fixes: no "reply STOP" wording, sturdier mailbox sync and send
+
+**What was decided:** (1) Outgoing sales email no longer says "reply STOP", neither in the broadcast footer nor in AI drafts (Evans: "dont add any reply stop"); the opt-out is the unsubscribe link added at send time. The authenticated exact-STOP reply handling stays in code, but nothing invites it. (2) Migration `20261118000600` lets the `job-documents` bucket accept `application/octet-stream`, which sales attachments are stored as; the bucket rejected it, so any incoming email with an attachment stopped mailbox sync. Applied to local Supabase only, checked against the real local bucket (octet-stream accepted, text/plain still refused). (3) Synced mail is fitted to table limits (NUL removed, subject 1000, sender address 3–254) so one odd message cannot block a folder. (4) Approving an already-approved draft whose queueing failed now queues it once; an already-queued draft still returns 409. (5) A permanent RCPT TO rejection with enhanced status 5.7.x (policy or reputation) is recorded as failed without suppressing the recipient. (6) Finishing a send no longer fails when a Sent-folder copy already holds the Message-ID. (7) Send limits are read from the latest settings revision that has them, so a later save with blank limit fields does not silently pause sending. (8) The Email tab keeps the selected folder on search and after queueing; `SalesEmailSendStatus` includes `stubbed`.
+**Why:** Independent code review of the uncommitted CRM work found these; the attachment, STOP-wording, approve-queue and TLS findings were checked against the code first.
+**What was rejected:** Reversing the shared SMTP `requireTLS` rule (logged 2026-11-12 "Require TLS for SMTP STARTTLS ports"); it also applies to quote, reply and notification mail, so the production SMTP port (587/465, not 25 or a relay without STARTTLS) must be confirmed before release. Catching failed attachment uploads and continuing (would lose attachments permanently on a transient storage error). A migration removing the bucket MIME list (weakens other uploads).
+**Evidence:** API unit 272/272, web unit 48/48, CRM e2e (sales, campaigns, lead-run pipeline, leads) 68/68, typecheck and ESLint on touched files clean; new tests cover re-approval recovery, limits carry-forward, Message-ID collision, field sanitizing and the 5.7.x bounce. Still open: no real SMTP/IMAP run, no production migration, no recovery path for suppressed recipients, security review.

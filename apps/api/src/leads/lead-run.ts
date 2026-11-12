@@ -7,11 +7,14 @@ import type {
 } from "./prospect-scoring";
 
 /** The working steps of a running campaign run (`app.lead_campaign_run.current_step`). */
-export type LeadRunStep = "searching" | "enriching" | "scoring";
+export type LeadRunStep =
+  "searching" | "enriching" | "scoring" | "qualifying" | "drafting";
 
 /** The campaign's settings a run needs: what to search for, and the fit rules. */
 export interface LeadRunCampaign extends FitRules {
   campaignId: string;
+  /** Whether the run ends by drafting emails for the businesses that qualify. */
+  generateEmails: boolean;
   searchKeywords: string[];
   excludedKeywords: string[];
   minRating: number | null;
@@ -22,6 +25,8 @@ export interface LeadRunCampaign extends FitRules {
 export interface ClaimedLeadRun {
   runId: string;
   claimId: string;
+  /** The person who started the run: the drafts it writes are made in their name. */
+  createdBy: string;
   step: LeadRunStep;
   /** The most prospects the run may store (the campaign's maximum when it started). */
   targetCount: number;

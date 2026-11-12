@@ -7,9 +7,11 @@ import {
   parseWords,
   prospectQuery,
   runLabel,
+  searchStepsFor,
   runSummary,
   safeWebUrl,
   scoreMethodLabel,
+  socialLinkGroups,
   stepsDone,
 } from "./campaignView.ts";
 import type { CampaignRun } from "./campaignApi.ts";
@@ -56,6 +58,14 @@ test("each stage of a search has its own plain label", () => {
     runLabel(run({ status: "running", step: "scoring" })),
     "Scoring the fit",
   );
+  assert.equal(
+    runLabel(run({ status: "running", step: "qualifying" })),
+    "Qualifying the best",
+  );
+  assert.equal(
+    runLabel(run({ status: "running", step: "drafting" })),
+    "Writing tailored emails",
+  );
   assert.equal(runLabel(run()), "Finished");
   assert.equal(runLabel(run({ status: "failed", step: "failed" })), "Failed");
   assert.equal(
@@ -64,11 +74,34 @@ test("each stage of a search has its own plain label", () => {
   );
 });
 
-test("steps done count from nothing, through the three stages, to all of them", () => {
+test("a leads-only campaign has no email step, and a run that is over has done all of its own steps", () => {
+  const leadsOnly = searchStepsFor({ generateEmails: false });
+  const withEmails = searchStepsFor({ generateEmails: true });
+  assert.deepEqual(
+    leadsOnly.map((step) => step.key),
+    ["searching", "enriching", "scoring", "qualifying"],
+  );
+  assert.equal(withEmails.at(-1)?.key, "drafting");
+  assert.equal(stepsDone(run(), leadsOnly), 4);
+  assert.equal(stepsDone(run(), withEmails), 5);
+  assert.equal(
+    stepsDone(run({ status: "running", step: "qualifying" }), leadsOnly),
+    3,
+  );
+  // Emails switched off while the search was already on its email step.
+  assert.equal(
+    stepsDone(run({ status: "running", step: "drafting" }), leadsOnly),
+    3,
+  );
+});
+
+test("steps done count from nothing, through the five stages, to all of them", () => {
   assert.equal(stepsDone(run({ status: "queued" })), -1);
   assert.equal(stepsDone(run({ status: "running", step: "searching" })), 0);
   assert.equal(stepsDone(run({ status: "running", step: "scoring" })), 2);
-  assert.equal(stepsDone(run()), 3);
+  assert.equal(stepsDone(run({ status: "running", step: "qualifying" })), 3);
+  assert.equal(stepsDone(run({ status: "running", step: "drafting" })), 4);
+  assert.equal(stepsDone(run()), 5);
 });
 
 test("the summary says what was found, in words, and the failure reason when it failed", () => {
@@ -197,4 +230,22 @@ test("a campaign lead says which campaign it came from, as a link only for those
     ),
     null,
   );
+});
+
+test("socialLinkGroups keeps every link per platform and drops what is not a web address", () => {
+  assert.deepEqual(
+    socialLinkGroups({
+      instagram: ["https://instagram.com/a", "javascript:alert(1)"],
+      facebook: ["https://facebook.com/a", "https://facebook.com/b"],
+      tiktok: ["not a link"],
+    }),
+    [
+      {
+        platform: "Facebook",
+        urls: ["https://facebook.com/a", "https://facebook.com/b"],
+      },
+      { platform: "Instagram", urls: ["https://instagram.com/a"] },
+    ],
+  );
+  assert.deepEqual(socialLinkGroups({}), []);
 });

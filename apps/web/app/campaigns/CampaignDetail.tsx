@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ErrorPopup } from "../ErrorPopup";
 import {
   cancelSearch,
@@ -16,16 +16,14 @@ import type { Campaign, CampaignConfig } from "./campaignApi";
 import {
   campaignAbout,
   isActiveRun,
-  runLabel,
   runSummary,
-  searchSteps,
   startSearchWarning,
   statusLabels,
-  stepsDone,
 } from "./campaignView";
 import { CampaignForm } from "./CampaignForm";
 import { ProspectsTable } from "./ProspectsTable";
 import { SampleDataNotice } from "./SampleDataNotice";
+import { SearchProgress } from "./SearchProgress";
 import ui from "../jobs/jobs.module.css";
 import styles from "../customers/customerDirectory.module.css";
 import own from "./campaigns.module.css";
@@ -63,9 +61,18 @@ export function CampaignDetail() {
 
   const run = campaign?.latestRun ?? null;
   const searching = isActiveRun(run);
+  // A search seen finishing keeps its pipeline up until the last step has been ticked off.
+  const [finishing, setFinishing] = useState(false);
+  const wasSearching = useRef(false);
+  useEffect(() => {
+    if (wasSearching.current && !searching && run?.status === "ready") {
+      setFinishing(true);
+    }
+    wasSearching.current = searching;
+  }, [searching, run?.status]);
   useEffect(() => {
     if (!searching) return;
-    const timer = setInterval(load, 4000);
+    const timer = setInterval(load, 2000);
     return () => clearInterval(timer);
   }, [searching, load]);
 
@@ -100,8 +107,108 @@ export function CampaignDetail() {
     );
   }
 
-  const canSearch = campaign.status === "active" && !searching;
+  // While a search runs, nothing else is on the page: only the pipeline.
+  if (run && (searching || finishing)) {
+    return (
+      <main className={styles.page}>
+        <Link className={styles.backLink} href="/campaigns">
+          <span aria-hidden="true">←</span> Back to campaigns
+        </Link>
+        <ErrorPopup message={error} />
+        <SearchProgress
+          busy={busy}
+          campaign={campaign}
+          onCancel={() =>
+            void act(
+              () => cancelSearch(campaign.id, run.id),
+              "The search could not be cancelled",
+            )
+          }
+          onFinished={() => setFinishing(false)}
+          run={run}
+        />
+      </main>
+    );
+  }
+
+  const canSearch = campaign.status === "active";
   const refreshKey = run ? `${run.id}:${run.status}:${run.step}` : "none";
+
+  const editCard = (
+    <section className={ui.card} aria-label="Campaign settings">
+      <h2>Settings</h2>
+      <CampaignForm
+        campaign={campaign}
+        onCancel={() => setEditing(false)}
+        onSaved={(saved) => {
+          setCampaign(saved);
+          setEditing(false);
+        }}
+      />
+    </section>
+  );
+
+  const settingsCard = (
+    <section
+      className={`${ui.card} ${own.belowResults}`}
+      aria-label="Campaign settings"
+    >
+      <h2>Settings</h2>
+      <dl className={own.settingsList}>
+        <Setting label="Looks for" value={campaign.targetIndustry} />
+        <Setting label="Where" value={campaign.targetLocation} />
+        <Setting label="Service to offer" value={campaign.targetService} />
+        <Setting
+          label="Search words"
+          value={campaign.searchKeywords.join(", ") || "The kind of business"}
+        />
+        <Setting
+          label="Words to skip"
+          value={campaign.excludedKeywords.join(", ") || "None"}
+        />
+        <Setting
+          label="Lowest rating"
+          value={
+            campaign.minRating === null
+              ? "Any"
+              : `${campaign.minRating.toFixed(1)} stars`
+          }
+        />
+        <Setting
+          label="Website"
+          value={campaign.requireWebsite ? "Required" : "Not required"}
+        />
+        <Setting
+          label="The search"
+          value={
+            campaign.generateEmails
+              ? "Finds leads and writes a first email for each good fit"
+              : "Finds leads only"
+          }
+        />
+        {campaign.generateEmails && campaign.emailContext && (
+          <Setting label="Email context" value={campaign.emailContext} />
+        )}
+        {campaign.generateEmails && campaign.emailCta && (
+          <Setting label="Call to action" value={campaign.emailCta} />
+        )}
+        <Setting
+          label="Good fit from"
+          value={`${campaign.qualificationThreshold} out of 100`}
+        />
+        <Setting label="Most to find" value={String(campaign.maxProspects)} />
+        {campaign.idealCustomerProfile && (
+          <Setting
+            label="Ideal customer"
+            value={campaign.idealCustomerProfile}
+          />
+        )}
+        {campaign.disqualifiers && (
+          <Setting label="Not a fit" value={campaign.disqualifiers} />
+        )}
+      </dl>
+    </section>
+  );
 
   return (
     <main className={styles.page}>
@@ -207,137 +314,33 @@ export function CampaignDetail() {
         </div>
       )}
 
-      {editing ? (
-        <section className={ui.card} aria-label="Campaign settings">
-          <h2>Settings</h2>
-          <CampaignForm
-            campaign={campaign}
-            onCancel={() => setEditing(false)}
-            onSaved={(saved) => {
-              setCampaign(saved);
-              setEditing(false);
-            }}
-          />
-        </section>
-      ) : (
-        <section className={ui.card} aria-label="Campaign settings">
-          <h2>Settings</h2>
-          <dl className={own.settingsList}>
-            <Setting label="Looks for" value={campaign.targetIndustry} />
-            <Setting label="Where" value={campaign.targetLocation} />
-            <Setting label="Service to offer" value={campaign.targetService} />
-            <Setting
-              label="Search words"
-              value={
-                campaign.searchKeywords.join(", ") || "The kind of business"
-              }
-            />
-            <Setting
-              label="Words to skip"
-              value={campaign.excludedKeywords.join(", ") || "None"}
-            />
-            <Setting
-              label="Lowest rating"
-              value={
-                campaign.minRating === null
-                  ? "Any"
-                  : `${campaign.minRating.toFixed(1)} stars`
-              }
-            />
-            <Setting
-              label="Website"
-              value={campaign.requireWebsite ? "Required" : "Not required"}
-            />
-            <Setting
-              label="Good fit from"
-              value={`${campaign.qualificationThreshold} out of 100`}
-            />
-            <Setting
-              label="Most to find"
-              value={String(campaign.maxProspects)}
-            />
-            {campaign.idealCustomerProfile && (
-              <Setting
-                label="Ideal customer"
-                value={campaign.idealCustomerProfile}
-              />
-            )}
-            {campaign.disqualifiers && (
-              <Setting label="Not a fit" value={campaign.disqualifiers} />
-            )}
-          </dl>
-        </section>
-      )}
+      {editing && editCard}
 
-      <section className={ui.card} aria-label="Search">
-        <h2>Search</h2>
-        {!run && (
+      {!run && (
+        <section className={ui.card} aria-label="Search">
           <p className={ui.muted}>
             {campaign.status === "active"
               ? "No search yet. Press “Find businesses” to start one."
               : "This campaign is not active, so it cannot search."}
           </p>
-        )}
-        {run && (
-          <>
-            <p>
-              <strong>{runLabel(run)}</strong>
-            </p>
-            {(searching || run.status === "ready") && (
-              <ol className={own.stepList} aria-label="Steps of the search">
-                {searchSteps.map((step, index) => {
-                  const done = stepsDone(run);
-                  const state =
-                    index < done
-                      ? own.stepDone
-                      : index === done
-                        ? own.stepNow
-                        : "";
-                  return (
-                    <li
-                      aria-current={index === done ? "step" : undefined}
-                      className={`${own.step} ${state}`}
-                      key={step.key}
-                    >
-                      {step.label}
-                    </li>
-                  );
-                })}
-              </ol>
-            )}
-            {run.status === "failed" ? (
-              <p className={own.failure} role="alert">
-                {runSummary(run)}
-              </p>
-            ) : (
-              <p className={own.summary}>{runSummary(run)}</p>
-            )}
-            {searching && (
-              <div className={ui.formActions}>
-                <button
-                  className={ui.secondaryButton}
-                  disabled={busy}
-                  onClick={() =>
-                    void act(
-                      () => cancelSearch(campaign.id, run.id),
-                      "The search could not be cancelled",
-                    )
-                  }
-                  type="button"
-                >
-                  Cancel the search
-                </button>
-              </div>
-            )}
-          </>
-        )}
-      </section>
+        </section>
+      )}
+      {run &&
+        (run.status === "failed" ? (
+          <p className={own.failure} role="alert">
+            {runSummary(run)}
+          </p>
+        ) : (
+          <p className={own.result}>{runSummary(run)}</p>
+        ))}
 
       <ProspectsTable
         campaign={campaign}
         onChanged={load}
         refreshKey={refreshKey}
       />
+
+      {!editing && settingsCard}
 
       <section className={ui.card} aria-label="Remove the campaign">
         <h2>Archive or delete</h2>

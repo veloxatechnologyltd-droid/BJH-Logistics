@@ -28,7 +28,7 @@ import {
 import { SocialLinkList } from "../SocialLinkList";
 import styles from "../sales.module.css";
 
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 100;
 /** The API drafts at most this many emails in one request. */
 const DRAFT_BATCH = 20;
 
@@ -413,8 +413,11 @@ export function LeadPool() {
             <thead>
               <tr>
                 <th scope="col">Business</th>
+                <th scope="col">Address</th>
+                <th scope="col">Website</th>
                 <th scope="col">Fit</th>
                 <th scope="col">Email</th>
+                <th scope="col">Social media</th>
                 <th scope="col">Phone</th>
                 <th scope="col">Campaign</th>
                 <th scope="col">Draft</th>
@@ -430,9 +433,7 @@ export function LeadPool() {
                     key={row.id}
                   >
                     <th scope="row">
-                      <label
-                        style={{ display: "flex", gap: 10, cursor: "pointer" }}
-                      >
+                      <div style={{ display: "flex", gap: 10 }}>
                         <input
                           aria-label={`Choose ${row.businessName}`}
                           checked={selected.has(row.id)}
@@ -442,24 +443,13 @@ export function LeadPool() {
                         />
                         <span>
                           <span className={styles.bizName}>
-                            {row.businessName}
+                            <Link
+                              href={`/campaigns/${row.campaignId}/businesses/${row.id}`}
+                            >
+                              {row.businessName}
+                            </Link>
                           </span>
-                          <span className={styles.bizSub}>
-                            {[row.category, row.address]
-                              .filter(Boolean)
-                              .join(" · ")}
-                          </span>
-                          {site && (
-                            <span className={styles.bizSub}>
-                              <a
-                                href={site}
-                                rel="noreferrer noopener"
-                                target="_blank"
-                              >
-                                {row.website}
-                              </a>
-                            </span>
-                          )}
+                          <span className={styles.bizSub}>{row.category}</span>
                           <span
                             className={styles.draftMeta}
                             style={{ marginTop: 6 }}
@@ -491,8 +481,27 @@ export function LeadPool() {
                             )}
                           </span>
                         </span>
-                      </label>
+                      </div>
                     </th>
+                    <td data-label="Address">
+                      {row.address ?? (
+                        <span className={styles.contactNone}>—</span>
+                      )}
+                    </td>
+                    <td data-label="Website">
+                      {site ? (
+                        <a
+                          className={styles.btn}
+                          href={site}
+                          rel="noreferrer noopener"
+                          target="_blank"
+                        >
+                          Visit website
+                        </a>
+                      ) : (
+                        <span className={styles.contactNone}>—</span>
+                      )}
+                    </td>
                     <td data-label="Fit">
                       {row.score === null ? (
                         <span className={styles.contactNone}>Not scored</span>
@@ -534,6 +543,8 @@ export function LeadPool() {
                           No email found
                         </span>
                       )}
+                    </td>
+                    <td data-label="Social media">
                       <SocialLinkList links={row.socialLinks} />
                     </td>
                     <td data-label="Phone">

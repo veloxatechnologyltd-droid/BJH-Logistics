@@ -4,6 +4,7 @@ import type {
   CampaignStatus,
   Prospect,
   ProspectFilter,
+  SocialLinks,
 } from "./campaignApi";
 
 /** The steps of a search, in order, as staff read them. */
@@ -11,7 +12,17 @@ export const searchSteps = [
   { key: "searching", label: "Finding businesses" },
   { key: "enriching", label: "Reading their websites" },
   { key: "scoring", label: "Scoring the fit" },
+  { key: "qualifying", label: "Qualifying the best" },
+  { key: "drafting", label: "Writing tailored emails" },
 ] as const;
+
+/** The steps this campaign's search takes: emails are only written when it asks for them. */
+export const searchStepsFor = (
+  campaign: Pick<Campaign, "generateEmails">,
+): readonly (typeof searchSteps)[number][] =>
+  campaign.generateEmails
+    ? searchSteps
+    : searchSteps.filter((step) => step.key !== "drafting");
 
 /** A search that is still going: waiting its turn or working. */
 export const isActiveRun = (run: CampaignRun | null): boolean =>
@@ -35,13 +46,18 @@ export function runLabel(run: CampaignRun): string {
   }
 }
 
-/** How far a running search is, for the step list: -1 before it starts, 3 when it is over. */
-export function stepsDone(run: CampaignRun): number {
+/** How far a running search is, for the step list: -1 before it starts, the number of steps when it is over. */
+export function stepsDone(
+  run: CampaignRun,
+  steps: readonly { key: string }[] = searchSteps,
+): number {
   if (run.status === "queued") return -1;
   if (run.status === "running") {
-    return searchSteps.findIndex((step) => step.key === run.step);
+    // A step the campaign no longer takes (emails switched off mid-search) is the last one.
+    const index = steps.findIndex((step) => step.key === run.step);
+    return index === -1 ? steps.length - 1 : index;
   }
-  return run.status === "ready" ? searchSteps.length : -1;
+  return run.status === "ready" ? steps.length : -1;
 }
 
 const plural = (count: number, one: string, many: string) =>
@@ -170,4 +186,26 @@ export function leadCampaignNote(
     text: lead.campaignName,
     href: canOpen ? `/campaigns/${lead.campaignId}` : null,
   };
+}
+
+const socialPlatforms: Array<[keyof SocialLinks, string]> = [
+  ["facebook", "Facebook"],
+  ["instagram", "Instagram"],
+  ["linkedin", "LinkedIn"],
+  ["twitter", "X"],
+  ["youtube", "YouTube"],
+  ["tiktok", "TikTok"],
+];
+
+/** A business's social pages, one group per platform and every link kept; only web addresses, platforms with none left out. */
+export function socialLinkGroups(
+  links: SocialLinks,
+): Array<{ platform: string; urls: string[] }> {
+  return socialPlatforms.flatMap(([key, platform]) => {
+    const urls = (links[key] ?? []).flatMap((link) => {
+      const url = safeWebUrl(link);
+      return url ? [url] : [];
+    });
+    return urls.length > 0 ? [{ platform, urls }] : [];
+  });
 }

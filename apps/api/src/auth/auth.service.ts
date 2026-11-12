@@ -7,7 +7,7 @@ import {
 } from "@nestjs/common";
 import { passwordProblem } from "@bjh/contracts";
 import { DatabasePort } from "../database/database.port";
-import { superAdminMfaRequired } from "./auth.guards";
+import { crmVisibleTo, superAdminMfaRequired } from "./auth.guards";
 import { STAFF_AUTH_DIRECTORY } from "./staff-admin.port";
 import type { StaffAuthDirectory } from "./staff-admin.port";
 import type { AuthenticatedUser } from "./supabase-auth-verifier";
@@ -57,6 +57,7 @@ export class AuthService {
         userId: user.userId,
         email: user.email,
         roles,
+        crm: crmVisibleTo(roles),
         mustChangePassword,
         twoFactorRequired:
           roles.includes("super_admin") &&

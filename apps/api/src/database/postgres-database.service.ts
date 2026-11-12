@@ -6,7 +6,14 @@ import type {
   PoolFilter,
   PoolProspect,
   ProspectDraftingInfo,
+  ClaimedSalesEmailSend,
+  NewSalesEmailSend,
+  SalesEmailSendRequestResult,
+  SalesEmailFilter,
+  SalesEmailMessage,
+  SalesEmailAttachment,
   SalesOverview,
+  SyncedSalesEmail,
 } from "../sales/sales";
 import type { KnownBusinessRow } from "../leads/duplicate-check";
 import {
@@ -196,7 +203,7 @@ export interface PostgresQueryResult {
 
 export interface PostgresClient {
   query(queryText: string, values?: unknown[]): Promise<PostgresQueryResult>;
-  release(): void;
+  release(error?: Error): void;
 }
 
 export interface PostgresPool {
@@ -6824,7 +6831,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
            updated_at = clock_timestamp()
        FROM due
        WHERE run.run_id = due.run_id
-       RETURNING run.run_id, run.campaign_id, run.current_step, run.target_count,
+       RETURNING run.run_id, run.campaign_id, run.created_by, run.current_step, run.target_count,
                  run.provider_run_id, run.provider_dataset_id, run.attempt_count`,
       [claimId, leaseSeconds],
     );
@@ -6833,7 +6840,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     const campaign = await this.pool.query(
       `SELECT target_service, target_industry, target_location, search_keywords,
               excluded_keywords, min_rating, require_website, ideal_customer_profile,
-              disqualifiers, qualification_threshold
+              disqualifiers, qualification_threshold, generate_emails
        FROM app.lead_campaign WHERE campaign_id = $1::uuid`,
       [run.campaign_id],
     );
@@ -6841,6 +6848,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     return {
       runId: String(run.run_id),
       claimId,
+      createdBy: String(run.created_by),
       step: run.current_step as LeadRunStep,
       targetCount: Number(run.target_count),
       providerRunId:
@@ -6866,6 +6874,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
         disqualifiers:
           row.disqualifiers === null ? null : String(row.disqualifiers),
         qualificationThreshold: Number(row.qualification_threshold),
+        generateEmails: row.generate_emails === true,
       },
     };
   }
@@ -6919,25 +6928,78 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     return result.rowCount === 1;
   }
 
-  async finishLeadRun(
-    run: { runId: string; claimId: string },
-    qualificationThreshold: number,
-  ): Promise<boolean> {
+  async finishLeadRun(run: {
+    runId: string;
+    claimId: string;
+  }): Promise<boolean> {
     const result = await this.pool.query(
       `UPDATE app.lead_campaign_run
        SET status = 'ready', current_step = 'ready',
-           qualified_count = (SELECT count(*) FROM app.prospect
-                              WHERE run_id = $1::uuid AND score >= $3),
-           disqualified_count = (SELECT count(*) FROM app.prospect
-                                 WHERE run_id = $1::uuid AND score < $3),
-           failed_count = (SELECT count(*) FROM app.prospect
-                           WHERE run_id = $1::uuid AND enrichment_status = 'failed'),
            finished_at = clock_timestamp(), claimed_at = NULL, claimed_by = NULL,
            updated_at = clock_timestamp()
        WHERE run_id = $1::uuid AND claimed_by = $2 AND status = 'running'`,
-      [run.runId, run.claimId, qualificationThreshold],
+      [run.runId, run.claimId],
     );
     return result.rowCount === 1;
+  }
+
+  async saveLeadRunQualification(
+    runId: string,
+    qualificationThreshold: number,
+  ): Promise<void> {
+    await this.pool.query(
+      `UPDATE app.lead_campaign_run
+       SET qualified_count = (SELECT count(*) FROM app.prospect
+                              WHERE run_id = $1::uuid AND score >= $2),
+           disqualified_count = (SELECT count(*) FROM app.prospect
+                                 WHERE run_id = $1::uuid AND score < $2),
+           failed_count = (SELECT count(*) FROM app.prospect
+                           WHERE run_id = $1::uuid AND enrichment_status = 'failed'),
+           updated_at = clock_timestamp()
+       WHERE run_id = $1::uuid`,
+      [runId, qualificationThreshold],
+    );
+  }
+
+  async listProspectsToDraft(
+    runId: string,
+    qualificationThreshold: number,
+    limit: number,
+  ): Promise<ProspectDraftingInfo[]> {
+    const result = await this.pool.query(
+      `SELECT prospect.prospect_id, prospect.business_name, prospect.category,
+              prospect.address, prospect.emails,
+              campaign.target_service, campaign.target_industry,
+              campaign.target_location, campaign.email_context, campaign.email_cta
+       FROM app.prospect prospect
+       JOIN app.lead_campaign campaign ON campaign.campaign_id = prospect.campaign_id
+       WHERE prospect.run_id = $1::uuid
+         AND prospect.score >= $2
+         AND prospect.duplicate_kind IS NULL
+         AND prospect.dismissed_at IS NULL
+         AND cardinality(prospect.emails) > 0
+         AND NOT EXISTS (SELECT 1 FROM app.outreach_draft draft
+                         WHERE draft.prospect_id = prospect.prospect_id)
+       ORDER BY prospect.score DESC, prospect.created_at, prospect.prospect_id
+       LIMIT $3`,
+      [runId, qualificationThreshold, limit],
+    );
+    return result.rows.map((row) => ({
+      prospectId: String(row.prospect_id),
+      businessName: String(row.business_name),
+      category: row.category === null ? null : String(row.category),
+      address: row.address === null ? null : String(row.address),
+      emails: row.emails as string[],
+      dismissed: false,
+      campaign: {
+        targetService: String(row.target_service),
+        targetIndustry: String(row.target_industry),
+        targetLocation: String(row.target_location),
+        emailContext:
+          row.email_context === null ? null : String(row.email_context),
+        callToAction: row.email_cta === null ? null : String(row.email_cta),
+      },
+    }));
   }
 
   async storeFoundProspects(
@@ -7148,6 +7210,9 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       requireWebsite: row.require_website === true,
       idealCustomerProfile: text(row.ideal_customer_profile),
       disqualifiers: text(row.disqualifiers),
+      generateEmails: row.generate_emails === true,
+      emailContext: text(row.email_context),
+      emailCta: text(row.email_cta),
       qualificationThreshold: Number(row.qualification_threshold),
       maxProspects: Number(row.max_prospects),
       createdBy: String(row.created_by),
@@ -7174,10 +7239,10 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       `INSERT INTO app.lead_campaign
          (campaign_id, name, target_service, target_industry, target_location,
           search_keywords, excluded_keywords, min_rating, require_website,
-          ideal_customer_profile, disqualifiers, qualification_threshold,
-          max_prospects, created_by)
+          ideal_customer_profile, disqualifiers, generate_emails, email_context,
+          email_cta, qualification_threshold, max_prospects, created_by)
        VALUES ($1::uuid, $2, $3, $4, $5, $6::text[], $7::text[], $8, $9, $10, $11,
-               $12, $13, $14::uuid)`,
+               $12, $13, $14, $15, $16, $17::uuid)`,
       [
         input.id,
         input.name,
@@ -7190,6 +7255,9 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
         input.requireWebsite,
         input.idealCustomerProfile,
         input.disqualifiers,
+        input.generateEmails,
+        input.emailContext,
+        input.emailCta,
         input.qualificationThreshold,
         input.maxProspects,
         input.createdBy,
@@ -7229,6 +7297,9 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       requireWebsite: "require_website",
       idealCustomerProfile: "ideal_customer_profile",
       disqualifiers: "disqualifiers",
+      generateEmails: "generate_emails",
+      emailContext: "email_context",
+      emailCta: "email_cta",
       qualificationThreshold: "qualification_threshold",
       maxProspects: "max_prospects",
     };
@@ -7415,6 +7486,18 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     };
   }
 
+  async findProspect(
+    campaignId: string,
+    prospectId: string,
+  ): Promise<ProspectRecord | null> {
+    const result = await this.pool.query(
+      `SELECT * FROM app.prospect
+       WHERE campaign_id = $1::uuid AND prospect_id = $2::uuid`,
+      [campaignId, prospectId],
+    );
+    return result.rows[0] ? this.mapProspect(result.rows[0]) : null;
+  }
+
   private mapProspect(row: Record<string, unknown>): ProspectRecord {
     const text = (value: unknown) =>
       value === null || value === undefined ? null : String(value);
@@ -7569,7 +7652,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
               prospect.address, prospect.emails,
               prospect.dismissed_at IS NOT NULL AS dismissed,
               campaign.target_service, campaign.target_industry,
-              campaign.target_location
+              campaign.target_location, campaign.email_context, campaign.email_cta
        FROM app.prospect prospect
        JOIN app.lead_campaign campaign ON campaign.campaign_id = prospect.campaign_id
        WHERE prospect.prospect_id = ANY($1::uuid[])`,
@@ -7586,6 +7669,9 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
         targetService: String(row.target_service),
         targetIndustry: String(row.target_industry),
         targetLocation: String(row.target_location),
+        emailContext:
+          row.email_context === null ? null : String(row.email_context),
+        callToAction: row.email_cta === null ? null : String(row.email_cta),
       },
     }));
   }
@@ -7670,11 +7756,16 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
 
   async listOutreachDrafts(filter: OutreachDraftFilter) {
     const values: unknown[] = [];
-    let condition = "true";
+    const conditions: string[] = [];
     if (filter.status) {
       values.push(filter.status);
-      condition = `draft.status = $${values.length}`;
+      conditions.push(`draft.status = $${values.length}`);
     }
+    if (filter.prospectId) {
+      values.push(filter.prospectId);
+      conditions.push(`draft.prospect_id = $${values.length}::uuid`);
+    }
+    const condition = conditions.length > 0 ? conditions.join(" AND ") : "true";
     const total = await this.pool.query(
       `SELECT count(*) AS total FROM app.outreach_draft draft WHERE ${condition}`,
       values,
@@ -9033,6 +9124,763 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       }
     }
     return [...customers.values()];
+  }
+
+  async listSalesEmailMessages(filter: SalesEmailFilter) {
+    const values: unknown[] = [];
+    const where: string[] = [];
+    if (filter.folder) {
+      values.push(filter.folder);
+      where.push(
+        `EXISTS (SELECT 1 FROM app.sales_email_folder_membership folder
+         WHERE folder.email_id = message.email_id AND folder.folder_path = $${values.length})`,
+      );
+    }
+    if (filter.search) {
+      values.push(`%${filter.search}%`);
+      where.push(
+        `(subject ILIKE $${values.length} OR body_text ILIKE $${values.length} OR from_email ILIKE $${values.length})`,
+      );
+    }
+    const condition = where.length ? where.join(" AND ") : "true";
+    const total = await this.pool.query(
+      `SELECT count(*) AS total FROM app.sales_email_message message WHERE ${condition}`,
+      values,
+    );
+    const rows = await this.pool.query(
+      `SELECT email_id, folder_path, direction, source, send_status, message_id,
+              in_reply_to, references_ids, from_name, from_email, to_recipients, cc_recipients,
+              subject, left(body_text, 240) AS body_text,
+              received_at, accepted_at, created_at, error,
+              length(body_text) > 240 AS body_truncated
+       FROM app.sales_email_message message WHERE ${condition}
+       ORDER BY COALESCE(message.received_at, message.accepted_at, message.created_at) DESC
+       LIMIT $${values.length + 1} OFFSET $${values.length + 2}`,
+      [...values, filter.limit, filter.offset],
+    );
+    const text = (value: unknown) =>
+      value === null || value === undefined ? null : String(value);
+    const addresses = (value: unknown) =>
+      (Array.isArray(value) ? value : []) as SalesEmailMessage["to"];
+    return {
+      total: Number(total.rows[0]?.total ?? 0),
+      items: rows.rows.map((row) => ({
+        id: String(row.email_id),
+        folder: filter.folder ?? text(row.folder_path),
+        direction: String(row.direction) as SalesEmailMessage["direction"],
+        source: String(row.source) as SalesEmailMessage["source"],
+        sendStatus: String(row.send_status) as SalesEmailMessage["sendStatus"],
+        messageId: text(row.message_id),
+        inReplyTo: text(row.in_reply_to),
+        references: row.references_ids as string[],
+        fromName: text(row.from_name),
+        fromEmail: String(row.from_email),
+        to: addresses(row.to_recipients),
+        cc: addresses(row.cc_recipients),
+        subject: String(row.subject),
+        body: String(row.body_text),
+        bodyTruncated: row.body_truncated === true,
+        receivedAt:
+          row.received_at === null ? null : this.toIsoString(row.received_at),
+        acceptedAt:
+          row.accepted_at === null ? null : this.toIsoString(row.accepted_at),
+        createdAt: this.toIsoString(row.created_at),
+        error: text(row.error),
+      })),
+    };
+  }
+
+  async listSalesEmailFolders(): Promise<string[]> {
+    const result = await this.pool.query(
+      `SELECT folder_path FROM app.sales_email_folder_membership
+       GROUP BY folder_path ORDER BY folder_path`,
+    );
+    return result.rows.map((row) => String(row.folder_path));
+  }
+
+  async findSalesEmailMessage(id: string): Promise<SalesEmailMessage | null> {
+    const result = await this.pool.query(
+      `SELECT email_id, folder_path, direction, source, send_status, message_id,
+              in_reply_to, references_ids, from_name, from_email, to_recipients, cc_recipients,
+              subject, body_text, received_at, accepted_at, created_at, error,
+              false AS body_truncated
+       FROM app.sales_email_message WHERE email_id = $1::uuid`,
+      [id],
+    );
+    const row = result.rows[0];
+    if (!row) return null;
+    const text = (value: unknown) =>
+      value === null || value === undefined ? null : String(value);
+    const addresses = (value: unknown) =>
+      (Array.isArray(value) ? value : []) as SalesEmailMessage["to"];
+    return {
+      id: String(row.email_id),
+      folder: text(row.folder_path),
+      direction: String(row.direction) as SalesEmailMessage["direction"],
+      source: String(row.source) as SalesEmailMessage["source"],
+      sendStatus: String(row.send_status) as SalesEmailMessage["sendStatus"],
+      messageId: text(row.message_id),
+      inReplyTo: text(row.in_reply_to),
+      references: row.references_ids as string[],
+      fromName: text(row.from_name),
+      fromEmail: String(row.from_email),
+      to: addresses(row.to_recipients),
+      cc: addresses(row.cc_recipients),
+      subject: String(row.subject),
+      body: String(row.body_text),
+      bodyTruncated: false,
+      receivedAt:
+        row.received_at === null ? null : this.toIsoString(row.received_at),
+      acceptedAt:
+        row.accepted_at === null ? null : this.toIsoString(row.accepted_at),
+      createdAt: this.toIsoString(row.created_at),
+      error: text(row.error),
+    };
+  }
+
+  async listSalesEmailThread(id: string): Promise<SalesEmailMessage[]> {
+    const result = await this.pool.query(
+      `WITH root AS (
+         SELECT COALESCE(references_ids[1], in_reply_to, message_id) AS message_id
+         FROM app.sales_email_message WHERE email_id = $1::uuid
+       )
+       SELECT email.email_id, email.folder_path, email.direction, email.source,
+              email.send_status, email.message_id, email.in_reply_to,
+              email.references_ids, email.from_name, email.from_email,
+              email.to_recipients, email.cc_recipients, email.subject,
+              email.body_text, email.received_at, email.accepted_at,
+              email.created_at, email.error
+       FROM app.sales_email_message email CROSS JOIN root
+       WHERE email.email_id = $1::uuid
+          OR (root.message_id IS NOT NULL AND (
+            email.message_id = root.message_id
+            OR email.in_reply_to = root.message_id
+            OR email.references_ids @> ARRAY[root.message_id]
+          ))
+       ORDER BY COALESCE(email.received_at, email.accepted_at, email.created_at), email.email_id
+       LIMIT 100`,
+      [id],
+    );
+    return result.rows.map((row) => ({
+      id: String(row.email_id),
+      folder: row.folder_path === null ? null : String(row.folder_path),
+      direction: String(row.direction) as SalesEmailMessage["direction"],
+      source: String(row.source) as SalesEmailMessage["source"],
+      sendStatus: String(row.send_status) as SalesEmailMessage["sendStatus"],
+      messageId: row.message_id === null ? null : String(row.message_id),
+      inReplyTo: row.in_reply_to === null ? null : String(row.in_reply_to),
+      references: row.references_ids as string[],
+      fromName: row.from_name === null ? null : String(row.from_name),
+      fromEmail: String(row.from_email),
+      to: row.to_recipients as SalesEmailMessage["to"],
+      cc: row.cc_recipients as SalesEmailMessage["cc"],
+      subject: String(row.subject),
+      body: String(row.body_text),
+      bodyTruncated: false,
+      receivedAt:
+        row.received_at === null ? null : this.toIsoString(row.received_at),
+      acceptedAt:
+        row.accepted_at === null ? null : this.toIsoString(row.accepted_at),
+      createdAt: this.toIsoString(row.created_at),
+      error: row.error === null ? null : String(row.error),
+    }));
+  }
+
+  async storeSyncedSalesEmail(
+    email: SyncedSalesEmail,
+  ): Promise<{ id: string; inserted: boolean }> {
+    const result = await this.pool.query(
+      `INSERT INTO app.sales_email_message
+         (folder_path, uid_validity, mailbox_uid, message_id, in_reply_to,
+          references_ids, direction, source, send_status, from_name, from_email,
+          to_recipients, cc_recipients, subject, body_text, received_at)
+       VALUES ($1, $2::bigint, $3::bigint, $4, $5, $6::text[], $7, 'mailbox',
+               'mailbox', $8, $9, $10::jsonb, $11::jsonb, $12, $13, $14::timestamptz)
+       ON CONFLICT DO NOTHING
+       RETURNING email_id`,
+      [
+        email.folder,
+        email.uidValidity,
+        email.uid,
+        email.messageId,
+        email.inReplyTo,
+        email.references,
+        email.direction,
+        email.fromName,
+        email.fromEmail,
+        JSON.stringify(email.to),
+        JSON.stringify(email.cc),
+        email.subject,
+        email.body,
+        email.receivedAt,
+      ],
+    );
+    if (result.rows[0]) {
+      const emailId = String(result.rows[0].email_id);
+      await this.pool.query(
+        `INSERT INTO app.sales_email_folder_membership
+           (folder_path, uid_validity, mailbox_uid, email_id)
+         VALUES ($1, $2::bigint, $3::bigint, $4::uuid)
+         ON CONFLICT DO NOTHING`,
+        [email.folder, email.uidValidity, email.uid, emailId],
+      );
+      return { id: emailId, inserted: true };
+    }
+    const existing = await this.pool.query(
+      `SELECT email_id FROM app.sales_email_message
+       WHERE (folder_path = $1 AND uid_validity = $2::bigint AND mailbox_uid = $3::bigint)
+          OR ($4::text IS NOT NULL AND message_id = $4)
+       LIMIT 1`,
+      [email.folder, email.uidValidity, email.uid, email.messageId],
+    );
+    if (!existing.rows[0])
+      throw new Error("Synced sales email conflict could not be found");
+    const emailId = String(existing.rows[0].email_id);
+    await this.pool.query(
+      `INSERT INTO app.sales_email_folder_membership
+         (folder_path, uid_validity, mailbox_uid, email_id)
+       VALUES ($1, $2::bigint, $3::bigint, $4::uuid)
+       ON CONFLICT DO NOTHING`,
+      [email.folder, email.uidValidity, email.uid, emailId],
+    );
+    return { id: emailId, inserted: false };
+  }
+
+  async hasSalesEmailAttachment(
+    emailId: string,
+    partIndex: number,
+  ): Promise<boolean> {
+    const result = await this.pool.query(
+      `SELECT 1 FROM app.sales_email_attachment WHERE email_id = $1::uuid AND part_index = $2`,
+      [emailId, partIndex],
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async saveSalesEmailAttachment(input: {
+    id: string;
+    emailId: string;
+    partIndex: number;
+    filename: string;
+    sizeBytes: number;
+    objectKey: string | null;
+  }): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO app.sales_email_attachment
+         (attachment_id, email_id, part_index, filename, size_bytes, object_key)
+       VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6)
+       ON CONFLICT (email_id, part_index) DO NOTHING`,
+      [
+        input.id,
+        input.emailId,
+        input.partIndex,
+        input.filename,
+        input.sizeBytes,
+        input.objectKey,
+      ],
+    );
+  }
+
+  async listSalesEmailAttachments(
+    emailId: string,
+  ): Promise<SalesEmailAttachment[]> {
+    const result = await this.pool.query(
+      `SELECT attachment_id, filename, size_bytes, object_key FROM app.sales_email_attachment
+       WHERE email_id = $1::uuid ORDER BY part_index`,
+      [emailId],
+    );
+    return result.rows.map((row) => ({
+      id: String(row.attachment_id),
+      filename: String(row.filename),
+      sizeBytes: Number(row.size_bytes),
+      available: row.object_key !== null,
+    }));
+  }
+
+  async findSalesEmailAttachment(
+    emailId: string,
+    attachmentId: string,
+  ): Promise<(SalesEmailAttachment & { objectKey: string | null }) | null> {
+    const result = await this.pool.query(
+      `SELECT attachment_id, filename, size_bytes, object_key
+       FROM app.sales_email_attachment WHERE email_id = $1::uuid AND attachment_id = $2::uuid`,
+      [emailId, attachmentId],
+    );
+    const row = result.rows[0];
+    return row
+      ? {
+          id: String(row.attachment_id),
+          filename: String(row.filename),
+          sizeBytes: Number(row.size_bytes),
+          objectKey: row.object_key === null ? null : String(row.object_key),
+          available: row.object_key !== null,
+        }
+      : null;
+  }
+
+  async getSalesEmailSyncCursor(folder: string) {
+    const result = await this.pool.query(
+      `SELECT uid_validity, last_uid FROM app.sales_email_sync_cursor WHERE folder_path = $1`,
+      [folder],
+    );
+    const row = result.rows[0];
+    return row
+      ? { uidValidity: String(row.uid_validity), lastUid: Number(row.last_uid) }
+      : null;
+  }
+
+  async acquireSalesEmailSyncLock(): Promise<(() => Promise<void>) | null> {
+    const client = await this.pool.connect();
+    try {
+      const result = await client.query(
+        "SELECT pg_try_advisory_lock(684321, 2) AS acquired",
+      );
+      if (result.rows[0]?.acquired !== true) {
+        client.release();
+        return null;
+      }
+      return async () => {
+        try {
+          const unlocked = await client.query(
+            "SELECT pg_advisory_unlock(684321, 2) AS unlocked",
+          );
+          if (unlocked.rows[0]?.unlocked !== true) {
+            throw new Error("Sales mailbox sync lock was not held");
+          }
+          client.release();
+        } catch (error) {
+          client.release(
+            error instanceof Error
+              ? error
+              : new Error("Could not release lock"),
+          );
+          throw error;
+        }
+      };
+    } catch (error) {
+      client.release(error instanceof Error ? error : new Error("Lock failed"));
+      throw error;
+    }
+  }
+
+  async saveSalesEmailSyncCursor(cursor: {
+    folder: string;
+    uidValidity: string;
+    lastUid: number;
+  }): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO app.sales_email_sync_cursor (folder_path, uid_validity, last_uid)
+       VALUES ($1, $2::bigint, $3::bigint)
+       ON CONFLICT (folder_path) DO UPDATE SET
+         uid_validity = EXCLUDED.uid_validity,
+         last_uid = CASE WHEN app.sales_email_sync_cursor.uid_validity = EXCLUDED.uid_validity
+                         THEN GREATEST(app.sales_email_sync_cursor.last_uid, EXCLUDED.last_uid)
+                         ELSE EXCLUDED.last_uid END,
+         synced_at = clock_timestamp()`,
+      [cursor.folder, cursor.uidValidity, cursor.lastUid],
+    );
+  }
+
+  async listCampaignRecipientEmails(campaignIds: string[]): Promise<string[]> {
+    if (campaignIds.length === 0) return [];
+    const result = await this.pool.query(
+      `SELECT DISTINCT lower(btrim(email)) AS email
+       FROM app.prospect prospect
+       JOIN app.lead_campaign campaign
+         ON campaign.campaign_id = prospect.campaign_id AND campaign.status = 'active'
+       CROSS JOIN LATERAL unnest(prospect.emails) AS email
+       WHERE prospect.campaign_id = ANY($1::uuid[])
+         AND prospect.dismissed_at IS NULL
+         AND length(btrim(email)) BETWEEN 3 AND 254
+       ORDER BY email`,
+      [campaignIds],
+    );
+    return result.rows.map((row) => String(row.email));
+  }
+
+  async listSuppressedSalesEmails(emails: string[]): Promise<string[]> {
+    if (emails.length === 0) return [];
+    const result = await this.pool.query(
+      `SELECT lower(email) AS email FROM app.sales_email_suppression
+       WHERE lower(email) = ANY($1::text[])`,
+      [emails.map((email) => email.toLowerCase())],
+    );
+    return result.rows.map((row) => String(row.email));
+  }
+
+  async suppressSalesEmail(input: {
+    email: string;
+    reason: "unsubscribe" | "manual" | "bounce";
+  }): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO app.sales_email_suppression (email, reason)
+       VALUES (lower($1), $2)
+       ON CONFLICT (email) DO NOTHING`,
+      [input.email, input.reason],
+    );
+  }
+
+  async queueSalesEmailMessage(
+    send: NewSalesEmailSend,
+  ): Promise<"queued" | "suppressed" | "draft_already_sent"> {
+    const suppressed = await this.listSuppressedSalesEmails([
+      send.recipientEmail,
+    ]);
+    if (suppressed.length) return "suppressed";
+    const result = await this.pool.query(
+      `INSERT INTO app.sales_email_message
+         (email_id, direction, source, send_status, from_email, to_recipients,
+          subject, body_text, created_by, draft_id, campaign_ids, in_reply_to, references_ids)
+       VALUES ($1::uuid, 'outgoing', 'platform', 'queued', $2,
+               $3::jsonb, $4, $5, $6::uuid, $7::uuid, $8::uuid[], $9, $10::text[])
+       ON CONFLICT DO NOTHING
+       RETURNING email_id`,
+      [
+        send.id,
+        send.fromEmail,
+        JSON.stringify([{ name: null, email: send.recipientEmail }]),
+        send.subject,
+        send.body,
+        send.createdBy,
+        send.draftId ?? null,
+        send.campaignIds,
+        send.inReplyTo ?? null,
+        send.references ?? [],
+      ],
+    );
+    if (result.rowCount) return "queued";
+    return send.draftId ? "draft_already_sent" : "queued";
+  }
+
+  async retrySalesEmailMessage(
+    id: string,
+  ): Promise<"queued" | "suppressed" | "not_failed"> {
+    const retried = await this.pool.query(
+      `UPDATE app.sales_email_message message
+       SET send_status = 'queued', error = NULL, message_id = NULL,
+           send_started_at = NULL, accepted_at = NULL
+       WHERE message.email_id = $1::uuid AND message.source = 'platform'
+         AND message.send_status = 'failed'
+         AND NOT EXISTS (
+           SELECT 1 FROM app.sales_email_suppression suppression
+           WHERE lower(suppression.email) = lower(message.to_recipients->0->>'email')
+         )
+       RETURNING message.email_id`,
+      [id],
+    );
+    if (retried.rowCount) return "queued";
+    const blocked = await this.pool.query(
+      `SELECT 1 FROM app.sales_email_message message
+       JOIN app.sales_email_suppression suppression
+         ON lower(suppression.email) = lower(message.to_recipients->0->>'email')
+       WHERE message.email_id = $1::uuid AND message.source = 'platform'
+         AND message.send_status = 'failed'`,
+      [id],
+    );
+    return blocked.rowCount ? "suppressed" : "not_failed";
+  }
+
+  async findSalesEmailSendRequest(
+    id: string,
+  ): Promise<SalesEmailSendRequestResult | null> {
+    const result = await this.pool.query(
+      `SELECT payload_hash, queued_count, suppressed_count
+       FROM app.sales_email_send_request WHERE request_id = $1::uuid`,
+      [id],
+    );
+    const row = result.rows[0];
+    return row
+      ? {
+          payloadHash: String(row.payload_hash),
+          queued: Number(row.queued_count),
+          suppressed: Number(row.suppressed_count),
+        }
+      : null;
+  }
+
+  async queueSalesEmailComposition(input: {
+    requestId: string;
+    payloadHash: string;
+    createdBy: string;
+    initialSuppressed: number;
+    sends: NewSalesEmailSend[];
+  }): Promise<SalesEmailSendRequestResult> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        `SELECT pg_advisory_xact_lock(hashtext('sales_email_send_request'), hashtext($1))`,
+        [input.requestId],
+      );
+      const existing = await client.query(
+        `SELECT payload_hash, queued_count, suppressed_count
+         FROM app.sales_email_send_request WHERE request_id = $1::uuid`,
+        [input.requestId],
+      );
+      if (existing.rows[0]) {
+        await client.query("COMMIT");
+        const row = existing.rows[0];
+        return {
+          payloadHash: String(row.payload_hash),
+          queued: Number(row.queued_count),
+          suppressed: Number(row.suppressed_count),
+        };
+      }
+      await client.query(
+        `INSERT INTO app.sales_email_send_request (request_id, created_by, payload_hash)
+         VALUES ($1::uuid, $2::uuid, $3)`,
+        [input.requestId, input.createdBy, input.payloadHash],
+      );
+      let queued = 0;
+      let suppressed = input.initialSuppressed;
+      for (const send of input.sends) {
+        const blocked = await client.query(
+          `SELECT 1 FROM app.sales_email_suppression WHERE lower(email) = lower($1)`,
+          [send.recipientEmail],
+        );
+        if (blocked.rowCount) {
+          suppressed += 1;
+          continue;
+        }
+        await client.query(
+          `INSERT INTO app.sales_email_message
+             (email_id, direction, source, send_status, from_email, to_recipients,
+              subject, body_text, created_by, campaign_ids, in_reply_to,
+              references_ids, send_request_id)
+           VALUES ($1::uuid, 'outgoing', 'platform', 'queued', $2, $3::jsonb,
+                   $4, $5, $6::uuid, $7::uuid[], $8, $9::text[], $10::uuid)`,
+          [
+            send.id,
+            send.fromEmail,
+            JSON.stringify([{ name: null, email: send.recipientEmail }]),
+            send.subject,
+            send.body,
+            send.createdBy,
+            send.campaignIds,
+            send.inReplyTo ?? null,
+            send.references ?? [],
+            input.requestId,
+          ],
+        );
+        queued += 1;
+      }
+      await client.query(
+        `UPDATE app.sales_email_send_request
+         SET queued_count = $2, suppressed_count = $3 WHERE request_id = $1::uuid`,
+        [input.requestId, queued, suppressed],
+      );
+      await client.query("COMMIT");
+      return { payloadHash: input.payloadHash, queued, suppressed };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async claimSalesEmailMessages(
+    limit: number,
+  ): Promise<ClaimedSalesEmailSend[]> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SELECT pg_advisory_xact_lock(684321, 1)");
+      await client.query(
+        `WITH stale_attempts AS (
+           UPDATE app.sales_email_send_attempt
+           SET status = 'unknown', finished_at = clock_timestamp(),
+               error = 'Worker stopped before recording the provider result'
+           WHERE status = 'sending'
+             AND started_at < clock_timestamp() - interval '10 minutes'
+           RETURNING email_id
+         )
+         UPDATE app.sales_email_message message
+         SET send_status = 'unknown',
+             error = 'Worker stopped before recording the provider result'
+         FROM stale_attempts
+         WHERE message.email_id = stale_attempts.email_id
+           AND message.send_status = 'sending'`,
+      );
+      await client.query(
+        `UPDATE app.sales_email_message email
+       SET send_status = 'failed', error = 'Recipient is suppressed'
+       WHERE email.send_status = 'queued'
+         AND EXISTS (
+           SELECT 1 FROM app.sales_email_suppression suppression
+           WHERE lower(suppression.email) = lower(email.to_recipients->0->>'email')
+         )`,
+      );
+      const result = await client.query(
+        `WITH limits AS (
+           SELECT (settings->'salesEmailLimits'->>'dailyCap')::int AS daily_cap,
+                  (settings->'salesEmailLimits'->>'gapSeconds')::int AS gap_seconds,
+                  (settings->'salesEmailLimits'->>'campaignDailyCap')::int AS campaign_daily_cap
+           FROM app.business_settings_revision
+           -- A later save that leaves the limit fields blank must not pause
+           -- sending: use the latest revision that sets them.
+           WHERE settings->'salesEmailLimits' IS NOT NULL
+           ORDER BY revision_number DESC LIMIT 1
+         ), selected AS (
+         SELECT candidate.email_id FROM app.sales_email_message candidate
+         WHERE candidate.send_status = 'queued'
+           AND EXISTS (SELECT 1 FROM limits WHERE daily_cap BETWEEN 1 AND 500
+             AND gap_seconds BETWEEN 1 AND 3600
+             AND campaign_daily_cap BETWEEN 1 AND 500)
+           AND (
+             SELECT count(*) FROM app.sales_email_send_attempt attempt
+             JOIN app.sales_email_message sent ON sent.email_id = attempt.email_id
+             WHERE sent.source = 'platform'
+               AND attempt.started_at >= date_trunc('day', clock_timestamp() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
+           ) < (SELECT daily_cap FROM limits)
+           AND NOT EXISTS (
+             SELECT 1 FROM app.sales_email_send_attempt attempt
+             JOIN app.sales_email_message sent ON sent.email_id = attempt.email_id
+             WHERE sent.source = 'platform'
+               AND attempt.started_at > clock_timestamp() -
+                 make_interval(secs => (SELECT gap_seconds FROM limits))
+           )
+           AND NOT EXISTS (
+             SELECT 1 FROM unnest(candidate.campaign_ids) AS campaign_id(id)
+             WHERE (
+               SELECT count(*) FROM app.sales_email_send_attempt attempt
+               JOIN app.sales_email_message sent ON sent.email_id = attempt.email_id
+               WHERE sent.source = 'platform'
+                 AND attempt.started_at >= date_trunc('day', clock_timestamp() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
+                 AND campaign_id.id = ANY(sent.campaign_ids)
+             ) >= (SELECT campaign_daily_cap FROM limits)
+           )
+         ORDER BY candidate.created_at
+         FOR UPDATE SKIP LOCKED
+         LIMIT LEAST($1, 1)
+       )
+       UPDATE app.sales_email_message email
+       SET send_status = 'sending', send_started_at = clock_timestamp()
+       FROM selected
+       WHERE email.email_id = selected.email_id
+       RETURNING email.email_id, email.to_recipients, email.subject, email.body_text,
+                 email.in_reply_to, email.references_ids`,
+        [limit],
+      );
+      await client.query(
+        `INSERT INTO app.sales_email_send_attempt (email_id, started_at, status)
+         SELECT email_id, send_started_at, 'sending'
+         FROM app.sales_email_message WHERE email_id = ANY($1::uuid[])`,
+        [result.rows.map((row) => String(row.email_id))],
+      );
+      await client.query("COMMIT");
+      return result.rows.map((row) => ({
+        id: String(row.email_id),
+        recipientEmail: String(
+          (row.to_recipients as Array<{ email: string }>)[0]?.email,
+        ),
+        subject: String(row.subject),
+        body: String(row.body_text),
+        inReplyTo: row.in_reply_to === null ? null : String(row.in_reply_to),
+        references: row.references_ids as string[],
+      }));
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async setSalesEmailSendingBody(id: string, body: string): Promise<void> {
+    await this.pool.query(
+      `UPDATE app.sales_email_message SET body_text = $2
+       WHERE email_id = $1::uuid AND send_status = 'sending'`,
+      [id, body],
+    );
+  }
+
+  async finishSalesEmailMessage(input: {
+    id: string;
+    status: "accepted" | "failed" | "unknown" | "stubbed";
+    messageId?: string | null;
+    error?: string | null;
+  }): Promise<void> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const finished = await client.query(
+        `UPDATE app.sales_email_message
+       SET send_status = $2,
+           -- A copy filed in Sent may already hold this Message-ID (unique);
+           -- keep the status either way rather than failing the whole finish.
+           message_id = COALESCE(
+             CASE WHEN $3::text IS NOT NULL AND NOT EXISTS (
+                    SELECT 1 FROM app.sales_email_message other
+                    WHERE other.message_id = $3::text AND other.email_id <> $1::uuid)
+                  THEN $3::text END,
+             message_id),
+           accepted_at = CASE WHEN $2 = 'accepted' THEN clock_timestamp() END,
+           error = $4
+       WHERE email_id = $1::uuid AND send_status = 'sending'
+       RETURNING draft_id, campaign_ids, to_recipients, subject, created_by`,
+        [input.id, input.status, input.messageId ?? null, input.error ?? null],
+      );
+      const message = finished.rows[0];
+      if (message) {
+        await client.query(
+          `UPDATE app.sales_email_send_attempt
+           SET status = $2, finished_at = clock_timestamp(), error = $3,
+               provider_message_id = $4
+           WHERE email_id = $1::uuid AND status = 'sending'`,
+          [
+            input.id,
+            input.status,
+            input.error ?? null,
+            input.messageId ?? null,
+          ],
+        );
+      }
+      if (message && input.status === "accepted") {
+        const recipient = (message.to_recipients as Array<{ email: string }>)[0]
+          ?.email;
+        const leads = await client.query(
+          `SELECT DISTINCT prospect.promoted_lead_id AS lead_id
+           FROM app.prospect prospect
+           WHERE prospect.promoted_lead_id IS NOT NULL
+             AND (
+               ($1::uuid IS NOT NULL
+                AND prospect.prospect_id = (SELECT draft.prospect_id FROM app.outreach_draft draft
+                                            WHERE draft.draft_id = $1::uuid))
+               OR ($1::uuid IS NULL AND prospect.campaign_id = ANY($2::uuid[])
+                   AND EXISTS (SELECT 1 FROM unnest(prospect.emails) address
+                               WHERE lower(address) = lower($3)))
+             )
+           LIMIT 2`,
+          [message.draft_id, message.campaign_ids, recipient],
+        );
+        if (leads.rows.length === 1) {
+          const leadId = String(leads.rows[0].lead_id);
+          await client.query(
+            `UPDATE app.lead
+             SET stage = 'contacted', stage_changed_at = clock_timestamp(),
+                 updated_at = clock_timestamp()
+             WHERE lead_id = $1::uuid AND stage = 'new'`,
+            [leadId],
+          );
+          await client.query(
+            `INSERT INTO app.lead_activity (lead_id, kind, note, created_by)
+             VALUES ($1::uuid, 'email', $2, $3::uuid)`,
+            [
+              leadId,
+              `Sales email accepted by SMTP: ${String(message.subject)}`,
+              message.created_by,
+            ],
+          );
+        }
+      }
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   private toIsoString(value: unknown): string {

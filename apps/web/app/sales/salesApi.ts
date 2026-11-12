@@ -43,6 +43,7 @@ export type Draft = {
   recipientEmail: string;
   subject: string;
   body: string;
+  bodyTruncated: boolean;
   status: DraftStatus;
   /** ai: written by the model; template: the fixed wording. */
   method: "ai" | "template";
@@ -59,6 +60,56 @@ export type DraftPage = {
   items: Draft[];
   total: number;
   counts: Record<DraftStatus, number>;
+};
+
+export type SalesEmail = {
+  id: string;
+  folder: string | null;
+  direction: "incoming" | "outgoing";
+  source: "mailbox" | "platform";
+  sendStatus:
+    | "mailbox"
+    | "queued"
+    | "sending"
+    | "accepted"
+    | "failed"
+    | "unknown"
+    | "stubbed";
+  messageId: string | null;
+  inReplyTo: string | null;
+  references: string[];
+  fromName: string | null;
+  fromEmail: string;
+  to: Array<{ name: string | null; email: string }>;
+  cc: Array<{ name: string | null; email: string }>;
+  subject: string;
+  body: string;
+  bodyTruncated: boolean;
+  receivedAt: string | null;
+  acceptedAt: string | null;
+  createdAt: string;
+  error: string | null;
+};
+
+export type SalesEmailDetail = SalesEmail & {
+  senderSuppressed: boolean;
+  attachments: Array<{
+    id: string;
+    filename: string;
+    sizeBytes: number;
+    available: boolean;
+  }>;
+};
+
+export type SalesEmailPage = { items: SalesEmail[]; total: number };
+export type SalesEmailComposition = {
+  emails: string[];
+  campaignIds: string[];
+  subject: string;
+  body: string;
+  expectedRecipients?: string[];
+  sendRequestId?: string;
+  replyToMessageId?: string;
 };
 
 export type DraftSkipReason =
@@ -206,14 +257,120 @@ export async function listDrafts(
   status: DraftStatus | undefined,
   limit = 50,
   offset = 0,
+  prospectId?: string,
 ): Promise<DraftPage> {
   const params = new URLSearchParams({
     limit: String(limit),
     offset: String(offset),
   });
   if (status) params.set("status", status);
+  if (prospectId) params.set("prospectId", prospectId);
   return readResponse(
     await authenticatedFetch(`${salesUrl}/drafts?${params.toString()}`),
+  );
+}
+
+export async function listSalesEmails(
+  options: {
+    folder?: string;
+    search?: string;
+    offset?: number;
+  } = {},
+): Promise<SalesEmailPage> {
+  const query = new URLSearchParams({
+    limit: "100",
+    offset: String(options.offset ?? 0),
+  });
+  if (options.folder) query.set("folder", options.folder);
+  if (options.search?.trim()) query.set("search", options.search.trim());
+  return readResponse(
+    await authenticatedFetch(`${salesUrl}/messages?${query.toString()}`),
+  );
+}
+
+export async function listSalesEmailFolders(): Promise<string[]> {
+  return readResponse(await authenticatedFetch(`${salesUrl}/mailbox/folders`));
+}
+
+export async function getSalesEmail(id: string): Promise<SalesEmailDetail> {
+  return readResponse(
+    await authenticatedFetch(`${salesUrl}/messages/${encodeURIComponent(id)}`),
+  );
+}
+
+export async function getSalesEmailAttachmentDownload(
+  messageId: string,
+  attachmentId: string,
+): Promise<{ url: string; filename: string }> {
+  return readResponse(
+    await authenticatedFetch(
+      `${salesUrl}/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(attachmentId)}/download`,
+    ),
+  );
+}
+
+export async function getSalesEmailThread(id: string): Promise<SalesEmail[]> {
+  return readResponse(
+    await authenticatedFetch(
+      `${salesUrl}/messages/${encodeURIComponent(id)}/thread`,
+    ),
+  );
+}
+
+export async function unsubscribeSalesEmailSender(
+  id: string,
+): Promise<{ email: string; suppressed: boolean }> {
+  return readResponse(
+    await authenticatedFetch(
+      `${salesUrl}/messages/${encodeURIComponent(id)}/unsubscribe-sender`,
+      { method: "POST" },
+    ),
+  );
+}
+
+export async function retrySalesEmail(
+  id: string,
+): Promise<{ queued: boolean }> {
+  return readResponse(
+    await authenticatedFetch(
+      `${salesUrl}/messages/${encodeURIComponent(id)}/retry`,
+      { method: "POST" },
+    ),
+  );
+}
+
+export async function previewSalesEmail(input: SalesEmailComposition): Promise<{
+  subject: string;
+  recipients: string[];
+  suppressed: string[];
+}> {
+  return readResponse(
+    await authenticatedFetch(
+      `${salesUrl}/messages/preview`,
+      jsonInit("POST", input),
+    ),
+  );
+}
+
+export async function sendSalesEmail(input: SalesEmailComposition): Promise<{
+  queued: number;
+  suppressed: number;
+}> {
+  return readResponse(
+    await authenticatedFetch(
+      `${salesUrl}/messages/send`,
+      jsonInit("POST", input),
+    ),
+  );
+}
+
+export async function syncSalesMailbox(): Promise<{
+  folders: number;
+  checked: number;
+  imported: number;
+}> {
+  return readResponse(
+    await authenticatedFetch(`${salesUrl}/mailbox/sync`, { method: "POST" }),
   );
 }
 
@@ -226,7 +383,9 @@ export async function editDraft(
   );
 }
 
-export async function approveDraft(id: string): Promise<Draft> {
+export async function approveDraft(
+  id: string,
+): Promise<Draft & { sendStatus: "queued" | "suppressed" | "already_queued" }> {
   return readResponse(
     await authenticatedFetch(`${draftUrl(id)}/approve`, jsonInit("POST", {})),
   );
@@ -241,9 +400,13 @@ export async function rejectDraft(id: string, reason: string): Promise<Draft> {
   );
 }
 
-export async function approveDrafts(
-  draftIds: string[],
-): Promise<{ approved: number; notPending: number; notFound: number }> {
+export async function approveDrafts(draftIds: string[]): Promise<{
+  approved: number;
+  notPending: number;
+  notFound: number;
+  queued: number;
+  suppressed: number;
+}> {
   return readResponse(
     await authenticatedFetch(
       `${salesUrl}/drafts/approve`,

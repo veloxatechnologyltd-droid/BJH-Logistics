@@ -42,10 +42,12 @@ import { NotificationsService } from "./notifications/notifications.service";
 import {
   EMAIL_PROVIDER,
   INQUIRY_EMAIL_PROVIDER,
+  OUTREACH_EMAIL_PROVIDER,
   REPLY_EMAIL_PROVIDER,
   createReplySender,
   SMS_PROVIDER,
   createEmailProvider,
+  createOutreachEmailProvider,
   createInquiryEmailProvider,
   createSmsProvider,
 } from "./notifications/providers";
@@ -91,7 +93,9 @@ import {
   createOutreachDrafter,
 } from "./sales/outreach-drafting";
 import { SalesController } from "./sales/sales.controller";
+import { SalesUnsubscribeController } from "./sales/sales-unsubscribe.controller";
 import { SalesService } from "./sales/sales.service";
+import { SalesMailboxService } from "./sales/sales-mailbox.service";
 import { QuoteRequestsController } from "./quotations/quote-requests.controller";
 import { QuoteRequestsService } from "./quotations/quote-requests.service";
 import { SettingsController } from "./settings/settings.controller";
@@ -173,6 +177,7 @@ import { PushService } from "./push/push.service";
     LeadsController,
     CampaignsController,
     SalesController,
+    SalesUnsubscribeController,
     JobsController,
     ClientJobReportsController,
     JobAssignmentsController,
@@ -234,6 +239,7 @@ import { PushService } from "./push/push.service";
     },
     { provide: PROSPECT_SCORER, useFactory: () => createProspectScorer() },
     SalesService,
+    SalesMailboxService,
     { provide: OUTREACH_DRAFTER, useFactory: () => createOutreachDrafter() },
     LeadRunPipeline,
     JobsService,
@@ -260,6 +266,10 @@ import { PushService } from "./push/push.service";
     {
       provide: EMAIL_PROVIDER,
       useFactory: () => createEmailProvider(process.env),
+    },
+    {
+      provide: OUTREACH_EMAIL_PROVIDER,
+      useFactory: () => createOutreachEmailProvider(process.env),
     },
     {
       provide: INQUIRY_EMAIL_PROVIDER,

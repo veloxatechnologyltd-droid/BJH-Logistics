@@ -5,8 +5,15 @@ import type {
   OutreachDraftStatus,
   PoolFilter,
   PoolProspect,
+  ClaimedSalesEmailSend,
+  NewSalesEmailSend,
+  SalesEmailSendRequestResult,
   ProspectDraftingInfo,
+  SalesEmailFilter,
+  SalesEmailMessage,
   SalesOverview,
+  SyncedSalesEmail,
+  SalesEmailAttachment,
 } from "../sales/sales";
 import type { KnownBusinessRow } from "../leads/duplicate-check";
 import type {
@@ -2402,11 +2409,25 @@ export abstract class DatabasePort {
     run: { runId: string; claimId: string },
     message: string,
   ): Promise<boolean>;
-  /** Ends a claimed run as ready and counts its qualified, disqualified and failed prospects. */
-  abstract finishLeadRun(
-    run: { runId: string; claimId: string },
+  /** Ends a claimed run as ready. */
+  abstract finishLeadRun(run: {
+    runId: string;
+    claimId: string;
+  }): Promise<boolean>;
+  /** Saves how many of the run's prospects are qualified, disqualified and failed to be read. */
+  abstract saveLeadRunQualification(
+    runId: string,
     qualificationThreshold: number,
-  ): Promise<boolean>;
+  ): Promise<void>;
+  /**
+   * Qualified businesses of the run that have an email address and no draft yet (of any
+   * status), skipping duplicates of what BJH already has and any set aside.
+   */
+  abstract listProspectsToDraft(
+    runId: string,
+    qualificationThreshold: number,
+    limit: number,
+  ): Promise<ProspectDraftingInfo[]>;
   /**
    * In one transaction: stores the found businesses, records the run's counts and
    * moves it to the enriching step, due at once. Nothing is stored when the claim
@@ -2469,6 +2490,11 @@ export abstract class DatabasePort {
     campaignId: string,
     filter: ProspectFilter,
   ): Promise<{ items: ProspectRecord[]; total: number }>;
+  /** One prospect of this campaign; null when there is none with that id in it. */
+  abstract findProspect(
+    campaignId: string,
+    prospectId: string,
+  ): Promise<ProspectRecord | null>;
   /**
    * Makes a lead from a prospect of this campaign: owner the person who adds it,
    * stage new, source campaign, with an activity noting where it came from. Doing it
@@ -2515,6 +2541,79 @@ export abstract class DatabasePort {
       { status: "approved" } | { status: "rejected"; reason: string | null },
     userId: string,
   ): Promise<OutreachDraftRecord | "not_found" | "not_pending">;
+  abstract listSalesEmailMessages(filter: SalesEmailFilter): Promise<{
+    items: SalesEmailMessage[];
+    total: number;
+  }>;
+  abstract listSalesEmailFolders(): Promise<string[]>;
+  abstract findSalesEmailMessage(id: string): Promise<SalesEmailMessage | null>;
+  abstract listSalesEmailThread(id: string): Promise<SalesEmailMessage[]>;
+  abstract storeSyncedSalesEmail(
+    email: SyncedSalesEmail,
+  ): Promise<{ id: string; inserted: boolean }>;
+  abstract hasSalesEmailAttachment(
+    emailId: string,
+    partIndex: number,
+  ): Promise<boolean>;
+  abstract saveSalesEmailAttachment(input: {
+    id: string;
+    emailId: string;
+    partIndex: number;
+    filename: string;
+    sizeBytes: number;
+    objectKey: string | null;
+  }): Promise<void>;
+  abstract listSalesEmailAttachments(
+    emailId: string,
+  ): Promise<SalesEmailAttachment[]>;
+  abstract findSalesEmailAttachment(
+    emailId: string,
+    attachmentId: string,
+  ): Promise<(SalesEmailAttachment & { objectKey: string | null }) | null>;
+  abstract getSalesEmailSyncCursor(folder: string): Promise<{
+    uidValidity: string;
+    lastUid: number;
+  } | null>;
+  abstract acquireSalesEmailSyncLock(): Promise<(() => Promise<void>) | null>;
+  abstract saveSalesEmailSyncCursor(cursor: {
+    folder: string;
+    uidValidity: string;
+    lastUid: number;
+  }): Promise<void>;
+  abstract listCampaignRecipientEmails(
+    campaignIds: string[],
+  ): Promise<string[]>;
+  abstract listSuppressedSalesEmails(emails: string[]): Promise<string[]>;
+  abstract suppressSalesEmail(input: {
+    email: string;
+    reason: "unsubscribe" | "manual" | "bounce";
+  }): Promise<void>;
+  abstract queueSalesEmailMessage(
+    send: NewSalesEmailSend,
+  ): Promise<"queued" | "suppressed" | "draft_already_sent">;
+  abstract retrySalesEmailMessage(
+    id: string,
+  ): Promise<"queued" | "suppressed" | "not_failed">;
+  abstract findSalesEmailSendRequest(
+    id: string,
+  ): Promise<SalesEmailSendRequestResult | null>;
+  abstract queueSalesEmailComposition(input: {
+    requestId: string;
+    payloadHash: string;
+    createdBy: string;
+    initialSuppressed: number;
+    sends: NewSalesEmailSend[];
+  }): Promise<SalesEmailSendRequestResult>;
+  abstract claimSalesEmailMessages(
+    limit: number,
+  ): Promise<ClaimedSalesEmailSend[]>;
+  abstract setSalesEmailSendingBody(id: string, body: string): Promise<void>;
+  abstract finishSalesEmailMessage(input: {
+    id: string;
+    status: "accepted" | "failed" | "unknown" | "stubbed";
+    messageId?: string | null;
+    error?: string | null;
+  }): Promise<void>;
   abstract getSalesOverview(): Promise<SalesOverview>;
   abstract listLeads(): Promise<LeadRecord[]>;
   abstract findLead(id: string): Promise<LeadRecord | null>;

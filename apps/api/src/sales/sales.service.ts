@@ -16,6 +16,7 @@ import {
 } from "@bjh/contracts";
 import { randomUUID } from "node:crypto";
 import { DatabasePort } from "../database/database.port";
+import { SalesMailboxService } from "./sales-mailbox.service";
 import { OUTREACH_DRAFTER } from "./outreach-drafting";
 import type { OutreachDrafter } from "./outreach-drafting";
 import type {
@@ -102,7 +103,12 @@ function poolFilter(query: Record<string, unknown>): PoolFilter {
 
 function draftFilter(query: Record<string, unknown>): OutreachDraftFilter {
   const read = reader(query);
+  const prospectId = read.text("prospectId");
+  if (prospectId !== undefined && !isUuid(prospectId)) {
+    throw new BadRequestException("prospectId must be a valid ID");
+  }
   return {
+    prospectId,
     status: read.choice("status", DRAFT_STATUSES),
     limit: read.whole("limit", 1, 100) ?? 50,
     offset: read.whole("offset", 0, 1_000_000) ?? 0,
@@ -115,13 +121,13 @@ export type DraftSkipReason =
 /**
  * The sales hub: the lead pool, the outreach drafts staff approve, and the overview.
  * Staff only: the controller admits sales, customer service and the super admin (L3).
- * Nothing here sends an email: approving a draft only records that a person agreed to it.
  */
 @Injectable()
 export class SalesService {
   constructor(
     @Inject(DatabasePort) private readonly database: DatabasePort,
     @Inject(OUTREACH_DRAFTER) private readonly drafter: OutreachDrafter,
+    @Inject(SalesMailboxService) private readonly mailbox: SalesMailboxService,
   ) {}
 
   overview() {
@@ -218,7 +224,32 @@ export class SalesService {
           userId,
         )
       : "not_found";
-    return this.draftOrError(result);
+    if (result === "not_pending") {
+      const recovered = await this.requeueApproved(id, userId);
+      if (recovered)
+        return { ...recovered.draft, sendStatus: recovered.sendStatus };
+    }
+    const draft = this.draftOrError(result);
+    const sendStatus = await this.mailbox.queueApprovedDraft(draft, userId);
+    return { ...draft, sendStatus };
+  }
+
+  /**
+   * Approval and queueing are two steps; if queueing failed after the approval
+   * was saved, approving again queues the draft. A draft that is already
+   * queued is left alone (the caller reports it as already decided).
+   */
+  private async requeueApproved(
+    id: string,
+    userId: string,
+  ): Promise<{
+    draft: OutreachDraftRecord;
+    sendStatus: "queued" | "suppressed";
+  } | null> {
+    const draft = await this.database.findOutreachDraft(id);
+    if (draft?.status !== "approved") return null;
+    const sendStatus = await this.mailbox.queueApprovedDraft(draft, userId);
+    return sendStatus === "already_queued" ? null : { draft, sendStatus };
   }
 
   async reject(id: string, input: unknown, userId: string) {
@@ -241,6 +272,7 @@ export class SalesService {
     const results: Array<{
       draftId: string;
       outcome: "approved" | "not_pending" | "not_found";
+      sendStatus?: "queued" | "suppressed" | "already_queued";
     }> = [];
     for (const draftId of parsed.data.draftIds) {
       const result = await this.database.decideOutreachDraft(
@@ -248,9 +280,21 @@ export class SalesService {
         { status: "approved" },
         userId,
       );
+      const recovered =
+        result === "not_pending"
+          ? await this.requeueApproved(draftId, userId)
+          : null;
+      const outcome =
+        typeof result !== "string" || recovered ? "approved" : result;
+      const sendStatus = recovered
+        ? recovered.sendStatus
+        : typeof result === "string"
+          ? undefined
+          : await this.mailbox.queueApprovedDraft(result, userId);
       results.push({
         draftId,
-        outcome: typeof result === "string" ? result : "approved",
+        outcome,
+        ...(sendStatus ? { sendStatus } : {}),
       });
     }
     const count = (outcome: string) =>
@@ -259,6 +303,9 @@ export class SalesService {
       approved: count("approved"),
       notPending: count("not_pending"),
       notFound: count("not_found"),
+      queued: results.filter((result) => result.sendStatus === "queued").length,
+      suppressed: results.filter((result) => result.sendStatus === "suppressed")
+        .length,
       results,
     };
   }

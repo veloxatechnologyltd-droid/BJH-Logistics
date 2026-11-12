@@ -136,6 +136,9 @@ export class CampaignsService {
       requireWebsite: data.requireWebsite ?? false,
       idealCustomerProfile: data.idealCustomerProfile,
       disqualifiers: data.disqualifiers,
+      generateEmails: data.generateEmails ?? false,
+      emailContext: data.emailContext,
+      emailCta: data.emailCta,
       qualificationThreshold: data.qualificationThreshold ?? 50,
       maxProspects: data.maxProspects ?? 50,
       createdBy: userId,
@@ -145,8 +148,34 @@ export class CampaignsService {
   async update(id: string, input: unknown) {
     const parsed = parseContract(campaignUpdateInputSchema, input);
     if (!parsed.success) throw new BadRequestException(parsed.message);
+    const change = parsed.data;
+    if (
+      change.generateEmails !== undefined ||
+      change.emailContext !== undefined ||
+      change.emailCta !== undefined
+    ) {
+      // The brief is checked as it would be after the change, not just the fields sent.
+      const current = isUuid(id)
+        ? await this.database.findLeadCampaign(id)
+        : null;
+      if (!current) throw new NotFoundException("Campaign was not found");
+      const after = {
+        generateEmails: change.generateEmails ?? current.generateEmails,
+        emailContext:
+          change.emailContext === undefined
+            ? current.emailContext
+            : change.emailContext,
+        emailCta:
+          change.emailCta === undefined ? current.emailCta : change.emailCta,
+      };
+      if (after.generateEmails && !(after.emailContext && after.emailCta)) {
+        throw new BadRequestException(
+          "To write emails, give the email context and the call to action",
+        );
+      }
+    }
     const updated = isUuid(id)
-      ? await this.database.updateLeadCampaign(id, parsed.data)
+      ? await this.database.updateLeadCampaign(id, change)
       : null;
     if (!updated) throw new NotFoundException("Campaign was not found");
     return updated;
@@ -209,6 +238,15 @@ export class CampaignsService {
     const filter = prospectFilter(query);
     await this.get(id);
     return { ...(await this.database.listProspects(id, filter)), ...filter };
+  }
+
+  async prospect(id: string, prospectId: string) {
+    await this.get(id);
+    const prospect = isUuid(prospectId)
+      ? await this.database.findProspect(id, prospectId)
+      : null;
+    if (!prospect) throw new NotFoundException("Business was not found");
+    return prospect;
   }
 
   /** Adds the chosen prospects to the leads board; one already added is reported, not repeated. */

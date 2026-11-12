@@ -20,8 +20,8 @@ export default function NewCampaignPage() {
           <div>
             <h1 className={styles.title}>New campaign</h1>
             <p className={styles.description}>
-              Say what kind of business to look for and where. Nothing is
-              searched until you start a search on the next page.
+              Say what kind of business to look for and where. The search starts
+              as soon as you press Find businesses.
             </p>
           </div>
         </header>

@@ -32,7 +32,7 @@ const when = (value: string) =>
     minute: "2-digit",
   });
 
-/** The emails written for found businesses. A person reads, edits and approves each one. Nothing is sent from here. */
+/** The emails written for found businesses. Approval adds the message to the sales mailbox send queue. */
 export function Approvals() {
   const [status, setStatus] = useState<DraftStatus>("pending");
   const [drafts, setDrafts] = useState<Draft[] | null>(null);
@@ -86,8 +86,12 @@ export function Approvals() {
 
   const approveOne = (draft: Draft) =>
     run(async () => {
-      await approveDraft(draft.id);
-      setNotice(`Approved the email to ${draft.businessName}.`);
+      const result = await approveDraft(draft.id);
+      setNotice(
+        result.sendStatus === "suppressed"
+          ? `Approved the email to ${draft.businessName}, but its address is suppressed. Review the status in Email.`
+          : `Approved and queued the email to ${draft.businessName}. Its send status appears in Email.`,
+      );
     }, "The email could not be approved");
 
   const approveChosen = () =>
@@ -95,7 +99,7 @@ export function Approvals() {
       const result = await approveDrafts([...selected]);
       setSelected(new Set());
       setNotice(
-        `Approved ${result.approved} ${result.approved === 1 ? "email" : "emails"}.` +
+        `Approved ${result.approved}; queued ${result.queued}; suppressed ${result.suppressed}.` +
           (result.notPending > 0
             ? ` ${result.notPending} had already been decided.`
             : ""),
@@ -111,9 +115,8 @@ export function Approvals() {
       <ErrorPopup message={error} />
 
       <p className={styles.statusLine} role="note">
-        <strong>Nothing is sent from here.</strong> Approving records that a
-        person agreed to the email. Sending starts once the sales mailbox is
-        connected, and only approved emails will go.
+        <strong>Approval queues the email for sending.</strong> Read each draft
+        before approving it. Send status appears in the Email workspace.
       </p>
 
       <div className={styles.filterBar}>

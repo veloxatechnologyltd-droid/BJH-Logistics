@@ -1375,6 +1375,13 @@ export const businessSettingsSchema = z
         .nullish()
         .transform((value) => value ?? undefined)
         .optional(),
+      salesEmailLimits: z
+        .object({
+          dailyCap: z.number().int().min(1).max(500),
+          gapSeconds: z.number().int().min(1).max(3600),
+          campaignDailyCap: z.number().int().min(1).max(500),
+        })
+        .optional(),
     },
     objectError("A settings object is required"),
   )
@@ -2958,6 +2965,9 @@ const campaignFields = {
   requireWebsite: z.boolean({ error: "requireWebsite must be true or false" }),
   idealCustomerProfile: optionalText("idealCustomerProfile", 2000),
   disqualifiers: optionalText("disqualifiers", 2000),
+  generateEmails: z.boolean({ error: "generateEmails must be true or false" }),
+  emailContext: optionalText("emailContext", 2000),
+  emailCta: optionalText("emailCta", 500),
   qualificationThreshold: z
     .number({
       error: "qualificationThreshold must be a whole number from 0 to 100",
@@ -2979,23 +2989,31 @@ const campaignFields = {
 };
 
 /** What to find and how to judge it; what is left out takes the usual value (set by the API). */
-export const campaignCreateInputSchema = z.object(
-  {
-    name: campaignFields.name,
-    targetService: campaignFields.targetService,
-    targetIndustry: campaignFields.targetIndustry,
-    targetLocation: campaignFields.targetLocation,
-    searchKeywords: campaignFields.searchKeywords.optional(),
-    excludedKeywords: campaignFields.excludedKeywords.optional(),
-    minRating: campaignFields.minRating,
-    requireWebsite: campaignFields.requireWebsite.optional(),
-    idealCustomerProfile: campaignFields.idealCustomerProfile,
-    disqualifiers: campaignFields.disqualifiers,
-    qualificationThreshold: campaignFields.qualificationThreshold.optional(),
-    maxProspects: campaignFields.maxProspects.optional(),
-  },
-  objectError("A campaign object is required"),
-);
+export const campaignCreateInputSchema = z
+  .object(
+    {
+      name: campaignFields.name,
+      targetService: campaignFields.targetService,
+      targetIndustry: campaignFields.targetIndustry,
+      targetLocation: campaignFields.targetLocation,
+      searchKeywords: campaignFields.searchKeywords.optional(),
+      excludedKeywords: campaignFields.excludedKeywords.optional(),
+      minRating: campaignFields.minRating,
+      requireWebsite: campaignFields.requireWebsite.optional(),
+      idealCustomerProfile: campaignFields.idealCustomerProfile,
+      disqualifiers: campaignFields.disqualifiers,
+      generateEmails: campaignFields.generateEmails.optional(),
+      emailContext: campaignFields.emailContext,
+      emailCta: campaignFields.emailCta,
+      qualificationThreshold: campaignFields.qualificationThreshold.optional(),
+      maxProspects: campaignFields.maxProspects.optional(),
+    },
+    objectError("A campaign object is required"),
+  )
+  .refine(
+    (value) => !value.generateEmails || (value.emailContext && value.emailCta),
+    { error: "To write emails, give the email context and the call to action" },
+  );
 export type CampaignCreateInput = z.infer<typeof campaignCreateInputSchema>;
 
 /** Any subset of the fields, and the status (pause, resume or archive). */

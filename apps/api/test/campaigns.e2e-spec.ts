@@ -23,6 +23,7 @@ import { ReportPdfService } from "../src/reports/report-pdf.service";
 import type { ReportBlock } from "../src/reports/report-pdf";
 import { LeadRunPipeline } from "../src/leads/lead-run-pipeline.service";
 import { RulesProspectScorer } from "../src/leads/prospect-scoring";
+import { TemplateOutreachDrafter } from "../src/sales/outreach-drafting";
 import { StubWebsiteContactFinder } from "../src/leads/website-contacts";
 import { beginTestDatabase, endTestDatabase } from "./postgres-test-database";
 
@@ -41,6 +42,9 @@ type Campaign = {
   minRating: number | null;
   requireWebsite: boolean;
   idealCustomerProfile: string | null;
+  generateEmails: boolean;
+  emailContext: string | null;
+  emailCta: string | null;
   qualificationThreshold: number;
   maxProspects: number;
   prospectCount: number;
@@ -109,6 +113,7 @@ function pipeline() {
     new StubBusinessSearchProvider(),
     new StubWebsiteContactFinder(),
     new RulesProspectScorer(),
+    new TemplateOutreachDrafter(),
   );
 }
 
@@ -186,6 +191,7 @@ test("customers, other staff roles and anonymous callers are refused on every ca
     ["GET", `/api/v1/campaigns/${id}/runs/${id}`],
     ["POST", `/api/v1/campaigns/${id}/runs/${id}/cancel`],
     ["GET", `/api/v1/campaigns/${id}/prospects`],
+    ["GET", `/api/v1/campaigns/${id}/prospects/${id}`],
     [
       "POST",
       `/api/v1/campaigns/${id}/prospects/promote`,
@@ -338,6 +344,54 @@ test("a campaign can be changed, paused and resumed, and unknown ones are not fo
     );
     assert.equal((await call(`/api/v1/campaigns/${id}`, admin)).status, 404);
   }
+});
+
+test("a campaign writes emails only when it has both the context and the call to action", async () => {
+  const plain = await newCampaign();
+  assert.equal(plain.generateEmails, false);
+  assert.equal(plain.emailContext, null);
+  assert.equal(plain.emailCta, null);
+
+  const create = (extra: Record<string, unknown>) =>
+    send("POST", "/api/v1/campaigns", admin, { ...validCampaign, ...extra });
+  assert.equal((await create({ generateEmails: true })).status, 400);
+  assert.equal(
+    (await create({ generateEmails: true, emailContext: "We ship cars." }))
+      .status,
+    400,
+  );
+  assert.equal(
+    (await create({ generateEmails: true, emailCta: "Reply to us." })).status,
+    400,
+  );
+  // Text kept without switching emails on is fine; too long is not.
+  assert.equal((await create({ emailContext: "x".repeat(2001) })).status, 400);
+  const brief = {
+    generateEmails: true,
+    emailContext: "We ship cars.",
+    emailCta: "Reply to us.",
+  };
+  const made = await create(brief);
+  assert.equal(made.status, 201);
+  const campaign = (await made.json()) as Campaign;
+  assert.equal(campaign.generateEmails, true);
+  assert.equal(campaign.emailContext, "We ship cars.");
+  assert.equal(campaign.emailCta, "Reply to us.");
+
+  const patch = (target: Campaign, body: unknown) =>
+    send("PATCH", `/api/v1/campaigns/${target.id}`, admin, body);
+  // The rule holds for the campaign as it would be after the change.
+  assert.equal((await patch(plain, { generateEmails: true })).status, 400);
+  assert.equal((await patch(campaign, { emailCta: "" })).status, 400);
+  assert.equal((await patch(campaign, { emailContext: null })).status, 400);
+  assert.equal((await patch(campaign, { name: "Renamed" })).status, 200);
+  assert.equal(
+    (await patch(campaign, { generateEmails: false, emailCta: "" })).status,
+    200,
+  );
+  const switchedOn = await patch(plain, { ...brief });
+  assert.equal(switchedOn.status, 200);
+  assert.equal(((await switchedOn.json()) as Campaign).generateEmails, true);
 });
 
 test("a search is started once at a time, only for an active campaign, and can be cancelled", async () => {
@@ -547,6 +601,30 @@ test("prospects are listed best first, with sample data and rules scores marked,
     (await call(`/api/v1/campaigns/${randomUUID()}/prospects`, admin)).status,
     404,
   );
+});
+
+test("one business is read with all its details, only through its own campaign", async () => {
+  const campaign = await newCampaign({ maxProspects: 2 });
+  const other = await newCampaign({ maxProspects: 2 });
+  await send("POST", `/api/v1/campaigns/${campaign.id}/runs`, admin);
+  await runToEnd(pipeline(), campaign.id);
+  const [first] = (await prospects(campaign.id)).items;
+
+  const found = await call(
+    `/api/v1/campaigns/${campaign.id}/prospects/${first.id}`,
+    admin,
+  );
+  assert.equal(found.status, 200);
+  assert.deepEqual(await found.json(), first);
+
+  for (const path of [
+    `/api/v1/campaigns/${other.id}/prospects/${first.id}`,
+    `/api/v1/campaigns/${campaign.id}/prospects/${randomUUID()}`,
+    `/api/v1/campaigns/${campaign.id}/prospects/nope`,
+    `/api/v1/campaigns/${randomUUID()}/prospects/${first.id}`,
+  ]) {
+    assert.equal((await call(path, admin)).status, 404, path);
+  }
 });
 
 test("chosen prospects become leads once, with an activity, and repeating changes nothing", async () => {

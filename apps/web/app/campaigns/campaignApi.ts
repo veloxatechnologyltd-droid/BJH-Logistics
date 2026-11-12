@@ -36,6 +36,10 @@ export type Campaign = {
   requireWebsite: boolean;
   idealCustomerProfile: string | null;
   disqualifiers: string | null;
+  /** Whether a search also drafts a first email for each business that qualifies. */
+  generateEmails: boolean;
+  emailContext: string | null;
+  emailCta: string | null;
   qualificationThreshold: number;
   maxProspects: number;
   createdByName: string | null;
@@ -186,6 +190,17 @@ export async function listProspects(
 ): Promise<ProspectPage> {
   return readResponse(
     await authenticatedFetch(`${one(id)}/prospects${prospectQuery(filter)}`),
+  );
+}
+
+export async function getProspect(
+  id: string,
+  prospectId: string,
+): Promise<Prospect> {
+  return readResponse(
+    await authenticatedFetch(
+      `${one(id)}/prospects/${encodeURIComponent(prospectId)}`,
+    ),
   );
 }
 

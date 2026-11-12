@@ -31,6 +31,12 @@ services:
         sync: false
       - key: DATABASE_URL
         sync: false
+      # Who can use the CRM (Sales hub, campaigns): admin = the super admin only
+      # (also when unset), everyone = sales and customer service as well, off =
+      # nobody and its background work stops. Change it in the Render dashboard
+      # and restart the service; no redeploy of the web app is needed.
+      - key: CRM_ACCESS
+        sync: false
       # Upload the Supabase root CA as a Render secret file named supabase-root.crt.
       - key: DATABASE_SSL_CA_PATH
         value: /etc/secrets/supabase-root.crt

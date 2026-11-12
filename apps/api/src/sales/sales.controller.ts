@@ -12,18 +12,85 @@ import {
   UseGuards,
 } from "@nestjs/common";
 import {
+  CrmAccessGuard,
   StaffRolesGuard,
   SupabaseIdentityGuard,
   leadGenerationRoles,
 } from "../auth/auth.guards";
 import type { AuthenticatedRequest } from "../auth/auth.guards";
 import { SalesService } from "./sales.service";
+import { SalesMailboxService } from "./sales-mailbox.service";
 
 /** The sales hub is for sales, customer service and the super admin, as the campaigns are (L3). */
 @Controller("api/v1/sales")
-@UseGuards(SupabaseIdentityGuard, StaffRolesGuard(leadGenerationRoles))
+@UseGuards(
+  SupabaseIdentityGuard,
+  StaffRolesGuard(leadGenerationRoles),
+  CrmAccessGuard,
+)
 export class SalesController {
-  constructor(@Inject(SalesService) private readonly sales: SalesService) {}
+  constructor(
+    @Inject(SalesService) private readonly sales: SalesService,
+    @Inject(SalesMailboxService) private readonly mailbox: SalesMailboxService,
+  ) {}
+
+  @Get("messages")
+  messages(@Query() query: Record<string, unknown>) {
+    return this.mailbox.listFromQuery(query);
+  }
+
+  @Get("mailbox/folders")
+  mailboxFolders() {
+    return this.mailbox.folders();
+  }
+
+  @Get("messages/:id")
+  message(@Param("id") id: string) {
+    return this.mailbox.detail(id);
+  }
+
+  @Get("messages/:id/thread")
+  messageThread(@Param("id") id: string) {
+    return this.mailbox.thread(id);
+  }
+
+  @Post("messages/:id/unsubscribe-sender")
+  @HttpCode(200)
+  unsubscribeSender(@Param("id") id: string) {
+    return this.mailbox.suppressSender(id);
+  }
+
+  @Post("messages/:id/retry")
+  @HttpCode(200)
+  retryMessage(@Param("id") id: string) {
+    return this.mailbox.retry(id);
+  }
+
+  @Get("messages/:id/attachments/:attachmentId/download")
+  attachmentDownload(
+    @Param("id") id: string,
+    @Param("attachmentId") attachmentId: string,
+  ) {
+    return this.mailbox.attachmentDownload(id, attachmentId);
+  }
+
+  @Post("messages/preview")
+  @HttpCode(200)
+  previewMessage(@Body() body: unknown) {
+    return this.mailbox.previewComposition(body);
+  }
+
+  @Post("messages/send")
+  @HttpCode(200)
+  sendMessage(@Body() body: unknown, @Req() request: AuthenticatedRequest) {
+    return this.mailbox.queueComposition(body, request.authUser!.userId);
+  }
+
+  @Post("mailbox/sync")
+  @HttpCode(200)
+  syncMailbox() {
+    return this.mailbox.sync();
+  }
 
   @Get("overview")
   overview() {

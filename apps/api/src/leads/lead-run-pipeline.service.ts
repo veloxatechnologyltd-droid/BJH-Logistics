@@ -13,6 +13,9 @@ import type {
   BusinessSearchProvider,
   BusinessSearchQuery,
 } from "./business-search";
+import { crmRoles } from "../auth/auth.guards";
+import { OUTREACH_DRAFTER } from "../sales/outreach-drafting";
+import type { OutreachDrafter } from "../sales/outreach-drafting";
 import { checkDuplicates } from "./duplicate-check";
 import type {
   ClaimedLeadRun,
@@ -38,6 +41,8 @@ export const SEARCH_POLL_SECONDS = 20;
 /** Websites read at the same time, and prospects scored at the same time, per step. */
 export const ENRICH_BATCH = 8;
 export const SCORE_BATCH = 10;
+/** Emails drafted per step; they are written one after the other. */
+export const DRAFT_BATCH = 5;
 /** One timer tick keeps working through due steps for at most this long. */
 const TICK_BUDGET_MS = 4 * 60_000;
 
@@ -45,7 +50,8 @@ const TICK_BUDGET_MS = 4 * 60_000;
 class RunFailure extends Error {}
 
 /**
- * Moves campaign runs along (plan item 1.6): searching, enriching, scoring, ready. It
+ * Moves campaign runs along (plan item 1.6): searching, enriching, scoring, qualifying,
+ * drafting, ready. It
  * runs inside the API process on a timer, like the notification dispatcher (no
  * separate service or queue). One run is claimed at a time, oldest first, with a lease
  * kept in the database, and each step does one bounded piece of work and gives the
@@ -66,11 +72,13 @@ export class LeadRunPipeline implements OnModuleInit, OnModuleDestroy {
     @Inject(WEBSITE_CONTACT_FINDER)
     private readonly finder: WebsiteContactFinder,
     @Inject(PROSPECT_SCORER) private readonly scorer: ProspectScorer,
+    @Inject(OUTREACH_DRAFTER) private readonly drafter: OutreachDrafter,
   ) {}
 
   onModuleInit(): void {
     const off =
       process.env.LEAD_RUNS_WORKER === "off" ||
+      crmRoles().length === 0 ||
       process.env.NODE_TEST_CONTEXT !== undefined;
     if (off) return;
     const interval = Number(process.env.LEAD_RUNS_INTERVAL_MS ?? 5_000);
@@ -112,7 +120,9 @@ export class LeadRunPipeline implements OnModuleInit, OnModuleDestroy {
       }
       if (run.step === "searching") await this.searchStep(run);
       else if (run.step === "enriching") await this.enrichStep(run);
-      else await this.scoreStep(run);
+      else if (run.step === "scoring") await this.scoreStep(run);
+      else if (run.step === "qualifying") await this.qualifyStep(run);
+      else await this.draftStep(run);
     } catch (error) {
       await this.handleFailure(run, error);
     }
@@ -275,11 +285,7 @@ export class LeadRunPipeline implements OnModuleInit, OnModuleDestroy {
       SCORE_BATCH,
     );
     if (batch.length === 0) {
-      const done = await this.database.finishLeadRun(
-        run,
-        run.campaign.qualificationThreshold,
-      );
-      if (!done) this.logger.warn(`Run ${run.runId} was taken over; not ended`);
+      await this.release(run, { step: "qualifying", nextInSeconds: 0 });
       return;
     }
     await Promise.all(
@@ -291,6 +297,71 @@ export class LeadRunPipeline implements OnModuleInit, OnModuleDestroy {
       ),
     );
     await this.release(run, { nextInSeconds: 0 });
+  }
+
+  // ── qualifying ─────────────────────────────────────────────────────────────
+
+  /** Counts how many of the scored businesses reach the campaign's bar. */
+  private async qualifyStep(run: ClaimedLeadRun): Promise<void> {
+    await this.database.saveLeadRunQualification(
+      run.runId,
+      run.campaign.qualificationThreshold,
+    );
+    if (!run.campaign.generateEmails) {
+      // A leads-only campaign ends here: no emails are written.
+      const done = await this.database.finishLeadRun(run);
+      if (!done) this.logger.warn(`Run ${run.runId} was taken over; not ended`);
+      return;
+    }
+    await this.release(run, { step: "drafting", nextInSeconds: 0 });
+  }
+
+  // ── drafting ───────────────────────────────────────────────────────────────
+
+  /**
+   * Drafts a first email for qualified businesses that have an address. Nothing is sent:
+   * each draft waits in Sales > Approvals for a person. The emails are an extra, so a
+   * problem here never fails a search that has already found and scored its businesses;
+   * staff can still draft from the Sales hub.
+   */
+  private async draftStep(run: ClaimedLeadRun): Promise<void> {
+    let drafted = 0;
+    // The campaign may have been switched to leads-only since this step was queued.
+    if (!run.campaign.generateEmails) {
+      const done = await this.database.finishLeadRun(run);
+      if (!done) this.logger.warn(`Run ${run.runId} was taken over; not ended`);
+      return;
+    }
+    try {
+      const batch = await this.database.listProspectsToDraft(
+        run.runId,
+        run.campaign.qualificationThreshold,
+        DRAFT_BATCH,
+      );
+      for (const info of batch) {
+        const email = await this.drafter.draft(info, info.campaign);
+        await this.database.createOutreachDraft({
+          id: randomUUID(),
+          prospectId: info.prospectId,
+          recipientEmail: info.emails[0],
+          subject: email.subject,
+          body: email.body,
+          method: email.method,
+          createdBy: run.createdBy,
+        });
+        drafted += 1;
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Run ${run.runId} could not draft all its emails: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    if (drafted > 0) {
+      await this.release(run, { nextInSeconds: 0 });
+      return;
+    }
+    const done = await this.database.finishLeadRun(run);
+    if (!done) this.logger.warn(`Run ${run.runId} was taken over; not ended`);
   }
 
   /** The scorer falls back to the rules by itself; a bug in it must still not stop the run. */
@@ -308,7 +379,7 @@ export class LeadRunPipeline implements OnModuleInit, OnModuleDestroy {
   private async release(
     run: ClaimedLeadRun,
     update: {
-      step?: "enriching" | "scoring";
+      step?: "enriching" | "scoring" | "qualifying" | "drafting";
       providerRunId?: string;
       providerDatasetId?: string;
       nextInSeconds: number;

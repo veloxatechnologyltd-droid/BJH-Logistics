@@ -17,13 +17,30 @@ import {
   RecordingSmsProvider,
   createEmailProvider,
   createInquiryEmailProvider,
+  createOutreachEmailProvider,
   createSmsProvider,
+  smtpTransportSecurity,
 } from "../src/notifications/providers";
 import {
   MAX_ATTEMPTS,
   retryDelaySeconds,
 } from "../src/notifications/notification-dispatcher.service";
 import { publicWebUrl } from "../src/notifications/notifications.service";
+
+test("SMTP requires encrypted transport on STARTTLS ports", () => {
+  assert.deepEqual(smtpTransportSecurity(465), {
+    secure: true,
+    requireTLS: false,
+  });
+  assert.deepEqual(smtpTransportSecurity(587), {
+    secure: false,
+    requireTLS: true,
+  });
+  assert.deepEqual(smtpTransportSecurity(25), {
+    secure: false,
+    requireTLS: true,
+  });
+});
 
 test("Ghana numbers are normalised however they are typed", () => {
   for (const typed of [
@@ -158,6 +175,26 @@ test("without credentials the providers are stubs that send nothing", async () =
     createSmsProvider({ ARKESEL_API_KEY: "key", SMS_PROVIDER: "stub" }).name,
     "stub",
   );
+});
+
+test("sales outreach uses its own SMTP account and stays stubbed until credentials are complete", () => {
+  const incomplete = createOutreachEmailProvider({
+    EMAIL_OUTREACH_SMTP_HOST: "bjhlogistics.com",
+    EMAIL_OUTREACH_SMTP_PORT: "465",
+    EMAIL_OUTREACH_SMTP_USER: "sales@bjhlogistics.com",
+    EMAIL_OUTREACH_FROM: "BJH Logistics <sales@bjhlogistics.com>",
+  });
+  assert.equal(incomplete.name, "stub");
+  assert.ok(incomplete instanceof RecordingEmailProvider);
+
+  const ready = createOutreachEmailProvider({
+    EMAIL_OUTREACH_SMTP_HOST: "bjhlogistics.com",
+    EMAIL_OUTREACH_SMTP_PORT: "465",
+    EMAIL_OUTREACH_SMTP_USER: "sales@bjhlogistics.com",
+    EMAIL_OUTREACH_SMTP_PASSWORD: "synthetic-password",
+    EMAIL_OUTREACH_FROM: "BJH Logistics <sales@bjhlogistics.com>",
+  });
+  assert.equal(ready.name, "smtp");
 });
 
 test("Arkesel is called as its API describes and failures are reported", async () => {

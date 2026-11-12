@@ -18,6 +18,7 @@ import type {
   SearchProgress,
 } from "../src/leads/business-search";
 import {
+  DRAFT_BATCH,
   LEASE_SECONDS,
   LeadRunPipeline,
   MAX_ATTEMPTS,
@@ -40,6 +41,8 @@ import type {
   WebsiteContactFinder,
   WebsiteContacts,
 } from "../src/leads/website-contacts";
+import { TemplateOutreachDrafter } from "../src/sales/outreach-drafting";
+import type { OutreachDrafter } from "../src/sales/outreach-drafting";
 import { beginTestDatabase, endTestDatabase } from "./postgres-test-database";
 
 /** Everything here is synthetic: the search is the stub, no website is read, no AI is called. */
@@ -104,20 +107,30 @@ beforeEach(async () => {
   );
 });
 
+/** Emails are on unless a test says otherwise, with a synthetic brief. */
 async function campaign(
-  overrides: { maxProspects?: number; threshold?: number } = {},
+  overrides: {
+    maxProspects?: number;
+    threshold?: number;
+    generateEmails?: boolean;
+  } = {},
 ) {
   const id = randomUUID();
+  const emails = overrides.generateEmails ?? true;
   await pool.query(
     `INSERT INTO app.lead_campaign (campaign_id, name, target_service, target_industry,
-       target_location, qualification_threshold, max_prospects, created_by)
+       target_location, qualification_threshold, max_prospects, created_by,
+       generate_emails, email_context, email_cta)
      VALUES ($1::uuid, 'Synthetic campaign', 'Sea freight import', 'Import company',
-             'Accra, Ghana', $2, $3, $4::uuid)`,
+             'Accra, Ghana', $2, $3, $4::uuid, $5, $6, $7)`,
     [
       id,
       overrides.threshold ?? 50,
       overrides.maxProspects ?? 6,
       TEST_SUPER_ADMIN_ID,
+      emails,
+      emails ? "Synthetic context about the offer." : null,
+      emails ? "Synthetic call to action." : null,
     ],
   );
   return id;
@@ -165,6 +178,7 @@ function pipelineWith(
     search?: BusinessSearchProvider;
     finder?: WebsiteContactFinder;
     scorer?: ProspectScorer;
+    drafter?: OutreachDrafter;
   } = {},
 ) {
   return new LeadRunPipeline(
@@ -172,6 +186,7 @@ function pipelineWith(
     parts.search ?? new StubBusinessSearchProvider(),
     parts.finder ?? new StubWebsiteContactFinder(),
     parts.scorer ?? new RulesProspectScorer(),
+    parts.drafter ?? new TemplateOutreachDrafter(),
   );
 }
 
@@ -676,4 +691,194 @@ test("a search that finds nothing still ends as ready, with zero counts", async 
 test("the application wires the pipeline, the search, the finder and the scorer", async () => {
   assert.ok(application.get(LeadRunPipeline));
   assert.ok(application.get(WEBSITE_CONTACT_FINDER));
+});
+
+async function draftRows(runId: string) {
+  const result = await pool.query(
+    `SELECT draft.status, draft.method, draft.recipient_email, draft.created_by,
+            prospect.business_name, prospect.score
+     FROM app.outreach_draft draft
+     JOIN app.prospect prospect ON prospect.prospect_id = draft.prospect_id
+     WHERE prospect.run_id = $1::uuid ORDER BY prospect.business_name`,
+    [runId],
+  );
+  return result.rows as unknown as Array<{
+    status: string;
+    method: string;
+    recipient_email: string;
+    created_by: string;
+    business_name: string;
+    score: number;
+  }>;
+}
+
+test("after scoring a run qualifies, then drafts, then is ready", async () => {
+  const pipeline = pipelineWith();
+  const runId = await queueRun(await campaign({ threshold: 50 }), 6);
+  const seen: string[] = [];
+  for (let tick = 0; tick < 60; tick++) {
+    const row = await runRow(runId);
+    if (seen.at(-1) !== row.current_step) seen.push(row.current_step);
+    if (row.status === "ready") break;
+    // Qualifying saves the counts before the emails are written.
+    if (row.current_step === "drafting") {
+      assert.equal(row.qualified_count + row.disqualified_count, 6);
+    }
+    await makeDue(runId);
+    await pipeline.advance();
+  }
+  assert.ok(
+    seen.indexOf("scoring") < seen.indexOf("qualifying") &&
+      seen.indexOf("qualifying") < seen.indexOf("drafting") &&
+      seen.indexOf("drafting") < seen.indexOf("ready"),
+    `steps in order, saw ${seen.join(" > ")}`,
+  );
+});
+
+test("drafting writes one pending draft for each qualified business with an email, and nothing else", async () => {
+  await database.createCustomer({
+    id: randomUUID(),
+    companyName: "Existing Customer Ltd",
+    tradingName: null,
+    website: "https://www.synthetic-business-2.example",
+    phone: null,
+    companyEmail: null,
+    createdAt: new Date().toISOString(),
+    contacts: [],
+  });
+  const runId = await queueRun(await campaign({ threshold: 50 }), 6);
+  const row = await drive(pipelineWith(), runId);
+  assert.equal(row.status, "ready");
+
+  const found = await prospects(runId);
+  const eligible = found.filter(
+    (prospect) =>
+      prospect.score! >= 50 &&
+      prospect.emails.length > 0 &&
+      prospect.duplicate_kind === null,
+  );
+  // The run must exercise every rule: some drafted, some not.
+  assert.ok(eligible.length > 0 && eligible.length < found.length);
+  assert.ok(found.some((prospect) => prospect.duplicate_kind === "customer"));
+
+  const drafts = await draftRows(runId);
+  assert.deepEqual(
+    drafts.map((draft) => draft.business_name),
+    eligible.map((prospect) => prospect.business_name).sort(),
+  );
+  for (const draft of drafts) {
+    assert.equal(draft.status, "pending");
+    assert.equal(draft.method, "template");
+    assert.equal(draft.created_by, TEST_SUPER_ADMIN_ID);
+    assert.ok(draft.score >= 50);
+  }
+});
+
+test("more qualified businesses than one drafting step handles are all drafted, and a rejected draft is not written again", async () => {
+  const pipeline = pipelineWith();
+  const runId = await queueRun(await campaign({ threshold: 0 }), 12);
+  const row = await drive(pipeline, runId);
+  assert.equal(row.status, "ready");
+  const withEmail = (await prospects(runId)).filter(
+    (prospect) => prospect.emails.length > 0,
+  );
+  assert.ok(withEmail.length > DRAFT_BATCH);
+  assert.equal((await draftRows(runId)).length, withEmail.length);
+
+  // Rejecting a draft leaves the business without an open draft; a second pass over the
+  // run must still not write it again.
+  await pool.query(
+    `UPDATE app.outreach_draft SET status = 'rejected', decided_by = $1::uuid,
+       decided_at = clock_timestamp()
+     WHERE prospect_id IN (SELECT prospect_id FROM app.prospect WHERE run_id = $2::uuid)`,
+    [TEST_SUPER_ADMIN_ID, runId],
+  );
+  assert.deepEqual(
+    await database.listProspectsToDraft(runId, 0, DRAFT_BATCH),
+    [],
+  );
+});
+
+test("a drafter that fails does not fail the search", async () => {
+  const drafter: OutreachDrafter = {
+    name: "broken",
+    async draft() {
+      throw new Error("the model is down");
+    },
+  };
+  const runId = await queueRun(await campaign({ threshold: 0 }), 4);
+  const row = await drive(pipelineWith({ drafter }), runId);
+  assert.equal(row.status, "ready");
+  assert.equal(row.error_message, null);
+  assert.equal(row.stored_count, 4);
+  assert.equal((await draftRows(runId)).length, 0);
+});
+
+test("a dismissed business is not drafted for", async () => {
+  const pipeline = pipelineWith();
+  const runId = await queueRun(await campaign({ threshold: 0 }), 4);
+  // Run up to the drafting step, then set one business aside.
+  for (let tick = 0; tick < 60; tick++) {
+    if ((await runRow(runId)).current_step === "drafting") break;
+    await makeDue(runId);
+    await pipeline.advance();
+  }
+  assert.equal((await runRow(runId)).current_step, "drafting");
+  const [first] = (await prospects(runId)).filter(
+    (prospect) => prospect.emails.length > 0,
+  );
+  await pool.query(
+    `UPDATE app.prospect SET dismissed_at = clock_timestamp(), dismissed_by = $2::uuid
+     WHERE run_id = $1::uuid AND business_name = $3`,
+    [runId, TEST_SUPER_ADMIN_ID, first.business_name],
+  );
+  const row = await drive(pipeline, runId);
+  assert.equal(row.status, "ready");
+  const drafted = (await draftRows(runId)).map((draft) => draft.business_name);
+  assert.ok(!drafted.includes(first.business_name));
+  assert.ok(drafted.length > 0);
+});
+
+test("a leads-only campaign ends after qualifying: no drafting step, no drafts, counts saved", async () => {
+  const pipeline = pipelineWith();
+  const runId = await queueRun(
+    await campaign({ threshold: 0, generateEmails: false }),
+    6,
+  );
+  const seen: string[] = [];
+  for (let tick = 0; tick < 60; tick++) {
+    const row = await runRow(runId);
+    if (seen.at(-1) !== row.current_step) seen.push(row.current_step);
+    if (row.status === "ready") break;
+    await makeDue(runId);
+    await pipeline.advance();
+  }
+  assert.ok(seen.includes("qualifying"));
+  assert.ok(!seen.includes("drafting"), `saw ${seen.join(" > ")}`);
+  assert.equal(seen.at(-1), "ready");
+  const row = await runRow(runId);
+  assert.equal(row.qualified_count, 6);
+  assert.equal((await draftRows(runId)).length, 0);
+});
+
+test("the drafter is given the campaign's context and call to action", async () => {
+  const given: Array<{ context?: string | null; cta?: string | null }> = [];
+  const drafter: OutreachDrafter = {
+    name: "spy",
+    async draft(_prospect, campaign) {
+      given.push({
+        context: campaign.emailContext,
+        cta: campaign.callToAction,
+      });
+      return { subject: "Hello", body: "Hello there", method: "template" };
+    },
+  };
+  const runId = await queueRun(await campaign({ threshold: 0 }), 4);
+  const row = await drive(pipelineWith({ drafter }), runId);
+  assert.equal(row.status, "ready");
+  assert.ok(given.length > 0);
+  for (const item of given) {
+    assert.equal(item.context, "Synthetic context about the offer.");
+    assert.equal(item.cta, "Synthetic call to action.");
+  }
 });

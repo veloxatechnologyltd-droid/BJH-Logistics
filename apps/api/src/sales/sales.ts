@@ -33,6 +33,101 @@ export interface PoolFilter {
 
 export type OutreachDraftStatus = "pending" | "approved" | "rejected";
 
+export type SalesEmailSendStatus =
+  | "mailbox"
+  | "queued"
+  | "sending"
+  | "accepted"
+  | "failed"
+  | "unknown"
+  | "stubbed";
+
+export interface SalesEmailAddress {
+  name: string | null;
+  email: string;
+}
+
+export interface SalesEmailAttachment {
+  id: string;
+  filename: string;
+  sizeBytes: number;
+  available: boolean;
+}
+
+export interface SalesEmailMessage {
+  id: string;
+  folder: string | null;
+  direction: "incoming" | "outgoing";
+  source: "mailbox" | "platform";
+  sendStatus: SalesEmailSendStatus;
+  messageId: string | null;
+  inReplyTo: string | null;
+  references: string[];
+  fromName: string | null;
+  fromEmail: string;
+  to: SalesEmailAddress[];
+  cc: SalesEmailAddress[];
+  subject: string;
+  body: string;
+  bodyTruncated: boolean;
+  receivedAt: string | null;
+  acceptedAt: string | null;
+  createdAt: string;
+  error: string | null;
+}
+
+export interface SyncedSalesEmail {
+  folder: string;
+  uidValidity: string;
+  uid: number;
+  messageId: string | null;
+  inReplyTo: string | null;
+  references: string[];
+  direction: "incoming" | "outgoing";
+  fromName: string | null;
+  fromEmail: string;
+  to: SalesEmailAddress[];
+  cc: SalesEmailAddress[];
+  subject: string;
+  body: string;
+  receivedAt: string;
+}
+
+export interface NewSalesEmailSend {
+  id: string;
+  draftId?: string;
+  fromEmail: string;
+  recipientEmail: string;
+  subject: string;
+  body: string;
+  campaignIds: string[];
+  createdBy: string;
+  inReplyTo?: string;
+  references?: string[];
+}
+
+export interface SalesEmailSendRequestResult {
+  payloadHash: string;
+  queued: number;
+  suppressed: number;
+}
+
+export interface ClaimedSalesEmailSend {
+  id: string;
+  recipientEmail: string;
+  subject: string;
+  body: string;
+  inReplyTo: string | null;
+  references: string[];
+}
+
+export interface SalesEmailFilter {
+  folder?: string;
+  search?: string;
+  limit: number;
+  offset: number;
+}
+
 /** An email drafted for a prospect. Nothing here has been sent. */
 export interface OutreachDraftRecord {
   id: string;
@@ -61,6 +156,7 @@ export interface OutreachDraftRecord {
 }
 
 export interface OutreachDraftFilter {
+  prospectId?: string;
   status?: OutreachDraftStatus;
   limit: number;
   offset: number;
@@ -78,6 +174,8 @@ export interface ProspectDraftingInfo {
     targetService: string;
     targetIndustry: string;
     targetLocation: string;
+    emailContext: string | null;
+    callToAction: string | null;
   };
 }
 

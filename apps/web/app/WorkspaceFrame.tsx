@@ -31,6 +31,8 @@ type NavItem = {
   alsoMatches?: string[];
   /** Only these staff roles see the item; everyone when absent. */
   roles?: string[];
+  /** Shown only where the CRM is switched on for this person (CRM_ACCESS on the API). */
+  crm?: boolean;
 };
 
 type NavGroup = { heading?: string; items: NavItem[] };
@@ -77,6 +79,7 @@ const staffNav: NavGroup[] = [
         icon: "campaigns",
         alsoMatches: ["/campaigns"],
         roles: ["super_admin", "sales_rep", "customer_service_rep"],
+        crm: true,
       },
       { href: "/customers/leads", label: "Leads", icon: "leads" },
       { href: "/customers", label: "Customers", icon: "customers" },
@@ -129,13 +132,18 @@ const staffNav: NavGroup[] = [
 ];
 
 /** The staff menu as this person sees it; groups left empty disappear. */
-function visibleGroups(groups: NavGroup[], roles: string[]): NavGroup[] {
+function visibleGroups(
+  groups: NavGroup[],
+  roles: string[],
+  crm: boolean,
+): NavGroup[] {
   return groups
     .map((group) => ({
       ...group,
       items: group.items.filter(
         (item) =>
-          !item.roles || item.roles.some((role) => roles.includes(role)),
+          (!item.crm || crm) &&
+          (!item.roles || item.roles.some((role) => roles.includes(role))),
       ),
     }))
     .filter((group) => group.items.length > 0);
@@ -365,6 +373,7 @@ export function WorkspaceFrame({ children }: { children: ReactNode }) {
     isCustomer,
     isSuperAdmin,
     roles,
+    crm,
     status,
     mustChangePassword,
     twoFactorRequired,
@@ -481,7 +490,7 @@ export function WorkspaceFrame({ children }: { children: ReactNode }) {
   // Until the access check answers we do not know whose menu this is. Showing
   // the staff one meanwhile made customers see it flash on every refresh.
   const resolving = status === "loading";
-  const groups = isCustomer ? customerNav : visibleGroups(staffNav, roles);
+  const groups = isCustomer ? customerNav : visibleGroups(staffNav, roles, crm);
   const crumb = pageCrumb(pathname, groups, isCustomer);
   const current = activeHref(pathname, groups);
 

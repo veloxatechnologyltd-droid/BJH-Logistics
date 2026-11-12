@@ -30,6 +30,31 @@ The API and the schema are released at different moments, so every step must wor
 - **Change or remove**: first release code that no longer needs the old shape, wait until it is live, and only then drop or tighten it in a later migration.
 - Never rename in one step: add the new name, move the code and data, then drop the old name later.
 
+## CRM visibility (`CRM_ACCESS`)
+
+The CRM (Sales hub, campaigns, Email) is controlled by one API variable, set in the Render dashboard and applied when the API restarts:
+
+- `admin` (the default, also when unset): only the super admin sees it. Everyone else gets "not found" from the API and no Sales menu item.
+- `everyone`: sales, customer service and the super admin.
+- `off`: nobody, the super admin included; the lead-search and mailbox background work also stops.
+
+The public unsubscribe link works in every mode. Mail sending and mailbox sync stay separately opt-in (`OUTREACH_SEND_WORKER`, `OUTREACH_MAILBOX_SYNC`).
+
+## Sales Email workspace rollout
+
+The Sales Email code and migrations are local work and have **not** been deployed or applied to production. Production migration and deployment remain separate, explicitly authorized actions.
+
+1. Before release, review the production migration dry run and confirm the pending sequence includes the dependencies required by this branch: `20261113000000`, `20261114000000`, `20261115000000`, `20261116000000`, `20261117000000`, and `20261118000000` through `20261118000500`. `--to 20261118000500` still applies every earlier pending migration; inspect the full dry-run list and stop if it contains unrelated work. Take and verify the required pre-migration backup first.
+2. Configure the API service's server-only settings from `.env.example`: dedicated `EMAIL_OUTREACH_SMTP_*` and `INBOUND_OUTREACH_IMAP_*` values, `PUBLIC_API_URL` ending in `/api`, and a stable 32-byte hex `OUTREACH_UNSUBSCRIBE_KEY`. Do not put these values in either web app. Confirm the private `job-documents` Storage bucket is available to the API service role.
+3. Keep `OUTREACH_SEND_WORKER=off` and `OUTREACH_MAILBOX_SYNC=off`. An authorized operator applies the reviewed migrations before merging/deploying the API code. Check API and both web deployments, database health, staff role access, and Business Settings before enabling either worker.
+4. Enable mailbox sync by itself. Confirm the read-only import discovers expected folders, stores incoming and sent messages, resumes from cursors, does not mark messages read, and exposes attachment metadata/downloads to authorized staff. The database advisory lock prevents parallel API instances from syncing at the same time. Turn sync off if imports fail repeatedly or attachment storage is unavailable.
+5. Configure the mailbox daily cap, per-campaign daily cap and minimum gap in Business Settings before any send worker is enabled. Review a synthetic recipient preview and confirm suppression behavior. Test SMTP acceptance and public unsubscribe handling only in a separately authorized controlled test; provider acceptance is not proof of delivery.
+6. Enable `OUTREACH_SEND_WORKER=on` only after the provider, unsubscribe URL/key, limits and human approval flow pass the controlled acceptance. Monitor queued, accepted, failed and unknown statuses. Do not retry `unknown` messages; a stale attempt is finalized as unknown after ten minutes to avoid duplicates.
+
+**Emergency stop:** set both worker variables to `off` on the API service and restart it. This stops future mailbox sync and SMTP claims; it does not undo a provider handoff already in progress. Keep the database migration and roll back application code using the normal procedure above; migrations are forward-only.
+
+**Still required before production use:** backup and restore evidence, a security review, controlled real-mail/provider acceptance, production staff browser acceptance, and monitoring/alerting. This runbook does not authorize any production action.
+
 ## Switching things off
 
 All on the API service in Render; the service restarts after a change.
@@ -37,6 +62,7 @@ All on the API service in Render; the service restarts after a change.
 - **AI features:** remove `ANTHROPIC_API_KEY` and `OPENAI_API_KEY`. Bra Evans, the email assistant and document reading stop; everything else works.
 - **Automatic email replies to quote requests:** set `ASSISTANT_AUTO_REPLY` to anything other than `on`.
 - **Reading the mailbox:** remove `INBOUND_IMAP_HOST` (or the user or password).
+- **Sales Email:** set `OUTREACH_SEND_WORKER=off` and `OUTREACH_MAILBOX_SYNC=off`; restart the API service. This does not recall mail already handed to SMTP.
 - **Email and website-form intake:** remove `INBOUND_EMAIL_SECRET` (intake is off without it; the website quote form then reports an error to visitors).
 - **Notifications on staff devices (Web Push):** remove `VAPID_PRIVATE_KEY` (or the public key or subject). Nothing is sent and browsers are no longer offered them; subscriptions stay saved and work again when the same keys return.
 
