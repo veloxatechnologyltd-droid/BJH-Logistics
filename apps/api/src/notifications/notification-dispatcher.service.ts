@@ -37,6 +37,8 @@ export const retryDelaySeconds = (attemptsSoFar: number) =>
   attemptsSoFar * attemptsSoFar * 60;
 /** How many days before a vehicle's insurance, DVLA or service date the super admin is told. */
 export const VEHICLE_NOTICE_DAYS = 14;
+/** An ETA that passed longer ago than this raises no notice (so switching it on floods nobody). */
+export const ETA_NOTICE_WITHIN_DAYS = 7;
 /** How long before the expected arrival a reminder goes out. */
 export const REMINDER_HOURS = 24;
 
@@ -96,6 +98,8 @@ export class NotificationDispatcher implements OnModuleInit, OnModuleDestroy {
         );
         // The super admin is told before a vehicle's insurance, DVLA or service falls due.
         await this.database.raiseVehicleNotices(VEHICLE_NOTICE_DAYS);
+        // The people on a job are told when its ETA has passed.
+        await this.database.raiseEtaDueNotices(ETA_NOTICE_WITHIN_DAYS);
       }
       await this.dispatchDue();
     } catch (error) {

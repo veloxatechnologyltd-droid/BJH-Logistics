@@ -6,6 +6,7 @@ import { listJobTasks, statusLabels, taskKindLabels } from "../jobApi";
 import type { JobTask } from "../jobApi";
 import { formatDate } from "../jobFormat";
 import { JobEta } from "../JobEta";
+import { JobEtd } from "../JobEtd";
 import { JobStage } from "../JobStage";
 import { JobSteps } from "../JobSteps";
 import { JobTeam } from "../JobTeam";
@@ -13,7 +14,7 @@ import { useJob } from "../JobShell";
 import styles from "../jobs.module.css";
 
 export default function JobOverviewPage() {
-  const { job, status, timeline, isStaff, closedJob, run } = useJob();
+  const { job, status, timeline, isStaff, closedJob, run, reload } = useJob();
   const [tasks, setTasks] = useState<JobTask[] | null>(null);
 
   useEffect(() => {
@@ -66,6 +67,14 @@ export default function JobOverviewPage() {
       </section>
 
       {isStaff && <JobTeam closedJob={closedJob} jobId={job.id} />}
+
+      <JobEtd
+        canEdit={isStaff && !closedJob}
+        etdAt={job.etdAt}
+        jobId={job.id}
+        key={`etd:${job.etdAt}`}
+        onSaved={reload}
+      />
 
       <JobEta canEdit={isStaff && !closedJob} jobId={job.id} />
 

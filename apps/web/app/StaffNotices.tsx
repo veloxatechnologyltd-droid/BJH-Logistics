@@ -8,19 +8,20 @@ import {
   snoozeStaffNotice,
 } from "./quotations/quoteRequestApi";
 import type { StaffNotice } from "./quotations/quoteRequestApi";
+import {
+  ETA_SOUND_EVERY_MS,
+  linkFor,
+  pickPopup,
+  playAlertSound,
+  unlockAlertSound,
+} from "./noticeAlerts";
 
 const checkEveryMs = 60_000;
 
-const linkFor = (notice: StaffNotice) =>
-  notice.kind === "vehicle_due"
-    ? "/transport"
-    : notice.quoteRequestId
-      ? `/quotations/requests/${notice.quoteRequestId}`
-      : "/quotations";
-
 /**
- * The bell in the top bar: requests and inquiries left waiting, and the
- * reminders this person set. A reminder that comes due pops up on screen.
+ * The bell in the top bar: requests and inquiries left waiting, ETAs that have
+ * passed, and the reminders this person set. A reminder that comes due pops up
+ * on screen; an ETA that has passed pops up and sounds until it is checked.
  */
 export function StaffNotices() {
   const [due, setDue] = useState<StaffNotice[]>([]);
@@ -34,15 +35,7 @@ export function StaffNotices() {
     try {
       const notices = await listStaffNotices();
       setDue(notices.due);
-      setPopup(
-        (current) =>
-          current ??
-          notices.due.find(
-            (notice) =>
-              notice.kind === "reminder" && !shown.current.has(notice.id),
-          ) ??
-          null,
-      );
+      setPopup((current) => current ?? pickPopup(notices.due, shown.current));
     } catch {
       // The bell is a hint; pages show their own errors.
     }
@@ -54,9 +47,23 @@ export function StaffNotices() {
     return () => window.clearInterval(timer);
   }, [load]);
 
+  const etaDue = due.some((notice) => notice.kind === "eta_due");
+
+  // Sound the alert now and every few seconds until every ETA notice is checked.
+  useEffect(() => {
+    const unlock = unlockAlertSound();
+    if (!etaDue) return unlock;
+    playAlertSound();
+    const timer = window.setInterval(playAlertSound, ETA_SOUND_EVERY_MS);
+    return () => {
+      window.clearInterval(timer);
+      unlock();
+    };
+  }, [etaDue]);
+
   useEffect(() => {
     if (popup) {
-      shown.current.add(popup.id);
+      if (popup.kind === "reminder") shown.current.add(popup.id);
       if (!dialog.current?.open) dialog.current?.showModal();
     } else {
       dialog.current?.close();
@@ -137,7 +144,9 @@ export function StaffNotices() {
       >
         {popup && (
           <>
-            <p className="notices-label">Reminder</p>
+            <p className="notices-label">
+              {popup.kind === "eta_due" ? "ETA reached" : "Reminder"}
+            </p>
             <h2 id="reminder-title">{popup.title}</h2>
             {popup.note && <p>{popup.note}</p>}
             <div className="notices-actions">
@@ -146,7 +155,7 @@ export function StaffNotices() {
                 href={linkFor(popup)}
                 onClick={() => void act(() => dismissStaffNotice(popup.id))}
               >
-                Open it now
+                {popup.kind === "eta_due" ? "Open the job" : "Open it now"}
               </Link>
               <button
                 onClick={() => void act(() => snoozeStaffNotice(popup.id, 60))}
@@ -158,7 +167,7 @@ export function StaffNotices() {
                 onClick={() => void act(() => dismissStaffNotice(popup.id))}
                 type="button"
               >
-                Dismiss
+                {popup.kind === "eta_due" ? "I have checked it" : "Dismiss"}
               </button>
             </div>
           </>

@@ -145,6 +145,41 @@
 .userHeading > div {
   min-width: 0;
 }
+.userHeading > .userTitle {
+  flex: 1 1 auto;
+}
+.selectBox {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  margin: 1px 0 0;
+}
+.selectionBar,
+.confirmPanel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
+  margin-bottom: 14px;
+  color: #4e6578;
+  font-size: 0.82rem;
+}
+.selectionBar label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.confirmPanel {
+  border: 1px solid #c9d8f2;
+  border-radius: 9px;
+  background: #f3f7fd;
+  padding: 14px;
+}
+.confirmPanel p {
+  flex: 1 1 100%;
+  margin: 0;
+  line-height: 1.5;
+}
 .userHeading h3 {
   overflow-wrap: anywhere;
   margin: 0 0 5px;
@@ -372,4 +407,38 @@
   border: 1px solid #0b3fae;
   background: transparent;
   color: #0b3fae;
+}
+
+.confirmButton {
+  min-height: 40px;
+  border: 1px solid #0b3fae;
+  border-radius: 999px;
+  background: #0b3fae;
+  color: white;
+  padding: 0 20px;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.search {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 460px;
+  height: 40px;
+  margin: 0 0 14px;
+  border: 1px solid #cad9e4;
+  border-radius: 7px;
+  background: white;
+  color: #18334c;
+  padding: 0 12px;
+  font: inherit;
+  font-size: 0.85rem;
+}
+.userHeading .roleTitle {
+  margin: 0 0 4px;
+  color: #0b3fae;
+  font-size: 0.78rem;
+  font-weight: 700;
 }

@@ -40,6 +40,8 @@ export type Job = {
   remarks: string | null;
   /** YYYY-MM-DD. */
   expectedCompletionDate: string | null;
+  /** The estimated departure, set by staff. */
+  etdAt: string | null;
   /** On the jobs list: the newest ETA and, for staff, the lead's name. */
   currentEtaAt?: string | null;
   leadUserId?: string | null;
@@ -77,6 +79,10 @@ export const updateReportDetails = (
     expectedCompletionDate: string;
   },
 ) => send<Job>(`/${encodeURIComponent(id)}/report-details`, "PUT", details);
+
+/** Saves the estimated departure (ISO date and time); an empty value clears it. */
+export const updateEtd = (id: string, etdAt: string) =>
+  send<Job>(`/${encodeURIComponent(id)}/etd`, "PUT", { etdAt });
 
 export type MilestoneEvent = {
   id: string;

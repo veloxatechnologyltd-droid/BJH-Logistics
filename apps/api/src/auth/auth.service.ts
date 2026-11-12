@@ -5,6 +5,7 @@ import {
   Inject,
   Injectable,
 } from "@nestjs/common";
+import { passwordProblem } from "@bjh/contracts";
 import { DatabasePort } from "../database/database.port";
 import { superAdminMfaRequired } from "./auth.guards";
 import { STAFF_AUTH_DIRECTORY } from "./staff-admin.port";
@@ -96,9 +97,8 @@ export class AuthService {
       typeof (body as Record<string, unknown>).password === "string"
         ? (body as Record<string, string>).password
         : "";
-    if (password.length < 12) {
-      throw new BadRequestException("Password must be at least 12 characters");
-    }
+    const problem = passwordProblem(password);
+    if (problem) throw new BadRequestException(problem);
     await this.accounts.setPassword(user.userId, password, false);
     return { passwordChanged: true };
   }

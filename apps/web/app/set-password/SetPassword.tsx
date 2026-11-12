@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
+import { passwordProblem, passwordRuleText } from "@bjh/contracts";
 import { authenticatedFetch } from "../auth/authenticatedFetch";
 import { getSupabaseBrowserClient } from "../auth/supabaseBrowserClient";
 import styles from "../sign-in/signIn.module.css";
@@ -52,8 +53,11 @@ export function SetPassword() {
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (loading) return;
-    if (password !== repeat) {
-      setError("The two passwords do not match.");
+    const problem =
+      passwordProblem(password) ??
+      (password !== repeat ? "The two passwords do not match." : null);
+    if (problem) {
+      setError(problem);
       return;
     }
     setLoading(true);
@@ -118,11 +122,11 @@ export function SetPassword() {
               Choose your own password{email ? ` for ${email}` : ""}.
             </p>
             <label htmlFor="new-password">
-              New password (at least 12 characters)
+              New password ({passwordRuleText.toLowerCase()})
               <input
                 autoComplete="new-password"
                 id="new-password"
-                minLength={12}
+                minLength={6}
                 onChange={(event) => setPassword(event.target.value)}
                 required
                 type="password"
@@ -134,7 +138,7 @@ export function SetPassword() {
               <input
                 autoComplete="new-password"
                 id="repeat-password"
-                minLength={12}
+                minLength={6}
                 onChange={(event) => setRepeat(event.target.value)}
                 required
                 type="password"

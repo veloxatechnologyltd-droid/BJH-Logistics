@@ -53,6 +53,7 @@ const job: JobRecord = {
   goodsDescription: null,
   remarks: null,
   expectedCompletionDate: null,
+  etdAt: null,
 };
 
 const party = (role: JobPartyRecord["role"], name: string): JobPartyRecord => ({

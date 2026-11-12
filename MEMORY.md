@@ -1679,3 +1679,89 @@ Read MEMORY.md at the start of every session before doing anything. Never contra
 **What was rejected:** A separate wizard page/route for details (the draft page already exists and saves them). Making any shipment field required (the client bills things with no B/L).
 **Assumption to confirm:** "Non-negotiable" = client, currency and at least one charge line. If the client says e.g. B/L number is required for sea-job invoices, that is a follow-up.
 **Open:** (a) NOT committed or released. (b) Checked: web tsc, eslint, prettier, 30 web tests; real browser (local stack, henry@bjh.com): fresh invoice on job SI/2026/0003 with two lines (2 × 250.50 = 501.00) → draft opens with lines on top; B/L, due date, notes saved and survived reload; fresh invoice on SI/2026/0002 → B/L, containers, seals prefilled and section open; no sideways scroll at 390px. Local test drafts left: one GHS 2,001.00 on SI/0003 (B/L TEST-BL-0601) and one GHS 100 on SI/0002 (discard if unwanted). (c) From-quote path not re-run in the browser (code path unchanged except the details moved).
+
+## 2026-11-09, Shipping outreach drafts require company research
+
+**What was decided:** Use a public, source-backed company detail before drafting each shipping outreach email. Hold contacted leads, doubtful addresses, poor-fit businesses, and leads without a reliable company detail. Lead with the user-reported four hours saved, then explain automated enquiry responses, faster quote replies, customer updates, and the demo walkthrough.
+**Why:** A category-based template did not speak to each recipient's actual business and could misstate its work.
+**What was rejected:** Sending the earlier generic batch or guessing company details from a name or category.
+
+
+## 2026-11-09, WhatsApp lead outreach tracked separately; sample approval before send
+
+**What was decided:** Evans confirmed the selected remaining leads have opted in to WhatsApp. Track this campaign separately from email in `leads/whatsapp-send-ledger.json`, queue current `Contacted=No` rows with phone numbers, hold rows without a number, exclude `Yes`, and record sends, delivery, replies and opt-outs. Keep the original CSV unchanged. Messages should be brief, human and client-focused, without first-person wording. Show a sample and wait for approval before sending.
+**Why:** Email status and WhatsApp status are distinct; the lead list has 142 current `No` rows, of which 130 have phone numbers and 12 do not.
+**What was rejected:** Reusing `Contacted` as a WhatsApp status (it records email outreach), writing send attempts before actual sends, and sending before sample approval.
+**Open:** Sample awaiting Evans's approval. No WhatsApp messages sent yet.
+
+
+## 2026-11-09, WhatsApp copy leads with time saved and client updates
+
+**What was decided:** Evans asked the WhatsApp message to highlight four hours a day saved on repetitive shipping tasks, faster automated client updates and communication, and improved customer satisfaction. The sample avoids first-person language and speaks to the prospect; it remains pending approval in `leads/whatsapp-send-ledger.json`.
+**Why:** The message should lead with the recipient value and use the stated outcome.
+**What was rejected:** Generic product wording and first-person sender language.
+**Open:** Sample approval required before any send.
+
+
+## 2026-11-09, WhatsApp outreach uses a two-message introduction
+
+**What was decided:** Evans requested a short sender introduction followed by the value message: first, John from Veloxa Technology Ltd.; second, the four-hours-a-day repetitive-work saving, faster automated client updates and communications, and customer-satisfaction benefit. The exact pair is saved in `leads/whatsapp-send-ledger.json` pending approval.
+**Why:** A separate intro makes the recipient and sender clear before the client-focused value message.
+**What was rejected:** Combining the intro and offer into one longer first message.
+**Open:** Wait for Evans to approve the two-message sample before sending.
+
+
+## 2026-11-10, WhatsApp outreach sending and tracking
+
+**What was decided:** Evans confirmed the opted-in leads still in the list should receive the approved two-message WhatsApp sequence. Send only after resolving the exact phone number in WhatsApp; keep unmatched numbers and company/account identity conflicts on hold, record each message separately, verify delivery status, and log replies for the user to handle before sending further replies.
+**Why:** Contacted=No defines the remaining scope, while delivery and identity checks need distinct per-message records. WhatsApp lookup results can take 20–30 seconds to resolve; quick no-result checks may be false negatives.
+**What was rejected:** Treating Contacted as a WhatsApp send state, marking sent as delivered, and continuing the conversation with unapproved follow-up messages.
+**Open:** Continue sending to remaining queued opted-in leads; identify the few replies and determine whether to respond.
+
+## 2026-11-10, Client CRM walkthrough document
+
+**What was decided:** Create a client-facing Word walkthrough that explains the proposed staff CRM as a lead-to-accepted-quote-to-job flow within the existing logistics platform. Distinguish the lead-generation project's outbound automation from the logistics platform's staff-managed CRM, describe existing platform touchpoints, and label release readiness and optional integrations accurately. Keep the initial suggested scope to leads, owners, follow-ups, activity history, source, sales summary, and handoff links.
+**Why:** The client asked to understand the practical value and fit of the CRM suggestion before agreeing scope.
+**What was rejected:** Claiming that prospect scraping, AI scoring, or automated outreach is already part of the logistics CRM; treating a Won lead as paid; or presenting the codebase as production-ready.
+
+## 2026-11-10, CRM walkthrough correction to lead-generation-first scope
+
+**What was decided:** Evans clarified that the client's main objective is lead generation like Venariq: discover/scrape businesses for the logistics offer, qualify and enrich them, then manage approved outreach and convert responses into quotes and jobs. Revised `docs/client-crm-workflow.docx` to make campaign targeting, business search, deduplication, contact enrichment, qualification and the CRM pipeline the first release. Manual referrals and inbound entries are secondary paths. The difference between existing staff lead tracking and proposed search/outreach expansion is stated accurately.
+**Why:** The initial version centered staff-managed manual leads and did not reflect the value Evans wanted to demonstrate.
+**What was rejected:** Treating scraping and qualification as optional future additions or leading with manual entry.
+
+## 2026-11-10, ETD on jobs, and an "ETA reached" notice that pops up and sounds until checked (done locally, not deployed)
+
+**What was decided:** Evans passed on the client's request: shipments and jobs have an ETA and an ETD; when the ETA is due there should be a notification, a pop-up or a sound, until it has been checked. Evans also asked to check whether we have the ETA but no ETD: **yes, ETA only until now** (ETA history existed; no ETD field anywhere, as the 2026-11-04 entries noted). (1) **ETD:** `app.job.etd_at` (migration `20261110000000`, applied to the **local** database only), one current value kept by staff by hand (no history, unlike the ETA), `PUT /api/v1/jobs/:id/etd` (`{etdAt}`; empty clears; same staff/line rules as report details; closed or cancelled jobs 409), `etdAt` on every job, and an "ETD (estimated departure)" card above the ETA card on the job Overview. (2) **ETA notice:** when an open job's newest ETA has passed, the lead and assistants get an `eta_due` staff notice (the super admin when nobody is assigned), once per person and ETA (dedupe key `eta:<eta_id>:due`); a replaced ETA or a closed job withdraws the old notice. Raised by the dispatcher's one-minute pass. Only ETAs that passed within the last **7 days** raise one (`ETA_NOTICE_WITHIN_DAYS`), so switching it on floods nobody. (3) **Screen:** it pops up as a dialog (ETA REACHED: Open the job / Remind me in an hour / I have checked it), comes back at each one-minute check if closed with Esc, the bell counts it, and a two-tone sound plays at once and every 20 s until every ETA notice is checked, put off or dismissed. "Open the job" counts as checked.
+**Why:** the badge and bell alone are missed; the client wants it known and visible until someone has looked. Reuses the staff-notice, bell and pop-up already built (vehicle notices are the precedent), so no new table or service.
+**What was rejected:** An ETD history table (not asked; the ETA keeps its own). Alerting on the ETD too (only the ETA was named). Notifying customer service on every job (the people on the job know it; the super admin is the fallback). Web Push / a system notification for a closed browser (not asked; the push work from 2026-11-04 could carry it). A tab-title counter.
+**Open:** (a) **Who is told** is my default (lead, assistants, else the super admin): say if customer service should be too. (b) **Sound needs one click or key press on the page first** (browser rule), so after a fresh load it stays silent until the person touches the page; the pop-up and bell show regardless. Only checked in Chromium, with a counted tone, not heard. (c) Times in the notice are UTC. (d) The 7-day window and 20 s repeat are my choices. (e) The ETD is not yet on the jobs list, board or reports (client sample's "ETD" column): say if wanted. (f) Not applied to production; the migration is a person's step. Checks run: new `eta-due-notices.e2e-spec.ts` (4), related e2e (staff notifications, vehicles, ETA, job details, jobs) 32/32, API unit 174, web unit 30 (3 new), pgTAP all, eslint, prettier, API and web `tsc`; browser (local stack, demo rep): pop-up, bell count, tone, Open the job, ETD set and shown. Local demo data left behind: demo.rep is lead of `BJH/AI/2026/0003` with a past ETA and an ETD (ETA events cannot be deleted), plus super admin notices for old local jobs raised before the 7-day window.
+
+## 2026-11-11, Super admin can delete staff accounts, one or several at once (done locally, not deployed)
+
+**What was decided:** Evans asked that staff accounts, which could only be revoked, can be deleted by the super admin, singly or by ticking several. `DELETE /api/v1/admin/staff/:userId` and `POST /api/v1/admin/staff/delete` (`{userIds}`, 1 to 50; one that cannot be deleted does not stop the rest, and the reply lists why). Staff page: a tick box per account, "Select all on this page", "Delete selected", and "Delete account" under Account controls, each behind an in-page confirmation. **An account with nothing recorded under it is erased.** **One with work recorded under it (jobs, notes, invoices...; found by checking every foreign key to the user, not a fixed list) is soft-deleted**: it cannot sign in, its email is scrambled (so the address can be reused), it disappears from the Staff list and `getUser`, its active roles are revoked, and its records stay, shown as "Staff member". Push subscriptions are always removed. Refused: your own account, the super admin, and customer accounts (those go under Customer accounts).
+**Why:** Most of the system's tables point at the user, so a hard delete of anyone who has done anything fails or would erase history. Soft delete was tested against the local Supabase first (sign-in refused, still returned by `listUsers` with `deleted_at`, hence the filter).
+**What was rejected:** Hard delete only (refuses most real accounts, including the test ones in the screenshot). Deleting accounts that still hold roles only after revoking them by hand (extra step). Red delete button (UI stays single blue).
+**Open:** (a) Not committed or deployed. (b) A deleted account's jobs that it led keep it as lead (job assignments are not changed, same as suspension): say if they should be cleared. (c) Soft delete is not undoable from the screen. (d) `hasMore` on the staff list counts the page before soft-deleted rows are hidden, only matters past 100 accounts. Checks run: `admin-staff.e2e-spec.ts` (8, 3 new) and staff-notifications e2e, API unit 174, API and web `tsc`, eslint, prettier; local DB: hard-delete cascade of role rows with the audit trigger (rolled back), soft delete via GoTrue; browser (local stack, henry@bjh.com): bulk delete of a clean and a busy account, then single delete from Account controls. The busy test account's soft-deleted row remains in the local auth table.
+
+## 2026-11-11, Passwords: 6 characters with upper, lower and a number; confirm field on every create/change form (done locally, not deployed)
+
+**What was decided:** Evans found 12 characters too long and asked for "6, a mix of upper, lower, number" plus a second "confirm" box. Read "max 6" as **minimum 6**. One rule, `passwordProblem()` in `packages/contracts`, used by the API (staff create, staff password reset, customer create, customer password reset, a user choosing their own at `/set-password`) and by the screens. Confirm-password field added to: new staff account, staff Change password, new customer account, customer Change password and the sign-up / first super admin form (`/set-password` already had one). Local `supabase/config.toml`: `minimum_password_length = 6`, `password_requirements = "lower_upper_letters_digits"` so the sign-up path matches (local stack restarted, data intact; `Abc123` accepted, `abcdef1` refused).
+**Why:** A rule in one place cannot drift between the API, the forms and Supabase. The mix of cases stands in for the length that was dropped.
+**What was rejected:** Treating "max 6" as a cap (would reject normal passwords). Keeping 12 for admin-set passwords only (Evans asked for one rule). A symbol requirement (not asked).
+**Open:** (a) **The hosted Supabase project has its own password minimum (dashboard: Authentication, Policies). It must be lowered to 6 with "lower, upper, digits" there too, or admin-set and self-signup passwords of 6 to 11 characters will be refused by Supabase even though the API accepts them. That is a person's step; nothing was changed remotely.** (b) Existing passwords stay valid. (c) `docs/audit-2026-10-08.md` still says 12 (dated record, left). (d) Weaker passwords are a security trade-off Evans chose; admin-set ones are still temporary and must be replaced at first sign-in.
+
+## 2026-11-11, Staff page: role under the name, search, no default role in "Add a role"
+
+**What was decided:** Each staff card shows the person's current role(s) as a blue subheading under their name ("Sales", "Import rep"; "No active role" when none). A search box above the list filters the loaded page by name, email or role. The "Add a role" box starts on "Choose a role…" and assigning needs a choice, instead of looking like the person is an Import rep. Search clears any ticked accounts so a bulk delete never includes people you cannot see.
+**Why:** Gideon is a Sales rep but the card showed "Import rep" in the dropdown, which read as his role.
+**What was rejected:** Server-side search (one page is up to 100 accounts; the filter covers what is on screen). Hiding roles already held from the dropdown (not asked; the API already refuses a duplicate).
+**Open:** Search covers the current page only; with more than 100 accounts it would need the API.
+
+## 2026-11-11, CRM lead generation: plan and checklist saved
+
+**What was decided:** Build Venariq-style lead generation inside the BJH platform, planned in `docs/crm-lead-generation-plan.md` (four phases with a checklist). Logic is ported to TypeScript in the NestJS API (no Python service, no Redis; PostgreSQL queue tables on the API timer). Search results go to a new `app.prospect` table and only staff-promoted prospects become `app.lead`; duplicates are checked against existing customers and leads too. Every outgoing message needs approval. SaaS parts of Venariq (tenancy, billing, usage, onboarding, newsletters, Gmail/Microsoft sign-in, Calendly) are left out. Venariq gaps are fixed: an unsubscribe reply writes suppression, the daily send counter is atomic, no booking-link auto-send.
+**Why:** The client's main CRM aim is finding new customers (2026-11-10 entry); BJH already has leads, quotes and jobs, so the gap is search, qualification and approved outreach.
+**What was rejected:** Running Venariq as a linked SaaS (Evans: this is not a SaaS, it must be part of their system); putting raw search results straight into the Leads board (hundreds per search would bury real leads); copying Venariq's auto-send and non-atomic counter.
+**Answers (Evans, same day):** L1 BJH's own Apify account pays for search. L2 outreach sends from a new `sales@bjhlogistics.com` on `mail.bjhlogistics.com`, separate from quote/invoice mail. L3 sales rep, customer service rep and super admin see the lead-generation screens (customer service included, e.g. for replies). L4 Evans is asking BJH about B2B cold email under Ghana Act 843; build continues, real sends wait for confirmation.
+**Open:** BJH to create the Apify account and the sales@ mailbox; BJH's legal confirmation. Nothing built yet.

@@ -334,6 +334,20 @@ export const staffRoleInputSchema = z.object(
 );
 export type StaffRoleInput = z.infer<typeof staffRoleInputSchema>;
 
+/** The one password rule: the API enforces it and the screens show it. */
+export const passwordRuleText =
+  "At least 6 characters, with an upper-case letter, a lower-case letter and a number";
+
+/** Null when the password is acceptable, otherwise what is wrong with it. */
+export function passwordProblem(password: string): string | null {
+  return password.length >= 6 &&
+    /[a-z]/.test(password) &&
+    /[A-Z]/.test(password) &&
+    /[0-9]/.test(password)
+    ? null
+    : `Password must have ${passwordRuleText.charAt(0).toLowerCase()}${passwordRuleText.slice(1)}`;
+}
+
 export const passwordResetRequestSchema = z.object(
   {
     email: z
@@ -907,6 +921,22 @@ export const etaInputSchema = z.object(
   objectError("An ETA object is required"),
 );
 export type EtaInput = z.infer<typeof etaInputSchema>;
+
+/** The estimated departure (ETD): one current value on the job; an empty value clears it. */
+export const jobEtdInputSchema = z.object(
+  {
+    etdAt: z
+      .string({ error: "etdAt must be a date and time" })
+      .transform((value) => value.trim())
+      .refine((value) => value === "" || isRealDateTime(value), {
+        error: "etdAt must be a date and time",
+      })
+      .nullish()
+      .transform((value) => (value ? new Date(value).toISOString() : null)),
+  },
+  objectError("An ETD object is required"),
+);
+export type JobEtdInput = z.infer<typeof jobEtdInputSchema>;
 
 export const taskKinds = [
   "task",

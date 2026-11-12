@@ -62,6 +62,12 @@ export interface StaffAuthDirectory {
     roleKeys?: StaffRoleKey[],
   ): Promise<void>;
   /**
+   * Sign-in stops working at once. Without `keepHistory` the account is erased;
+   * with it the account is anonymised and hidden but its row stays, so records
+   * that point at it remain valid.
+   */
+  deleteUser(userId: string, keepHistory: boolean): Promise<void>;
+  /**
    * A one-time code that lets the owner of `email` choose a new password, made
    * without sending anything. Null when there is no such account or it is
    * suspended. The code is a credential: only ever put it in an email.
@@ -101,7 +107,9 @@ export class SupabaseStaffAuthDirectory implements StaffAuthDirectory {
       perPage,
     });
     if (error) throw this.providerUnavailable();
-    return data.users.map((user) => this.toUser(user));
+    return data.users
+      .filter((user) => !user.deleted_at)
+      .map((user) => this.toUser(user));
   }
 
   async getUser(userId: string): Promise<StaffDirectoryUser | null> {
@@ -111,7 +119,7 @@ export class SupabaseStaffAuthDirectory implements StaffAuthDirectory {
       if (error.status === 404) return null;
       throw this.providerUnavailable();
     }
-    return data.user ? this.toUser(data.user) : null;
+    return data.user && !data.user.deleted_at ? this.toUser(data.user) : null;
   }
 
   async createUser(
@@ -176,6 +184,14 @@ export class SupabaseStaffAuthDirectory implements StaffAuthDirectory {
       app_metadata: appMetadata,
       ban_duration: suspended ? "876000h" : "none",
     });
+    if (error) throw this.providerUnavailable();
+  }
+
+  async deleteUser(userId: string, keepHistory: boolean): Promise<void> {
+    const { error } = await this.requireClient().auth.admin.deleteUser(
+      userId,
+      keepHistory,
+    );
     if (error) throw this.providerUnavailable();
   }
 
