@@ -1,6 +1,7 @@
 import type {
   NewOutreachDraft,
   OutreachDraftFilter,
+  OutreachDraftListStatus,
   OutreachDraftRecord,
   OutreachDraftStatus,
   PoolFilter,
@@ -7681,12 +7682,14 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
            prospect.website, prospect.score, prospect.score_reason,
            prospect.campaign_id, campaign.name AS campaign_name,
            COALESCE(NULLIF(btrim(author.raw_user_meta_data->>'full_name'), ''), author.email) AS created_by_name,
-           COALESCE(NULLIF(btrim(decider.raw_user_meta_data->>'full_name'), ''), decider.email) AS decided_by_name
+           COALESCE(NULLIF(btrim(decider.raw_user_meta_data->>'full_name'), ''), decider.email) AS decided_by_name,
+           sent_email.send_status, sent_email.accepted_at
     FROM app.outreach_draft draft
     JOIN app.prospect prospect ON prospect.prospect_id = draft.prospect_id
     JOIN app.lead_campaign campaign ON campaign.campaign_id = prospect.campaign_id
     LEFT JOIN auth.users author ON author.id = draft.created_by
-    LEFT JOIN auth.users decider ON decider.id = draft.decided_by`;
+    LEFT JOIN auth.users decider ON decider.id = draft.decided_by
+    LEFT JOIN app.sales_email_message sent_email ON sent_email.draft_id = draft.draft_id`;
 
   private mapOutreachDraft(row: Record<string, unknown>): OutreachDraftRecord {
     const text = (value: unknown) =>
@@ -7706,6 +7709,11 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       subject: String(row.subject),
       body: String(row.body),
       status: String(row.status) as OutreachDraftStatus,
+      sendStatus: text(row.send_status) as OutreachDraftRecord["sendStatus"],
+      sentAt:
+        row.accepted_at === null || row.accepted_at === undefined
+          ? null
+          : this.toIsoString(row.accepted_at),
       method: String(row.method) as OutreachDraftRecord["method"],
       edited: row.edited === true,
       rejectedReason: text(row.rejected_reason),
@@ -7757,7 +7765,12 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
   async listOutreachDrafts(filter: OutreachDraftFilter) {
     const values: unknown[] = [];
     const conditions: string[] = [];
-    if (filter.status) {
+    if (filter.status === "sent") {
+      conditions.push("sent_email.send_status = 'accepted'");
+    } else if (filter.status === "approved") {
+      conditions.push("draft.status = 'approved'");
+      conditions.push("sent_email.send_status IS DISTINCT FROM 'accepted'");
+    } else if (filter.status) {
       values.push(filter.status);
       conditions.push(`draft.status = $${values.length}`);
     }
@@ -7767,7 +7780,9 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     }
     const condition = conditions.length > 0 ? conditions.join(" AND ") : "true";
     const total = await this.pool.query(
-      `SELECT count(*) AS total FROM app.outreach_draft draft WHERE ${condition}`,
+      `SELECT count(*) AS total FROM app.outreach_draft draft
+       LEFT JOIN app.sales_email_message sent_email ON sent_email.draft_id = draft.draft_id
+       WHERE ${condition}`,
       values,
     );
     values.push(filter.limit, filter.offset);
@@ -7775,20 +7790,29 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     const result = await this.pool.query(
       `${this.outreachDraftSelect} WHERE ${condition}
        ORDER BY CASE WHEN draft.status = 'pending' THEN draft.created_at END ASC,
+                sent_email.accepted_at DESC NULLS LAST,
                 draft.decided_at DESC NULLS LAST, draft.draft_id
        LIMIT $${values.length - 1} OFFSET $${values.length}`,
       values,
     );
     const counted = await this.pool.query(
-      `SELECT status, count(*) AS total FROM app.outreach_draft GROUP BY status`,
+      `SELECT
+         count(*) FILTER (WHERE draft.status = 'pending') AS pending,
+         count(*) FILTER (WHERE draft.status = 'approved'
+           AND sent_email.send_status IS DISTINCT FROM 'accepted') AS approved,
+         count(*) FILTER (WHERE draft.status = 'rejected') AS rejected,
+         count(*) FILTER (WHERE sent_email.send_status = 'accepted') AS sent
+       FROM app.outreach_draft draft
+       LEFT JOIN app.sales_email_message sent_email ON sent_email.draft_id = draft.draft_id`,
     );
-    const counts: Record<OutreachDraftStatus, number> = {
+    const counts: Record<OutreachDraftListStatus, number> = {
       pending: 0,
       approved: 0,
       rejected: 0,
+      sent: 0,
     };
-    for (const row of counted.rows) {
-      counts[String(row.status) as OutreachDraftStatus] = Number(row.total);
+    for (const status of Object.keys(counts) as OutreachDraftListStatus[]) {
+      counts[status] = Number(counted.rows[0]?.[status] ?? 0);
     }
     return {
       items: result.rows.map((row) => this.mapOutreachDraft(row)),
@@ -7883,7 +7907,14 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
            WHERE source = 'campaign'`,
       ),
       this.pool.query(
-        `SELECT status, count(*) AS total FROM app.outreach_draft GROUP BY status`,
+        `SELECT
+           count(*) FILTER (WHERE draft.status = 'pending') AS pending,
+           count(*) FILTER (WHERE draft.status = 'approved'
+             AND sent_email.send_status IS DISTINCT FROM 'accepted') AS approved,
+           count(*) FILTER (WHERE draft.status = 'rejected') AS rejected,
+           count(*) FILTER (WHERE sent_email.send_status = 'accepted') AS sent
+         FROM app.outreach_draft draft
+         LEFT JOIN app.sales_email_message sent_email ON sent_email.draft_id = draft.draft_id`,
       ),
       this.pool.query(
         `SELECT lead.lead_id, lead.company_name, lead.stage,
@@ -7929,15 +7960,16 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     ]);
     const p = prospects.rows[0];
     const l = leads.rows[0];
-    const draftCounts: Record<OutreachDraftStatus, number> = {
+    const draftCounts: Record<OutreachDraftListStatus, number> = {
       pending: 0,
       approved: 0,
       rejected: 0,
+      sent: Number(drafts.rows[0]?.sent ?? 0),
     };
-    for (const row of drafts.rows) {
-      draftCounts[String(row.status) as OutreachDraftStatus] = Number(
-        row.total,
-      );
+    if (drafts.rows[0]) {
+      draftCounts.pending = Number(drafts.rows[0].pending ?? 0);
+      draftCounts.approved = Number(drafts.rows[0].approved ?? 0);
+      draftCounts.rejected = Number(drafts.rows[0].rejected ?? 0);
     }
     return {
       pool: {

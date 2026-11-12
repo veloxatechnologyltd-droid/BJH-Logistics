@@ -2156,3 +2156,10 @@ Read MEMORY.md at the start of every session before doing anything. Never contra
 **Why:** Independent code review of the uncommitted CRM work found these; the attachment, STOP-wording, approve-queue and TLS findings were checked against the code first.
 **What was rejected:** Reversing the shared SMTP `requireTLS` rule (logged 2026-11-12 "Require TLS for SMTP STARTTLS ports"); it also applies to quote, reply and notification mail, so the production SMTP port (587/465, not 25 or a relay without STARTTLS) must be confirmed before release. Catching failed attachment uploads and continuing (would lose attachments permanently on a transient storage error). A migration removing the bucket MIME list (weakens other uploads).
 **Evidence:** API unit 272/272, web unit 48/48, CRM e2e (sales, campaigns, lead-run pipeline, leads) 68/68, typecheck and ESLint on touched files clean; new tests cover re-approval recovery, limits carry-forward, Message-ID collision, field sanitizing and the 5.7.x bounce. Still open: no real SMTP/IMAP run, no production migration, no recovery path for suppressed recipients, security review.
+
+## 2026-11-12, Track accepted outreach in Approvals
+
+**What was decided:** Add a Sent tab to Sales Approvals based on a linked outreach email's `send_status = accepted`; show its provider acceptance time. Sent counts are separate from Approved, and queued, sending, failed, unknown and stubbed messages remain outside Sent.
+**Why:** Approval records a decision and queues a message; staff need to find completed sends from the same workflow without treating a queue or provider handoff as confirmed delivery.
+**What was rejected:** Treating every approved draft as sent, or counting stubbed local sends. Provider acceptance is the strongest current sent evidence; actual delivery is not known.
+**Evidence:** Sales e2e 19/19, API and web typecheck, ESLint and formatting pass on the clean release branch. No real email sent; SMTP and signed-in browser acceptance remain open.

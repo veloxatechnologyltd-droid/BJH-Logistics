@@ -1,8 +1,8 @@
 import type {
   NewOutreachDraft,
   OutreachDraftFilter,
+  OutreachDraftListStatus,
   OutreachDraftRecord,
-  OutreachDraftStatus,
   PoolFilter,
   PoolProspect,
   ClaimedSalesEmailSend,
@@ -2526,7 +2526,7 @@ export abstract class DatabasePort {
   abstract listOutreachDrafts(filter: OutreachDraftFilter): Promise<{
     items: OutreachDraftRecord[];
     total: number;
-    counts: Record<OutreachDraftStatus, number>;
+    counts: Record<OutreachDraftListStatus, number>;
   }>;
   abstract findOutreachDraft(id: string): Promise<OutreachDraftRecord | null>;
   /** Only a pending draft can be edited. */
