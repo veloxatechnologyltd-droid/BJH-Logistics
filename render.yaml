@@ -71,3 +71,11 @@ services:
         sync: false
       - key: CLAUDE_MODEL
         sync: false
+      # Optional: the business search behind Sales > Campaigns, through BJH's own
+      # Apify account. Without the token a search finds made-up businesses (shown as
+      # "sample data"). A real search is charged to that account; APIFY_MAX_CHARGE_USD
+      # caps what one search may cost, in US dollars (default 5).
+      - key: APIFY_API_TOKEN
+        sync: false
+      - key: APIFY_MAX_CHARGE_USD
+        sync: false

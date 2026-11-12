@@ -246,6 +246,13 @@ export const quoteDeskRoles: StaffRoleKey[] = [
   "export_rep",
 ];
 
+/** Lead generation (campaigns, prospects): sales and customer service, and the boss (decision L3). */
+export const leadGenerationRoles: StaffRoleKey[] = [
+  "super_admin",
+  "sales_rep",
+  "customer_service_rep",
+];
+
 /**
  * Requires one of `allowed` from staff. With `customers: true` a customer
  * account passes too, for routes that also serve the portal; the route's own

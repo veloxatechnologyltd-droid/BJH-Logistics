@@ -2,8 +2,12 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import type { LeadSource, LeadStage, LeadUpdateInput } from "@bjh/contracts";
-import { leadSourceKeys, leadStageKeys } from "@bjh/contracts";
+import type {
+  LeadCreateSource,
+  LeadStage,
+  LeadUpdateInput,
+} from "@bjh/contracts";
+import { leadCreateSourceKeys, leadStageKeys } from "@bjh/contracts";
 import { listCustomers } from "../customerApi";
 import type { CustomerCompany } from "../customerApi";
 import {
@@ -21,9 +25,10 @@ import ui from "../../jobs/jobs.module.css";
 import styles from "../customerDirectory.module.css";
 import { ErrorPopup } from "../../ErrorPopup";
 import { useStaffAccess } from "../../auth/useStaffAccess";
-import { canWorkClientDesk } from "../../auth/roleAccess";
+import { canUseLeadGeneration, canWorkClientDesk } from "../../auth/roleAccess";
+import { leadCampaignNote } from "../../campaigns/campaignView";
 
-type Filter = "open" | "won" | "lost" | "all";
+type Filter = "open" | "overdue" | "won" | "lost" | "all";
 
 const isOpen = (stage: LeadStage) =>
   stage === "new" || stage === "contacted" || stage === "quoted";
@@ -43,7 +48,7 @@ const emptyForm = {
   contactName: "",
   email: "",
   phone: "",
-  source: "other" as LeadSource,
+  source: "other" as LeadCreateSource,
   nextFollowUp: "",
   notes: "",
 };
@@ -52,11 +57,13 @@ const emptyForm = {
 export function LeadsBoard() {
   const { roles } = useStaffAccess();
   const canConvert = canWorkClientDesk(roles);
+  const canUseCampaigns = canUseLeadGeneration(roles);
   const [leads, setLeads] = useState<Lead[] | null>(null);
   const [summary, setSummary] = useState<SalesSummary | null>(null);
   const [customers, setCustomers] = useState<CustomerCompany[]>([]);
   const [error, setError] = useState("");
   const [filter, setFilter] = useState<Filter>("open");
+  const [search, setSearch] = useState("");
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [busy, setBusy] = useState(false);
@@ -87,13 +94,24 @@ export function LeadsBoard() {
   const overdue = (leads ?? []).filter((lead) => lead.followUpOverdue).length;
   const decided = count("won") + count("lost");
 
-  const shown = (leads ?? []).filter((lead) =>
-    filter === "all"
-      ? true
-      : filter === "open"
-        ? isOpen(lead.stage)
-        : lead.stage === filter,
-  );
+  const words = search.trim().toLowerCase();
+  const shown = (leads ?? [])
+    .filter((lead) =>
+      filter === "all"
+        ? true
+        : filter === "open"
+          ? isOpen(lead.stage)
+          : filter === "overdue"
+            ? lead.followUpOverdue
+            : lead.stage === filter,
+    )
+    .filter(
+      (lead) =>
+        words === "" ||
+        [lead.companyName, lead.contactName, lead.email, lead.campaignName]
+          .filter(Boolean)
+          .some((text) => String(text).toLowerCase().includes(words)),
+    );
 
   function replace(saved: Lead) {
     setLeads((current) =>
@@ -224,22 +242,35 @@ export function LeadsBoard() {
       <section className={styles.directory} aria-label="Leads">
         <div className={styles.searchHeader}>
           <div className={ui.segmented} role="group" aria-label="Show">
-            {(["open", "won", "lost", "all"] as const).map((option) => (
-              <button
-                aria-pressed={filter === option}
-                className={filter === option ? ui.segmentActive : ""}
-                key={option}
-                onClick={() => setFilter(option)}
-                type="button"
-              >
-                {option === "open"
-                  ? "Open"
-                  : option === "all"
-                    ? "All"
-                    : stageLabels[option]}
-              </button>
-            ))}
+            {(["open", "overdue", "won", "lost", "all"] as const).map(
+              (option) => (
+                <button
+                  aria-pressed={filter === option}
+                  className={filter === option ? ui.segmentActive : ""}
+                  key={option}
+                  onClick={() => setFilter(option)}
+                  type="button"
+                >
+                  {option === "open"
+                    ? "Open"
+                    : option === "overdue"
+                      ? `Overdue${overdue > 0 ? ` (${overdue})` : ""}`
+                      : option === "all"
+                        ? "All"
+                        : stageLabels[option]}
+                </button>
+              ),
+            )}
           </div>
+          <input
+            aria-label="Search leads by company, contact, email or campaign"
+            className={ui.searchInput}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search leads"
+            style={{ flex: "1 1 180px", margin: 0 }}
+            type="search"
+            value={search}
+          />
           {!adding && (
             <button
               className={ui.button}
@@ -301,12 +332,12 @@ export function LeadsBoard() {
                   onChange={(event) =>
                     setForm({
                       ...form,
-                      source: event.target.value as LeadSource,
+                      source: event.target.value as LeadCreateSource,
                     })
                   }
                   value={form.source}
                 >
-                  {leadSourceKeys
+                  {leadCreateSourceKeys
                     .filter((source) => source !== "quote_request")
                     .map((source) => (
                       <option key={source} value={source}>
@@ -494,7 +525,10 @@ export function LeadsBoard() {
                         ))}
                       </select>
                     </td>
-                    <td data-label="Source">{sourceLabels[lead.source]}</td>
+                    <td data-label="Source">
+                      {sourceLabels[lead.source]}
+                      <CampaignNote canOpen={canUseCampaigns} lead={lead} />
+                    </td>
                     <td data-label="Owner">
                       {lead.ownerName ?? "Unassigned"}{" "}
                       <button
@@ -540,5 +574,22 @@ export function LeadsBoard() {
         )}
       </section>
     </>
+  );
+}
+
+/** Under a campaign lead's source: the campaign that found it. */
+function CampaignNote({ lead, canOpen }: { lead: Lead; canOpen: boolean }) {
+  const note = leadCampaignNote(lead, canOpen);
+  if (!note) return null;
+  return (
+    <span className={styles.tradingName}>
+      {note.href ? (
+        <Link className={ui.textButton} href={note.href}>
+          {note.text}
+        </Link>
+      ) : (
+        note.text
+      )}
+    </span>
   );
 }

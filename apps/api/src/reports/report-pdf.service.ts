@@ -185,6 +185,7 @@ export class ReportPdfService {
           sales: {
             newLeads: service.newLeads,
             leadsBySource: service.leadsBySource,
+            leadsByCampaign: service.leadsByCampaign,
             pipeline: service.pipeline,
             converted: conversions.converted,
             convertedCompanies: conversions.convertedCompanies,

@@ -2785,7 +2785,8 @@ export const leadStageKeys = [
 ] as const;
 export type LeadStage = (typeof leadStageKeys)[number];
 
-export const leadSourceKeys = [
+/** Sources a person can pick when logging a lead; "campaign" leads only come from promoting a prospect. */
+export const leadCreateSourceKeys = [
   "quote_request",
   "referral",
   "walk_in",
@@ -2793,6 +2794,8 @@ export const leadSourceKeys = [
   "email",
   "other",
 ] as const;
+export type LeadCreateSource = (typeof leadCreateSourceKeys)[number];
+export const leadSourceKeys = [...leadCreateSourceKeys, "campaign"] as const;
 export type LeadSource = (typeof leadSourceKeys)[number];
 
 const leadDateField = (field: string) =>
@@ -2821,7 +2824,9 @@ export const leadCreateInputSchema = z.object(
     email: leadEmailField,
     phone: phoneField,
     source: z
-      .enum(leadSourceKeys, { error: "source is not a supported lead source" })
+      .enum(leadCreateSourceKeys, {
+        error: "source is not a supported lead source",
+      })
       .default("other"),
     notes: optionalText("notes", 2000),
     nextFollowUp: leadDateField("nextFollowUp"),
@@ -2888,6 +2893,179 @@ export const leadActivityInputSchema = z.object(
   },
   objectError("An activity object is required"),
 );
+
+/** Lead-generation campaigns (plan: docs/crm-lead-generation-plan.md). */
+export const campaignStatusKeys = ["active", "paused", "archived"] as const;
+export type CampaignStatus = (typeof campaignStatusKeys)[number];
+
+const keywordList = (field: string, most: number) =>
+  z
+    .array(requiredText(field, 100), {
+      error: `${field} must be a list of words or phrases`,
+    })
+    .max(most, { error: `${field} can have at most ${most} entries` })
+    .transform((words) => [...new Set(words)]);
+
+const campaignFields = {
+  name: requiredText("name", 160),
+  targetService: requiredText("targetService", 160),
+  targetIndustry: requiredText("targetIndustry", 160),
+  targetLocation: requiredText("targetLocation", 160),
+  searchKeywords: keywordList("searchKeywords", 20),
+  excludedKeywords: keywordList("excludedKeywords", 50),
+  minRating: z
+    .number({ error: "minRating must be a number from 0 to 5" })
+    .min(0, { error: "minRating must be a number from 0 to 5" })
+    .max(5, { error: "minRating must be a number from 0 to 5" })
+    .refine((value) => Math.abs(value * 10 - Math.round(value * 10)) < 1e-9, {
+      error: "minRating can have one decimal place",
+    })
+    .nullish()
+    .transform((value) => value ?? null),
+  requireWebsite: z.boolean({ error: "requireWebsite must be true or false" }),
+  idealCustomerProfile: optionalText("idealCustomerProfile", 2000),
+  disqualifiers: optionalText("disqualifiers", 2000),
+  qualificationThreshold: z
+    .number({
+      error: "qualificationThreshold must be a whole number from 0 to 100",
+    })
+    .int({
+      error: "qualificationThreshold must be a whole number from 0 to 100",
+    })
+    .min(0, {
+      error: "qualificationThreshold must be a whole number from 0 to 100",
+    })
+    .max(100, {
+      error: "qualificationThreshold must be a whole number from 0 to 100",
+    }),
+  maxProspects: z
+    .number({ error: "maxProspects must be a whole number from 1 to 500" })
+    .int({ error: "maxProspects must be a whole number from 1 to 500" })
+    .min(1, { error: "maxProspects must be a whole number from 1 to 500" })
+    .max(500, { error: "maxProspects must be a whole number from 1 to 500" }),
+};
+
+/** What to find and how to judge it; what is left out takes the usual value (set by the API). */
+export const campaignCreateInputSchema = z.object(
+  {
+    name: campaignFields.name,
+    targetService: campaignFields.targetService,
+    targetIndustry: campaignFields.targetIndustry,
+    targetLocation: campaignFields.targetLocation,
+    searchKeywords: campaignFields.searchKeywords.optional(),
+    excludedKeywords: campaignFields.excludedKeywords.optional(),
+    minRating: campaignFields.minRating,
+    requireWebsite: campaignFields.requireWebsite.optional(),
+    idealCustomerProfile: campaignFields.idealCustomerProfile,
+    disqualifiers: campaignFields.disqualifiers,
+    qualificationThreshold: campaignFields.qualificationThreshold.optional(),
+    maxProspects: campaignFields.maxProspects.optional(),
+  },
+  objectError("A campaign object is required"),
+);
+export type CampaignCreateInput = z.infer<typeof campaignCreateInputSchema>;
+
+/** Any subset of the fields, and the status (pause, resume or archive). */
+export const campaignUpdateInputSchema = z
+  .object(
+    {
+      ...campaignFields,
+      status: z.enum(campaignStatusKeys, {
+        error: `status must be one of ${campaignStatusKeys.join(", ")}`,
+      }),
+    },
+    objectError("A campaign update object is required"),
+  )
+  .partial()
+  .refine((value) => Object.keys(value).length > 0, {
+    error: "Nothing to update",
+  });
+export type CampaignUpdateInput = z.infer<typeof campaignUpdateInputSchema>;
+
+/** The prospects to add to the leads board, at most 100 at a time. */
+export const prospectPromoteInputSchema = z.object(
+  {
+    prospectIds: z
+      .array(uuidField("prospectIds"), {
+        error: "prospectIds must be a list of prospect IDs",
+      })
+      .min(1, { error: "Choose at least one prospect" })
+      .max(100, { error: "At most 100 prospects can be added at a time" })
+      .transform((ids) => [...new Set(ids)]),
+  },
+  objectError("A prospectIds list is required"),
+);
+export type ProspectPromoteInput = z.infer<typeof prospectPromoteInputSchema>;
+
+/** Sales hub: prospects to dismiss from the lead pool (or bring back), at most 200 at a time. */
+export const poolDismissInputSchema = z.object(
+  {
+    prospectIds: z
+      .array(uuidField("prospectIds"), {
+        error: "prospectIds must be a list of prospect IDs",
+      })
+      .min(1, { error: "Choose at least one business" })
+      .max(200, { error: "At most 200 businesses can be changed at a time" })
+      .transform((ids) => [...new Set(ids)]),
+    dismissed: z.boolean({ error: "dismissed must be true or false" }),
+  },
+  objectError("prospectIds and dismissed are required"),
+);
+export type PoolDismissInput = z.infer<typeof poolDismissInputSchema>;
+
+/** Prospects to draft an outreach email for. Drafting is a paid AI call, so the batch is small. */
+export const outreachDraftCreateInputSchema = z.object(
+  {
+    prospectIds: z
+      .array(uuidField("prospectIds"), {
+        error: "prospectIds must be a list of prospect IDs",
+      })
+      .min(1, { error: "Choose at least one business" })
+      .max(20, { error: "At most 20 emails can be drafted at a time" })
+      .transform((ids) => [...new Set(ids)]),
+  },
+  objectError("A prospectIds list is required"),
+);
+export type OutreachDraftCreateInput = z.infer<
+  typeof outreachDraftCreateInputSchema
+>;
+
+/** A person's edit of a pending draft. */
+export const outreachDraftEditInputSchema = z.object(
+  {
+    recipientEmail: emailField,
+    subject: requiredText("subject", 200),
+    body: requiredText("body", 5000),
+  },
+  objectError("recipientEmail, subject and body are required"),
+);
+export type OutreachDraftEditInput = z.infer<
+  typeof outreachDraftEditInputSchema
+>;
+
+export const outreachDraftRejectInputSchema = z.object(
+  { reason: optionalText("reason", 500) },
+  objectError("The rejection must be a JSON object"),
+);
+export type OutreachDraftRejectInput = z.infer<
+  typeof outreachDraftRejectInputSchema
+>;
+
+export const outreachDraftBatchInputSchema = z.object(
+  {
+    draftIds: z
+      .array(uuidField("draftIds"), {
+        error: "draftIds must be a list of draft IDs",
+      })
+      .min(1, { error: "Choose at least one draft" })
+      .max(50, { error: "At most 50 drafts can be approved at a time" })
+      .transform((ids) => [...new Set(ids)]),
+  },
+  objectError("A draftIds list is required"),
+);
+export type OutreachDraftBatchInput = z.infer<
+  typeof outreachDraftBatchInputSchema
+>;
 
 /** Support requests (Evans, 2026-11-03): a problem, a feature wish or a question. */
 export const supportRequestKinds = ["problem", "feature", "question"] as const;

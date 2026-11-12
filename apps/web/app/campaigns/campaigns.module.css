@@ -1,0 +1,279 @@
+/* Campaign screens. They reuse the Leads and Customers look; this only adds what they lack. One blue, no other hues. */
+
+.banner {
+  margin: 0 0 16px;
+  border: 1px solid #cddcf0;
+  border-radius: 10px;
+  background: #f5f8fd;
+  padding: 12px 15px;
+  color: #35506b;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.banner strong {
+  color: #17324d;
+}
+
+.headerActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.nameLink {
+  color: var(--brand-primary);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.nameLink:hover {
+  text-decoration: underline;
+}
+
+.about {
+  display: block;
+  margin-top: 4px;
+  color: #718394;
+  font-size: 0.75rem;
+  font-weight: 400;
+}
+
+.stepList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.step {
+  border: 1px solid var(--brand-border);
+  border-radius: 999px;
+  padding: 5px 12px;
+  color: var(--brand-muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.stepDone {
+  border-color: #cddcf0;
+  background: #eaf1fb;
+  color: #244a7c;
+}
+
+.stepNow {
+  border-color: var(--brand-primary);
+  background: var(--brand-primary);
+  color: #fff;
+}
+
+.summary {
+  margin: 8px 0 0;
+  color: #35506b;
+  font-size: 0.88rem;
+}
+
+.failure {
+  margin: 8px 0 0;
+  border: 1px solid var(--brand-primary);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: var(--brand-primary-dark);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.settingsList {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  gap: 12px 24px;
+  margin: 0;
+}
+
+.settingsList dt {
+  color: var(--brand-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.settingsList dd {
+  margin: 3px 0 0;
+  overflow-wrap: anywhere;
+  font-size: 0.88rem;
+}
+
+.help {
+  display: block;
+  margin-top: 4px;
+  color: var(--brand-muted);
+  font-size: 0.74rem;
+  font-weight: 400;
+  line-height: 1.4;
+}
+
+.fieldset {
+  min-width: 0;
+  margin: 0 0 16px;
+  border: 1px solid var(--brand-border);
+  border-radius: 10px;
+  padding: 14px 16px 6px;
+}
+
+.fieldset legend {
+  padding: 0 6px;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.checkLabel {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  font-size: 0.9rem;
+}
+
+.filterBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.filterBar input[type="search"] {
+  width: auto;
+  min-width: min(100%, 220px);
+  flex: 1 1 220px;
+  margin: 0;
+}
+
+.bulkBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+  border: 1px solid #cddcf0;
+  border-radius: 10px;
+  background: #f5f8fd;
+  padding: 10px 14px;
+}
+
+.result {
+  margin: 0 0 14px;
+  border: 1px solid #cddcf0;
+  border-radius: 10px;
+  background: #eaf1fb;
+  padding: 10px 14px;
+  color: #244a7c;
+  font-size: 0.85rem;
+}
+
+.pick {
+  width: 44px;
+}
+
+.viewSelect {
+  display: none;
+}
+
+/* On a phone: the filter is a dropdown, and the tick box is not squeezed into a narrow column. */
+@media (max-width: 900px) {
+  .viewButtons {
+    display: none;
+  }
+
+  .viewSelect {
+    display: block;
+    width: 100%;
+    height: 44px;
+    border: 1px solid var(--brand-border);
+    border-radius: 8px;
+    padding: 0 12px;
+    background: #fff;
+    color: var(--brand-ink);
+    font: inherit;
+  }
+
+  .pick {
+    width: auto;
+  }
+}
+
+.pick input {
+  width: 20px;
+  height: 20px;
+}
+
+.score {
+  font-size: 1.25rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.scoreMethod {
+  display: block;
+  margin-top: 4px;
+  color: var(--brand-muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.reason {
+  display: block;
+  margin-top: 6px;
+  max-width: 38ch;
+  color: #536b7e;
+  font-size: 0.78rem;
+  font-weight: 400;
+  line-height: 1.45;
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 14px 0;
+  color: var(--brand-muted);
+  font-size: 0.82rem;
+}
+
+.confirm {
+  margin: 12px 0 0;
+  border: 1px solid var(--brand-primary);
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: 0.88rem;
+}
+
+/* A dropdown is as tall as the text boxes beside it. */
+.fieldset select {
+  height: 44px;
+  min-height: 0;
+}
+
+/* The tick box is big enough to tap. */
+.checkLabel input {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+}
+
+.siteLink {
+  color: var(--brand-primary);
+  overflow-wrap: anywhere;
+}

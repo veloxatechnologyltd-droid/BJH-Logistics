@@ -3,6 +3,7 @@ import { test } from "node:test";
 import type {
   JobFinanceRecord,
   JobListRecord,
+  LeadRecord,
   OutstandingInvoiceRecord,
   ReportInvoiceRecord,
   ReportPaymentRecord,
@@ -12,6 +13,7 @@ import {
   invoicesPaymentsDocument,
   jobMarginDocument,
   receivablesDocument,
+  salesPipelineDocument,
   shipmentStatusDocument,
   type ShipmentStatusRow,
 } from "../src/reports/report-documents";
@@ -511,5 +513,101 @@ test("every kind of block draws into a real PDF, and a long table runs onto more
   assert.ok(
     pages >= 3,
     `120 rows should need several landscape pages, got ${pages}`,
+  );
+});
+
+const lead = (over: Partial<LeadRecord>): LeadRecord => ({
+  id: "lead-1",
+  companyName: "Sample Foods Ltd",
+  contactName: null,
+  email: null,
+  phone: null,
+  source: "walk_in",
+  stage: "new",
+  ownerId: null,
+  ownerName: null,
+  nextFollowUp: null,
+  notes: null,
+  lostReason: null,
+  quoteRequestId: null,
+  customerCompanyId: null,
+  customerCompanyName: null,
+  campaignId: null,
+  campaignName: null,
+  createdAt: "2026-11-04T09:00:00Z",
+  updatedAt: "2026-11-04T09:00:00Z",
+  stageChangedAt: "2026-11-04T09:00:00Z",
+  ...over,
+});
+
+const sales = (leadsByCampaign: Array<[string, number, number]>) => ({
+  newLeads: 3,
+  leadsBySource: { walk_in: 1, campaign: 2 },
+  leadsByCampaign: leadsByCampaign.map(([campaign, newLeads, won]) => ({
+    campaign,
+    newLeads,
+    won,
+  })),
+  pipeline: { new: 3 },
+  converted: 0,
+  convertedCompanies: [],
+});
+
+test("the Sales report counts new leads by campaign and says which campaign each lead came from", () => {
+  const document = salesPipelineDocument({
+    from: "2026-11-01",
+    to: "2026-11-30",
+    today,
+    sales: sales([
+      ["Food importers in Accra", 2, 1],
+      ["A campaign that was deleted", 1, 0],
+    ]),
+    leads: [
+      lead({
+        id: "a",
+        source: "campaign",
+        campaignName: "Food importers in Accra",
+      }),
+      lead({ id: "b", source: "campaign", campaignName: null }),
+      lead({ id: "c", source: "walk_in" }),
+    ],
+  });
+  const campaignTable = tables(document).find(
+    (table) => table.columns[0].header === "Campaign",
+  )!;
+  assert.deepEqual(
+    campaignTable.columns.map((column) => column.header),
+    ["Campaign", "New leads", "Won so far"],
+  );
+  assert.deepEqual(campaignTable.rows, [
+    ["Food importers in Accra", "2", "1"],
+    ["A campaign that was deleted", "1", "0"],
+  ]);
+
+  // The logged-leads table names the campaign, or says it was deleted; other sources are as before.
+  const logged = tables(document).find((table) =>
+    table.columns.some((column) => column.header === "Logged"),
+  )!;
+  assert.deepEqual(
+    logged.rows.map((row) => row[2]),
+    ["Campaign: Food importers in Accra", "Campaign: deleted", "Walk-in"],
+  );
+});
+
+test("with no campaign leads the Sales report says so instead of showing an empty table", () => {
+  const document = salesPipelineDocument({
+    from: "2026-11-01",
+    to: "2026-11-30",
+    today,
+    sales: sales([]),
+    leads: [],
+  });
+  const campaignTable = tables(document).find(
+    (table) => table.columns[0].header === "Campaign",
+  )!;
+  assert.deepEqual(campaignTable.rows, []);
+  assert.equal(
+    campaignTable.empty,
+    "No leads came from a campaign in these dates.",
   );
 });
