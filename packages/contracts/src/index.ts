@@ -2779,11 +2779,44 @@ export function cleanTransportDocumentFields(
 export const leadStageKeys = [
   "new",
   "contacted",
+  "replied",
+  "interested",
   "quoted",
   "won",
   "lost",
 ] as const;
 export type LeadStage = (typeof leadStageKeys)[number];
+
+/**
+ * Two pipelines that are never mixed. A lead found by a campaign is
+ * "generated"; every other lead is "manual". The pipeline comes from the
+ * lead's source, which is set once: a lead cannot be logged by hand as
+ * "campaign", and the source cannot be changed afterwards.
+ */
+export const leadPipelineKeys = ["manual", "generated"] as const;
+export type LeadPipeline = (typeof leadPipelineKeys)[number];
+
+export function leadPipelineOf(source: string): LeadPipeline {
+  return source === "campaign" ? "generated" : "manual";
+}
+
+/** The stages of each pipeline, in order. Replied and Interested are for generated leads only. */
+export function leadStagesFor(pipeline: LeadPipeline): readonly LeadStage[] {
+  return pipeline === "generated"
+    ? leadStageKeys
+    : leadStageKeys.filter(
+        (stage) => stage !== "replied" && stage !== "interested",
+      );
+}
+
+/** A lead that is neither won nor lost. */
+export const leadOpenStageKeys: readonly LeadStage[] = [
+  "new",
+  "contacted",
+  "replied",
+  "interested",
+  "quoted",
+];
 
 /** Sources a person can pick when logging a lead; "campaign" leads only come from promoting a prospect. */
 export const leadCreateSourceKeys = [

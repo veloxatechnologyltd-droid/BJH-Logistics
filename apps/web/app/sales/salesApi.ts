@@ -73,6 +73,16 @@ export type DraftResult = {
   }>;
 };
 
+export type PipelinePerformance = {
+  total: number;
+  open: number;
+  won: number;
+  lost: number;
+  /** Average days from a lead being logged to it being won; null when none is won. */
+  avgDaysToWin: number | null;
+  byStage: Record<string, number>;
+};
+
 export type SalesOverview = {
   pool: {
     waiting: number;
@@ -88,7 +98,10 @@ export type SalesOverview = {
     quoted: number;
     won: number;
   };
+  /** Generated (campaign) leads only. */
   leads: { open: number; followUpsDue: number; won: number; lost: number };
+  /** Both kinds of lead side by side; never added together. */
+  pipelines: Record<"manual" | "generated", PipelinePerformance>;
   drafts: Record<DraftStatus, number>;
   followUps: Array<{
     leadId: string;

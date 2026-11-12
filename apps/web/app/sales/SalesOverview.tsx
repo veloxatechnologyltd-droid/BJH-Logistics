@@ -4,7 +4,10 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ErrorPopup } from "../ErrorPopup";
 import { getSalesOverview } from "./salesApi";
-import type { SalesOverview as Overview } from "./salesApi";
+import type {
+  PipelinePerformance,
+  SalesOverview as Overview,
+} from "./salesApi";
 import styles from "./sales.module.css";
 
 const message = (cause: unknown, fallback: string) =>
@@ -164,7 +167,59 @@ export function SalesOverview() {
           ))}
           <p className={styles.panelNote}>
             Counts businesses found by campaigns. Contacted, Quoted and Won are
-            the stage their lead has reached. Replies are not counted yet.
+            the stage their lead has reached; Replied and Interested count as
+            contacted.
+          </p>
+        </section>
+
+        <section
+          className={styles.panel}
+          aria-label="Generated and manual leads"
+        >
+          <div className={styles.panelHead}>
+            <h2>Generated and manual leads</h2>
+          </div>
+          <table className={styles.compare}>
+            <thead>
+              <tr>
+                <th scope="col" />
+                <th scope="col">Generated</th>
+                <th scope="col">Manual</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(
+                [
+                  ["Leads", (p) => String(p.total)],
+                  ["Open", (p) => String(p.open)],
+                  ["Won", (p) => String(p.won)],
+                  ["Lost", (p) => String(p.lost)],
+                  [
+                    "Won of decided",
+                    (p) =>
+                      p.won + p.lost > 0
+                        ? `${Math.round((p.won / (p.won + p.lost)) * 100)}%`
+                        : "—",
+                  ],
+                  [
+                    "Days to win",
+                    (p) =>
+                      p.avgDaysToWin === null ? "—" : String(p.avgDaysToWin),
+                  ],
+                ] as Array<[string, (p: PipelinePerformance) => string]>
+              ).map(([label, value]) => (
+                <tr key={label}>
+                  <th scope="row">{label}</th>
+                  <td>{value(data.pipelines.generated)}</td>
+                  <td>{value(data.pipelines.manual)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className={styles.panelNote}>
+            Two separate pipelines, shown side by side and never added together.
+            Generated leads were found by a campaign; manual leads were added by
+            staff. Manual leads are on Customers, Leads.
           </p>
         </section>
 

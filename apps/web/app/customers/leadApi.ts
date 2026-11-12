@@ -1,6 +1,7 @@
 import { authenticatedFetch } from "../auth/authenticatedFetch";
 import type {
   LeadCreateInput,
+  LeadPipeline,
   LeadSource,
   LeadStage,
   LeadUpdateInput,
@@ -36,6 +37,8 @@ export type Lead = {
 export const stageLabels: Record<LeadStage, string> = {
   new: "New",
   contacted: "Contacted",
+  replied: "Replied",
+  interested: "Interested",
   quoted: "Quoted",
   won: "Won",
   lost: "Lost",
@@ -74,8 +77,13 @@ const jsonInit = (method: string, body: unknown): RequestInit => ({
   body: JSON.stringify(body),
 });
 
-export async function listLeads(): Promise<Lead[]> {
-  return readResponse<Lead[]>(await authenticatedFetch(leadsUrl));
+/** One pipeline, or (no argument) every lead; the boards always ask for one. */
+export async function listLeads(pipeline?: LeadPipeline): Promise<Lead[]> {
+  return readResponse<Lead[]>(
+    await authenticatedFetch(
+      pipeline ? `${leadsUrl}?pipeline=${pipeline}` : leadsUrl,
+    ),
+  );
 }
 
 export async function createLead(
@@ -140,9 +148,15 @@ export const activityLabels: Record<LeadActivity["kind"], string> = {
   note: "Note",
 };
 
-export async function getSalesSummary(): Promise<SalesSummary> {
+export async function getSalesSummary(
+  pipeline?: LeadPipeline,
+): Promise<SalesSummary> {
   return readResponse<SalesSummary>(
-    await authenticatedFetch(`${leadsUrl}/summary`),
+    await authenticatedFetch(
+      pipeline
+        ? `${leadsUrl}/summary?pipeline=${pipeline}`
+        : `${leadsUrl}/summary`,
+    ),
   );
 }
 

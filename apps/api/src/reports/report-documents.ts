@@ -55,6 +55,8 @@ const statusLabels: Record<string, string> = {
 const stageLabels: Record<LeadStage, string> = {
   new: "New",
   contacted: "Contacted",
+  replied: "Replied",
+  interested: "Interested",
   quoted: "Quoted",
   won: "Won",
   lost: "Lost",

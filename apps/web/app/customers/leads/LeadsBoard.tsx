@@ -4,10 +4,15 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import type {
   LeadCreateSource,
+  LeadPipeline,
   LeadStage,
   LeadUpdateInput,
 } from "@bjh/contracts";
-import { leadCreateSourceKeys, leadStageKeys } from "@bjh/contracts";
+import {
+  leadCreateSourceKeys,
+  leadOpenStageKeys,
+  leadStagesFor,
+} from "@bjh/contracts";
 import { listCustomers } from "../customerApi";
 import type { CustomerCompany } from "../customerApi";
 import {
@@ -30,8 +35,7 @@ import { leadCampaignNote } from "../../campaigns/campaignView";
 
 type Filter = "open" | "overdue" | "won" | "lost" | "all";
 
-const isOpen = (stage: LeadStage) =>
-  stage === "new" || stage === "contacted" || stage === "quoted";
+const isOpen = (stage: LeadStage) => leadOpenStageKeys.includes(stage);
 
 const shortDate = (value: string) =>
   new Date(`${value}T00:00:00`).toLocaleDateString("en-GH", {
@@ -53,8 +57,17 @@ const emptyForm = {
   notes: "",
 };
 
-/** Prospects from first contact to customer. Stages are few; nothing moves on its own. */
-export function LeadsBoard() {
+/**
+ * Prospects from first contact to customer, for one pipeline: "manual" (added
+ * by staff) or "generated" (found by a campaign). The two are never shown
+ * together. Stages are few; nothing moves on its own.
+ */
+export function LeadsBoard({
+  pipeline = "manual",
+}: {
+  pipeline?: LeadPipeline;
+}) {
+  const stages = leadStagesFor(pipeline);
   const { roles } = useStaffAccess();
   const canConvert = canWorkClientDesk(roles);
   const canUseCampaigns = canUseLeadGeneration(roles);
@@ -76,17 +89,17 @@ export function LeadsBoard() {
   const [wonCompany, setWonCompany] = useState("");
 
   useEffect(() => {
-    listLeads()
+    listLeads(pipeline)
       .then(setLeads)
       .catch((cause) => setError(message(cause, "Leads could not be loaded")));
-    getSalesSummary()
+    getSalesSummary(pipeline)
       .then(setSummary)
       .catch(() => undefined);
     // Customers only enrich the page; the board works without them.
     listCustomers("")
       .then(setCustomers)
       .catch(() => undefined);
-  }, []);
+  }, [pipeline]);
 
   const count = (stage: LeadStage) =>
     (leads ?? []).filter((lead) => lead.stage === stage).length;
@@ -206,11 +219,21 @@ export function LeadsBoard() {
           </div>
         </section>
       )}
-      <section className={styles.overview} aria-label="Lead overview">
+      <section
+        className={styles.overview}
+        aria-label={`${pipeline === "generated" ? "Campaign" : "Manual"} lead overview`}
+      >
         <div className={styles.metric}>
           <span>Open leads</span>
           <strong>{leads ? openCount : "—"}</strong>
-          <small>New, contacted or quoted</small>
+          <small>
+            {leads
+              ? stages
+                  .filter((stage) => isOpen(stage))
+                  .map((stage) => `${stageLabels[stage]} ${count(stage)}`)
+                  .join(" · ")
+              : "Not won or lost yet"}
+          </small>
         </div>
         <div className={styles.metric}>
           <span>Follow-ups overdue</span>
@@ -271,7 +294,7 @@ export function LeadsBoard() {
             type="search"
             value={search}
           />
-          {!adding && (
+          {!adding && pipeline === "manual" && (
             <button
               className={ui.button}
               onClick={() => setAdding(true)}
@@ -518,7 +541,7 @@ export function LeadsBoard() {
                         }
                         value={lead.stage}
                       >
-                        {leadStageKeys.map((stage) => (
+                        {stages.map((stage) => (
                           <option key={stage} value={stage}>
                             {stageLabels[stage]}
                           </option>

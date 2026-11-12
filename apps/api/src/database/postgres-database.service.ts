@@ -3762,7 +3762,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
            lost_reason = NULL,
            stage_changed_at = clock_timestamp(),
            updated_at = clock_timestamp()
-       WHERE stage IN ('new', 'contacted', 'quoted')
+       WHERE stage IN ('new', 'contacted', 'replied', 'interested', 'quoted')
          AND (customer_company_id = $1::uuid
            OR ($2::uuid IS NOT NULL AND quote_request_id = $2::uuid))`,
       [companyId, quoteRequestId],
@@ -3776,7 +3776,8 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
        SET stage = 'quoted',
            stage_changed_at = clock_timestamp(),
            updated_at = clock_timestamp()
-       WHERE stage IN ('new', 'contacted') AND customer_company_id = $1::uuid`,
+       WHERE stage IN ('new', 'contacted', 'replied', 'interested')
+         AND customer_company_id = $1::uuid`,
       [companyId],
     );
     return result.rowCount ?? 0;
@@ -7751,11 +7752,18 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
   }
 
   async getSalesOverview(): Promise<SalesOverview> {
-    const open = "('new', 'contacted', 'quoted')";
-    const [prospects, leads, drafts, followUps, activity, campaigns] =
-      await Promise.all([
-        this.pool.query(
-          `SELECT count(*) AS found,
+    const open = "('new', 'contacted', 'replied', 'interested', 'quoted')";
+    const [
+      prospects,
+      leads,
+      drafts,
+      followUps,
+      activity,
+      campaigns,
+      pipelines,
+    ] = await Promise.all([
+      this.pool.query(
+        `SELECT count(*) AS found,
                   count(*) FILTER (WHERE prospect.score >= campaign.qualification_threshold) AS good_fit,
                   count(*) FILTER (WHERE prospect.promoted_lead_id IS NOT NULL) AS added,
                   count(*) FILTER (WHERE prospect.dismissed_at IS NULL
@@ -7767,45 +7775,48 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
                                      AND prospect.promoted_lead_id IS NULL
                                      AND cardinality(prospect.emails) > 0) AS waiting_with_email,
                   count(*) FILTER (WHERE prospect.dismissed_at IS NOT NULL) AS dismissed,
-                  count(*) FILTER (WHERE lead.stage IN ('contacted', 'quoted', 'won')) AS contacted,
+                  count(*) FILTER (WHERE lead.stage IN ('contacted', 'replied', 'interested', 'quoted', 'won')) AS contacted,
                   count(*) FILTER (WHERE lead.stage IN ('quoted', 'won')) AS quoted,
                   count(*) FILTER (WHERE lead.stage = 'won') AS won
            FROM app.prospect prospect
            JOIN app.lead_campaign campaign ON campaign.campaign_id = prospect.campaign_id
            LEFT JOIN app.lead lead ON lead.lead_id = prospect.promoted_lead_id`,
-        ),
-        this.pool.query(
-          `SELECT count(*) FILTER (WHERE stage IN ${open}) AS open,
+      ),
+      this.pool.query(
+        `SELECT count(*) FILTER (WHERE stage IN ${open}) AS open,
                   count(*) FILTER (WHERE stage IN ${open}
                                      AND next_follow_up <= current_date) AS follow_ups_due,
                   count(*) FILTER (WHERE stage = 'won') AS won,
                   count(*) FILTER (WHERE stage = 'lost') AS lost
-           FROM app.lead`,
-        ),
-        this.pool.query(
-          `SELECT status, count(*) AS total FROM app.outreach_draft GROUP BY status`,
-        ),
-        this.pool.query(
-          `SELECT lead.lead_id, lead.company_name, lead.stage,
+           FROM app.lead
+           WHERE source = 'campaign'`,
+      ),
+      this.pool.query(
+        `SELECT status, count(*) AS total FROM app.outreach_draft GROUP BY status`,
+      ),
+      this.pool.query(
+        `SELECT lead.lead_id, lead.company_name, lead.stage,
                   lead.next_follow_up::text AS next_follow_up,
                   lead.next_follow_up < current_date AS overdue,
                   COALESCE(NULLIF(btrim(owner.raw_user_meta_data->>'full_name'), ''), owner.email) AS owner_name
            FROM app.lead lead
            LEFT JOIN auth.users owner ON owner.id = lead.owner_id
-           WHERE lead.stage IN ${open} AND lead.next_follow_up <= current_date
+           WHERE lead.source = 'campaign'
+             AND lead.stage IN ${open} AND lead.next_follow_up <= current_date
            ORDER BY lead.next_follow_up, lead.created_at LIMIT 8`,
-        ),
-        this.pool.query(
-          `SELECT activity.lead_id, lead.company_name, activity.kind, activity.note,
+      ),
+      this.pool.query(
+        `SELECT activity.lead_id, lead.company_name, activity.kind, activity.note,
                   activity.occurred_at,
                   COALESCE(NULLIF(btrim(author.raw_user_meta_data->>'full_name'), ''), author.email) AS by_name
            FROM app.lead_activity activity
            JOIN app.lead lead ON lead.lead_id = activity.lead_id
            LEFT JOIN auth.users author ON author.id = activity.created_by
+           WHERE lead.source = 'campaign'
            ORDER BY activity.occurred_at DESC, activity.activity_id LIMIT 8`,
-        ),
-        this.pool.query(
-          `SELECT campaign.campaign_id, campaign.name, campaign.status,
+      ),
+      this.pool.query(
+        `SELECT campaign.campaign_id, campaign.name, campaign.status,
                   count(prospect.prospect_id) AS found,
                   count(prospect.prospect_id) FILTER (WHERE prospect.score >= campaign.qualification_threshold) AS good_fit,
                   count(prospect.prospect_id) FILTER (WHERE prospect.promoted_lead_id IS NOT NULL) AS added
@@ -7814,8 +7825,17 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
            WHERE campaign.status <> 'archived'
            GROUP BY campaign.campaign_id
            ORDER BY campaign.created_at DESC LIMIT 6`,
-        ),
-      ]);
+      ),
+      // The two pipelines side by side, never added together.
+      this.pool.query(
+        `SELECT CASE WHEN source = 'campaign' THEN 'generated' ELSE 'manual' END AS pipeline,
+                  stage, count(*) AS total,
+                  avg(extract(epoch FROM stage_changed_at - created_at) / 86400)
+                    FILTER (WHERE stage = 'won') AS days_to_win
+           FROM app.lead
+           GROUP BY 1, 2`,
+      ),
+    ]);
     const p = prospects.rows[0];
     const l = leads.rows[0];
     const draftCounts: Record<OutreachDraftStatus, number> = {
@@ -7849,6 +7869,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
         won: Number(l.won),
         lost: Number(l.lost),
       },
+      pipelines: this.pipelinePerformance(pipelines.rows),
       drafts: draftCounts,
       followUps: followUps.rows.map((row) => ({
         leadId: String(row.lead_id),
@@ -7875,6 +7896,38 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
         added: Number(row.added),
       })),
     };
+  }
+
+  /** Counts per stage for each pipeline, with the wins, losses and days to win. */
+  private pipelinePerformance(
+    rows: Array<Record<string, unknown>>,
+  ): SalesOverview["pipelines"] {
+    const empty = () => ({
+      total: 0,
+      open: 0,
+      won: 0,
+      lost: 0,
+      avgDaysToWin: null as number | null,
+      byStage: {} as Record<string, number>,
+    });
+    const result = { manual: empty(), generated: empty() };
+    for (const row of rows) {
+      const side =
+        row.pipeline === "generated" ? result.generated : result.manual;
+      const stage = String(row.stage);
+      const count = Number(row.total);
+      side.total += count;
+      side.byStage[stage] = count;
+      if (stage === "won") {
+        side.won = count;
+        side.avgDaysToWin =
+          row.days_to_win === null
+            ? null
+            : Math.round(Number(row.days_to_win) * 10) / 10;
+      } else if (stage === "lost") side.lost = count;
+      else side.open += count;
+    }
+    return result;
   }
 
   async promoteProspect(

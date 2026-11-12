@@ -91,6 +91,17 @@ export interface NewOutreachDraft {
   createdBy: string;
 }
 
+export interface PipelinePerformance {
+  total: number;
+  open: number;
+  won: number;
+  lost: number;
+  /** Average days from a lead being logged to it being won; null when none is won. */
+  avgDaysToWin: number | null;
+  /** Leads now in each stage. */
+  byStage: Record<string, number>;
+}
+
 export interface SalesOverview {
   pool: {
     /** Waiting for a decision: not added and not dismissed. */
@@ -110,12 +121,15 @@ export interface SalesOverview {
     quoted: number;
     won: number;
   };
+  /** Generated (campaign) leads only. */
   leads: {
     open: number;
     followUpsDue: number;
     won: number;
     lost: number;
   };
+  /** Manual and generated leads side by side; the two are never added together. */
+  pipelines: Record<"manual" | "generated", PipelinePerformance>;
   drafts: Record<OutreachDraftStatus, number>;
   /** Open leads whose follow-up date has come, oldest first. */
   followUps: Array<{

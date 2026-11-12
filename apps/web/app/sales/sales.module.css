@@ -761,3 +761,27 @@
 .socials a:hover {
   text-decoration: underline;
 }
+
+/* Generated and manual leads, side by side */
+.compare {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95rem;
+}
+
+.compare th,
+.compare td {
+  padding: 8px 6px;
+  text-align: right;
+  border-bottom: 1px solid var(--brand-border);
+}
+
+.compare th:first-child,
+.compare tbody th {
+  text-align: left;
+  font-weight: 500;
+}
+
+.compare thead th {
+  font-weight: 600;
+}
