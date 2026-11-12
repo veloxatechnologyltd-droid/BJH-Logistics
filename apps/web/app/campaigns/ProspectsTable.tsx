@@ -6,6 +6,7 @@ import { ErrorPopup } from "../ErrorPopup";
 import { listProspects, promoteProspects } from "./campaignApi";
 import type { Campaign, Prospect, ProspectFilter } from "./campaignApi";
 import { safeWebUrl, scoreMethodLabel } from "./campaignView";
+import { SocialLinkList } from "../sales/SocialLinkList";
 import ui from "../jobs/jobs.module.css";
 import styles from "../customers/customerDirectory.module.css";
 import own from "./campaigns.module.css";
@@ -392,6 +393,7 @@ function ProspectRow({
         ) : (
           contactNote[item.enrichmentStatus] || "None found"
         )}
+        <SocialLinkList links={item.socialLinks} />
       </td>
       <td data-label="Leads">
         {item.promotedLeadId ? (

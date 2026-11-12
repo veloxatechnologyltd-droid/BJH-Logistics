@@ -4,6 +4,8 @@ import {
   normalizePhoneKey,
   parseWebsite,
 } from "./business-normalize";
+import { socialLinksOf } from "./social-links";
+import type { SocialLinks } from "./social-links";
 
 export const BUSINESS_SEARCH_PROVIDER = Symbol("BUSINESS_SEARCH_PROVIDER");
 
@@ -26,6 +28,8 @@ export interface FoundBusiness {
   address: string | null;
   phones: string[];
   emails: string[];
+  /** Social media pages from the business's website; platforms with none are absent. */
+  socialLinks: SocialLinks;
   rating: number | null;
   category: string | null;
   /** `app.prospect.source`: "stub" rows are synthetic and must never look real. */
@@ -134,6 +138,7 @@ export function mapPlace(
     address: text(raw.address ?? raw.street, 500),
     phones,
     emails: emailsOf(raw),
+    socialLinks: socialLinksOf(raw),
     rating: ratingOf(raw),
     category: text(raw.categoryName, 160),
     source,
@@ -227,6 +232,13 @@ function syntheticPlace(index: number): RawPlace {
   };
   // Every few places break one rule, so a local run shows the filters working.
   if (number % 7 === 3) delete place.website;
+  // Some have social pages, so a local run shows them.
+  if (number % 2 === 1) {
+    place.facebooks = [`https://www.facebook.com/synthetic.business.${number}`];
+    place.instagrams = [
+      `https://www.instagram.com/synthetic_business_${number}`,
+    ];
+  }
   if (number % 7 === 5) place.totalScore = 2.8;
   if (number % 11 === 0) place.permanentlyClosed = true;
   if (number % 13 === 0) place.categoryName = "Bank";

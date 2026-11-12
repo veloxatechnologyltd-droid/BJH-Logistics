@@ -8,7 +8,11 @@ import { DatabasePort } from "../src/database/database.port";
 import { POSTGRES_POOL } from "../src/database/postgres-database.service";
 import type { PostgresPool } from "../src/database/postgres-database.service";
 import { ApifyError } from "../src/leads/apify-business-search";
-import { StubBusinessSearchProvider } from "../src/leads/business-search";
+import {
+  StubBusinessSearchProvider,
+  processPlaces,
+} from "../src/leads/business-search";
+import type { BusinessSearchQuery } from "../src/leads/business-search";
 import type {
   BusinessSearchProvider,
   SearchProgress,
@@ -504,6 +508,69 @@ test("an unreadable website marks that prospect failed and the run still finishe
   assert.equal(row.failed_count, 2);
   // A prospect whose site could not be read is still scored, from the search data.
   assert.ok(rows.every((r) => r.score !== null));
+});
+
+test("an email and social pages from the search are kept, even when the website cannot be read", async () => {
+  // As the contact-details actor reports them: the address and pages come with the place.
+  class EmailedSearch extends StubBusinessSearchProvider {
+    override async fetchResults(
+      _datasetId: string,
+      query: BusinessSearchQuery,
+    ) {
+      return processPlaces(
+        [
+          {
+            title: "Emailed Foods Ltd",
+            placeId: "emailed-1",
+            website: "https://emailed-foods.example",
+            emails: ["Sales@Emailed-Foods.example"],
+            facebooks: ["facebook.com/emailed.foods"],
+            instagrams: [
+              "https://www.instagram.com/emailed_foods/",
+              "https://evil.example/instagram.com/x",
+            ],
+            linkedIns: ["not a link"],
+          },
+        ],
+        query,
+        "stub",
+      );
+    }
+  }
+  const finder: WebsiteContactFinder = {
+    async find(): Promise<WebsiteContacts> {
+      return {
+        status: "failed",
+        emails: [],
+        phones: [],
+        pagesChecked: 0,
+        excerpt: null,
+        error: "The website could not be read",
+      };
+    },
+  };
+  const runId = await queueRun(await campaign(), 1);
+  const row = await drive(
+    pipelineWith({ search: new EmailedSearch(), finder }),
+    runId,
+  );
+  assert.equal(row.status, "ready");
+  const [found] = (
+    await pool.query(
+      `SELECT enrichment_status, enrichment_error, emails, social_links
+     FROM app.prospect WHERE run_id = $1::uuid`,
+      [runId],
+    )
+  ).rows;
+  // The address the search gave counts: the site being unreadable is not a failure here.
+  assert.equal(found.enrichment_status, "email_found");
+  assert.equal(found.enrichment_error, null);
+  assert.deepEqual(found.emails, ["sales@emailed-foods.example"]);
+  // Only real pages on their own platform are stored, as https addresses.
+  assert.deepEqual(found.social_links, {
+    facebook: ["https://facebook.com/emailed.foods"],
+    instagram: ["https://www.instagram.com/emailed_foods/"],
+  });
 });
 
 test("the scorer gets the campaign's rules and the website excerpt, and it is dropped once scored", async () => {

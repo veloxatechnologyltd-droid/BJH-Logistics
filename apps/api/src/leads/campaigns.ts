@@ -1,5 +1,6 @@
 import type { CampaignStatus } from "@bjh/contracts";
 import type { DuplicateKind } from "./duplicate-check";
+import type { SocialLinks } from "./social-links";
 
 /** One search run of a campaign, as staff see it. */
 export interface LeadRunRecord {
@@ -78,6 +79,8 @@ export interface ProspectRecord {
   address: string | null;
   phones: string[];
   emails: string[];
+  /** Social media pages found with the business; platforms with none are absent. */
+  socialLinks: SocialLinks;
   rating: number | null;
   category: string | null;
   /** "stub" rows are sample data and must be shown as such. */

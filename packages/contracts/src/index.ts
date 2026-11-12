@@ -2972,6 +2972,76 @@ export const prospectPromoteInputSchema = z.object(
 );
 export type ProspectPromoteInput = z.infer<typeof prospectPromoteInputSchema>;
 
+/** Sales hub: prospects to dismiss from the lead pool (or bring back), at most 200 at a time. */
+export const poolDismissInputSchema = z.object(
+  {
+    prospectIds: z
+      .array(uuidField("prospectIds"), {
+        error: "prospectIds must be a list of prospect IDs",
+      })
+      .min(1, { error: "Choose at least one business" })
+      .max(200, { error: "At most 200 businesses can be changed at a time" })
+      .transform((ids) => [...new Set(ids)]),
+    dismissed: z.boolean({ error: "dismissed must be true or false" }),
+  },
+  objectError("prospectIds and dismissed are required"),
+);
+export type PoolDismissInput = z.infer<typeof poolDismissInputSchema>;
+
+/** Prospects to draft an outreach email for. Drafting is a paid AI call, so the batch is small. */
+export const outreachDraftCreateInputSchema = z.object(
+  {
+    prospectIds: z
+      .array(uuidField("prospectIds"), {
+        error: "prospectIds must be a list of prospect IDs",
+      })
+      .min(1, { error: "Choose at least one business" })
+      .max(20, { error: "At most 20 emails can be drafted at a time" })
+      .transform((ids) => [...new Set(ids)]),
+  },
+  objectError("A prospectIds list is required"),
+);
+export type OutreachDraftCreateInput = z.infer<
+  typeof outreachDraftCreateInputSchema
+>;
+
+/** A person's edit of a pending draft. */
+export const outreachDraftEditInputSchema = z.object(
+  {
+    recipientEmail: emailField,
+    subject: requiredText("subject", 200),
+    body: requiredText("body", 5000),
+  },
+  objectError("recipientEmail, subject and body are required"),
+);
+export type OutreachDraftEditInput = z.infer<
+  typeof outreachDraftEditInputSchema
+>;
+
+export const outreachDraftRejectInputSchema = z.object(
+  { reason: optionalText("reason", 500) },
+  objectError("The rejection must be a JSON object"),
+);
+export type OutreachDraftRejectInput = z.infer<
+  typeof outreachDraftRejectInputSchema
+>;
+
+export const outreachDraftBatchInputSchema = z.object(
+  {
+    draftIds: z
+      .array(uuidField("draftIds"), {
+        error: "draftIds must be a list of draft IDs",
+      })
+      .min(1, { error: "Choose at least one draft" })
+      .max(50, { error: "At most 50 drafts can be approved at a time" })
+      .transform((ids) => [...new Set(ids)]),
+  },
+  objectError("A draftIds list is required"),
+);
+export type OutreachDraftBatchInput = z.infer<
+  typeof outreachDraftBatchInputSchema
+>;
+
 /** Support requests (Evans, 2026-11-03): a problem, a feature wish or a question. */
 export const supportRequestKinds = ["problem", "feature", "question"] as const;
 export const supportRequestStatuses = ["new", "in_progress", "done"] as const;

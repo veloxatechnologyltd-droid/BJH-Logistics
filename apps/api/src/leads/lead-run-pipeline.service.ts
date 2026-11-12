@@ -250,13 +250,17 @@ export class LeadRunPipeline implements OnModuleInit, OnModuleDestroy {
       (phone) => normalizePhoneKey(phone) ?? phone,
     ).slice(0, 10);
     return {
+      // An address the search already gave counts even when the site could not be read.
       status:
-        contacts.status === "failed"
-          ? "failed"
-          : emails.length > 0
-            ? "email_found"
+        emails.length > 0
+          ? "email_found"
+          : contacts.status === "failed"
+            ? "failed"
             : "email_missing",
-      error: contacts.status === "failed" ? contacts.error : null,
+      error:
+        contacts.status === "failed" && emails.length === 0
+          ? contacts.error
+          : null,
       emails,
       phones,
       excerpt: contacts.excerpt,

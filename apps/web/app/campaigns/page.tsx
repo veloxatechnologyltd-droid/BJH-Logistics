@@ -1,8 +1,7 @@
 import Link from "next/link";
-import { CampaignGate } from "./CampaignGate";
 import { CampaignsList } from "./CampaignsList";
-import styles from "../customers/customerDirectory.module.css";
-import ui from "../jobs/jobs.module.css";
+import { SalesFrame } from "../sales/SalesFrame";
+import sales from "../sales/sales.module.css";
 
 export const metadata = {
   title: "Campaigns | BJH Logistics",
@@ -11,27 +10,18 @@ export const metadata = {
 
 export default function CampaignsPage() {
   return (
-    <CampaignGate>
-      <main className={styles.page}>
-        <Link className={styles.backLink} href="/">
-          <span aria-hidden="true">←</span> Back to overview
+    <SalesFrame>
+      <div className={sales.panelHead}>
+        <p className={sales.hubLead} style={{ margin: 0 }}>
+          A campaign says what kind of business to look for and where. It finds
+          them, scores how well each fits, and puts them in the lead pool.
+        </p>
+        <Link className={sales.btnPrimary} href="/campaigns/new">
+          New campaign
         </Link>
+      </div>
 
-        <header className={styles.header}>
-          <div>
-            <h1 className={styles.title}>Campaigns</h1>
-            <p className={styles.description}>
-              Find new businesses to sell to, see how well each one fits, and
-              add the good ones to Leads.
-            </p>
-          </div>
-          <Link className={ui.primaryLink} href="/campaigns/new">
-            New campaign
-          </Link>
-        </header>
-
-        <CampaignsList />
-      </main>
-    </CampaignGate>
+      <CampaignsList />
+    </SalesFrame>
   );
 }

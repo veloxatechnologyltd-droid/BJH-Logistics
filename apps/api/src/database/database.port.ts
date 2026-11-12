@@ -1,3 +1,13 @@
+import type {
+  NewOutreachDraft,
+  OutreachDraftFilter,
+  OutreachDraftRecord,
+  OutreachDraftStatus,
+  PoolFilter,
+  PoolProspect,
+  ProspectDraftingInfo,
+  SalesOverview,
+} from "../sales/sales";
 import type { KnownBusinessRow } from "../leads/duplicate-check";
 import type {
   LeadCampaignChange,
@@ -2469,6 +2479,43 @@ export abstract class DatabasePort {
     prospectId: string,
     userId: string,
   ): Promise<PromoteResult>;
+  /** The lead pool: prospects of every campaign, one page, with the total that match. */
+  abstract listPoolProspects(
+    filter: PoolFilter,
+  ): Promise<{ items: PoolProspect[]; total: number }>;
+  /** Sets aside (or brings back) prospects; returns how many changed. Prospects already added to leads are left alone. */
+  abstract setProspectsDismissed(
+    prospectIds: string[],
+    dismissed: boolean,
+    userId: string,
+  ): Promise<number>;
+  /** What drafting needs for each prospect that exists, in the order asked. */
+  abstract findProspectsForDrafting(
+    prospectIds: string[],
+  ): Promise<ProspectDraftingInfo[]>;
+  /** "open_draft_exists" when the prospect already has a pending or approved draft. */
+  abstract createOutreachDraft(
+    draft: NewOutreachDraft,
+  ): Promise<OutreachDraftRecord | "open_draft_exists">;
+  abstract listOutreachDrafts(filter: OutreachDraftFilter): Promise<{
+    items: OutreachDraftRecord[];
+    total: number;
+    counts: Record<OutreachDraftStatus, number>;
+  }>;
+  abstract findOutreachDraft(id: string): Promise<OutreachDraftRecord | null>;
+  /** Only a pending draft can be edited. */
+  abstract editOutreachDraft(
+    id: string,
+    change: { recipientEmail: string; subject: string; body: string },
+  ): Promise<OutreachDraftRecord | "not_found" | "not_pending">;
+  /** Only a pending draft can be decided; the first decision stands. */
+  abstract decideOutreachDraft(
+    id: string,
+    decision:
+      { status: "approved" } | { status: "rejected"; reason: string | null },
+    userId: string,
+  ): Promise<OutreachDraftRecord | "not_found" | "not_pending">;
+  abstract getSalesOverview(): Promise<SalesOverview>;
   abstract listLeads(): Promise<LeadRecord[]>;
   abstract findLead(id: string): Promise<LeadRecord | null>;
   /** Fails with "duplicate_request" or "unknown_reference" instead of throwing. */

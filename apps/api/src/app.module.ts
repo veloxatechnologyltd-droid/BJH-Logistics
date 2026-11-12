@@ -86,6 +86,12 @@ import { CampaignsController } from "./leads/campaigns.controller";
 import { CampaignsService } from "./leads/campaigns.service";
 import { LeadsController } from "./leads/leads.controller";
 import { LeadsService } from "./leads/leads.service";
+import {
+  OUTREACH_DRAFTER,
+  createOutreachDrafter,
+} from "./sales/outreach-drafting";
+import { SalesController } from "./sales/sales.controller";
+import { SalesService } from "./sales/sales.service";
 import { QuoteRequestsController } from "./quotations/quote-requests.controller";
 import { QuoteRequestsService } from "./quotations/quote-requests.service";
 import { SettingsController } from "./settings/settings.controller";
@@ -166,6 +172,7 @@ import { PushService } from "./push/push.service";
     CustomersController,
     LeadsController,
     CampaignsController,
+    SalesController,
     JobsController,
     ClientJobReportsController,
     JobAssignmentsController,
@@ -226,6 +233,8 @@ import { PushService } from "./push/push.service";
         createWebsiteContactFinder(search.name),
     },
     { provide: PROSPECT_SCORER, useFactory: () => createProspectScorer() },
+    SalesService,
+    { provide: OUTREACH_DRAFTER, useFactory: () => createOutreachDrafter() },
     LeadRunPipeline,
     JobsService,
     ClientJobReportService,

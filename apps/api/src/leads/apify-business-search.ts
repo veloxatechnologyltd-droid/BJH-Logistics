@@ -10,16 +10,23 @@ import {
 } from "./business-search";
 
 /**
- * Apify's Google Maps scraper (`compass/crawler-google-places`), checked against
- * Apify's API reference, the actor's published input schema and the Run Actor and
- * Get run pages on 2026-11-11. Authentication is a Bearer header; `/v2/actors/`
- * replaces the deprecated `/v2/acts/` (Venariq still uses the old path); the run
- * statuses are READY, RUNNING, SUCCEEDED, FAILED, TIMING-OUT, TIMED-OUT, ABORTING
- * and ABORTED. The "contacts from website" add-on is left off (it is billed extra):
- * the website contact finder (plan item 1.4) does that work.
+ * Apify's Google Maps scrapers, checked against Apify's API reference, the actors'
+ * published input schemas and the Run Actor and Get run pages on 2026-11-11, and the
+ * contact-details actor's schema, pricing and a real run on 2026-11-12.
+ * Authentication is a Bearer header; `/v2/actors/` replaces the deprecated
+ * `/v2/acts/` (Venariq still uses the old path); the run statuses are READY, RUNNING,
+ * SUCCEEDED, FAILED, TIMING-OUT, TIMED-OUT, ABORTING and ABORTED.
+ *
+ * The default actor, `lukaskrivka/google-maps-with-contact-details` (Google Maps Email
+ * Extractor), reads each business's website itself and returns `emails` and social
+ * pages (`facebooks`, `instagrams`, `linkedIns`, ...) with the place; about $0.01 per
+ * business. Its paid add-ons (business-lead enrichment, social profile enrichment)
+ * are left off. `compass/crawler-google-places` still works but found no emails in
+ * BJH's first real search; its own "contacts from website" add-on is left off too.
+ * The website contact finder (plan item 1.4) still runs afterwards and adds what it finds.
  */
 
-const DEFAULT_ACTOR = "compass/crawler-google-places";
+const DEFAULT_ACTOR = "lukaskrivka/google-maps-with-contact-details";
 const DEFAULT_MAX_CHARGE_USD = 5;
 const RUN_TIMEOUT_SECONDS = 900;
 const REQUEST_TIMEOUT_MS = 30_000;
@@ -90,20 +97,37 @@ export class ApifyBusinessSearchProvider implements BusinessSearchProvider {
     const terms = searchTerms(query);
     const stars = minimumStarsFor(query.minRating);
     // The limit is per search term, so the total is shared between the terms.
+    const actor = this.setup.actorId.trim().replace("/", "~");
     const input: Record<string, unknown> = {
       searchStringsArray: terms,
       locationQuery: query.location,
       maxCrawledPlacesPerSearch: Math.ceil(query.maxResults / terms.length),
       language: "en",
       skipClosedPlaces: true,
-      scrapeContacts: false,
-      maxReviews: 0,
-      maxImages: 0,
     };
+    if (actor.startsWith("compass~")) {
+      // The first actor: its own add-ons that cost extra are switched off.
+      Object.assign(input, {
+        scrapeContacts: false,
+        maxReviews: 0,
+        maxImages: 0,
+      });
+    } else {
+      // Contact details come with the place; the paid enrichment add-ons stay off.
+      Object.assign(input, {
+        scrapeSocialMediaProfiles: {
+          facebooks: false,
+          instagrams: false,
+          youtubes: false,
+          tiktoks: false,
+          twitters: false,
+        },
+        maximumLeadsEnrichmentRecords: 0,
+      });
+    }
     if (stars) input.placeMinimumStars = stars;
     if (query.requireWebsite) input.website = "withWebsite";
 
-    const actor = this.setup.actorId.trim().replace("/", "~");
     const params = new URLSearchParams({
       maxTotalChargeUsd: String(this.setup.maxChargeUsd),
       timeout: String(RUN_TIMEOUT_SECONDS),

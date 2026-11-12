@@ -28,7 +28,7 @@ import { useStaffAccess } from "../../auth/useStaffAccess";
 import { canUseLeadGeneration, canWorkClientDesk } from "../../auth/roleAccess";
 import { leadCampaignNote } from "../../campaigns/campaignView";
 
-type Filter = "open" | "won" | "lost" | "all";
+type Filter = "open" | "overdue" | "won" | "lost" | "all";
 
 const isOpen = (stage: LeadStage) =>
   stage === "new" || stage === "contacted" || stage === "quoted";
@@ -63,6 +63,7 @@ export function LeadsBoard() {
   const [customers, setCustomers] = useState<CustomerCompany[]>([]);
   const [error, setError] = useState("");
   const [filter, setFilter] = useState<Filter>("open");
+  const [search, setSearch] = useState("");
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [busy, setBusy] = useState(false);
@@ -93,13 +94,24 @@ export function LeadsBoard() {
   const overdue = (leads ?? []).filter((lead) => lead.followUpOverdue).length;
   const decided = count("won") + count("lost");
 
-  const shown = (leads ?? []).filter((lead) =>
-    filter === "all"
-      ? true
-      : filter === "open"
-        ? isOpen(lead.stage)
-        : lead.stage === filter,
-  );
+  const words = search.trim().toLowerCase();
+  const shown = (leads ?? [])
+    .filter((lead) =>
+      filter === "all"
+        ? true
+        : filter === "open"
+          ? isOpen(lead.stage)
+          : filter === "overdue"
+            ? lead.followUpOverdue
+            : lead.stage === filter,
+    )
+    .filter(
+      (lead) =>
+        words === "" ||
+        [lead.companyName, lead.contactName, lead.email, lead.campaignName]
+          .filter(Boolean)
+          .some((text) => String(text).toLowerCase().includes(words)),
+    );
 
   function replace(saved: Lead) {
     setLeads((current) =>
@@ -230,22 +242,35 @@ export function LeadsBoard() {
       <section className={styles.directory} aria-label="Leads">
         <div className={styles.searchHeader}>
           <div className={ui.segmented} role="group" aria-label="Show">
-            {(["open", "won", "lost", "all"] as const).map((option) => (
-              <button
-                aria-pressed={filter === option}
-                className={filter === option ? ui.segmentActive : ""}
-                key={option}
-                onClick={() => setFilter(option)}
-                type="button"
-              >
-                {option === "open"
-                  ? "Open"
-                  : option === "all"
-                    ? "All"
-                    : stageLabels[option]}
-              </button>
-            ))}
+            {(["open", "overdue", "won", "lost", "all"] as const).map(
+              (option) => (
+                <button
+                  aria-pressed={filter === option}
+                  className={filter === option ? ui.segmentActive : ""}
+                  key={option}
+                  onClick={() => setFilter(option)}
+                  type="button"
+                >
+                  {option === "open"
+                    ? "Open"
+                    : option === "overdue"
+                      ? `Overdue${overdue > 0 ? ` (${overdue})` : ""}`
+                      : option === "all"
+                        ? "All"
+                        : stageLabels[option]}
+                </button>
+              ),
+            )}
           </div>
+          <input
+            aria-label="Search leads by company, contact, email or campaign"
+            className={ui.searchInput}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search leads"
+            style={{ flex: "1 1 180px", margin: 0 }}
+            type="search"
+            value={search}
+          />
           {!adding && (
             <button
               className={ui.button}

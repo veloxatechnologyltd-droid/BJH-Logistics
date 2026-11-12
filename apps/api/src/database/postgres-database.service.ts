@@ -1,4 +1,18 @@
+import type {
+  NewOutreachDraft,
+  OutreachDraftFilter,
+  OutreachDraftRecord,
+  OutreachDraftStatus,
+  PoolFilter,
+  PoolProspect,
+  ProspectDraftingInfo,
+  SalesOverview,
+} from "../sales/sales";
 import type { KnownBusinessRow } from "../leads/duplicate-check";
+import {
+  socialLinksAsText,
+  socialLinksFromStored,
+} from "../leads/social-links";
 import type {
   LeadCampaignChange,
   LeadCampaignRecord,
@@ -6952,9 +6966,9 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
              prospect_id, campaign_id, run_id, business_name, website, address,
              phones, emails, rating, category, source, source_id, normalized_name,
              normalized_domain, normalized_phone, duplicate_kind, duplicate_ref,
-             duplicate_reason)
+             duplicate_reason, social_links)
            VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7::text[], $8::text[],
-                   $9, $10, $11, $12, $13, $14, $15, $16, $17::uuid, $18)
+                   $9, $10, $11, $12, $13, $14, $15, $16, $17::uuid, $18, $19::jsonb)
            ON CONFLICT (campaign_id, source, source_id) WHERE source_id IS NOT NULL
            DO NOTHING`,
           [
@@ -6976,6 +6990,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
             duplicate?.kind ?? null,
             duplicate?.ref ?? null,
             duplicate?.reason ?? null,
+            JSON.stringify(business.socialLinks),
           ],
         );
         stored += inserted.rowCount ?? 0;
@@ -7413,6 +7428,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       address: text(row.address),
       phones: row.phones as string[],
       emails: row.emails as string[],
+      socialLinks: socialLinksFromStored(row.social_links),
       rating: row.rating === null ? null : Number(row.rating),
       category: text(row.category),
       source: String(row.source) as ProspectRecord["source"],
@@ -7432,6 +7448,432 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       promotedLeadId: text(row.promoted_lead_id),
       promotedAt: time(row.promoted_at),
       createdAt: this.toIsoString(row.created_at),
+    };
+  }
+
+  // ── Sales hub: lead pool, outreach drafts, overview ───────────────────────
+
+  async listPoolProspects(
+    filter: PoolFilter,
+  ): Promise<{ items: PoolProspect[]; total: number }> {
+    const values: unknown[] = [];
+    const where: string[] = [];
+    const add = (
+      condition: (placeholder: string) => string,
+      value: unknown,
+    ) => {
+      values.push(value);
+      where.push(condition(`$${values.length}`));
+    };
+    if (filter.campaignId) {
+      add((p) => `prospect.campaign_id = ${p}::uuid`, filter.campaignId);
+    }
+    if (filter.status === "new") {
+      where.push(
+        "prospect.dismissed_at IS NULL AND prospect.promoted_lead_id IS NULL",
+      );
+    } else if (filter.status === "added") {
+      where.push("prospect.promoted_lead_id IS NOT NULL");
+    } else if (filter.status === "dismissed") {
+      where.push("prospect.dismissed_at IS NOT NULL");
+    }
+    if (filter.minScore !== undefined) {
+      add((p) => `prospect.score >= ${p}`, filter.minScore);
+    }
+    if (filter.hasEmail !== undefined) {
+      where.push(
+        filter.hasEmail
+          ? "cardinality(prospect.emails) > 0"
+          : "cardinality(prospect.emails) = 0",
+      );
+    }
+    if (filter.duplicate !== undefined) {
+      where.push(
+        filter.duplicate
+          ? "prospect.duplicate_kind IS NOT NULL"
+          : "prospect.duplicate_kind IS NULL",
+      );
+    }
+    if (filter.search) {
+      add(
+        (p) =>
+          `(prospect.business_name ILIKE '%' || ${p} || '%'
+            OR prospect.category ILIKE '%' || ${p} || '%'
+            OR prospect.address ILIKE '%' || ${p} || '%')`,
+        filter.search.replace(/[\\%_]/g, "\\$&"),
+      );
+    }
+    const condition = where.length > 0 ? where.join(" AND ") : "true";
+    const order =
+      filter.sort === "name"
+        ? "prospect.business_name ASC, prospect.prospect_id"
+        : filter.sort === "newest"
+          ? "prospect.created_at DESC, prospect.prospect_id"
+          : "prospect.score DESC NULLS LAST, prospect.created_at DESC, prospect.prospect_id";
+    const total = await this.pool.query(
+      `SELECT count(*) AS total FROM app.prospect prospect WHERE ${condition}`,
+      values,
+    );
+    values.push(filter.limit, filter.offset);
+    const result = await this.pool.query(
+      `SELECT prospect.*, campaign.name AS campaign_name,
+              campaign.qualification_threshold AS campaign_threshold,
+              (SELECT draft.status FROM app.outreach_draft draft
+                WHERE draft.prospect_id = prospect.prospect_id
+                ORDER BY draft.created_at DESC LIMIT 1) AS draft_status
+       FROM app.prospect prospect
+       JOIN app.lead_campaign campaign ON campaign.campaign_id = prospect.campaign_id
+       WHERE ${condition}
+       ORDER BY ${order}
+       LIMIT $${values.length - 1} OFFSET $${values.length}`,
+      values,
+    );
+    return {
+      items: result.rows.map((row) => ({
+        ...this.mapProspect(row),
+        campaignName: String(row.campaign_name),
+        qualificationThreshold: Number(row.campaign_threshold),
+        dismissedAt:
+          row.dismissed_at === null ? null : this.toIsoString(row.dismissed_at),
+        draftStatus: (row.draft_status ?? null) as PoolProspect["draftStatus"],
+      })),
+      total: Number(total.rows[0].total),
+    };
+  }
+
+  async setProspectsDismissed(
+    prospectIds: string[],
+    dismissed: boolean,
+    userId: string,
+  ): Promise<number> {
+    // Dismissing skips what is already dismissed or already a lead; restoring skips what is not dismissed.
+    const result = await this.pool.query(
+      `UPDATE app.prospect
+       SET dismissed_at = CASE WHEN $2::boolean THEN clock_timestamp() END,
+           dismissed_by = CASE WHEN $2::boolean THEN $3::uuid END,
+           updated_at = clock_timestamp()
+       WHERE prospect_id = ANY($1::uuid[])
+         AND promoted_lead_id IS NULL
+         AND (dismissed_at IS NULL) = $2::boolean`,
+      [prospectIds, dismissed, userId],
+    );
+    return result.rowCount ?? 0;
+  }
+
+  async findProspectsForDrafting(
+    prospectIds: string[],
+  ): Promise<ProspectDraftingInfo[]> {
+    const result = await this.pool.query(
+      `SELECT prospect.prospect_id, prospect.business_name, prospect.category,
+              prospect.address, prospect.emails,
+              prospect.dismissed_at IS NOT NULL AS dismissed,
+              campaign.target_service, campaign.target_industry,
+              campaign.target_location
+       FROM app.prospect prospect
+       JOIN app.lead_campaign campaign ON campaign.campaign_id = prospect.campaign_id
+       WHERE prospect.prospect_id = ANY($1::uuid[])`,
+      [prospectIds],
+    );
+    return result.rows.map((row) => ({
+      prospectId: String(row.prospect_id),
+      businessName: String(row.business_name),
+      category: row.category === null ? null : String(row.category),
+      address: row.address === null ? null : String(row.address),
+      emails: row.emails as string[],
+      dismissed: row.dismissed === true,
+      campaign: {
+        targetService: String(row.target_service),
+        targetIndustry: String(row.target_industry),
+        targetLocation: String(row.target_location),
+      },
+    }));
+  }
+
+  private readonly outreachDraftSelect = `
+    SELECT draft.*, prospect.business_name, prospect.category, prospect.address,
+           prospect.website, prospect.score, prospect.score_reason,
+           prospect.campaign_id, campaign.name AS campaign_name,
+           COALESCE(NULLIF(btrim(author.raw_user_meta_data->>'full_name'), ''), author.email) AS created_by_name,
+           COALESCE(NULLIF(btrim(decider.raw_user_meta_data->>'full_name'), ''), decider.email) AS decided_by_name
+    FROM app.outreach_draft draft
+    JOIN app.prospect prospect ON prospect.prospect_id = draft.prospect_id
+    JOIN app.lead_campaign campaign ON campaign.campaign_id = prospect.campaign_id
+    LEFT JOIN auth.users author ON author.id = draft.created_by
+    LEFT JOIN auth.users decider ON decider.id = draft.decided_by`;
+
+  private mapOutreachDraft(row: Record<string, unknown>): OutreachDraftRecord {
+    const text = (value: unknown) =>
+      value === null || value === undefined ? null : String(value);
+    return {
+      id: String(row.draft_id),
+      prospectId: String(row.prospect_id),
+      businessName: String(row.business_name),
+      category: text(row.category),
+      address: text(row.address),
+      website: text(row.website),
+      score: row.score === null ? null : Number(row.score),
+      scoreReason: text(row.score_reason),
+      campaignId: String(row.campaign_id),
+      campaignName: String(row.campaign_name),
+      recipientEmail: String(row.recipient_email),
+      subject: String(row.subject),
+      body: String(row.body),
+      status: String(row.status) as OutreachDraftStatus,
+      method: String(row.method) as OutreachDraftRecord["method"],
+      edited: row.edited === true,
+      rejectedReason: text(row.rejected_reason),
+      createdByName: text(row.created_by_name),
+      decidedByName: text(row.decided_by_name),
+      decidedAt:
+        row.decided_at === null || row.decided_at === undefined
+          ? null
+          : this.toIsoString(row.decided_at),
+      createdAt: this.toIsoString(row.created_at),
+    };
+  }
+
+  async createOutreachDraft(
+    draft: NewOutreachDraft,
+  ): Promise<OutreachDraftRecord | "open_draft_exists"> {
+    try {
+      await this.pool.query(
+        `INSERT INTO app.outreach_draft
+           (draft_id, prospect_id, recipient_email, subject, body, method, created_by)
+         VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7::uuid)`,
+        [
+          draft.id,
+          draft.prospectId,
+          draft.recipientEmail,
+          draft.subject,
+          draft.body,
+          draft.method,
+          draft.createdBy,
+        ],
+      );
+    } catch (error) {
+      if ((error as { code?: string }).code === "23505") {
+        return "open_draft_exists";
+      }
+      throw error;
+    }
+    return (await this.findOutreachDraft(draft.id))!;
+  }
+
+  async findOutreachDraft(id: string): Promise<OutreachDraftRecord | null> {
+    const result = await this.pool.query(
+      `${this.outreachDraftSelect} WHERE draft.draft_id = $1::uuid`,
+      [id],
+    );
+    return result.rows[0] ? this.mapOutreachDraft(result.rows[0]) : null;
+  }
+
+  async listOutreachDrafts(filter: OutreachDraftFilter) {
+    const values: unknown[] = [];
+    let condition = "true";
+    if (filter.status) {
+      values.push(filter.status);
+      condition = `draft.status = $${values.length}`;
+    }
+    const total = await this.pool.query(
+      `SELECT count(*) AS total FROM app.outreach_draft draft WHERE ${condition}`,
+      values,
+    );
+    values.push(filter.limit, filter.offset);
+    // Waiting drafts oldest first (the queue); decided ones newest first.
+    const result = await this.pool.query(
+      `${this.outreachDraftSelect} WHERE ${condition}
+       ORDER BY CASE WHEN draft.status = 'pending' THEN draft.created_at END ASC,
+                draft.decided_at DESC NULLS LAST, draft.draft_id
+       LIMIT $${values.length - 1} OFFSET $${values.length}`,
+      values,
+    );
+    const counted = await this.pool.query(
+      `SELECT status, count(*) AS total FROM app.outreach_draft GROUP BY status`,
+    );
+    const counts: Record<OutreachDraftStatus, number> = {
+      pending: 0,
+      approved: 0,
+      rejected: 0,
+    };
+    for (const row of counted.rows) {
+      counts[String(row.status) as OutreachDraftStatus] = Number(row.total);
+    }
+    return {
+      items: result.rows.map((row) => this.mapOutreachDraft(row)),
+      total: Number(total.rows[0].total),
+      counts,
+    };
+  }
+
+  async editOutreachDraft(
+    id: string,
+    change: { recipientEmail: string; subject: string; body: string },
+  ): Promise<OutreachDraftRecord | "not_found" | "not_pending"> {
+    const updated = await this.pool.query(
+      `UPDATE app.outreach_draft
+       SET edited = edited OR (recipient_email, subject, body)
+                              IS DISTINCT FROM ($2::text, $3::text, $4::text),
+           recipient_email = $2, subject = $3, body = $4,
+           updated_at = clock_timestamp()
+       WHERE draft_id = $1::uuid AND status = 'pending'
+       RETURNING draft_id`,
+      [id, change.recipientEmail, change.subject, change.body],
+    );
+    if (updated.rowCount === 0) {
+      return (await this.findOutreachDraft(id)) ? "not_pending" : "not_found";
+    }
+    return (await this.findOutreachDraft(id))!;
+  }
+
+  async decideOutreachDraft(
+    id: string,
+    decision:
+      { status: "approved" } | { status: "rejected"; reason: string | null },
+    userId: string,
+  ): Promise<OutreachDraftRecord | "not_found" | "not_pending"> {
+    const updated = await this.pool.query(
+      `UPDATE app.outreach_draft
+       SET status = $2, rejected_reason = $3, decided_by = $4::uuid,
+           decided_at = clock_timestamp(), updated_at = clock_timestamp()
+       WHERE draft_id = $1::uuid AND status = 'pending'
+       RETURNING draft_id`,
+      [
+        id,
+        decision.status,
+        decision.status === "rejected" ? decision.reason : null,
+        userId,
+      ],
+    );
+    if (updated.rowCount === 0) {
+      return (await this.findOutreachDraft(id)) ? "not_pending" : "not_found";
+    }
+    return (await this.findOutreachDraft(id))!;
+  }
+
+  async getSalesOverview(): Promise<SalesOverview> {
+    const open = "('new', 'contacted', 'quoted')";
+    const [prospects, leads, drafts, followUps, activity, campaigns] =
+      await Promise.all([
+        this.pool.query(
+          `SELECT count(*) AS found,
+                  count(*) FILTER (WHERE prospect.score >= campaign.qualification_threshold) AS good_fit,
+                  count(*) FILTER (WHERE prospect.promoted_lead_id IS NOT NULL) AS added,
+                  count(*) FILTER (WHERE prospect.dismissed_at IS NULL
+                                     AND prospect.promoted_lead_id IS NULL) AS waiting,
+                  count(*) FILTER (WHERE prospect.dismissed_at IS NULL
+                                     AND prospect.promoted_lead_id IS NULL
+                                     AND prospect.score >= campaign.qualification_threshold) AS waiting_good_fit,
+                  count(*) FILTER (WHERE prospect.dismissed_at IS NULL
+                                     AND prospect.promoted_lead_id IS NULL
+                                     AND cardinality(prospect.emails) > 0) AS waiting_with_email,
+                  count(*) FILTER (WHERE prospect.dismissed_at IS NOT NULL) AS dismissed,
+                  count(*) FILTER (WHERE lead.stage IN ('contacted', 'quoted', 'won')) AS contacted,
+                  count(*) FILTER (WHERE lead.stage IN ('quoted', 'won')) AS quoted,
+                  count(*) FILTER (WHERE lead.stage = 'won') AS won
+           FROM app.prospect prospect
+           JOIN app.lead_campaign campaign ON campaign.campaign_id = prospect.campaign_id
+           LEFT JOIN app.lead lead ON lead.lead_id = prospect.promoted_lead_id`,
+        ),
+        this.pool.query(
+          `SELECT count(*) FILTER (WHERE stage IN ${open}) AS open,
+                  count(*) FILTER (WHERE stage IN ${open}
+                                     AND next_follow_up <= current_date) AS follow_ups_due,
+                  count(*) FILTER (WHERE stage = 'won') AS won,
+                  count(*) FILTER (WHERE stage = 'lost') AS lost
+           FROM app.lead`,
+        ),
+        this.pool.query(
+          `SELECT status, count(*) AS total FROM app.outreach_draft GROUP BY status`,
+        ),
+        this.pool.query(
+          `SELECT lead.lead_id, lead.company_name, lead.stage,
+                  lead.next_follow_up::text AS next_follow_up,
+                  lead.next_follow_up < current_date AS overdue,
+                  COALESCE(NULLIF(btrim(owner.raw_user_meta_data->>'full_name'), ''), owner.email) AS owner_name
+           FROM app.lead lead
+           LEFT JOIN auth.users owner ON owner.id = lead.owner_id
+           WHERE lead.stage IN ${open} AND lead.next_follow_up <= current_date
+           ORDER BY lead.next_follow_up, lead.created_at LIMIT 8`,
+        ),
+        this.pool.query(
+          `SELECT activity.lead_id, lead.company_name, activity.kind, activity.note,
+                  activity.occurred_at,
+                  COALESCE(NULLIF(btrim(author.raw_user_meta_data->>'full_name'), ''), author.email) AS by_name
+           FROM app.lead_activity activity
+           JOIN app.lead lead ON lead.lead_id = activity.lead_id
+           LEFT JOIN auth.users author ON author.id = activity.created_by
+           ORDER BY activity.occurred_at DESC, activity.activity_id LIMIT 8`,
+        ),
+        this.pool.query(
+          `SELECT campaign.campaign_id, campaign.name, campaign.status,
+                  count(prospect.prospect_id) AS found,
+                  count(prospect.prospect_id) FILTER (WHERE prospect.score >= campaign.qualification_threshold) AS good_fit,
+                  count(prospect.prospect_id) FILTER (WHERE prospect.promoted_lead_id IS NOT NULL) AS added
+           FROM app.lead_campaign campaign
+           LEFT JOIN app.prospect prospect ON prospect.campaign_id = campaign.campaign_id
+           WHERE campaign.status <> 'archived'
+           GROUP BY campaign.campaign_id
+           ORDER BY campaign.created_at DESC LIMIT 6`,
+        ),
+      ]);
+    const p = prospects.rows[0];
+    const l = leads.rows[0];
+    const draftCounts: Record<OutreachDraftStatus, number> = {
+      pending: 0,
+      approved: 0,
+      rejected: 0,
+    };
+    for (const row of drafts.rows) {
+      draftCounts[String(row.status) as OutreachDraftStatus] = Number(
+        row.total,
+      );
+    }
+    return {
+      pool: {
+        waiting: Number(p.waiting),
+        goodFit: Number(p.waiting_good_fit),
+        withEmail: Number(p.waiting_with_email),
+        dismissed: Number(p.dismissed),
+      },
+      funnel: {
+        found: Number(p.found),
+        goodFit: Number(p.good_fit),
+        addedToLeads: Number(p.added),
+        contacted: Number(p.contacted),
+        quoted: Number(p.quoted),
+        won: Number(p.won),
+      },
+      leads: {
+        open: Number(l.open),
+        followUpsDue: Number(l.follow_ups_due),
+        won: Number(l.won),
+        lost: Number(l.lost),
+      },
+      drafts: draftCounts,
+      followUps: followUps.rows.map((row) => ({
+        leadId: String(row.lead_id),
+        companyName: String(row.company_name),
+        stage: String(row.stage),
+        ownerName: row.owner_name === null ? null : String(row.owner_name),
+        nextFollowUp: String(row.next_follow_up),
+        overdue: row.overdue === true,
+      })),
+      recentActivity: activity.rows.map((row) => ({
+        leadId: String(row.lead_id),
+        companyName: String(row.company_name),
+        kind: String(row.kind),
+        note: String(row.note),
+        occurredAt: this.toIsoString(row.occurred_at),
+        byName: row.by_name === null ? null : String(row.by_name),
+      })),
+      campaigns: campaigns.rows.map((row) => ({
+        id: String(row.campaign_id),
+        name: String(row.name),
+        status: String(row.status),
+        found: Number(row.found),
+        goodFit: Number(row.good_fit),
+        added: Number(row.added),
+      })),
     };
   }
 
@@ -7490,6 +7932,9 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
           : null,
         prospect.phones.length > 1
           ? `Other phones: ${prospect.phones.filter((value) => value !== phone).join(", ")}`
+          : null,
+        socialLinksAsText(prospect.socialLinks)
+          ? `Social media: ${socialLinksAsText(prospect.socialLinks)}`
           : null,
         prospect.duplicateReason
           ? `Possible duplicate: ${prospect.duplicateReason}`

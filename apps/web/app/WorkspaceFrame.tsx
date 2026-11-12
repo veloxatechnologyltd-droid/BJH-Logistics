@@ -27,6 +27,8 @@ type NavItem = {
   label: string;
   icon: NavIconName;
   exact?: boolean;
+  /** Other pages that belong under this item, so it stays highlighted on them. */
+  alsoMatches?: string[];
   /** Only these staff roles see the item; everyone when absent. */
   roles?: string[];
 };
@@ -69,13 +71,14 @@ const staffNav: NavGroup[] = [
   {
     heading: "SALES",
     items: [
-      { href: "/customers/leads", label: "Leads", icon: "leads" },
       {
-        href: "/campaigns",
-        label: "Campaigns",
+        href: "/sales",
+        label: "Sales",
         icon: "campaigns",
+        alsoMatches: ["/campaigns"],
         roles: ["super_admin", "sales_rep", "customer_service_rep"],
       },
+      { href: "/customers/leads", label: "Leads", icon: "leads" },
       { href: "/customers", label: "Customers", icon: "customers" },
     ],
   },
@@ -149,7 +152,7 @@ function activeHref(pathname: string, groups: NavGroup[]): string | undefined {
   }
   return groups
     .flatMap((group) => group.items)
-    .filter((entry) => matches(pathname, entry.href, entry.exact))
+    .filter((entry) => matchesItem(pathname, entry))
     .sort((a, b) => b.href.length - a.href.length)[0]?.href;
 }
 
@@ -329,6 +332,10 @@ const matches = (pathname: string, href: string, exact?: boolean) =>
     ? pathname === href
     : pathname === href || pathname.startsWith(`${href}/`);
 
+const matchesItem = (pathname: string, item: NavItem) =>
+  matches(pathname, item.href, item.exact) ||
+  (item.alsoMatches ?? []).some((href) => matches(pathname, href));
+
 /** The page's place in the workspace, from the menu it was reached by. */
 function pageCrumb(
   pathname: string,
@@ -346,7 +353,7 @@ function pageCrumb(
   }
   const item = groups
     .flatMap((group) => group.items)
-    .filter((entry) => matches(pathname, entry.href, entry.exact))
+    .filter((entry) => matchesItem(pathname, entry))
     .sort((a, b) => b.href.length - a.href.length)[0];
   return { label: item?.label ?? "Overview", underSettings: false };
 }

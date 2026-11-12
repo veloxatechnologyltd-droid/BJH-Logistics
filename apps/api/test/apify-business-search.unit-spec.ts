@@ -104,6 +104,46 @@ test("a search starts the actor with the campaign's settings and a cost cap", as
   });
 });
 
+test("the contact-details actor gets only inputs it knows, with its paid add-ons off", async () => {
+  const { calls, fetch } = fakeFetch([{ body: { data: { id: "run-3" } } }]);
+  await new ApifyBusinessSearchProvider({
+    token: TOKEN,
+    actorId: "lukaskrivka/google-maps-with-contact-details",
+    maxChargeUsd: 1,
+    fetch,
+  }).start({ ...query, maxResults: 8 });
+  const url = new URL(calls[0].url);
+  assert.equal(
+    url.origin + url.pathname,
+    "https://api.apify.com/v2/actors/lukaskrivka~google-maps-with-contact-details/runs",
+  );
+  assert.equal(url.searchParams.get("maxTotalChargeUsd"), "1");
+  assert.deepEqual(calls[0].body, {
+    searchStringsArray: ["retail importers"],
+    locationQuery: "Accra, Ghana",
+    maxCrawledPlacesPerSearch: 8,
+    language: "en",
+    skipClosedPlaces: true,
+    scrapeSocialMediaProfiles: {
+      facebooks: false,
+      instagrams: false,
+      youtubes: false,
+      tiktoks: false,
+      twitters: false,
+    },
+    maximumLeadsEnrichmentRecords: 0,
+  });
+});
+
+test("the contact-details actor is the default when none is named", () => {
+  const search = createBusinessSearchProvider({ APIFY_API_TOKEN: TOKEN });
+  assert.equal(search.name, "apify");
+  assert.equal(
+    (search as unknown as { setup: { actorId: string } }).setup.actorId,
+    "lukaskrivka/google-maps-with-contact-details",
+  );
+});
+
 test("with no keywords the industry is searched, and unset filters are not sent", async () => {
   const { calls, fetch } = fakeFetch([{ body: { data: { id: "run-2" } } }]);
   await provider(fetch).start(query);

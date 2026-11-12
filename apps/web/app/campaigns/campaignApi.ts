@@ -46,6 +46,14 @@ export type Campaign = {
   latestRun: CampaignRun | null;
 };
 
+/** Social media pages by platform; a platform with none is absent. */
+export type SocialLinks = Partial<
+  Record<
+    "facebook" | "instagram" | "linkedin" | "twitter" | "youtube" | "tiktok",
+    string[]
+  >
+>;
+
 export type Prospect = {
   id: string;
   campaignId: string;
@@ -54,6 +62,7 @@ export type Prospect = {
   address: string | null;
   phones: string[];
   emails: string[];
+  socialLinks: SocialLinks;
   rating: number | null;
   category: string | null;
   /** "stub" rows are sample data. */

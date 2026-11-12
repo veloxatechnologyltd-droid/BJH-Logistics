@@ -228,7 +228,7 @@ const MAX_WEBSITE_CHARS = 3000;
  * Untrusted text as one line of plain data. `<` and `>` become look-alike brackets so
  * the text cannot write a closing tag and pass itself off as part of the prompt.
  */
-function quoted(value: string | null | undefined, max: number): string {
+export function quoted(value: string | null | undefined, max: number): string {
   const text = (value ?? "")
     .replace(/[\p{Cc}\s]+/gu, " ")
     .replace(/</g, "‹")

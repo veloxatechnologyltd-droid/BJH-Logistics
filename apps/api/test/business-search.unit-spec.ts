@@ -78,6 +78,7 @@ test("a place is mapped to a prospect-shaped business", () => {
     address: "1 Synthetic Road, Accra",
     phones: ["+233240000001"],
     emails: [],
+    socialLinks: {},
     rating: 4.5,
     category: "Import company",
     source: "google_maps",
