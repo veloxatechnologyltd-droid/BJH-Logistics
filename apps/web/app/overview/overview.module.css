@@ -144,6 +144,34 @@
   text-decoration: underline;
 }
 
+.quickActions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.quickAction {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--brand-border);
+  border-radius: 12px;
+  background: #fff;
+  padding: 12px 14px;
+  color: #0f2747;
+  text-decoration: none;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.quickAction:hover,
+.quickAction:focus-visible {
+  border-color: var(--brand-primary);
+  box-shadow: 0 8px 24px rgb(11 63 174 / 16%);
+}
+
 .rowMain {
   display: grid;
   min-width: 0;
