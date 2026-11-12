@@ -11,14 +11,15 @@ import {
   listDrafts,
   rejectDraft,
 } from "../salesApi";
-import type { Draft, DraftStatus } from "../salesApi";
+import type { Draft, DraftListStatus } from "../salesApi";
 import { draftChanged } from "../salesView";
 import styles from "../sales.module.css";
 
-const tabs: Array<[DraftStatus, string]> = [
+const tabs: Array<[DraftListStatus, string]> = [
   ["pending", "Waiting"],
   ["approved", "Approved"],
   ["rejected", "Rejected"],
+  ["sent", "Sent"],
 ];
 
 const message = (cause: unknown, fallback: string) =>
@@ -34,12 +35,13 @@ const when = (value: string) =>
 
 /** The emails written for found businesses. Approval adds the message to the sales mailbox send queue. */
 export function Approvals() {
-  const [status, setStatus] = useState<DraftStatus>("pending");
+  const [status, setStatus] = useState<DraftListStatus>("pending");
   const [drafts, setDrafts] = useState<Draft[] | null>(null);
-  const [counts, setCounts] = useState<Record<DraftStatus, number>>({
+  const [counts, setCounts] = useState<Record<DraftListStatus, number>>({
     pending: 0,
     approved: 0,
     rejected: 0,
+    sent: 0,
   });
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [editing, setEditing] = useState<string | null>(null);
@@ -115,8 +117,8 @@ export function Approvals() {
       <ErrorPopup message={error} />
 
       <p className={styles.statusLine} role="note">
-        <strong>Approval queues the email for sending.</strong> Read each draft
-        before approving it. Send status appears in the Email workspace.
+        <strong>Approval queues the email for sending.</strong> Sent lists
+        emails accepted by the mail provider; this does not confirm delivery.
       </p>
 
       <div className={styles.filterBar}>
@@ -324,15 +326,14 @@ function DraftCard(props: {
               Edited
             </span>
           )}
-          {draft.status === "approved" && (
-            <span className={`${styles.pill} ${styles.pillStrong}`}>
-              Approved · waiting to send
-            </span>
-          )}
+          {draft.status === "approved" && statusBadge(draft)}
           {draft.status === "rejected" && (
             <span className={`${styles.pill} ${styles.pillOutline}`}>
               Rejected
             </span>
+          )}
+          {draft.sentAt && (
+            <span className={styles.pillStrong}>Sent {when(draft.sentAt)}</span>
           )}
         </div>
       </div>
@@ -467,4 +468,22 @@ function DraftCard(props: {
       )}
     </article>
   );
+}
+
+function statusBadge(draft: Draft) {
+  const label =
+    draft.sendStatus === "queued"
+      ? "Approved · queued"
+      : draft.sendStatus === "sending"
+        ? "Sending"
+        : draft.sendStatus === "accepted"
+          ? "Sent · provider accepted"
+          : draft.sendStatus === "failed"
+            ? "Send failed"
+            : draft.sendStatus === "unknown"
+              ? "Send status unknown"
+              : draft.sendStatus === "stubbed"
+                ? "Stubbed · not sent"
+                : "Approved · waiting to send";
+  return <span className={`${styles.pill} ${styles.pillStrong}`}>{label}</span>;
 }

@@ -56,6 +56,8 @@ type Draft = {
   subject: string;
   body: string;
   status: string;
+  sendStatus?: string | null;
+  sentAt?: string | null;
   method: string;
   edited: boolean;
   rejectedReason: string | null;
@@ -548,14 +550,38 @@ test("a person edits, approves or rejects a pending draft; the first decision st
     [1, 1, 1],
   );
 
+  // Only provider-accepted outreach appears in Sent; a queued message does not.
+  await pool.query(
+    `UPDATE app.sales_email_message
+     SET send_status = 'accepted', accepted_at = clock_timestamp()
+     WHERE draft_id = $1::uuid`,
+    [one.id],
+  );
+  const sentResponse = await call("/api/v1/sales/drafts?status=sent", admin);
+  assert.equal(sentResponse.status, 200);
+  const sentPage = (await sentResponse.json()) as DraftPage & {
+    items: Array<Draft & { sendStatus: string; sentAt: string }>;
+  };
+  const sentDraft = sentPage.items.find((draft) => draft.id === one.id);
+  assert.equal(sentDraft?.sendStatus, "accepted");
+  assert.ok(sentDraft?.sentAt);
+  const approvedPage = (await (
+    await call("/api/v1/sales/drafts?status=approved", admin)
+  ).json()) as DraftPage;
+  assert.equal(
+    approvedPage.items.some((draft) => draft.id === one.id),
+    false,
+  );
+  assert.ok(sentPage.counts.sent >= 1);
+
   // The queue lists pending drafts, and counts every status.
   const pending = await draftsOf("?status=pending");
   assert.ok(pending.items.every((draft) => draft.status === "pending"));
   assert.ok(pending.items.some((draft) => draft.prospectId === two.prospectId));
-  assert.ok(pending.counts.approved >= 2 && pending.counts.rejected >= 1);
-  assert.equal(
-    (await call("/api/v1/sales/drafts?status=sent", admin)).status,
-    400,
+  assert.ok(
+    pending.counts.approved >= 1 &&
+      pending.counts.rejected >= 1 &&
+      pending.counts.sent >= 1,
   );
   assert.equal(
     (await send("POST", `/api/v1/sales/drafts/${randomUUID()}/approve`, admin))
@@ -717,7 +743,12 @@ test("the overview counts the pool, the funnel, drafts and what is due", async (
     pool: { waiting: number; goodFit: number; withEmail: number };
     funnel: { found: number; goodFit: number; addedToLeads: number };
     leads: { open: number; followUpsDue: number };
-    drafts: { pending: number; approved: number; rejected: number };
+    drafts: {
+      pending: number;
+      approved: number;
+      rejected: number;
+      sent: number;
+    };
     followUps: Array<{ leadId: string; overdue: boolean }>;
     recentActivity: Array<{ leadId: string }>;
     campaigns: Array<{

@@ -28,6 +28,7 @@ export type PoolFilter = {
 export type PoolPage = { items: PoolProspect[]; total: number };
 
 export type DraftStatus = "pending" | "approved" | "rejected";
+export type DraftListStatus = DraftStatus | "sent";
 
 export type Draft = {
   id: string;
@@ -45,6 +46,8 @@ export type Draft = {
   body: string;
   bodyTruncated: boolean;
   status: DraftStatus;
+  sendStatus: SalesEmail["sendStatus"] | null;
+  sentAt: string | null;
   /** ai: written by the model; template: the fixed wording. */
   method: "ai" | "template";
   /** A person changed the wording after it was drafted. */
@@ -59,7 +62,7 @@ export type Draft = {
 export type DraftPage = {
   items: Draft[];
   total: number;
-  counts: Record<DraftStatus, number>;
+  counts: Record<DraftListStatus, number>;
 };
 
 export type SalesEmail = {
@@ -153,7 +156,7 @@ export type SalesOverview = {
   leads: { open: number; followUpsDue: number; won: number; lost: number };
   /** Both kinds of lead side by side; never added together. */
   pipelines: Record<"manual" | "generated", PipelinePerformance>;
-  drafts: Record<DraftStatus, number>;
+  drafts: Record<DraftListStatus, number>;
   followUps: Array<{
     leadId: string;
     companyName: string;
@@ -254,7 +257,7 @@ export async function createDrafts(
 }
 
 export async function listDrafts(
-  status: DraftStatus | undefined,
+  status: DraftListStatus | undefined,
   limit = 50,
   offset = 0,
   prospectId?: string,
@@ -383,9 +386,11 @@ export async function editDraft(
   );
 }
 
-export async function approveDraft(
-  id: string,
-): Promise<Draft & { sendStatus: "queued" | "suppressed" | "already_queued" }> {
+export async function approveDraft(id: string): Promise<
+  Omit<Draft, "sendStatus" | "sentAt"> & {
+    sendStatus: "queued" | "suppressed" | "already_queued";
+  }
+> {
   return readResponse(
     await authenticatedFetch(`${draftUrl(id)}/approve`, jsonInit("POST", {})),
   );

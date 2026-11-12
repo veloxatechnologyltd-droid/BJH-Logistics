@@ -32,6 +32,7 @@ export interface PoolFilter {
 }
 
 export type OutreachDraftStatus = "pending" | "approved" | "rejected";
+export type OutreachDraftListStatus = OutreachDraftStatus | "sent";
 
 export type SalesEmailSendStatus =
   | "mailbox"
@@ -144,6 +145,8 @@ export interface OutreachDraftRecord {
   subject: string;
   body: string;
   status: OutreachDraftStatus;
+  sendStatus: SalesEmailSendStatus | null;
+  sentAt: string | null;
   /** ai: written by the model; template: the fixed wording. */
   method: "ai" | "template";
   /** A person changed the wording after it was drafted. */
@@ -157,7 +160,7 @@ export interface OutreachDraftRecord {
 
 export interface OutreachDraftFilter {
   prospectId?: string;
-  status?: OutreachDraftStatus;
+  status?: OutreachDraftListStatus;
   limit: number;
   offset: number;
 }
@@ -228,7 +231,7 @@ export interface SalesOverview {
   };
   /** Manual and generated leads side by side; the two are never added together. */
   pipelines: Record<"manual" | "generated", PipelinePerformance>;
-  drafts: Record<OutreachDraftStatus, number>;
+  drafts: Record<OutreachDraftListStatus, number>;
   /** Open leads whose follow-up date has come, oldest first. */
   followUps: Array<{
     leadId: string;

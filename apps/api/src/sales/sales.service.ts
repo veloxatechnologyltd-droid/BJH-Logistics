@@ -21,8 +21,8 @@ import { OUTREACH_DRAFTER } from "./outreach-drafting";
 import type { OutreachDrafter } from "./outreach-drafting";
 import type {
   OutreachDraftFilter,
+  OutreachDraftListStatus,
   OutreachDraftRecord,
-  OutreachDraftStatus,
   PoolFilter,
   PoolSort,
   PoolStatus,
@@ -30,10 +30,11 @@ import type {
 
 const POOL_STATUSES: PoolStatus[] = ["new", "added", "dismissed", "all"];
 const POOL_SORTS: PoolSort[] = ["score", "newest", "name"];
-const DRAFT_STATUSES: OutreachDraftStatus[] = [
+const DRAFT_STATUSES: OutreachDraftListStatus[] = [
   "pending",
   "approved",
   "rejected",
+  "sent",
 ];
 
 /** Reads a query string strictly: a bad value is a 400, not ignored. */
