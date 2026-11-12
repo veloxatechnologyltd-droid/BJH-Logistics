@@ -2,15 +2,11 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import type { FormEvent } from "react";
+import type { FormEvent, ReactNode } from "react";
 import { useStaffAccess } from "../../auth/useStaffAccess";
 import styles from "../../jobs/jobs.module.css";
 import layout from "./businessSettings.module.css";
-import {
-  getSettings,
-  listSettingsRevisions,
-  saveSettings,
-} from "./settingsApi";
+import { getSettings, saveSettings } from "./settingsApi";
 import type { SettingsRevision } from "./settingsApi";
 import { ErrorPopup } from "../../ErrorPopup";
 
@@ -25,6 +21,14 @@ export const popularCurrencies = [
   "NGN",
   "ZAR",
 ];
+
+const tabs = [
+  { id: "company", label: "Company" },
+  { id: "finance", label: "Finance" },
+  { id: "quotes", label: "Quotes & numbering" },
+  { id: "messaging", label: "Messaging" },
+] as const;
+type TabId = (typeof tabs)[number]["id"];
 
 type TaxRow = { name: string; rate: string };
 
@@ -56,8 +60,8 @@ const toBasisPoints = (rate: string) =>
 export function BusinessSettingsForm() {
   const { isSuperAdmin } = useStaffAccess();
   const [revision, setRevision] = useState<SettingsRevision | null>(null);
-  const [history, setHistory] = useState<SettingsRevision[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [tab, setTab] = useState<TabId>("company");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [name, setName] = useState("");
@@ -167,19 +171,13 @@ export function BusinessSettingsForm() {
     void load();
   }, [load]);
 
-  useEffect(() => {
-    if (!isSuperAdmin) return;
-    listSettingsRevisions()
-      .then(setHistory)
-      .catch(() => undefined);
-  }, [isSuperAdmin, revision]);
-
   async function submit(event: FormEvent) {
     event.preventDefault();
     setError("");
     setNotice("");
     const rates = taxes.map((row) => toBasisPoints(row.rate));
     if (rates.some((rate) => Number.isNaN(rate))) {
+      setTab("finance");
       setError("Tax rates must be percentages such as 15 or 2.5");
       return;
     }
@@ -187,6 +185,7 @@ export function BusinessSettingsForm() {
       [salesDailyCap, salesGapSeconds, campaignDailyCap].some(Boolean) &&
       ![salesDailyCap, salesGapSeconds, campaignDailyCap].every(Boolean)
     ) {
+      setTab("messaging");
       setError("Set all three sales email limits to enable sending");
       return;
     }
@@ -243,6 +242,28 @@ export function BusinessSettingsForm() {
     }
   }
 
+  /** A required field on another tab cannot show its message: open that tab, then show it. */
+  function showInvalidTab(event: FormEvent<HTMLFormElement>) {
+    const field = event.target as HTMLElement & { reportValidity?: () => void };
+    const panel = field.closest<HTMLElement>("[data-tab]");
+    if (!panel?.hidden) return;
+    setTab(panel.dataset.tab as TabId);
+    setTimeout(() => field.reportValidity?.(), 0);
+  }
+
+  const panel = (id: TabId, children: ReactNode) => (
+    <div
+      aria-labelledby={`settings-tab-${id}`}
+      className={layout.panel}
+      data-tab={id}
+      hidden={tab !== id}
+      id={`settings-panel-${id}`}
+      role="tabpanel"
+    >
+      {children}
+    </div>
+  );
+
   const text = (
     label: string,
     value: string,
@@ -296,295 +317,363 @@ export function BusinessSettingsForm() {
       {!loaded && !error && <p role="status">Loading settings…</p>}
 
       {loaded && (
-        <form className={styles.card} onSubmit={(event) => void submit(event)}>
+        <form
+          className={styles.card}
+          onInvalidCapture={showInvalidTab}
+          onSubmit={(event) => void submit(event)}
+        >
+          <div
+            aria-label="Business settings sections"
+            className={styles.tabs}
+            role="tablist"
+          >
+            {tabs.map((item) => (
+              <button
+                aria-controls={`settings-panel-${item.id}`}
+                aria-selected={tab === item.id}
+                className={`${styles.tab}${tab === item.id ? ` ${styles.tabActive}` : ""} ${layout.tabButton}`}
+                id={`settings-tab-${item.id}`}
+                key={item.id}
+                onClick={() => setTab(item.id)}
+                role="tab"
+                type="button"
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
           <fieldset
             className={styles.form}
             disabled={!isSuperAdmin}
             style={{ border: 0, padding: 0, margin: 0 }}
           >
-            <div className={layout.columns}>
-              <div className={layout.column}>
-                <h2>Issuer</h2>
-                {text("Company name", name, setName, true)}
-                {area("Address", address, setAddress, 2)}
-                {text("Phone", phone, setPhone)}
-                {text("Email", email, setEmail)}
-                {text("Website", website, setWebsite)}
+            <div>
+              {panel(
+                "company",
+                <>
+                  <h2>Issuer</h2>
+                  {text("Company name", name, setName, true)}
+                  {area("Address", address, setAddress, 2)}
+                  {text("Phone", phone, setPhone)}
+                  {text("Email", email, setEmail)}
+                  {text("Website", website, setWebsite)}
+                </>,
+              )}
 
-                <h2>Currencies</h2>
-                <fieldset
-                  className={styles.field}
-                  style={{ border: 0, padding: 0 }}
-                >
-                  Currencies quotes and invoices can use
-                  <div className={styles.actions}>
-                    {currencyOptions.map((code) => (
-                      <label key={code}>
-                        <input
-                          checked={selectedCurrencies.includes(code)}
-                          onChange={(event) =>
-                            toggleCurrency(code, event.target.checked)
-                          }
-                          type="checkbox"
-                        />{" "}
-                        {code}
-                      </label>
-                    ))}
-                  </div>
-                </fieldset>
-                {text("Payment terms in days (optional)", terms, setTerms)}
+              {panel(
+                "finance",
+                <>
+                  <h2>Currencies</h2>
+                  <fieldset
+                    className={styles.field}
+                    style={{ border: 0, padding: 0 }}
+                  >
+                    Currencies quotes and invoices can use
+                    <div className={styles.actions}>
+                      {currencyOptions.map((code) => (
+                        <label key={code}>
+                          <input
+                            checked={selectedCurrencies.includes(code)}
+                            onChange={(event) =>
+                              toggleCurrency(code, event.target.checked)
+                            }
+                            type="checkbox"
+                          />{" "}
+                          {code}
+                        </label>
+                      ))}
+                    </div>
+                  </fieldset>
+                  {text("Payment terms in days (optional)", terms, setTerms)}
 
-                <h2>Tax lines</h2>
-                {taxes.map((row, index) => (
-                  <div className={styles.card} key={index}>
-                    {text(
-                      `Tax ${index + 1} name (for example VAT)`,
-                      row.name,
-                      (value) =>
+                  <h2>Tax lines</h2>
+                  {taxes.map((row, index) => (
+                    <div className={styles.card} key={index}>
+                      {text(
+                        `Tax ${index + 1} name (for example VAT)`,
+                        row.name,
+                        (value) =>
+                          setTaxes((current) =>
+                            current.map((item, at) =>
+                              at === index ? { ...item, name: value } : item,
+                            ),
+                          ),
+                      )}
+                      {text("Rate in percent", row.rate, (value) =>
                         setTaxes((current) =>
                           current.map((item, at) =>
-                            at === index ? { ...item, name: value } : item,
+                            at === index ? { ...item, rate: value } : item,
                           ),
                         ),
-                    )}
-                    {text("Rate in percent", row.rate, (value) =>
-                      setTaxes((current) =>
-                        current.map((item, at) =>
-                          at === index ? { ...item, rate: value } : item,
-                        ),
-                      ),
-                    )}
-                    <button
-                      className={styles.secondaryButton}
-                      onClick={() =>
-                        setTaxes((current) =>
-                          current.filter((_, at) => at !== index),
-                        )
-                      }
-                      type="button"
-                    >
-                      Remove tax line
-                    </button>
-                  </div>
-                ))}
-                <div className={styles.actions}>
-                  <button
-                    className={styles.secondaryButton}
-                    onClick={() =>
-                      setTaxes((current) => [
-                        ...current,
-                        { name: "", rate: "" },
-                      ])
-                    }
-                    type="button"
-                  >
-                    Add a tax line
-                  </button>
-                </div>
-
-                <h2>Bank accounts</h2>
-                <p className={styles.muted}>
-                  Printed on quotes and invoices. Accounts marked as default are
-                  printed on every new one, together in one box; whoever
-                  prepares the document can untick them or tick others. Editing
-                  or removing an account here does not change a document already
-                  prepared.
-                </p>
-                {banks.map((row, index) => {
-                  const change = (patch: Partial<BankRow>) =>
-                    setBanks((current) =>
-                      current.map((item, at) =>
-                        at === index ? { ...item, ...patch } : item,
-                      ),
-                    );
-                  return (
-                    <div className={styles.card} key={row.id}>
-                      {text(
-                        "Bank name",
-                        row.bankName,
-                        (value) => change({ bankName: value }),
-                        true,
                       )}
-                      {text("Branch", row.branch, (value) =>
-                        change({ branch: value }),
-                      )}
-                      {text(
-                        "Account name",
-                        row.accountName,
-                        (value) => change({ accountName: value }),
-                        true,
-                      )}
-                      {text(
-                        "Account number",
-                        row.accountNumber,
-                        (value) => change({ accountNumber: value }),
-                        true,
-                      )}
-                      <label className={styles.field}>
-                        Currency of the account
-                        <select
-                          onChange={(event) =>
-                            change({ currency: event.target.value })
-                          }
-                          value={row.currency}
-                        >
-                          {[...new Set([...currencyOptions, row.currency])].map(
-                            (code) => (
-                              <option key={code} value={code}>
-                                {code}
-                              </option>
-                            ),
-                          )}
-                        </select>
-                      </label>
-                      {text("SWIFT code (optional)", row.swiftCode, (value) =>
-                        change({ swiftCode: value }),
-                      )}
-                      {text("Address (optional)", row.address, (value) =>
-                        change({ address: value }),
-                      )}
-                      <label>
-                        <input
-                          checked={row.isDefault}
-                          onChange={(event) =>
-                            change({ isDefault: event.target.checked })
-                          }
-                          type="checkbox"
-                        />{" "}
-                        Print by default on new quotes and invoices
-                      </label>
                       <button
                         className={styles.secondaryButton}
                         onClick={() =>
-                          setBanks((current) =>
+                          setTaxes((current) =>
                             current.filter((_, at) => at !== index),
                           )
                         }
                         type="button"
                       >
-                        Remove bank account
+                        Remove tax line
                       </button>
                     </div>
-                  );
-                })}
-                <div className={styles.actions}>
-                  <button
-                    className={styles.secondaryButton}
-                    onClick={() =>
-                      setBanks((current) => [
-                        ...current,
-                        {
-                          id: crypto.randomUUID(),
-                          bankName: "",
-                          branch: "",
-                          accountName: name,
-                          accountNumber: "",
-                          currency: selectedCurrencies[0] ?? "GHS",
-                          swiftCode: "",
-                          address: "",
-                          isDefault: false,
-                        },
-                      ])
-                    }
-                    type="button"
-                  >
-                    Add a bank account
-                  </button>
-                </div>
+                  ))}
+                  <div className={styles.actions}>
+                    <button
+                      className={styles.secondaryButton}
+                      onClick={() =>
+                        setTaxes((current) => [
+                          ...current,
+                          { name: "", rate: "" },
+                        ])
+                      }
+                      type="button"
+                    >
+                      Add a tax line
+                    </button>
+                  </div>
 
-                <h2>Numbering prefixes</h2>
-                {text("Quote prefix", quotePrefix, setQuotePrefix, true)}
-                {text("Invoice prefix", invoicePrefix, setInvoicePrefix, true)}
-                {text("Receipt prefix", receiptPrefix, setReceiptPrefix, true)}
-                {text("Waybill prefix", waybillPrefix, setWaybillPrefix, true)}
-              </div>
-              <div className={layout.column}>
-                <h2>Customer messages</h2>
-                <label className={styles.field}>
-                  Send customer messages by
-                  <select
-                    onChange={(event) =>
-                      setChannels(
-                        event.target.value as "email" | "sms" | "both",
-                      )
-                    }
-                    value={channels}
-                  >
-                    <option value="both">Email and SMS</option>
-                    <option value="email">Email only</option>
-                    <option value="sms">SMS only</option>
-                  </select>
-                </label>
+                  <h2>Bank accounts</h2>
+                  <p className={styles.muted}>
+                    Printed on quotes and invoices. Accounts marked as default
+                    are printed on every new one, together in one box; whoever
+                    prepares the document can untick them or tick others.
+                    Editing or removing an account here does not change a
+                    document already prepared.
+                  </p>
+                  {banks.map((row, index) => {
+                    const change = (patch: Partial<BankRow>) =>
+                      setBanks((current) =>
+                        current.map((item, at) =>
+                          at === index ? { ...item, ...patch } : item,
+                        ),
+                      );
+                    return (
+                      <div className={styles.card} key={row.id}>
+                        {text(
+                          "Bank name",
+                          row.bankName,
+                          (value) => change({ bankName: value }),
+                          true,
+                        )}
+                        {text("Branch", row.branch, (value) =>
+                          change({ branch: value }),
+                        )}
+                        {text(
+                          "Account name",
+                          row.accountName,
+                          (value) => change({ accountName: value }),
+                          true,
+                        )}
+                        {text(
+                          "Account number",
+                          row.accountNumber,
+                          (value) => change({ accountNumber: value }),
+                          true,
+                        )}
+                        <label className={styles.field}>
+                          Currency of the account
+                          <select
+                            onChange={(event) =>
+                              change({ currency: event.target.value })
+                            }
+                            value={row.currency}
+                          >
+                            {[
+                              ...new Set([...currencyOptions, row.currency]),
+                            ].map((code) => (
+                              <option key={code} value={code}>
+                                {code}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        {text("SWIFT code (optional)", row.swiftCode, (value) =>
+                          change({ swiftCode: value }),
+                        )}
+                        {text("Address (optional)", row.address, (value) =>
+                          change({ address: value }),
+                        )}
+                        <label>
+                          <input
+                            checked={row.isDefault}
+                            onChange={(event) =>
+                              change({ isDefault: event.target.checked })
+                            }
+                            type="checkbox"
+                          />{" "}
+                          Print by default on new quotes and invoices
+                        </label>
+                        <button
+                          className={styles.secondaryButton}
+                          onClick={() =>
+                            setBanks((current) =>
+                              current.filter((_, at) => at !== index),
+                            )
+                          }
+                          type="button"
+                        >
+                          Remove bank account
+                        </button>
+                      </div>
+                    );
+                  })}
+                  <div className={styles.actions}>
+                    <button
+                      className={styles.secondaryButton}
+                      onClick={() =>
+                        setBanks((current) => [
+                          ...current,
+                          {
+                            id: crypto.randomUUID(),
+                            bankName: "",
+                            branch: "",
+                            accountName: name,
+                            accountNumber: "",
+                            currency: selectedCurrencies[0] ?? "GHS",
+                            swiftCode: "",
+                            address: "",
+                            isDefault: false,
+                          },
+                        ])
+                      }
+                      type="button"
+                    >
+                      Add a bank account
+                    </button>
+                  </div>
+                </>,
+              )}
 
-                <h2>Sales email sending limits</h2>
-                <p>
-                  Set all three values before the sales send worker can dispatch
-                  queued mail.
-                </p>
-                <label className={styles.field}>
-                  Maximum messages per UTC day
-                  <input
-                    min="1"
-                    max="500"
-                    type="number"
-                    value={salesDailyCap}
-                    onChange={(event) => setSalesDailyCap(event.target.value)}
-                  />
-                </label>
-                <label className={styles.field}>
-                  Maximum messages per campaign per UTC day
-                  <input
-                    min="1"
-                    max="500"
-                    type="number"
-                    value={campaignDailyCap}
-                    onChange={(event) =>
-                      setCampaignDailyCap(event.target.value)
-                    }
-                  />
-                </label>
-                <label className={styles.field}>
-                  Minimum seconds between messages
-                  <input
-                    min="1"
-                    max="3600"
-                    type="number"
-                    value={salesGapSeconds}
-                    onChange={(event) => setSalesGapSeconds(event.target.value)}
-                  />
-                </label>
+              {panel(
+                "quotes",
+                <>
+                  <h2>Numbering prefixes</h2>
+                  {text("Quote prefix", quotePrefix, setQuotePrefix, true)}
+                  {text(
+                    "Invoice prefix",
+                    invoicePrefix,
+                    setInvoicePrefix,
+                    true,
+                  )}
+                  {text(
+                    "Receipt prefix",
+                    receiptPrefix,
+                    setReceiptPrefix,
+                    true,
+                  )}
+                  {text(
+                    "Waybill prefix",
+                    waybillPrefix,
+                    setWaybillPrefix,
+                    true,
+                  )}
 
-                <h2>Quote defaults</h2>
-                {area("Introduction", intro, setIntro)}
-                {area("Note on at-cost charges", atCostNote, setAtCostNote, 2)}
-                {area(
-                  "Clearance procedure (one step per line)",
-                  steps,
-                  setSteps,
-                  5,
-                )}
-                {area(
-                  "Documents required (one per line)",
-                  documents,
-                  setDocuments,
-                )}
-                {area("Note on documents", documentsNote, setDocumentsNote, 2)}
-                {area("Timeline", timeline, setTimeline, 2)}
-                {area(
-                  "Important terms (one per line)",
-                  quoteTerms,
-                  setQuoteTerms,
-                  5,
-                )}
+                  <h2>Quote defaults</h2>
+                  {area("Introduction", intro, setIntro)}
+                  {area(
+                    "Note on at-cost charges",
+                    atCostNote,
+                    setAtCostNote,
+                    2,
+                  )}
+                  {area(
+                    "Clearance procedure (one step per line)",
+                    steps,
+                    setSteps,
+                    5,
+                  )}
+                  {area(
+                    "Documents required (one per line)",
+                    documents,
+                    setDocuments,
+                  )}
+                  {area(
+                    "Note on documents",
+                    documentsNote,
+                    setDocumentsNote,
+                    2,
+                  )}
+                  {area("Timeline", timeline, setTimeline, 2)}
+                  {area(
+                    "Important terms (one per line)",
+                    quoteTerms,
+                    setQuoteTerms,
+                    5,
+                  )}
+                </>,
+              )}
 
-                <h2>Email assistant</h2>
-                {area(
-                  "What the assistant may tell customers (services, documents, procedures, office hours). It answers only from this, a customer's own jobs and past quotes.",
-                  knowledge,
-                  setKnowledge,
-                  8,
-                )}
-              </div>
+              {panel(
+                "messaging",
+                <>
+                  <h2>Customer messages</h2>
+                  <label className={styles.field}>
+                    Send customer messages by
+                    <select
+                      onChange={(event) =>
+                        setChannels(
+                          event.target.value as "email" | "sms" | "both",
+                        )
+                      }
+                      value={channels}
+                    >
+                      <option value="both">Email and SMS</option>
+                      <option value="email">Email only</option>
+                      <option value="sms">SMS only</option>
+                    </select>
+                  </label>
+
+                  <h2>Sales email sending limits</h2>
+                  <p>
+                    Set all three values before the sales send worker can
+                    dispatch queued mail.
+                  </p>
+                  <label className={styles.field}>
+                    Maximum messages per UTC day
+                    <input
+                      min="1"
+                      max="500"
+                      type="number"
+                      value={salesDailyCap}
+                      onChange={(event) => setSalesDailyCap(event.target.value)}
+                    />
+                  </label>
+                  <label className={styles.field}>
+                    Maximum messages per campaign per UTC day
+                    <input
+                      min="1"
+                      max="500"
+                      type="number"
+                      value={campaignDailyCap}
+                      onChange={(event) =>
+                        setCampaignDailyCap(event.target.value)
+                      }
+                    />
+                  </label>
+                  <label className={styles.field}>
+                    Minimum seconds between messages
+                    <input
+                      min="1"
+                      max="3600"
+                      type="number"
+                      value={salesGapSeconds}
+                      onChange={(event) =>
+                        setSalesGapSeconds(event.target.value)
+                      }
+                    />
+                  </label>
+
+                  <h2>Email assistant</h2>
+                  {area(
+                    "What the assistant may tell customers (services, documents, procedures, office hours). It answers only from this, a customer's own jobs and past quotes.",
+                    knowledge,
+                    setKnowledge,
+                    8,
+                  )}
+                </>,
+              )}
             </div>
 
             {isSuperAdmin && (
@@ -596,20 +685,6 @@ export function BusinessSettingsForm() {
             )}
           </fieldset>
         </form>
-      )}
-
-      {isSuperAdmin && history.length > 0 && (
-        <section className={styles.card} aria-labelledby="revisions-title">
-          <h2 id="revisions-title">Revision history</h2>
-          <ul className={styles.list}>
-            {history.map((item) => (
-              <li key={item.revisionNumber}>
-                Revision {item.revisionNumber} ·{" "}
-                {new Date(item.changedAt).toLocaleString()}
-              </li>
-            ))}
-          </ul>
-        </section>
       )}
     </main>
   );

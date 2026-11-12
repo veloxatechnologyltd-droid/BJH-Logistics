@@ -1,5 +1,12 @@
 Maintain a file called MEMORY.md. After any significant decision, about direction, format, content, approach, or strategy, add an entry:
 
+## 2026-11-12, Business settings grouped into four tabs; revision history list removed
+
+**What was decided:** Business settings is one form with four tabs: Company (issuer), Finance (currencies, payment terms, tax lines, bank accounts), Quotes & numbering (prefixes, quote defaults), Messaging (customer message channels, sales email limits, email assistant). One "Save settings" saves everything; all panels stay mounted so edits survive switching tabs; an invalid required field on another tab opens that tab. Evans also asked for the "Revision history" list to be removed (system logs already cover changes): gone, with the unused `listSettingsRevisions` web call. The "Revision N" line in the header stays; the API `/revisions` route and stored revisions are untouched. Files: `apps/web/app/settings/business/`.
+**Why:** Easier navigation; history duplicated the Activity log.
+**What was rejected:** Separate pages or a save per tab; deleting the API route or the revisions table (not asked, data kept).
+**Open:** Not seen in a browser (local web server was hung, API down); web `tsc`, eslint and prettier pass.
+
 ## 2026-11-12, Activity log: plain-language actions and a date/time range filter
 
 **What was decided:** The Activity log (Settings, super admin) now shows each action as a sentence ("Recorded a milestone on a job" instead of `POST /api/v1/jobs/:id/milestones`) and the result as words (Done / Not allowed / Not found / Something went wrong) with the status code kept as a hover title. The wording lives in `apps/web/app/settings/activity/activityLabels.ts`, a lookup of every current API route; a route not in the table falls back to "Viewed/Edited/... <topic>". Filters gained "From" and "To" date-and-time boxes (local time, inclusive, "To" runs to the end of that minute) and a Clear button, using the API's existing `from`/`to` parameters.
