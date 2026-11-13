@@ -2199,3 +2199,9 @@ Read MEMORY.md at the start of every session before doing anything. Never contra
 **Why:** Sent history will grow, and operators need to scan it without scrolling through each full message.
 **What was rejected:** Making all approval queues compact, which would change the active review flow for waiting drafts.
 **Evidence:** Contracts build; web unit tests 10/10, typecheck, ESLint, production build and `git diff --check` pass. No database migration is needed. Production deployment pending.
+
+## 2026-11-13, Vercel Web Analytics on the public site
+
+**What was decided:** Add `@vercel/analytics` 2.0.1 to `apps/site` and render `<Analytics />` in the root layout. Evans turned on Web Analytics in the Vercel project. Not deployed yet.
+**Why:** The site had no analytics at all; the Vercel dashboard was only showing demo data. Vercel Analytics is cookieless (no consent banner) and loads from the site's own `/_vercel/insights` path, so the existing CSP is unaffected.
+**What was rejected:** Google Analytics (cookies, consent banner, heavier script). Search Console is still needed separately for search-query data.
