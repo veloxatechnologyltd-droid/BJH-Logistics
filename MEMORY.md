@@ -1,5 +1,13 @@
 Maintain a file called MEMORY.md. After any significant decision, about direction, format, content, approach, or strategy, add an entry:
 
+## 2026-11-13, Failure alerts go to john@bjhlogistics.com, sent by the other mailbox
+
+**What was decided:** Evans created `john@bjhlogistics.com` to receive every error and "need to know" alert. Alerts must go out through a mailbox other than the one that broke: if the quotes mailbox (`EMAIL_FROM`) fails, the sales mailbox (`EMAIL_OUTREACH_FROM`) emails John; if sales fails, quotes emails John. Uptime is watched separately by UptimeRobot (set up by Evans on 2026-11-13, alerts to the same address).
+**Why:** On 2026-11-12 the quotes mailbox password was wrong (`535 Invalid Username or Password`); quotes, invoices and arrival updates failed for days and nobody was told. An alert sent from the broken mailbox would also have failed.
+**What was rejected:** Alerting from the same mailbox (fails with it); email-only alerting without a fallback path.
+**Built (released with this PR):** `apps/api/src/notifications/mailbox-alerts.ts`. Every real sender (quotes, inquiries, replies/Henry, sales) is wrapped in `app.module.ts`; the quotes/inquiries IMAP reader and the sales IMAP sync report too. Alerts on the first failure (not after 5 retries), one per mailbox and action (sending/reading), plus one "working again" email. A single bad recipient (RCPT TO / EENVELOPE, not 5.7.x) is not an alert. Setting: `ALERT_EMAIL` on Render; unset means log only. State is in memory, so a restart while still broken alerts again.
+**Open:** SMS (Arkesel) failures and other errors are not alerted yet; the sales mailbox must be configured on Render for quotes alerts to go out.
+
 ## 2026-11-12, Dashboard "Latest jobs" replaced by Quick actions; customers tab "Directory" renamed "Customers"
 
 **What was decided:** Evans (relaying the client): the Overview's "Latest jobs" panel becomes one-click shortcut buttons: Invoices (`/invoices`), Quotes (`/quotes`), Receipts (`/finance/receipts#receipts-title`), Payments (`/finance/receipts`), Reports (`/reports`). Invoices, Receipts and Payments show only to people who may work finance (`canWorkFinance`, as in the menu); Quotes and Reports show to all staff. New `payments` card icon in `NavIcon.tsx`. The Customers page tab "Directory" is now "Customers" (`CustomerTabs.tsx`; route unchanged). Files: `apps/web/app/overview/OverviewDashboard.tsx`, `overview.module.css`, `NavIcon.tsx`, `customers/CustomerTabs.tsx`.

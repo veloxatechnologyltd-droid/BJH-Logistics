@@ -51,6 +51,12 @@ import {
   createInquiryEmailProvider,
   createSmsProvider,
 } from "./notifications/providers";
+import {
+  MAILBOX_ALERTS,
+  createMailboxAlerts,
+  watchSending,
+} from "./notifications/mailbox-alerts";
+import type { MailboxAlerts } from "./notifications/mailbox-alerts";
 import { RequestCopyService } from "./intake/request-copy.service";
 import { ChatController } from "./chat/chat.controller";
 import { AssistantController } from "./assistant/assistant.controller";
@@ -264,20 +270,46 @@ import { PushService } from "./push/push.service";
     MessageDraftsService,
     { provide: MESSAGE_DRAFTER, useFactory: () => createMessageDrafter() },
     {
+      // Alerts go out through their own connections to the quotes and sales
+      // mailboxes, so they never pass through the watched senders below.
+      provide: MAILBOX_ALERTS,
+      useFactory: () =>
+        createMailboxAlerts(process.env, {
+          quotes: createEmailProvider(process.env),
+          sales: createOutreachEmailProvider(process.env),
+        }),
+    },
+    {
       provide: EMAIL_PROVIDER,
-      useFactory: () => createEmailProvider(process.env),
+      inject: [MAILBOX_ALERTS],
+      useFactory: (alerts: MailboxAlerts) =>
+        watchSending(createEmailProvider(process.env), "quotes", alerts),
     },
     {
       provide: OUTREACH_EMAIL_PROVIDER,
-      useFactory: () => createOutreachEmailProvider(process.env),
+      inject: [MAILBOX_ALERTS],
+      useFactory: (alerts: MailboxAlerts) =>
+        watchSending(createOutreachEmailProvider(process.env), "sales", alerts),
     },
     {
       provide: INQUIRY_EMAIL_PROVIDER,
-      useFactory: () => createInquiryEmailProvider(process.env),
+      inject: [MAILBOX_ALERTS],
+      useFactory: (alerts: MailboxAlerts) =>
+        watchSending(
+          createInquiryEmailProvider(process.env),
+          "inquiries",
+          alerts,
+        ),
     },
     {
       provide: REPLY_EMAIL_PROVIDER,
-      useFactory: () => createReplySender(process.env),
+      inject: [MAILBOX_ALERTS],
+      useFactory: (alerts: MailboxAlerts) => {
+        const sender = createReplySender(process.env);
+        return sender
+          ? { ...sender, email: watchSending(sender.email, "replies", alerts) }
+          : null;
+      },
     },
     { provide: SMS_PROVIDER, useFactory: () => createSmsProvider(process.env) },
     JobChargesService,

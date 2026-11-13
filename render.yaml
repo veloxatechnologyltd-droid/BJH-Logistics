@@ -57,6 +57,9 @@ services:
         sync: false
       - key: EMAIL_FROM
         sync: false
+      # Mailbox failure alerts (john@bjhlogistics.com).
+      - key: ALERT_EMAIL
+        sync: false
       - key: ARKESEL_API_KEY
         sync: false
       - key: SMS_SENDER_ID
