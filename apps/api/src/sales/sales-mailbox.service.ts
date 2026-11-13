@@ -8,6 +8,7 @@ import {
   NotFoundException,
   OnModuleDestroy,
   OnModuleInit,
+  Optional,
 } from "@nestjs/common";
 import { createHash, randomUUID } from "node:crypto";
 import { ImapFlow } from "imapflow";
@@ -25,6 +26,8 @@ import { sanitizeFilename } from "../documents/file-signature";
 import { crmRoles } from "../auth/auth.guards";
 import { OUTREACH_EMAIL_PROVIDER } from "../notifications/providers";
 import type { EmailProvider } from "../notifications/providers";
+import { MAILBOX_ALERTS } from "../notifications/mailbox-alerts";
+import type { MailboxAlerts } from "../notifications/mailbox-alerts";
 import type { SalesEmailFilter, SalesEmailMessage } from "./sales";
 import type { OutreachDraftRecord } from "./sales";
 import {
@@ -259,6 +262,9 @@ export class SalesMailboxService implements OnModuleInit, OnModuleDestroy {
     @Inject(DatabasePort) private readonly database: DatabasePort,
     @Inject(OUTREACH_EMAIL_PROVIDER) private readonly email: EmailProvider,
     @Inject(DOCUMENT_STORAGE) private readonly storage: DocumentStorage,
+    @Optional()
+    @Inject(MAILBOX_ALERTS)
+    private readonly alerts?: MailboxAlerts,
   ) {}
 
   onModuleInit() {
@@ -827,10 +833,16 @@ export class SalesMailboxService implements OnModuleInit, OnModuleDestroy {
         }
       }
       await client.logout();
+      void this.alerts?.recovered("sales", "reading");
     } catch (error) {
       client.close();
       const code = safeMailboxErrorCode(error);
       this.logger.error(`Sales mailbox sync failed (${code})`);
+      void this.alerts?.failed(
+        "sales",
+        "reading",
+        (error as { responseText?: string }).responseText ?? code,
+      );
       throw new BadGatewayException("Sales mailbox sync failed");
     }
     return result;

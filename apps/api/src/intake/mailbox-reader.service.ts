@@ -6,6 +6,7 @@ import {
   Logger,
   OnModuleDestroy,
   OnModuleInit,
+  Optional,
 } from "@nestjs/common";
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
@@ -18,6 +19,8 @@ import { isRequestCopy } from "./request-copy.service";
 import { emailAuthentication } from "./email-authentication";
 import { ChatService } from "../chat/chat.service";
 import type { ReceivedFile } from "./inbound-email.service";
+import { MAILBOX_ALERTS } from "../notifications/mailbox-alerts";
+import type { MailboxAlerts } from "../notifications/mailbox-alerts";
 
 export interface MailboxSetup {
   /** The inbox its emails go to. */
@@ -144,6 +147,9 @@ export class MailboxReaderService implements OnModuleInit, OnModuleDestroy {
     @Inject(EmailAssistantService)
     private readonly assistant: EmailAssistantService,
     @Inject(ChatService) private readonly chat: ChatService,
+    @Optional()
+    @Inject(MAILBOX_ALERTS)
+    private readonly alerts?: MailboxAlerts,
   ) {}
 
   onModuleInit(): void {
@@ -266,8 +272,10 @@ export class MailboxReaderService implements OnModuleInit, OnModuleDestroy {
         (error as { responseText?: string }).responseText ??
         (error instanceof Error ? error.message : String(error));
       this.logger.error(`Reading ${setup.user} failed: ${reason}`);
+      void this.alerts?.failed(setup.name, "reading", reason);
       throw new BadGatewayException(`Reading ${setup.user} failed: ${reason}`);
     }
+    void this.alerts?.recovered(setup.name, "reading");
     if (result.checked) {
       this.logger.log(
         `${setup.user}: ${result.received} new, ${result.skipped} skipped, ${result.failed} failed`,
