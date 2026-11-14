@@ -128,6 +128,31 @@ export class JobDetailsController {
     );
   }
 
+  @Get("reminders")
+  @UseGuards(DepartmentStaffGuard, JobScopeGuard)
+  listReminders(@Param("id") id: string, @Req() request: AuthenticatedRequest) {
+    return this.details.listReminders(
+      id,
+      request.authUser!.userId,
+      scopeOf(request),
+    );
+  }
+
+  @Post("reminders")
+  @UseGuards(DepartmentStaffGuard, JobScopeGuard)
+  remind(
+    @Param("id") id: string,
+    @Body() body: unknown,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.details.remind(
+      id,
+      body,
+      request.authUser!.userId,
+      scopeOf(request),
+    );
+  }
+
   @Get("tasks")
   @UseGuards(DepartmentStaffGuard, JobScopeGuard)
   listTasks(@Param("id") id: string, @Req() request: AuthenticatedRequest) {

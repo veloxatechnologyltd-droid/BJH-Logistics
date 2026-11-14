@@ -84,6 +84,20 @@ export const updateReportDetails = (
 export const updateEtd = (id: string, etdAt: string) =>
   send<Job>(`/${encodeURIComponent(id)}/etd`, "PUT", { etdAt });
 
+export type JobReminder = {
+  id: string;
+  title: string;
+  note: string | null;
+  dueAt: string;
+};
+
+export const listJobReminders = (id: string) =>
+  send<JobReminder[]>(`/${encodeURIComponent(id)}/reminders`, "GET");
+export const addJobReminder = (
+  id: string,
+  input: { remindAt: string; note?: string },
+) => send<JobReminder>(`/${encodeURIComponent(id)}/reminders`, "POST", input);
+
 export type MilestoneEvent = {
   id: string;
   milestoneKey: string;

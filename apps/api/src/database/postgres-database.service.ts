@@ -4731,6 +4731,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
   async createStaffReminder(reminder: {
     userId: string;
     quoteRequestId: string | null;
+    jobId?: string | null;
     title: string;
     note: string | null;
     dueAt: string;
@@ -4738,8 +4739,8 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
   }): Promise<StaffNotificationRecord> {
     const result = await this.pool.query(
       `INSERT INTO app.staff_notification
-         (user_id, kind, quote_request_id, title, note, due_at, created_by)
-       VALUES ($1::uuid, 'reminder', $2::uuid, $3, $4, $5::timestamptz, $6::uuid)
+         (user_id, kind, quote_request_id, job_id, title, note, due_at, created_by)
+       VALUES ($1::uuid, 'reminder', $2::uuid, $7::uuid, $3, $4, $5::timestamptz, $6::uuid)
        RETURNING *`,
       [
         reminder.userId,
@@ -4748,6 +4749,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
         reminder.note,
         reminder.dueAt,
         reminder.createdBy,
+        reminder.jobId ?? null,
       ],
     );
     return this.mapStaffNotification(result.rows[0]);
