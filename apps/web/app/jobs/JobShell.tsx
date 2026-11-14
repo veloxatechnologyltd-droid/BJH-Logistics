@@ -58,6 +58,7 @@ type Tab = { slug: string; label: string; staffOnly?: boolean };
 
 const tabs: Tab[] = [
   { slug: "", label: "Overview" },
+  { slug: "schedule", label: "ETA" },
   { slug: "shipment", label: "Shipment details" },
   { slug: "documents", label: "Documents" },
   { slug: "delivery", label: "Delivery" },
@@ -162,7 +163,13 @@ export function JobShell({
   // (Evans, 2026-11-04), so the job has no money tab for staff.
   const visibleTabs = tabs
     .filter((tab) => isStaff || !tab.staffOnly)
-    .filter((tab) => tab.slug !== "money" || !isStaff);
+    .filter((tab) => tab.slug !== "money" || !isStaff)
+    // ETD and ETA only apply to import and export jobs.
+    .filter(
+      (tab) =>
+        tab.slug !== "schedule" ||
+        /^(sea|air)_(import|export)$/.test(job.serviceLine),
+    );
 
   return (
     <JobContext.Provider
@@ -226,7 +233,9 @@ export function JobShell({
                 href={href}
                 key={tab.slug}
               >
-                {tab.label}
+                {tab.slug === "schedule" && job.serviceLine.endsWith("_export")
+                  ? "ETD"
+                  : tab.label}
               </Link>
             );
           })}
