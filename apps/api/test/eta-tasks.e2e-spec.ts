@@ -179,6 +179,66 @@ test("invalid ETA requests are rejected", async () => {
   }
 });
 
+test("staff set reminders on a job; each is private and company isolation holds", async () => {
+  const remindAt = new Date(Date.now() + 86_400_000).toISOString();
+  const created = await post(
+    `/api/v1/jobs/${seaJobId}/reminders`,
+    TEST_MATCHING_TOKEN,
+    { remindAt, note: "  Goods arriving  " },
+  );
+  assert.equal(created.status, 201);
+  const reminder = (await created.json()) as Record<string, unknown>;
+  assert.equal(reminder.kind, "reminder");
+  assert.equal(reminder.jobId, seaJobId);
+  assert.equal(reminder.note, "Goods arriving");
+  assert.equal(reminder.userId, TEST_MATCHING_USER_ID);
+
+  const own = (await (
+    await call(`/api/v1/jobs/${seaJobId}/reminders`, TEST_MATCHING_TOKEN)
+  ).json()) as Array<{ id: string }>;
+  assert.deepEqual(
+    own.map((item) => item.id),
+    [reminder.id],
+  );
+  const others = (await (
+    await call(`/api/v1/jobs/${seaJobId}/reminders`, TEST_SUPER_ADMIN_TOKEN)
+  ).json()) as unknown[];
+  assert.deepEqual(others, []);
+
+  assert.equal(
+    (
+      await post(`/api/v1/jobs/${seaJobId}/reminders`, TEST_MATCHING_TOKEN, {
+        remindAt: "2020-01-01T00:00:00Z",
+      })
+    ).status,
+    400,
+  );
+  assert.equal(
+    (
+      await post(`/api/v1/jobs/${seaJobId}/reminders`, TEST_MATCHING_TOKEN, {
+        remindAt: "soon",
+      })
+    ).status,
+    400,
+  );
+  assert.equal(
+    (
+      await post(`/api/v1/jobs/${seaJobId}/reminders`, TEST_CUSTOMER_A_TOKEN, {
+        remindAt,
+      })
+    ).status,
+    403,
+  );
+  assert.equal(
+    (
+      await post(`/api/v1/jobs/${seaJobId}/reminders`, TEST_UNASSIGNED_TOKEN, {
+        remindAt,
+      })
+    ).status,
+    404,
+  );
+});
+
 let taskId: string;
 
 test("staff create tasks for a department and list that department's open work", async () => {

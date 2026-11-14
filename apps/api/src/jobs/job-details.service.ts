@@ -12,6 +12,7 @@ import {
   jobTaskInputSchema,
   parseContract,
   referenceKindAllowedFor,
+  reminderInputSchema,
   shipmentReferenceInputSchema,
   staffRoleKeys,
   taskCompletionSchema,
@@ -25,6 +26,7 @@ import {
   JobRecord,
   JobScope,
   ShipmentReferenceRecord,
+  StaffNotificationRecord,
 } from "../database/database.port";
 import { etaMessage } from "../notifications/notification-messages";
 import { NotificationsService } from "../notifications/notifications.service";
@@ -208,6 +210,43 @@ export class JobDetailsService {
       createdBy: recordedBy,
     });
     return event;
+  }
+
+  /** The signed-in person's own open reminders on this job. */
+  async listReminders(
+    id: string,
+    userId: string,
+    scope: JobScope,
+  ): Promise<StaffNotificationRecord[]> {
+    const job = await this.jobs.get(id, scope);
+    const open = await this.database.listStaffNotifications(userId);
+    return open.filter(
+      (item) => item.kind === "reminder" && item.jobId === job.id,
+    );
+  }
+
+  /** "Remind me about this job on <date, time>": pops up for the person who set it. */
+  async remind(
+    id: string,
+    input: unknown,
+    userId: string,
+    scope: JobScope,
+  ): Promise<StaffNotificationRecord> {
+    const job = await this.editableJob(id, scope);
+    const parsed = parseContract(reminderInputSchema, input);
+    if (!parsed.success) throw new BadRequestException(parsed.message);
+    if (parsed.data.remindAt <= new Date().toISOString()) {
+      throw new BadRequestException("remindAt must be in the future");
+    }
+    return this.database.createStaffReminder({
+      userId,
+      quoteRequestId: null,
+      jobId: job.id,
+      title: `Check job ${job.fileNumber}`,
+      note: parsed.data.note,
+      dueAt: parsed.data.remindAt,
+      createdBy: userId,
+    });
   }
 
   async listTasks(id: string, scope: JobScope): Promise<JobTaskRecord[]> {

@@ -58,7 +58,7 @@ type Tab = { slug: string; label: string; staffOnly?: boolean };
 
 const tabs: Tab[] = [
   { slug: "", label: "Overview" },
-  { slug: "schedule", label: "ETA" },
+  { slug: "schedule", label: "ETD & ETA" },
   { slug: "shipment", label: "Shipment details" },
   { slug: "documents", label: "Documents" },
   { slug: "delivery", label: "Delivery" },
@@ -164,7 +164,7 @@ export function JobShell({
   const visibleTabs = tabs
     .filter((tab) => isStaff || !tab.staffOnly)
     .filter((tab) => tab.slug !== "money" || !isStaff)
-    // ETD and ETA only apply to import and export jobs.
+    // ETD and ETA apply to every import and export job, not to warehousing or road.
     .filter(
       (tab) =>
         tab.slug !== "schedule" ||
@@ -233,9 +233,7 @@ export function JobShell({
                 href={href}
                 key={tab.slug}
               >
-                {tab.slug === "schedule" && job.serviceLine.endsWith("_export")
-                  ? "ETD"
-                  : tab.label}
+                {tab.label}
               </Link>
             );
           })}

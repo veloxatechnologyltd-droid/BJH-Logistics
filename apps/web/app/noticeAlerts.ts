@@ -6,7 +6,7 @@ export const ETA_SOUND_EVERY_MS = 20_000;
 export const linkFor = (notice: StaffNotice) =>
   notice.kind === "vehicle_due"
     ? "/transport"
-    : notice.kind === "eta_due" && notice.jobId
+    : notice.jobId
       ? `/jobs/${notice.jobId}`
       : notice.quoteRequestId
         ? `/quotations/requests/${notice.quoteRequestId}`

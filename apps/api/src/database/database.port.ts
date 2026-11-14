@@ -2050,6 +2050,8 @@ export abstract class DatabasePort {
   abstract createStaffReminder(reminder: {
     userId: string;
     quoteRequestId: string | null;
+    /** Set on a reminder about a job. */
+    jobId?: string | null;
     title: string;
     note: string | null;
     dueAt: string;

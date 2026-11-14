@@ -360,7 +360,7 @@ export type StaffNotice = {
     | "eta_due";
   quoteRequestId: string | null;
   vehicleId: string | null;
-  /** On an "ETA reached" notice: the job to check. */
+  /** On an "ETA reached" notice or a job reminder: the job to check. */
   jobId: string | null;
   title: string;
   note: string | null;

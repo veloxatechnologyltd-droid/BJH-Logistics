@@ -38,6 +38,7 @@ test("a reminder pops up once per visit, and other notices never pop up", () => 
 
 test("an ETA notice links to its job", () => {
   assert.equal(linkFor(notice("e1", "eta_due", { jobId: "j1" })), "/jobs/j1");
+  assert.equal(linkFor(notice("r1", "reminder", { jobId: "j2" })), "/jobs/j2");
   assert.equal(linkFor(notice("v1", "vehicle_due")), "/transport");
   assert.equal(
     linkFor(notice("q1", "reminder", { quoteRequestId: "q" })),
