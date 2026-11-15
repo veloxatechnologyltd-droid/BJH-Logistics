@@ -1,5 +1,12 @@
 Maintain a file called MEMORY.md. After any significant decision, about direction, format, content, approach, or strategy, add an entry:
 
+## 2026-11-15, One "Inquiries" menu item with two tabs: Quote mail and Inquiries mail (code only, not deployed)
+
+**What was decided:** Staff were confused by two sidebar items ("Requests" and "Inquiries"). The CUSTOMER SERVICE menu now has one item, "Inquiries" (opens `/quotations`, stays highlighted on `/inquiries`). Both pages show the heading "Inquiries" and a tab bar (`apps/web/app/quotations/InquiryTabs.tsx`): "Quote mail" (`/quotations`) and "Inquiries mail" (`/inquiries`). The sidebar badge is the quote-mail count plus the inquiries-mail count. The "Move to Requests/Inquiries" button on a request now says "Move to Quote mail/Inquiries mail".
+**Why:** The inquiries mailbox is not configured yet, so the two items looked alike and one was empty; quote mail works, so it is the landing tab.
+**What was rejected:** Merging both mailboxes into one list (the API and inbox are per mailbox; not asked for); changing routes (notices, detail pages and links use `/quotations`); per-tab badges (counts are loaded in the sidebar, not the page; easy to add).
+**Open:** Not seen in a browser; web `tsc` and prettier pass. The sidebar badge no longer says which tab has the new items.
+
 ## 2026-11-13, Failure alerts go to john@bjhlogistics.com, sent by the other mailbox
 
 **What was decided:** Evans created `john@bjhlogistics.com` to receive every error and "need to know" alert. Alerts must go out through a mailbox other than the one that broke: if the quotes mailbox (`EMAIL_FROM`) fails, the sales mailbox (`EMAIL_OUTREACH_FROM`) emails John; if sales fails, quotes emails John. Uptime is watched separately by UptimeRobot (set up by Evans on 2026-11-13, alerts to the same address).

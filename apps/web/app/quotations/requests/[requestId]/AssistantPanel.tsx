@@ -107,7 +107,7 @@ export function AssistantPanel({
           >
             {busy === "move"
               ? "Moving…"
-              : `Move to ${other === "inquiries" ? "Inquiries" : "Requests"}`}
+              : `Move to ${other === "inquiries" ? "Inquiries mail" : "Quote mail"}`}
           </button>
         </div>
       )}
