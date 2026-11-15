@@ -1,5 +1,13 @@
 Maintain a file called MEMORY.md. After any significant decision, about direction, format, content, approach, or strategy, add an entry:
 
+## 2026-11-15, Every email the system sends is also filed in the sending mailbox's Sent folder
+
+**What was decided:** After a successful SMTP send, the API appends the same message (same Message-ID and headers) to the sending mailbox's Sent folder over IMAP (`SmtpEmailProvider`, `apps/api/src/notifications/providers.ts`). It uses the mailbox's own SMTP user and password with the IMAP host: `INBOUND_IMAP_HOST`/`_PORT` for quotes, inquiries and Henry's replies; `INBOUND_OUTREACH_IMAP_HOST`/`_PORT` for sales. No new secrets. Without the IMAP host, nothing changes.
+**Why:** Plain SMTP does not save a copy, so staff opening the mailbox in webmail or a phone app saw no trace of what the system had sent. The sales mailbox sync already skips a message whose Message-ID it stored, so the copy does not duplicate the CRM record.
+**What was rejected:** BCC to the sender (shows up in the Inbox, not Sent, and is visible in headers); failing the send when filing fails (the email is already out, so a retry would send it twice); a new on/off setting (not asked for; failures only log a warning).
+**Open:** Not tried against the real `mail.bjhlogistics.com` yet: the Sent folder is found by the `\\Sent` flag, then a folder named `Sent`, else `Sent` is used. Needs one real send to confirm after deploy.
+
+
 ## 2026-11-13, Failure alerts go to john@bjhlogistics.com, sent by the other mailbox
 
 **What was decided:** Evans created `john@bjhlogistics.com` to receive every error and "need to know" alert. Alerts must go out through a mailbox other than the one that broke: if the quotes mailbox (`EMAIL_FROM`) fails, the sales mailbox (`EMAIL_OUTREACH_FROM`) emails John; if sales fails, quotes emails John. Uptime is watched separately by UptimeRobot (set up by Evans on 2026-11-13, alerts to the same address).
