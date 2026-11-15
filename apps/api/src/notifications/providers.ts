@@ -1,4 +1,5 @@
 import { Logger } from "@nestjs/common";
+import { ImapFlow } from "imapflow";
 import nodemailer from "nodemailer";
 import type { Transporter } from "nodemailer";
 
@@ -103,10 +104,36 @@ export class RecordingSmsProvider implements SmsProvider {
   }
 }
 
+/** The IMAP login of the mailbox an email is sent from, so a copy can be filed in its Sent folder. */
+export interface SentCopyTarget {
+  host: string;
+  port: number;
+  user: string;
+  password: string;
+}
+
+/**
+ * Plain SMTP servers do not file what they send, so without this a message
+ * the system sent is missing from the mailbox's own Sent folder. Set up only
+ * when both the IMAP server and the mailbox's login are known.
+ */
+export function sentCopyTarget(
+  host: string | undefined,
+  port: string | undefined,
+  user: string | null | undefined,
+  password: string | null | undefined,
+): SentCopyTarget | undefined {
+  const imapHost = host?.trim();
+  if (!imapHost || !user || !password) return undefined;
+  return { host: imapHost, port: Number(port ?? 993), user, password };
+}
+
 /** Plain SMTP, so any mailbox provider works (BJH's own mail, Google Workspace, and so on). */
 export class SmtpEmailProvider implements EmailProvider {
   readonly name = "smtp";
   private readonly transport: Transporter;
+  private readonly logger = new Logger("SmtpEmailProvider");
+  private readonly sentCopy?: SentCopyTarget;
 
   constructor(options: {
     host: string;
@@ -114,8 +141,10 @@ export class SmtpEmailProvider implements EmailProvider {
     user: string | null;
     password: string | null;
     from: string;
+    sentCopy?: SentCopyTarget;
   }) {
     this.from = options.from;
+    this.sentCopy = options.sentCopy;
     this.transport = nodemailer.createTransport({
       host: options.host,
       port: options.port,
@@ -146,7 +175,7 @@ export class SmtpEmailProvider implements EmailProvider {
     listUnsubscribeUrl?: string;
     attachments?: Array<{ filename: string; content: Buffer }>;
   }) {
-    const info = await this.transport.sendMail({
+    const mail = {
       from: this.from,
       to: message.to,
       replyTo: message.replyTo,
@@ -162,8 +191,55 @@ export class SmtpEmailProvider implements EmailProvider {
       text: message.text,
       html: message.html,
       attachments: message.attachments,
-    });
+    };
+    const info = await this.transport.sendMail(mail);
+    // The email is out; a failure filing the copy must never fail (and so
+    // retry, and double-send) the delivery.
+    if (this.sentCopy) {
+      await this.fileSentCopy(this.sentCopy, mail, info.messageId).catch(
+        (error) =>
+          this.logger.warn(
+            `Could not file a copy in the Sent folder: ${error instanceof Error ? error.message : "IMAP error"}`,
+          ),
+      );
+    }
     return { providerMessageId: info.messageId ?? null };
+  }
+
+  /** Files the message exactly as sent (same Message-ID, so a mailbox sync recognises it) in the Sent folder. */
+  private async fileSentCopy(
+    target: SentCopyTarget,
+    mail: Parameters<Transporter["sendMail"]>[0],
+    messageId: string | undefined,
+  ) {
+    const date = new Date();
+    const { message: raw } = await nodemailer
+      .createTransport({ streamTransport: true, buffer: true })
+      .sendMail({ ...mail, messageId, date });
+    const client = new ImapFlow({
+      host: target.host,
+      port: target.port,
+      secure: target.port === 993,
+      ...(target.port === 993 ? {} : { doSTARTTLS: true }),
+      connectionTimeout: 30_000,
+      greetingTimeout: 30_000,
+      socketTimeout: 120_000,
+      auth: { user: target.user, pass: target.password },
+      logger: false,
+    });
+    client.on("error", () => undefined);
+    await client.connect();
+    try {
+      const folders = await client.list();
+      const sent =
+        folders.find((folder) => folder.specialUse === "\\Sent")?.path ??
+        folders.find((folder) => /^(INBOX[./])?sent$/i.test(folder.path))
+          ?.path ??
+        "Sent";
+      await client.append(sent, raw as Buffer, ["\\Seen"], date);
+    } finally {
+      await client.logout().catch(() => client.close());
+    }
   }
 }
 
@@ -227,6 +303,12 @@ export function createEmailProvider(
       user: environment.EMAIL_SMTP_USER?.trim() || null,
       password: environment.EMAIL_SMTP_PASSWORD ?? null,
       from,
+      sentCopy: sentCopyTarget(
+        environment.INBOUND_IMAP_HOST,
+        environment.INBOUND_IMAP_PORT,
+        environment.EMAIL_SMTP_USER?.trim(),
+        environment.EMAIL_SMTP_PASSWORD,
+      ),
     });
   }
   return new RecordingEmailProvider();
@@ -249,6 +331,12 @@ export function createOutreachEmailProvider(
     user,
     password,
     from,
+    sentCopy: sentCopyTarget(
+      environment.INBOUND_OUTREACH_IMAP_HOST,
+      environment.INBOUND_OUTREACH_IMAP_PORT,
+      user,
+      password,
+    ),
   });
 }
 
@@ -282,6 +370,12 @@ export function createInquiryEmailProvider(
     user: environment.EMAIL_INQUIRY_SMTP_USER?.trim() || null,
     password: environment.EMAIL_INQUIRY_SMTP_PASSWORD ?? null,
     from,
+    sentCopy: sentCopyTarget(
+      environment.INBOUND_IMAP_HOST,
+      environment.INBOUND_IMAP_PORT,
+      environment.EMAIL_INQUIRY_SMTP_USER?.trim(),
+      environment.EMAIL_INQUIRY_SMTP_PASSWORD,
+    ),
   });
 }
 
@@ -313,6 +407,12 @@ export function createReplySender(
       user: environment.EMAIL_REPLY_SMTP_USER?.trim() || null,
       password: environment.EMAIL_REPLY_SMTP_PASSWORD ?? null,
       from,
+      sentCopy: sentCopyTarget(
+        environment.INBOUND_IMAP_HOST,
+        environment.INBOUND_IMAP_PORT,
+        environment.EMAIL_REPLY_SMTP_USER?.trim(),
+        environment.EMAIL_REPLY_SMTP_PASSWORD,
+      ),
     }),
     replyTo: {
       quotes: environment.INBOUND_IMAP_USER?.trim() || null,
