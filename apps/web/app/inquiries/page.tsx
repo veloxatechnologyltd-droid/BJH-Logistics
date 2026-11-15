@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { InquiryTabs } from "../quotations/InquiryTabs";
 import { RequestInbox } from "../quotations/RequestInbox";
 import styles from "../quotations/quotation.module.css";
 
@@ -19,6 +20,8 @@ export default function InquiriesPage() {
           <h1>Inquiries</h1>
         </div>
       </header>
+
+      <InquiryTabs active="/inquiries" />
 
       <RequestInbox mailbox="inquiries" />
     </main>

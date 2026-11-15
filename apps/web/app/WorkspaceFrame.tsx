@@ -88,8 +88,12 @@ const staffNav: NavGroup[] = [
   {
     heading: "CUSTOMER SERVICE",
     items: [
-      { href: "/quotations", label: "Requests", icon: "quotations" },
-      { href: "/inquiries", label: "Inquiries", icon: "messages" },
+      {
+        href: "/quotations",
+        label: "Inquiries",
+        icon: "quotations",
+        alsoMatches: ["/inquiries"],
+      },
       { href: "/quotes", label: "Quotes", icon: "quotes" },
       {
         href: "/chat",
@@ -565,18 +569,16 @@ export function WorkspaceFrame({ children }: { children: ReactNode }) {
                 const active = item.href === current;
                 const badge =
                   item.href === "/quotations"
-                    ? newRequests
-                    : item.href === "/inquiries"
-                      ? inquiriesForAPerson
-                      : item.href === "/chat"
-                        ? unreadChat
-                        : item.href === "/team-chat"
-                          ? unreadTeam
-                          : item.href === "/quotes"
-                            ? draftQuotes
-                            : item.href === "/messages"
-                              ? failedMessages
-                              : 0;
+                    ? newRequests + inquiriesForAPerson
+                    : item.href === "/chat"
+                      ? unreadChat
+                      : item.href === "/team-chat"
+                        ? unreadTeam
+                        : item.href === "/quotes"
+                          ? draftQuotes
+                          : item.href === "/messages"
+                            ? failedMessages
+                            : 0;
                 const label = badge
                   ? `${item.label}, ${badge} ${
                       item.href === "/quotes"

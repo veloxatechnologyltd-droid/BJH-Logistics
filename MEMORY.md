@@ -1,5 +1,11 @@
 Maintain a file called MEMORY.md. After any significant decision, about direction, format, content, approach, or strategy, add an entry:
 
+## 2026-11-15, One "Inquiries" menu item with two tabs: Quote mail and Inquiries mail (code only, not deployed)
+
+**What was decided:** Staff were confused by two sidebar items ("Requests" and "Inquiries"). The CUSTOMER SERVICE menu now has one item, "Inquiries" (opens `/quotations`, stays highlighted on `/inquiries`). Both pages show the heading "Inquiries" and a tab bar (`apps/web/app/quotations/InquiryTabs.tsx`): "Quote mail" (`/quotations`) and "Inquiries mail" (`/inquiries`). The sidebar badge is the quote-mail count plus the inquiries-mail count. The "Move to Requests/Inquiries" button on a request now says "Move to Quote mail/Inquiries mail".
+**Why:** The inquiries mailbox is not configured yet, so the two items looked alike and one was empty; quote mail works, so it is the landing tab.
+**What was rejected:** Merging both mailboxes into one list (the API and inbox are per mailbox; not asked for); changing routes (notices, detail pages and links use `/quotations`); per-tab badges (counts are loaded in the sidebar, not the page; easy to add).
+**Open:** Not seen in a browser; web `tsc` and prettier pass. The sidebar badge no longer says which tab has the new items.
 ## 2026-11-15, Every email the system sends is also filed in the sending mailbox's Sent folder
 
 **What was decided:** After a successful SMTP send, the API appends the same message (same Message-ID and headers) to the sending mailbox's Sent folder over IMAP (`SmtpEmailProvider`, `apps/api/src/notifications/providers.ts`). It uses the mailbox's own SMTP user and password with the IMAP host: `INBOUND_IMAP_HOST`/`_PORT` for quotes, inquiries and Henry's replies; `INBOUND_OUTREACH_IMAP_HOST`/`_PORT` for sales. No new secrets. Without the IMAP host, nothing changes.
