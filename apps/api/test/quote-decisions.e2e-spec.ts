@@ -202,6 +202,13 @@ test("accepting opens exactly one job, even when the request is repeated at once
     assert.equal(item.decision.id, first.decision.id);
     assert.equal(item.job?.id, first.job.id);
   }
+  // The job opened from the quote tells the customer its tracking number,
+  // once, however many times the acceptance was repeated.
+  const opened = (
+    await application.get(DatabasePort).listJobNotifications(first.job.id)
+  ).filter((item) => item.event === "job_opened");
+  assert.equal(opened.length, 1);
+  assert.match(opened[0].body, /BJH-[2-9A-HJKMNP-Z]{4}-[2-9A-HJKMNP-Z]{4}/);
 
   const jobs = (await (
     await call("/api/v1/jobs", TEST_SUPER_ADMIN_TOKEN)

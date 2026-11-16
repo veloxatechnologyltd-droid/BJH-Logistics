@@ -42,6 +42,16 @@ export const milestoneMessage = (
   smsText: `${sender}: ${fileNumber} - ${update}.`,
 });
 
+export const jobOpenedMessage = (
+  sender: string,
+  fileNumber: string,
+  trackingNumber: string,
+): Message => ({
+  subject: `${fileNumber}: your shipment is registered, tracking number ${trackingNumber}`,
+  body: `Your shipment ${fileNumber} has been registered with us.\n\nYour tracking number is ${trackingNumber}. You can follow the shipment at any time with it, without logging in.${sign(sender)}`,
+  smsText: `${sender}: ${fileNumber} registered. Tracking no. ${trackingNumber}. Follow it:`,
+});
+
 export const etaMessage = (
   sender: string,
   fileNumber: string,

@@ -88,6 +88,8 @@ import { StaffNotificationsService } from "./notifications/staff-notifications.s
 import { JobAssignmentsController } from "./jobs/job-assignments.controller";
 import { JobAssignmentsService } from "./jobs/job-assignments.service";
 import { JobsController } from "./jobs/jobs.controller";
+import { TrackingController } from "./tracking/tracking.controller";
+import { TrackingService } from "./tracking/tracking.service";
 import { JobsService } from "./jobs/jobs.service";
 import { ClientJobReportsController } from "./jobs/client-job-report.controller";
 import { ClientJobReportService } from "./jobs/client-job-report.service";
@@ -190,6 +192,7 @@ import { PushService } from "./push/push.service";
     SalesController,
     SalesUnsubscribeController,
     JobsController,
+    TrackingController,
     ClientJobReportsController,
     JobAssignmentsController,
     StaffNotificationsController,
@@ -275,6 +278,7 @@ import { PushService } from "./push/push.service";
     JobCorrespondenceService,
     PasswordResetService,
     NotificationsService,
+    TrackingService,
     NotificationDispatcher,
     MessageDraftsService,
     { provide: MESSAGE_DRAFTER, useFactory: () => createMessageDrafter() },

@@ -22,6 +22,8 @@ import { authenticatedFetch } from "../auth/authenticatedFetch";
 export type Job = {
   id: string;
   fileNumber: string;
+  /** What the customer types on the public site to follow this job. */
+  trackingNumber: string;
   serviceLine: ServiceLine;
   customerCompanyId: string;
   customerCompanyName: string;

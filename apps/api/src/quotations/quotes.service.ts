@@ -271,6 +271,7 @@ export class QuotesService {
         quote.quoteRequestId,
       );
     }
+    if (result.job) await this.notifications.jobOpened(result.job, recordedBy);
     return result;
   }
 

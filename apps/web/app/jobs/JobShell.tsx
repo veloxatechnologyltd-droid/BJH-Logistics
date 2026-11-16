@@ -195,6 +195,7 @@ export function JobShell({
             <p className={styles.muted}>
               {job.customerCompanyName} · opened {formatDate(job.openedAt)}
             </p>
+            <p className={styles.muted}>Tracking number {job.trackingNumber}</p>
           </div>
           <div className={styles.toolbar}>
             {/* Billing is done in Finance; these take finance staff there. */}

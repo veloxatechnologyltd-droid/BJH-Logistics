@@ -38,6 +38,7 @@ const delivery = (over: Partial<DeliveryRecord> = {}): DeliveryRecord => ({
 const job: JobRecord = {
   id: "job",
   fileNumber: "SYN/SI/2026/0001",
+  trackingNumber: "BJH-2222-2222",
   serviceLine: "sea_import",
   customerCompanyId: "company",
   customerCompanyName: "Harbor Demo Ltd",

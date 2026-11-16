@@ -92,3 +92,10 @@ The structural notes above do not authorize copying client-specific values or ge
 - Staff may send messages they composed themselves with an explicit Send action. AI-generated outreach must be approved by a person before sending. Broadcasts may target selected campaigns, individually selected addresses, or both.
 - The email workspace is staff-only and uses the existing Sales hub roles: sales rep, customer service rep and super admin. Customers do not see mailbox messages.
 - Existing CRM plan exclusions for admin broadcasts are superseded by this decision; newsletter automation remains out of scope.
+
+## Public shipment tracking (2026-11-16, Evans)
+
+- Every job carries a random **tracking number** (`BJH-XXXX-XXXX`, 8 characters without look-alikes), separate from the sequential file number so one customer's number cannot be used to guess another's. It never changes once given. Existing jobs were given numbers too, without messaging anyone.
+- Anyone holding the number may follow the shipment without logging in, on the public site (`/track`, `/track/<number>`). The public view shows **status and ETA only**: kind of service, status, the steps already written in customer wording, and the newest ETA. It never shows the customer company, cargo, parties, documents, money, staff or notes. Widening it is a new decision.
+- When a job opens (staff create it or a quote is accepted) the customer's contacts are sent the tracking number and link through the existing outbox, in the channel chosen in Business settings. One message per job.
+- Lookups are rate-limited per visitor address and an unknown or malformed number gets one uniform answer. Tracking pages are not indexed by search engines.

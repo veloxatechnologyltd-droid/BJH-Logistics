@@ -1787,6 +1787,87 @@ h2 {
   color: var(--muted);
 }
 
+.track-layout {
+  display: grid;
+  gap: 24px;
+  max-width: 640px;
+  margin-inline: auto;
+}
+
+.track-message {
+  padding: 24px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--canvas);
+}
+
+.track-number {
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--blue-deep);
+}
+
+.track-facts {
+  display: grid;
+  gap: 14px;
+  margin: 0;
+}
+
+.track-facts dt {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.track-facts dd {
+  margin: 2px 0 0;
+  font-weight: 600;
+}
+
+.track-steps {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.track-steps li {
+  display: grid;
+  gap: 2px;
+  padding: 14px 0 14px 28px;
+  border-left: 3px solid var(--border);
+  color: var(--muted);
+}
+
+.track-steps li.done {
+  border-left-color: var(--blue);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.track-steps small {
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.track-another summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--blue);
+}
+
+.track-another .track-form {
+  margin-top: 16px;
+}
+
+@media (max-width: 640px) {
+  .track-layout .quote-form {
+    padding: 24px;
+  }
+}
+
 .quote-sent {
   justify-items: center;
   padding-block: 72px;
