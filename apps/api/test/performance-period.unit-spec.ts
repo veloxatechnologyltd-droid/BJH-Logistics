@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { reportPeriod } from "../src/performance/performance.service";
+import {
+  monthRange,
+  reportPeriod,
+} from "../src/performance/performance.service";
 
 test("a daily report covers today only", () => {
   assert.deepEqual(reportPeriod("daily", new Date("2026-11-18T09:30:00Z")), {
@@ -23,4 +26,18 @@ test("a weekly report runs from Monday through today", () => {
     assert.equal(period.start, monday, now);
     assert.equal(period.through, now.slice(0, 10), now);
   }
+});
+
+test("a month runs from its first day to its last, or to today", () => {
+  const now = new Date("2026-11-16T10:00:00Z");
+  assert.deepEqual(monthRange("2026-11", now), {
+    month: "2026-11",
+    from: "2026-11-01",
+    to: "2026-11-30",
+    through: "2026-11-16",
+  });
+  assert.equal(monthRange("2024-02", now).through, "2024-02-29");
+  assert.equal(monthRange(undefined, now).month, "2026-11");
+  assert.throws(() => monthRange("2026-12", now));
+  assert.throws(() => monthRange("2026-1", now));
 });

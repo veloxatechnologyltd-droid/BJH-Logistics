@@ -3,7 +3,8 @@ import styles from "../jobs/jobs.module.css";
 
 const tabs = [
   { href: "/performance", label: "Team performance" },
-  { href: "/performance/reports", label: "Daily & weekly reports" },
+  { href: "/performance/reports", label: "Reports" },
+  { href: "/performance/monthly", label: "Monthly report" },
 ];
 
 export function PerformanceTabs({ active }: { active: string }) {
