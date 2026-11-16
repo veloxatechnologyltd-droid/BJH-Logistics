@@ -55,8 +55,8 @@ export function FinanceJob({ jobId }: { jobId: string }) {
     <main className={styles.page}>
       <header className={styles.header}>
         <div>
-          <Link className={styles.link} href="/finance/jobs">
-            ← Finance jobs
+          <Link className={styles.link} href="/finance">
+            ← Finance
           </Link>
           <h1 className={styles.title}>
             {job ? `Billing for ${job.fileNumber}` : "Job billing"}

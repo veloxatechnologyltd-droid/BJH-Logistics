@@ -1,5 +1,6 @@
-import { FinanceOverview } from "../FinanceOverview";
+import { redirect } from "next/navigation";
 
+/** The jobs list is gone from Finance; old links and bookmarks land on the overview. */
 export default function FinanceJobsPage() {
-  return <FinanceOverview view="jobs" />;
+  redirect("/finance");
 }

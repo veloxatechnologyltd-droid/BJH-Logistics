@@ -139,6 +139,8 @@ import {
   StatementsController,
 } from "./finance/statements.controller";
 import { StatementsService } from "./finance/statements.service";
+import { ExpensesController } from "./finance/expenses.controller";
+import { ExpensesService } from "./finance/expenses.service";
 import { JobReportService } from "./finance/job-report.service";
 import {
   DeliveriesController,
@@ -207,6 +209,7 @@ import { PushService } from "./push/push.service";
     PaymentsController,
     CreditsController,
     StatementsController,
+    ExpensesController,
     JobReportsController,
     InboundEmailController,
     KnowledgeController,
@@ -316,6 +319,7 @@ import { PushService } from "./push/push.service";
     InvoicesService,
     ReportPdfService,
     StatementsService,
+    ExpensesService,
     JobReportService,
     InboundEmailService,
     { provide: EMAIL_EXTRACTOR, useFactory: () => createEmailExtractor() },

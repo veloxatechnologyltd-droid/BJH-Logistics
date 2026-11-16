@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { FinanceTabs } from "../invoices/FinanceTabs";
 import { RecordPayment } from "./RecordPayment";
 import { getFinanceSummary, getOutstandingInvoices } from "../jobs/jobApi";
@@ -30,9 +30,9 @@ const jobs = (count: number) => `${count} ${count === 1 ? "job" : "jobs"}`;
 
 /**
  * Money across jobs, staff only. One currency at a time: currencies are never added together.
- * The dashboard shows the figures and charts; the Jobs tab lists every job.
+ * The dashboard shows the figures and charts; a job's own money page is reached from Invoices, Payments, Costs or the job.
  */
-export function FinanceOverview({ view }: { view: "dashboard" | "jobs" }) {
+export function FinanceOverview({ view }: { view: "dashboard" }) {
   const [summary, setSummary] = useState<FinanceSummary | null>(null);
   const [overdueInvoices, setOverdueInvoices] = useState<
     OutstandingInvoice[] | null
@@ -40,8 +40,6 @@ export function FinanceOverview({ view }: { view: "dashboard" | "jobs" }) {
   const [error, setError] = useState("");
   const [currency, setCurrency] = useState("");
   const [customer, setCustomer] = useState("");
-  const [query, setQuery] = useState("");
-  const [opened, setOpened] = useState<Set<string>>(new Set());
 
   // Only the split of what is owing needs this; without it the chart shows one "owing" part.
   useEffect(() => {
@@ -96,38 +94,15 @@ export function FinanceOverview({ view }: { view: "dashboard" | "jobs" }) {
     [summary],
   );
 
-  const rows = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    return (summary?.jobs ?? []).filter(
-      (row) =>
-        row.currency === currency &&
-        (!customer || row.customerCompanyName === customer) &&
-        (!needle ||
-          row.fileNumber.toLowerCase().includes(needle) ||
-          row.customerCompanyName.toLowerCase().includes(needle)),
-    );
-  }, [summary, currency, customer, query]);
-
-  // Jobs table: one row per customer, their jobs under it when opened.
-  const jobGroups = useMemo(() => {
-    const byCustomer = new Map<string, typeof rows>();
-    for (const row of rows) {
-      byCustomer.set(row.customerCompanyName, [
-        ...(byCustomer.get(row.customerCompanyName) ?? []),
-        row,
-      ]);
-    }
-    return [...byCustomer].sort(([a], [b]) => a.localeCompare(b));
-  }, [rows]);
-  // Searching, or one customer, shows the jobs straight away.
-  const openAll = jobGroups.length === 1 || query.trim() !== "";
-  const toggleCustomer = (name: string) =>
-    setOpened((current) => {
-      const next = new Set(current);
-      if (next.has(name)) next.delete(name);
-      else next.add(name);
-      return next;
-    });
+  const rows = useMemo(
+    () =>
+      (summary?.jobs ?? []).filter(
+        (row) =>
+          row.currency === currency &&
+          (!customer || row.customerCompanyName === customer),
+      ),
+    [summary, currency, customer],
+  );
 
   const invoiced = sum(rows, (row) => row.invoicedMinor);
   const received = sum(rows, (row) => row.receivedMinor);
@@ -135,6 +110,13 @@ export function FinanceOverview({ view }: { view: "dashboard" | "jobs" }) {
   const costs = sum(rows, (row) => row.costMinor);
   const comparable = rows.filter((row) => row.marginMinor !== null);
   const profit = sum(comparable, (row) => row.marginMinor ?? 0);
+  // Business expenses are not tied to a customer, so they come off the profit
+  // only when every customer is shown.
+  const expensesMinor = customer
+    ? 0
+    : (summary?.expenses?.totals.find((total) => total.currency === currency)
+        ?.amountMinor ?? 0);
+  const netProfit = profit - expensesMinor;
   const collected = pct(received, invoiced);
 
   const owedBy = useMemo(() => {
@@ -214,15 +196,25 @@ export function FinanceOverview({ view }: { view: "dashboard" | "jobs" }) {
       .reduce((total, row) => total + row[pick], 0);
   const trendInvoiced = trendMonths.map((m) => monthTotal(m, "invoicedMinor"));
   const trendReceived = trendMonths.map((m) => monthTotal(m, "receivedMinor"));
+  // Business expenses are company-wide, so they only show for all customers.
+  const trendSpent = customer
+    ? null
+    : trendMonths.map((m) =>
+        (summary?.expenses?.months ?? [])
+          .filter((row) => row.month === m && row.currency === currency)
+          .reduce((total, row) => total + row.amountMinor, 0),
+      );
   const monthName = (month: string, style: "short" | "long") =>
     new Date(`${month}-01T00:00:00Z`).toLocaleDateString("en-GH", {
       month: style === "short" ? "short" : "long",
       ...(style === "long" ? { year: "numeric" } : {}),
       timeZone: "UTC",
     });
-  const trendHasMoney = [...trendInvoiced, ...trendReceived].some(
-    (amount) => amount > 0,
-  );
+  const trendHasMoney = [
+    ...trendInvoiced,
+    ...trendReceived,
+    ...(trendSpent ?? []),
+  ].some((amount) => amount > 0);
 
   const profitRows = [...comparable]
     .sort((a, b) => (b.marginMinor ?? 0) - (a.marginMinor ?? 0))
@@ -237,7 +229,7 @@ export function FinanceOverview({ view }: { view: "dashboard" | "jobs" }) {
           </div>
           {summary && <RecordPayment onRecorded={() => void refresh()} />}
         </header>
-        <FinanceTabs active={view === "jobs" ? "/finance/jobs" : "/finance"} />
+        <FinanceTabs active="/finance" />
         <ErrorPopup message={error} />
         {!summary && !error && <p className={styles.muted}>Loading…</p>}
         {summary && summary.jobs.length === 0 && (
@@ -273,17 +265,6 @@ export function FinanceOverview({ view }: { view: "dashboard" | "jobs" }) {
                   ))}
                 </select>
               </label>
-              {view === "jobs" && (
-                <label className={styles.field}>
-                  Search
-                  <input
-                    onChange={(event) => setQuery(event.target.value)}
-                    placeholder="Job file or customer"
-                    type="search"
-                    value={query}
-                  />
-                </label>
-              )}
             </div>
 
             {view === "dashboard" && (
@@ -317,15 +298,36 @@ export function FinanceOverview({ view }: { view: "dashboard" | "jobs" }) {
                     costs
                   </small>
                 </div>
-                <div className={chart.kpi}>
-                  <span>Profit</span>
-                  <strong>{comparable.length ? money(profit) : "-"}</strong>
-                  <small>
-                    {comparable.length
-                      ? `${jobs(comparable.length)} with invoice and costs`
-                      : "No job has both in " + currency}
-                  </small>
-                </div>
+                {customer ? (
+                  <div className={chart.kpi}>
+                    <span>Profit on their jobs</span>
+                    <strong>{comparable.length ? money(profit) : "-"}</strong>
+                    <small>Business expenses are not split by customer</small>
+                  </div>
+                ) : (
+                  <div className={chart.kpi}>
+                    <span>Profit after expenses</span>
+                    <strong
+                      className={netProfit < 0 ? chart.lossText : undefined}
+                    >
+                      {comparable.length || expensesMinor
+                        ? money(netProfit)
+                        : "-"}
+                    </strong>
+                    <small>
+                      Jobs {money(profit)}
+                      <br />
+                      Less expenses {money(expensesMinor)}
+                      {summary?.expenses &&
+                        !summary.expenses.includesPayroll && (
+                          <>
+                            <br />
+                            Salaries not included
+                          </>
+                        )}
+                    </small>
+                  </div>
+                )}
               </div>
             )}
 
@@ -343,8 +345,10 @@ export function FinanceOverview({ view }: { view: "dashboard" | "jobs" }) {
                     <h2 id="trend-title">Money in and out</h2>
                     <p className={charts.headline}>
                       {trendHasMoney
-                        ? `Invoiced ${money(trendInvoiced.reduce((a, b) => a + b, 0))} and received ${money(trendReceived.reduce((a, b) => a + b, 0))} over the last ${trendMonths.length} months`
-                        : `No invoices or payments in ${currency} over the last ${trendMonths.length} months`}
+                        ? trendSpent
+                          ? `Invoiced ${money(trendInvoiced.reduce((a, b) => a + b, 0))}, received ${money(trendReceived.reduce((a, b) => a + b, 0))} and spent ${money(trendSpent.reduce((a, b) => a + b, 0))} on expenses over the last ${trendMonths.length} months`
+                          : `Invoiced ${money(trendInvoiced.reduce((a, b) => a + b, 0))} and received ${money(trendReceived.reduce((a, b) => a + b, 0))} over the last ${trendMonths.length} months`
+                        : `No invoices, payments or expenses in ${currency} over the last ${trendMonths.length} months`}
                     </p>
                     {trendHasMoney && (
                       <ColumnChart
@@ -370,6 +374,15 @@ export function FinanceOverview({ view }: { view: "dashboard" | "jobs" }) {
                             color: chartColors.good,
                             values: trendReceived,
                           },
+                          ...(trendSpent
+                            ? [
+                                {
+                                  name: "Expenses",
+                                  color: chartColors.bad,
+                                  values: trendSpent,
+                                },
+                              ]
+                            : []),
                         ]}
                       />
                     )}
@@ -565,160 +578,6 @@ export function FinanceOverview({ view }: { view: "dashboard" | "jobs" }) {
                   </section>
                 )}
               </div>
-            )}
-
-            {view === "jobs" && rows.length > 0 && (
-              <section className={styles.card} aria-labelledby="jobs-title">
-                <h2 id="jobs-title">Jobs</h2>
-                <div className={chart.tableWrap}>
-                  <table className={chart.cardTable}>
-                    <thead>
-                      <tr>
-                        <th scope="col">Customer and jobs</th>
-                        <th className={chart.num} scope="col">
-                          Invoiced
-                        </th>
-                        <th className={chart.num} scope="col">
-                          Received
-                        </th>
-                        <th className={chart.num} scope="col">
-                          Owing
-                        </th>
-                        <th className={chart.num} scope="col">
-                          Costs
-                        </th>
-                        <th className={chart.num} scope="col">
-                          Profit
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {jobGroups.map(([name, jobs]) => {
-                        const open = openAll || opened.has(name);
-                        const owed = sum(jobs, (row) => row.owingMinor);
-                        const priced = jobs.filter(
-                          (row) => row.marginMinor !== null,
-                        );
-                        const margin = sum(
-                          priced,
-                          (row) => row.marginMinor ?? 0,
-                        );
-                        return (
-                          <Fragment key={name}>
-                            <tr className={chart.clientRow}>
-                              <td className={chart.jobCell}>
-                                <button
-                                  aria-expanded={open}
-                                  className={chart.clientToggle}
-                                  onClick={() => toggleCustomer(name)}
-                                  type="button"
-                                >
-                                  <span aria-hidden="true">
-                                    {open ? "▾" : "▸"}
-                                  </span>{" "}
-                                  {name}
-                                </button>
-                                <span className={chart.customerName}>
-                                  {jobs.length}{" "}
-                                  {jobs.length === 1 ? "job" : "jobs"}
-                                </span>
-                              </td>
-                              <td className={chart.num} data-label="Invoiced">
-                                {money(sum(jobs, (row) => row.invoicedMinor))}
-                              </td>
-                              <td className={chart.num} data-label="Received">
-                                {money(sum(jobs, (row) => row.receivedMinor))}
-                              </td>
-                              <td
-                                className={`${chart.num}${owed > 0 ? ` ${chart.owingText}` : ""}`}
-                                data-label="Owing"
-                              >
-                                {money(owed)}
-                              </td>
-                              <td className={chart.num} data-label="Costs">
-                                {money(sum(jobs, (row) => row.costMinor))}
-                              </td>
-                              <td
-                                className={`${chart.num}${margin < 0 ? ` ${chart.lossText}` : ""}`}
-                                data-label="Profit"
-                              >
-                                {priced.length ? money(margin) : "-"}
-                              </td>
-                            </tr>
-                            {open &&
-                              jobs.map((row) => (
-                                <tr
-                                  className={chart.invoiceRow}
-                                  key={`${row.jobId}-${row.currency}`}
-                                >
-                                  <td className={chart.jobCell}>
-                                    <Link
-                                      className={styles.link}
-                                      href={`/finance/jobs/${row.jobId}`}
-                                    >
-                                      {row.fileNumber}
-                                    </Link>
-                                  </td>
-                                  <td
-                                    className={chart.num}
-                                    data-label="Invoiced"
-                                  >
-                                    {money(row.invoicedMinor)}
-                                  </td>
-                                  <td
-                                    className={chart.num}
-                                    data-label="Received"
-                                  >
-                                    {money(row.receivedMinor)}
-                                  </td>
-                                  <td
-                                    className={`${chart.num}${row.owingMinor > 0 ? ` ${chart.owingText}` : ""}`}
-                                    data-label="Owing"
-                                  >
-                                    {money(row.owingMinor)}
-                                  </td>
-                                  <td className={chart.num} data-label="Costs">
-                                    {money(row.costMinor)}
-                                  </td>
-                                  <td
-                                    className={`${chart.num}${(row.marginMinor ?? 0) < 0 ? ` ${chart.lossText}` : ""}`}
-                                    data-label="Profit"
-                                  >
-                                    {row.marginMinor === null
-                                      ? "-"
-                                      : money(row.marginMinor)}
-                                  </td>
-                                </tr>
-                              ))}
-                          </Fragment>
-                        );
-                      })}
-                    </tbody>
-                    <tfoot>
-                      <tr>
-                        <th className={chart.jobCell} scope="row">
-                          Total
-                        </th>
-                        <td className={chart.num} data-label="Invoiced">
-                          {money(invoiced)}
-                        </td>
-                        <td className={chart.num} data-label="Received">
-                          {money(received)}
-                        </td>
-                        <td className={chart.num} data-label="Owing">
-                          {money(owing)}
-                        </td>
-                        <td className={chart.num} data-label="Costs">
-                          {money(costs)}
-                        </td>
-                        <td className={chart.num} data-label="Profit">
-                          {comparable.length ? money(profit) : "-"}
-                        </td>
-                      </tr>
-                    </tfoot>
-                  </table>
-                </div>
-              </section>
             )}
           </div>
         )}

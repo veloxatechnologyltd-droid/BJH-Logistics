@@ -165,6 +165,47 @@ textarea {
   margin-bottom: 6px;
 }
 
+/* A heading you can open and close; the count shows only while it is closed. */
+.nav-items {
+  display: grid;
+  gap: 4px;
+}
+.nav-items[hidden] {
+  display: none;
+}
+.nav-group .nav-toggle {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 2px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  padding: 7px 10px;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.nav-toggle > span:first-child {
+  flex: 1;
+}
+.nav-toggle .nav-badge {
+  margin-left: 0;
+}
+.nav-toggle:hover,
+.nav-toggle:focus-visible {
+  background: rgb(255 255 255 / 9%);
+  color: #fff;
+}
+.nav-chevron {
+  flex: 0 0 auto;
+  transition: transform 0.15s ease;
+}
+.nav-toggle[aria-expanded="true"] .nav-chevron {
+  transform: rotate(90deg);
+}
+
 .sidebar-settings {
   margin-top: 24px;
 }

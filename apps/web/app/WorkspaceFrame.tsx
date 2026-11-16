@@ -43,7 +43,6 @@ const customerNav: NavGroup[] = [
       { href: "/portal", label: "Overview", icon: "overview" },
       { href: "/quotes", label: "Your quotations", icon: "quotes" },
       { href: "/jobs", label: "Your jobs", icon: "jobs" },
-      { href: "/warehouse", label: "Your stock", icon: "warehouse" },
       { href: "/documents", label: "Your documents", icon: "documents" },
       { href: "/invoices", label: "Your invoices", icon: "invoices" },
       { href: "/portal/messages", label: "Messages", icon: "messages" },
@@ -61,7 +60,6 @@ const staffNav: NavGroup[] = [
   {
     items: [
       { href: "/", label: "Overview", icon: "overview", exact: true },
-      { href: "/team-chat", label: "Team chat", icon: "team" },
       {
         href: "/assistant",
         label: "Bra Evans",
@@ -95,13 +93,6 @@ const staffNav: NavGroup[] = [
         alsoMatches: ["/inquiries"],
       },
       { href: "/quotes", label: "Quotes", icon: "quotes" },
-      {
-        href: "/chat",
-        label: "Client chat",
-        icon: "chat",
-        roles: ["super_admin", "customer_service_rep"],
-      },
-      { href: "/messages", label: "Messages", icon: "messages" },
     ],
   },
   {
@@ -109,13 +100,25 @@ const staffNav: NavGroup[] = [
     items: [
       { href: "/jobs", label: "Jobs", icon: "jobs" },
       { href: "/tasks", label: "Tasks", icon: "tasks" },
-      { href: "/warehouse", label: "Warehouse", icon: "warehouse" },
       { href: "/documents", label: "Documents", icon: "documents" },
       {
         href: "/shipping-documents",
         label: "Shipping documents",
         icon: "shipping",
       },
+    ],
+  },
+  {
+    heading: "MESSAGES",
+    items: [
+      { href: "/team-chat", label: "Team chat", icon: "team" },
+      {
+        href: "/chat",
+        label: "Client chat",
+        icon: "chat",
+        roles: ["super_admin", "customer_service_rep"],
+      },
+      { href: "/messages", label: "Email & SMS", icon: "messages" },
     ],
   },
   {
@@ -407,6 +410,18 @@ export function WorkspaceFrame({ children }: { children: ReactNode }) {
     status === "ready" && !isCustomer,
     pathname,
   );
+  const badgeOf = (item: NavItem) =>
+    item.href === "/quotations"
+      ? newRequests + inquiriesForAPerson
+      : item.href === "/chat"
+        ? unreadChat
+        : item.href === "/team-chat"
+          ? unreadTeam
+          : item.href === "/quotes"
+            ? draftQuotes
+            : item.href === "/messages"
+              ? failedMessages
+              : 0;
 
   // A new password, then the super admin's second step, come before any page.
   useEffect(() => {
@@ -469,6 +484,40 @@ export function WorkspaceFrame({ children }: { children: ReactNode }) {
     };
   }, [menuOpen]);
 
+  // Until the access check answers we do not know whose menu this is. Showing
+  // the staff one meanwhile made customers see it flash on every refresh.
+  const resolving = status === "loading";
+  const groups = isCustomer ? customerNav : visibleGroups(staffNav, roles, crm);
+  const crumb = pageCrumb(pathname, groups, isCustomer);
+  const current = activeHref(pathname, groups);
+
+  // Headings open and close. Left alone, only the heading you are in is open;
+  // what someone opens or closes by hand overrides that.
+  const activeHeading = groups.find((group) =>
+    group.items.some((item) => item.href === current),
+  )?.heading;
+  const [headingChoice, setHeadingChoice] = useState<Record<string, boolean>>(
+    {},
+  );
+  const headingOpen = (heading: string) =>
+    headingChoice[heading] ?? heading === activeHeading;
+  const toggleHeading = (heading: string) =>
+    setHeadingChoice((choices) => ({
+      ...choices,
+      [heading]: !(choices[heading] ?? heading === activeHeading),
+    }));
+  // Going to a page opens its heading, even one that was closed by hand, so
+  // the page you are on is never hidden.
+  useEffect(() => {
+    if (!activeHeading) return;
+    setHeadingChoice((choices) => {
+      if (choices[activeHeading] !== false) return choices;
+      const next = { ...choices };
+      delete next[activeHeading];
+      return next;
+    });
+  }, [activeHeading]);
+
   const toggle = () => {
     const next = !collapsed;
     setCollapsed(next);
@@ -491,12 +540,6 @@ export function WorkspaceFrame({ children }: { children: ReactNode }) {
     pathname.startsWith("/settings") ||
     pathname.startsWith("/transport") ||
     pathname === "/admin/users";
-  // Until the access check answers we do not know whose menu this is. Showing
-  // the staff one meanwhile made customers see it flash on every refresh.
-  const resolving = status === "loading";
-  const groups = isCustomer ? customerNav : visibleGroups(staffNav, roles, crm);
-  const crumb = pageCrumb(pathname, groups, isCustomer);
-  const current = activeHref(pathname, groups);
 
   return (
     <div
@@ -562,53 +605,90 @@ export function WorkspaceFrame({ children }: { children: ReactNode }) {
           aria-label={isCustomer ? "Customer portal" : "Staff workspace"}
           aria-busy={resolving}
         >
-          {(resolving ? [] : groups).map((group) => (
-            <div className="nav-group" key={group.heading ?? "main"}>
-              {group.heading && <p className="nav-heading">{group.heading}</p>}
-              {group.items.map((item) => {
-                const active = item.href === current;
-                const badge =
-                  item.href === "/quotations"
-                    ? newRequests + inquiriesForAPerson
-                    : item.href === "/chat"
-                      ? unreadChat
-                      : item.href === "/team-chat"
-                        ? unreadTeam
-                        : item.href === "/quotes"
-                          ? draftQuotes
-                          : item.href === "/messages"
-                            ? failedMessages
-                            : 0;
-                const label = badge
-                  ? `${item.label}, ${badge} ${
-                      item.href === "/quotes"
-                        ? "in draft"
-                        : item.href === "/messages"
-                          ? "failed to send"
-                          : "new"
-                    }`
-                  : item.label;
-                return (
-                  <Link
-                    key={item.href}
-                    className={`nav-link${active ? " active" : ""}`}
-                    href={item.href}
-                    aria-current={active ? "page" : undefined}
-                    aria-label={badge ? label : undefined}
-                    title={collapsed ? label : undefined}
+          {(resolving ? [] : groups).map((group) => {
+            const heading = group.heading;
+            // The icon rail has no room for headings, so it shows every page.
+            const open =
+              !heading || (collapsed && !drawerMode) || headingOpen(heading);
+            const itemsId = `nav-${(heading ?? "main").toLowerCase().replace(/\s+/g, "-")}`;
+            // A closed heading still shows what is waiting inside it.
+            const waiting = group.items.reduce(
+              (total, item) => total + badgeOf(item),
+              0,
+            );
+            return (
+              <div className="nav-group" key={heading ?? "main"}>
+                {heading && (
+                  <button
+                    aria-controls={itemsId}
+                    aria-expanded={open}
+                    aria-label={
+                      !open && waiting > 0
+                        ? `${heading}, ${waiting} waiting`
+                        : undefined
+                    }
+                    className="nav-heading nav-toggle"
+                    onClick={() => toggleHeading(heading)}
+                    type="button"
                   >
-                    <NavIcon name={item.icon} />
-                    <span className="nav-label">{item.label}</span>
-                    {badge > 0 && (
+                    <span>{heading}</span>
+                    {!open && waiting > 0 && (
                       <span className="nav-badge" aria-hidden="true">
-                        {badge > 99 ? "99+" : badge}
+                        {waiting > 99 ? "99+" : waiting}
                       </span>
                     )}
-                  </Link>
-                );
-              })}
-            </div>
-          ))}
+                    <svg
+                      aria-hidden="true"
+                      className="nav-chevron"
+                      fill="none"
+                      height="14"
+                      stroke="currentColor"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2.5"
+                      viewBox="0 0 24 24"
+                      width="14"
+                    >
+                      <path d="M9 6l6 6-6 6" />
+                    </svg>
+                  </button>
+                )}
+                <div className="nav-items" hidden={!open} id={itemsId}>
+                  {group.items.map((item) => {
+                    const active = item.href === current;
+                    const badge = badgeOf(item);
+                    const label = badge
+                      ? `${item.label}, ${badge} ${
+                          item.href === "/quotes"
+                            ? "in draft"
+                            : item.href === "/messages"
+                              ? "failed to send"
+                              : "new"
+                        }`
+                      : item.label;
+                    return (
+                      <Link
+                        key={item.href}
+                        className={`nav-link${active ? " active" : ""}`}
+                        href={item.href}
+                        aria-current={active ? "page" : undefined}
+                        aria-label={badge ? label : undefined}
+                        title={collapsed ? label : undefined}
+                      >
+                        <NavIcon name={item.icon} />
+                        <span className="nav-label">{item.label}</span>
+                        {badge > 0 && (
+                          <span className="nav-badge" aria-hidden="true">
+                            {badge > 99 ? "99+" : badge}
+                          </span>
+                        )}
+                      </Link>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
         </nav>
 
         {!resolving && isSuperAdmin && (

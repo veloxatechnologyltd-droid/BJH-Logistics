@@ -120,6 +120,8 @@ import {
   StockBalanceRecord,
   StockMovementRecord,
   WarehouseLocationRecord,
+  BusinessExpenseRecord,
+  BusinessExpenseFilter,
   InvoiceAcceptanceRecord,
   InvoicePaymentRecord,
   JobAssignmentRecord,
@@ -5635,6 +5637,165 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     };
   }
 
+  private readonly expenseColumns = `expense.*,
+       to_char(expense.spent_on, 'YYYY-MM-DD') AS spent_on_text,
+       author.email AS recorded_by_email,
+       NULLIF(btrim(author.raw_user_meta_data->>'full_name'), '') AS recorded_by_name`;
+
+  /** The shared WHERE clause of the expense list and its sums ($1..$7). */
+  private expenseFilter(filter: BusinessExpenseFilter) {
+    const search = filter.search
+      ? `%${filter.search.replace(/[\\%_]/g, (match) => `\\${match}`)}%`
+      : null;
+    return {
+      where: `expense.category = ANY($1::text[])
+         AND ($2::date IS NULL OR expense.spent_on >= $2::date)
+         AND ($3::date IS NULL OR expense.spent_on <= $3::date)
+         AND ($4::text IS NULL OR expense.payment_method = $4)
+         AND ($5::text IS NULL OR expense.currency = $5)
+         AND ($6::text IS NULL
+              OR expense.description ILIKE $6 OR expense.payee ILIKE $6
+              OR expense.reference ILIKE $6 OR expense.note ILIKE $6)`,
+      values: [
+        filter.categories,
+        filter.from,
+        filter.to,
+        filter.paymentMethod,
+        filter.currency,
+        search,
+      ] as unknown[],
+    };
+  }
+
+  async listBusinessExpenses(
+    filter: BusinessExpenseFilter,
+  ): Promise<BusinessExpenseRecord[]> {
+    const { where, values } = this.expenseFilter(filter);
+    const result = await this.pool.query(
+      `SELECT ${this.expenseColumns}
+       FROM app.business_expense AS expense
+       LEFT JOIN auth.users AS author ON author.id = expense.recorded_by
+       WHERE ${where}
+         AND ($7::boolean OR expense.voided_at IS NULL)
+       ORDER BY expense.spent_on DESC, expense.recorded_at DESC
+       LIMIT 2000`,
+      [...values, filter.includeVoided],
+    );
+    return result.rows.map((row) => this.mapExpense(row));
+  }
+
+  async sumBusinessExpenses(filter: BusinessExpenseFilter): Promise<
+    Array<{
+      category: string;
+      currency: string;
+      amountMinor: number;
+      count: number;
+    }>
+  > {
+    const { where, values } = this.expenseFilter(filter);
+    const result = await this.pool.query(
+      `SELECT expense.category, expense.currency,
+              sum(expense.amount_minor)::bigint AS amount_minor,
+              count(*)::int AS expense_count
+       FROM app.business_expense AS expense
+       WHERE ${where} AND expense.voided_at IS NULL
+       GROUP BY expense.category, expense.currency`,
+      values,
+    );
+    return result.rows.map((row) => ({
+      category: String(row.category),
+      currency: String(row.currency),
+      amountMinor: Number(row.amount_minor),
+      count: Number(row.expense_count),
+    }));
+  }
+
+  async sumBusinessExpensesByMonth(categories: string[], from: string) {
+    const result = await this.pool.query(
+      `SELECT to_char(expense.spent_on, 'YYYY-MM') AS month, expense.currency,
+              sum(expense.amount_minor)::bigint AS amount_minor
+       FROM app.business_expense AS expense
+       WHERE expense.category = ANY($1::text[])
+         AND expense.spent_on >= $2::date
+         AND expense.voided_at IS NULL
+       GROUP BY 1, 2
+       ORDER BY 1, 2`,
+      [categories, from],
+    );
+    return result.rows.map((row) => ({
+      month: String(row.month),
+      currency: String(row.currency),
+      amountMinor: Number(row.amount_minor),
+    }));
+  }
+
+  async createBusinessExpense(
+    expense: Omit<
+      BusinessExpenseRecord,
+      "id" | "recordedByName" | "recordedAt" | "voidedAt" | "voidReason"
+    >,
+  ): Promise<BusinessExpenseRecord> {
+    const result = await this.pool.query(
+      `WITH added AS (
+         INSERT INTO app.business_expense
+           (spent_on, category, description, payee, amount_minor, currency,
+            payment_method, reference, note, recorded_by)
+         VALUES ($1::date, $2, $3, $4, $5, $6, $7, $8, $9, $10::uuid)
+         RETURNING *
+       )
+       SELECT ${this.expenseColumns}
+       FROM added AS expense
+       LEFT JOIN auth.users AS author ON author.id = expense.recorded_by`,
+      [
+        expense.spentOn,
+        expense.category,
+        expense.description,
+        expense.payee,
+        expense.amountMinor,
+        expense.currency,
+        expense.paymentMethod,
+        expense.reference,
+        expense.note,
+        expense.recordedBy,
+      ],
+    );
+    return this.mapExpense(result.rows[0]);
+  }
+
+  async voidBusinessExpense(
+    id: string,
+    voidedBy: string,
+    reason: string,
+  ): Promise<BusinessExpenseRecord | "voided" | null> {
+    const result = await this.pool.query(
+      `WITH changed AS (
+         UPDATE app.business_expense
+         SET voided_at = clock_timestamp(), voided_by = $2::uuid, void_reason = $3
+         WHERE expense_id = $1::uuid AND voided_at IS NULL
+         RETURNING *
+       )
+       SELECT ${this.expenseColumns}
+       FROM changed AS expense
+       LEFT JOIN auth.users AS author ON author.id = expense.recorded_by`,
+      [id, voidedBy, reason],
+    );
+    if (result.rows[0]) return this.mapExpense(result.rows[0]);
+    const existing = await this.pool.query(
+      `SELECT 1 FROM app.business_expense WHERE expense_id = $1::uuid`,
+      [id],
+    );
+    return existing.rows.length > 0 ? "voided" : null;
+  }
+
+  /** The category of one expense, so the service can check who may void it. */
+  async businessExpenseCategory(id: string): Promise<string | null> {
+    const result = await this.pool.query(
+      `SELECT category FROM app.business_expense WHERE expense_id = $1::uuid`,
+      [id],
+    );
+    return result.rows[0] ? String(result.rows[0].category) : null;
+  }
+
   async listWarehouseLocations(): Promise<WarehouseLocationRecord[]> {
     const result = await this.pool.query(
       `SELECT * FROM app.warehouse_location ORDER BY lower(location_name)`,
@@ -5866,6 +6027,33 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       unit: String(row.unit),
       balance: Number(row.balance),
     }));
+  }
+
+  private mapExpense(row: Record<string, unknown>): BusinessExpenseRecord {
+    const text = (value: unknown) =>
+      value === null || value === undefined ? null : String(value);
+    return {
+      id: String(row.expense_id),
+      spentOn: String(row.spent_on_text),
+      category: String(row.category),
+      description: text(row.description),
+      payee: text(row.payee),
+      amountMinor: Number(row.amount_minor),
+      currency: String(row.currency),
+      paymentMethod: String(row.payment_method),
+      reference: text(row.reference),
+      note: text(row.note),
+      recordedBy: String(row.recorded_by),
+      recordedByName: row.recorded_by
+        ? staffDisplayName({
+            name: text(row.recorded_by_name),
+            email: text(row.recorded_by_email),
+          })
+        : null,
+      recordedAt: this.toIsoString(row.recorded_at),
+      voidedAt: row.voided_at ? this.toIsoString(row.voided_at) : null,
+      voidReason: text(row.void_reason),
+    };
   }
 
   private mapLocation(row: Record<string, unknown>): WarehouseLocationRecord {
