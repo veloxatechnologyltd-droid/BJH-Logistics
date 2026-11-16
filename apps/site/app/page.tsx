@@ -12,7 +12,6 @@ import {
   featuredServices,
   FOUNDED,
   processSteps,
-  whatsappHref,
 } from "./content";
 import { ContactSection } from "./ContactSection";
 import { Icon } from "./Icon";
@@ -77,14 +76,9 @@ export default function HomePage() {
               <Link href="/request-a-quote" className="btn btn-white">
                 Request a quote <Icon name="arrow" size={18} />
               </Link>
-              <a
-                href={whatsappHref()}
-                className="btn btn-outline-white"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                <Icon name="whatsapp" size={18} /> Talk to the team
-              </a>
+              <Link href="/track" className="btn btn-outline-white">
+                <Icon name="pin" size={18} /> Track your shipment
+              </Link>
             </div>
             <ul className="hero-pills">
               <li>
