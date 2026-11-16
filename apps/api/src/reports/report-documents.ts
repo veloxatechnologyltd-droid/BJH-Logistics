@@ -112,6 +112,10 @@ const period = (from: string, to: string) =>
 const money = formatInvoiceAmount;
 const plural = (count: number, word: string) =>
   `${count} ${word}${count === 1 ? "" : "s"}`;
+/** Older tasks name a role; newer ones name a person, whose name reports do not carry. */
+const taskAssignee = (task: JobTaskRecord) =>
+  task.assignedRole ? roleLabel(task.assignedRole) : "A named person";
+
 const roleLabel = (role: string) =>
   role.charAt(0).toUpperCase() + role.slice(1).replaceAll("_", " ");
 const countBy = <T>(items: T[], key: (item: T) => string) => {
@@ -656,11 +660,11 @@ export function delaysTasksDocument(input: {
   );
   const onHold = jobs.filter((job) => job.status === "on_hold");
   const taskRow = (task: JobTaskRecord) => [
-    task.fileNumber,
-    task.customerCompanyName,
+    task.fileNumber ?? "",
+    task.customerCompanyName ?? "",
     task.title,
     taskKindLabels[task.kind] ?? task.kind,
-    roleLabel(task.assignedRole),
+    taskAssignee(task),
     day(task.dueDate),
   ];
   const columns = [
@@ -692,7 +696,7 @@ export function delaysTasksDocument(input: {
       { kind: "heading", text: "Open tasks by team" },
       {
         kind: "bars",
-        rows: countBy(tasks, (task) => roleLabel(task.assignedRole)),
+        rows: countBy(tasks, taskAssignee),
         empty: "There are no open tasks.",
       },
       { kind: "heading", text: "Overdue tasks" },

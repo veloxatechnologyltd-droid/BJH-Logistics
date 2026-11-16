@@ -334,8 +334,9 @@ test("invalid task requests and filters are rejected", async () => {
   const cases: Array<[unknown, string]> = [
     [[], "A task object is required"],
     [{ assignedRole: "import_rep" }, "title is required"],
+    [{ title: "x" }, "Choose who the task is for (assignedUserId)"],
     [
-      { title: "x" },
+      { title: "x", assignedRole: "cook" },
       "assignedRole must be one of " +
         [
           "super_admin",

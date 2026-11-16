@@ -544,17 +544,22 @@ export function OverviewDashboard() {
                 return (
                   <Link
                     className={styles.row}
-                    href={`/jobs/${task.jobId}/tasks`}
+                    href={task.jobId ? `/jobs/${task.jobId}/tasks` : "/tasks"}
                     key={task.id}
                   >
                     <span className={styles.rowMain}>
                       <strong>{task.title}</strong>
                       <span>
-                        {task.fileNumber} · {task.customerCompanyName}
+                        {task.jobId
+                          ? `${task.fileNumber} · ${task.customerCompanyName}`
+                          : "Not tied to a job"}
                       </span>
                       <small>
                         {taskKindLabels[task.kind]} ·{" "}
-                        {roleLabels[task.assignedRole]}
+                        {task.assignedUserName ??
+                          (task.assignedRole
+                            ? roleLabels[task.assignedRole]
+                            : "")}
                       </small>
                     </span>
                     <span

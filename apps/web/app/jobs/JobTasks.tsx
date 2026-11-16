@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
-import { staffRoleKeys, taskKinds } from "@bjh/contracts";
-import type { StaffRoleKey, TaskKind } from "@bjh/contracts";
+import { taskKinds } from "@bjh/contracts";
+import type { TaskKind } from "@bjh/contracts";
 import {
   completeJobTask,
   createJobTask,
@@ -12,6 +12,8 @@ import {
   taskKindLabels,
 } from "./jobApi";
 import type { JobTask } from "./jobApi";
+import { listTeamPeople } from "../team-chat/teamChatApi";
+import type { TeamPerson } from "../team-chat/teamChatApi";
 import styles from "./jobs.module.css";
 import { ErrorPopup } from "../ErrorPopup";
 
@@ -27,8 +29,10 @@ export function JobTasks({
   const [kind, setKind] = useState<TaskKind>("task");
   const [title, setTitle] = useState("");
   const [details, setDetails] = useState("");
-  const [role, setRole] = useState<StaffRoleKey>("super_admin");
+  const [people, setPeople] = useState<TeamPerson[]>([]);
+  const [forUser, setForUser] = useState("");
   const [dueDate, setDueDate] = useState("");
+  const [remindAt, setRemindAt] = useState("");
   const [adding, setAdding] = useState(false);
 
   const load = useCallback(async () => {
@@ -44,6 +48,16 @@ export function JobTasks({
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    listTeamPeople()
+      .then((result) => {
+        setPeople(result);
+        setForUser(result.find((item) => item.you)?.userId ?? "");
+      })
+      // Without the list the form cannot be saved, and the page says why.
+      .catch(() => setError("The list of people could not be loaded"));
+  }, []);
 
   async function run(action: () => Promise<unknown>) {
     setError("");
@@ -62,12 +76,14 @@ export function JobTasks({
         kind,
         title: title.trim(),
         details: details.trim() || undefined,
-        assignedRole: role,
+        assignedUserId: forUser,
         dueDate: dueDate || undefined,
+        remindAt: remindAt ? new Date(remindAt).toISOString() : undefined,
       });
       setTitle("");
       setDetails("");
       setDueDate("");
+      setRemindAt("");
       setAdding(false);
     });
   }
@@ -101,7 +117,8 @@ export function JobTasks({
                 </span>
                 <strong>{task.title}</strong>
                 <small>
-                  {roleLabels[task.assignedRole]}
+                  {task.assignedUserName ??
+                    (task.assignedRole ? roleLabels[task.assignedRole] : "")}
                   {task.dueDate ? ` · due ${task.dueDate}` : ""}
                   {task.details ? ` · ${task.details}` : ""}
                   {task.completionNote ? ` · ${task.completionNote}` : ""}
@@ -160,12 +177,14 @@ export function JobTasks({
           <label className={styles.field}>
             Assigned to
             <select
-              onChange={(event) => setRole(event.target.value as StaffRoleKey)}
-              value={role}
+              onChange={(event) => setForUser(event.target.value)}
+              required
+              value={forUser}
             >
-              {staffRoleKeys.map((item) => (
-                <option key={item} value={item}>
-                  {roleLabels[item]}
+              {people.map((item) => (
+                <option key={item.userId} value={item.userId}>
+                  {item.name}
+                  {item.you ? " (me)" : ""}
                 </option>
               ))}
             </select>
@@ -176,6 +195,14 @@ export function JobTasks({
               onChange={(event) => setDueDate(event.target.value)}
               type="date"
               value={dueDate}
+            />
+          </label>
+          <label className={styles.field}>
+            Remind them at (optional)
+            <input
+              onChange={(event) => setRemindAt(event.target.value)}
+              type="datetime-local"
+              value={remindAt}
             />
           </label>
           <label className={styles.field}>

@@ -290,15 +290,34 @@ export interface EtaEventRecord {
   correctionOf: string | null;
 }
 
+/** A submitted daily or weekly performance report; the counts are a snapshot. */
+export interface PerformanceReportRecord {
+  id: string;
+  authorUserId: string;
+  teamKey: TeamKey;
+  period: "daily" | "weekly";
+  /** The day, or the Monday of the week (Ghana time, UTC). */
+  periodStart: string;
+  newCount: number;
+  completedCount: number;
+  overdueCount: number;
+  blockers: string | null;
+  notes: string | null;
+  createdAt: string;
+}
+
 export interface JobTaskRecord {
   id: string;
-  jobId: string;
-  fileNumber: string;
-  customerCompanyName: string;
+  /** Null for a to-do that belongs to no job. */
+  jobId: string | null;
+  fileNumber: string | null;
+  customerCompanyName: string | null;
   kind: TaskKind;
   title: string;
   details: string | null;
-  assignedRole: StaffRoleKey;
+  /** The person the task is for; null on older tasks that name only a role. */
+  assignedUserId: string | null;
+  assignedRole: StaffRoleKey | null;
   dueDate: string | null;
   status: "open" | "done";
   createdAt: string;
@@ -1667,24 +1686,70 @@ export abstract class DatabasePort {
   }): Promise<EtaEventRecord | "correction_target_not_found">;
   abstract listEtaEvents(jobId: string): Promise<EtaEventRecord[]>;
   abstract createJobTask(task: {
-    jobId: string;
+    /** Null for a to-do that belongs to no job. */
+    jobId: string | null;
     kind: TaskKind;
     title: string;
     details: string | null;
-    assignedRole: StaffRoleKey;
+    assignedUserId: string | null;
+    assignedRole: StaffRoleKey | null;
     dueDate: string | null;
     createdBy: string;
   }): Promise<JobTaskRecord>;
+  /**
+   * `viewer` decides who sees a task that belongs to no job: its assignee, its
+   * creator, or anyone when `seeAll` (the super admin). Job tasks follow `scope`.
+   */
   abstract listJobTasks(
-    filter: { jobId?: string; assignedRole?: StaffRoleKey; open?: boolean },
+    filter: {
+      jobId?: string;
+      taskId?: string;
+      assignedRole?: StaffRoleKey;
+      assignedUserId?: string;
+      open?: boolean;
+      viewer?: { userId: string; seeAll: boolean };
+    },
     scope: JobScope,
   ): Promise<JobTaskRecord[]>;
+  /** `jobId` null completes a to-do that belongs to no job. */
   abstract completeJobTask(
-    jobId: string,
+    jobId: string | null,
     taskId: string,
     completedBy: string,
     note: string | null,
   ): Promise<JobTaskRecord | "not_found" | "already_done">;
+  /**
+   * A person's task counts for a report: tasks assigned to them that were
+   * created and completed between `from` and `to` (dates, inclusive), and their
+   * open tasks due before `to`.
+   */
+  abstract countTasksForReport(
+    userId: string,
+    from: string,
+    to: string,
+  ): Promise<{
+    newCount: number;
+    completedCount: number;
+    overdueCount: number;
+  }>;
+  abstract createPerformanceReport(
+    report: Omit<PerformanceReportRecord, "id" | "createdAt">,
+  ): Promise<PerformanceReportRecord | "duplicate">;
+  abstract findPerformanceReport(
+    authorUserId: string,
+    period: "daily" | "weekly",
+    periodStart: string,
+  ): Promise<PerformanceReportRecord | null>;
+  /** `teams` null means every team (the super admin). */
+  abstract listPerformanceReports(filter: {
+    teams: TeamKey[] | null;
+    teamKey?: TeamKey;
+    period?: "daily" | "weekly";
+    /** Only reports for exactly this day or week start. */
+    periodStart?: string;
+    /** Only reports that name a blocker. */
+    withBlockers?: boolean;
+  }): Promise<PerformanceReportRecord[]>;
   abstract createQuote(
     input: {
       customerCompanyId: string;
