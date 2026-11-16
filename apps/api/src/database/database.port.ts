@@ -829,6 +829,35 @@ export interface JobCorrespondenceRecord {
   recordedAt: string;
 }
 
+export interface BusinessExpenseRecord {
+  id: string;
+  spentOn: string;
+  category: string;
+  description: string | null;
+  payee: string | null;
+  amountMinor: number;
+  currency: string;
+  paymentMethod: string;
+  reference: string | null;
+  note: string | null;
+  recordedBy: string;
+  recordedByName: string | null;
+  recordedAt: string;
+  voidedAt: string | null;
+  voidReason: string | null;
+}
+
+/** Filters for business expenses; categories are already narrowed by the service. */
+export interface BusinessExpenseFilter {
+  from: string | null;
+  to: string | null;
+  categories: string[];
+  paymentMethod: string | null;
+  currency: string | null;
+  search: string | null;
+  includeVoided: boolean;
+}
+
 export interface WarehouseLocationRecord {
   id: string;
   name: string;
@@ -2187,6 +2216,40 @@ export abstract class DatabasePort {
   abstract listJobCorrespondence(
     jobId: string,
   ): Promise<JobCorrespondenceRecord[]>;
+  abstract listBusinessExpenses(
+    filter: BusinessExpenseFilter,
+  ): Promise<BusinessExpenseRecord[]>;
+  abstract createBusinessExpense(
+    expense: Omit<
+      BusinessExpenseRecord,
+      "id" | "recordedByName" | "recordedAt" | "voidedAt" | "voidReason"
+    >,
+  ): Promise<BusinessExpenseRecord>;
+  /**
+   * Live (not voided) sums per category and currency for the same filter as
+   * the list, counted in the database so a long list never cuts them short.
+   */
+  abstract sumBusinessExpenses(filter: BusinessExpenseFilter): Promise<
+    Array<{
+      category: string;
+      currency: string;
+      amountMinor: number;
+      count: number;
+    }>
+  >;
+  /** Live (not voided) expenses per month ("YYYY-MM") and currency, from a day on. */
+  abstract sumBusinessExpensesByMonth(
+    categories: string[],
+    from: string,
+  ): Promise<Array<{ month: string; currency: string; amountMinor: number }>>;
+  /** The category of one expense, or null when there is none. */
+  abstract businessExpenseCategory(id: string): Promise<string | null>;
+  /** Null when there is no such expense; "voided" when it was voided already. */
+  abstract voidBusinessExpense(
+    id: string,
+    voidedBy: string,
+    reason: string,
+  ): Promise<BusinessExpenseRecord | "voided" | null>;
   abstract listWarehouseLocations(): Promise<WarehouseLocationRecord[]>;
   abstract createWarehouseLocation(
     name: string,

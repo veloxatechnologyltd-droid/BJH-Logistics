@@ -1057,6 +1057,13 @@ export type FinanceSummary = {
       receivedMinor: number;
     }>;
   };
+  /** Business expenses (not voided) per currency; payroll only for the super admin. */
+  expenses?: {
+    totals: Array<{ currency: string; amountMinor: number }>;
+    /** Per month over the trend's months; absent from an older API. */
+    months?: Array<{ month: string; currency: string; amountMinor: number }>;
+    includesPayroll: boolean;
+  };
 };
 
 export const getFinanceSummary = () =>

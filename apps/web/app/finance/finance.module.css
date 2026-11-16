@@ -134,6 +134,9 @@
   color: var(--brand-muted);
   font-size: 0.8rem;
 }
+.kpi strong.lossText {
+  color: #b42318;
+}
 .subhead {
   margin: 20px 0 10px;
   font-size: 0.95rem;
@@ -487,4 +490,92 @@
   padding: 0;
   list-style: none;
   font-size: 0.85rem;
+}
+
+/* Finance: the pages of Revenue or Expenses, under the main tabs. */
+.subTabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: -8px 0 20px;
+}
+.subTab {
+  border: 1px solid var(--brand-border);
+  border-radius: 999px;
+  background: #fff;
+  padding: 7px 14px;
+  color: var(--brand-muted);
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+.subTab:hover {
+  border-color: var(--brand-primary);
+  color: var(--brand-primary);
+}
+.subTabActive {
+  border-color: var(--brand-primary);
+  background: var(--brand-primary);
+  color: #fff;
+}
+.subTabActive:hover {
+  color: #fff;
+}
+.voided td {
+  color: var(--brand-muted);
+  text-decoration: line-through;
+}
+.voided td:last-child {
+  text-decoration: none;
+}
+/* On phones each cell carries its label; the label is not crossed out. */
+.voided td[data-label]::before {
+  display: inline-block;
+  width: 100%;
+  text-decoration: none;
+}
+.expenseKpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.checkField {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  align-self: end;
+  min-height: 42px;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.checkField input {
+  width: 18px;
+  height: 18px;
+}
+/* The full-page expense form: one card, fields in pairs where there is room. */
+.expenseForm {
+  max-width: 760px;
+}
+.formPair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  gap: 12px 16px;
+}
+.formSection {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  border: 0;
+  border-top: 1px solid var(--brand-border);
+  padding: 16px 0 0;
+}
+.formSection:first-of-type {
+  border-top: 0;
+  padding-top: 0;
+}
+.formSection legend {
+  padding: 0 0 4px;
+  color: var(--brand-ink);
+  font-weight: 700;
 }

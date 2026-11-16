@@ -20,6 +20,7 @@ import {
 } from "../auth/auth.guards";
 import type { AuthenticatedRequest } from "../auth/auth.guards";
 import { InvoicesService } from "./invoices.service";
+import { ExpensesService } from "./expenses.service";
 
 /** The part of the Express response the PDF route writes to. */
 interface BinaryResponse {
@@ -560,11 +561,18 @@ export class InvoiceRegisterController {
 export class FinanceSummaryController {
   constructor(
     @Inject(InvoicesService) private readonly invoices: InvoicesService,
+    @Inject(ExpensesService) private readonly expenses: ExpensesService,
   ) {}
 
+  /** Job money, plus business expenses per currency for profit after expenses. */
   @Get()
-  summary(@Req() request: AuthenticatedRequest) {
-    return this.invoices.financeSummary(scopeOf(request));
+  async summary(@Req() request: AuthenticatedRequest) {
+    const summary = await this.invoices.financeSummary(scopeOf(request));
+    const expenses = await this.expenses.totalsByCurrency(
+      request.staffRoles ?? [],
+      summary.trend.months[0],
+    );
+    return { ...summary, expenses };
   }
 }
 

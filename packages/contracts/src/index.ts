@@ -3198,3 +3198,210 @@ export const supportRequestStatusSchema = z.object(
   },
   objectError("A status object is required"),
 );
+
+/**
+ * Business expenses: what it costs to run BJH (salaries, fuel, rent, tax...),
+ * not tied to a client's job. Costs paid for a client's job are job costs
+ * (charges), kept on the job. Groups are in the order the form lists them.
+ */
+export const expenseCategoryGroups = [
+  {
+    key: "payroll",
+    label: "Staff and payroll",
+    categories: [
+      { key: "salaries", label: "Salaries and wages" },
+      { key: "ssnit", label: "SSNIT and pension" },
+      { key: "paye", label: "PAYE (staff income tax)" },
+      { key: "bonuses", label: "Bonuses and commissions" },
+      { key: "staff_allowances", label: "Staff allowances" },
+      { key: "staff_medical", label: "Staff medical and welfare" },
+    ],
+  },
+  {
+    key: "vehicles",
+    label: "Vehicles and transport",
+    categories: [
+      { key: "fuel", label: "Fuel" },
+      { key: "vehicle_repairs", label: "Vehicle repairs and servicing" },
+      { key: "tyres_parts", label: "Tyres and spare parts" },
+      { key: "vehicle_insurance", label: "Vehicle insurance" },
+      { key: "roadworthy", label: "Roadworthy and vehicle licensing" },
+      { key: "tolls_parking", label: "Tolls and parking" },
+      { key: "driver_trip", label: "Driver trip allowances" },
+      { key: "vehicle_hire", label: "Truck and vehicle hire" },
+      { key: "staff_transport", label: "Staff transport (taxi, trotro)" },
+    ],
+  },
+  {
+    key: "operations",
+    label: "Operations",
+    categories: [
+      { key: "casual_labour", label: "Casual labour and loaders" },
+      { key: "equipment_hire", label: "Forklift and equipment hire" },
+      { key: "packaging", label: "Packaging and materials" },
+      { key: "warehouse_upkeep", label: "Warehouse upkeep" },
+      { key: "safety_gear", label: "Uniforms and safety gear" },
+      { key: "courier", label: "Courier and postage" },
+    ],
+  },
+  {
+    key: "premises",
+    label: "Office and premises",
+    categories: [
+      { key: "rent", label: "Rent" },
+      { key: "electricity", label: "Electricity" },
+      { key: "water", label: "Water" },
+      { key: "internet_phone", label: "Internet, phone and airtime" },
+      { key: "security_cleaning", label: "Security and cleaning" },
+      { key: "premises_repairs", label: "Office repairs and maintenance" },
+      { key: "furniture_equipment", label: "Furniture and office equipment" },
+    ],
+  },
+  {
+    key: "taxes",
+    label: "Taxes and statutory",
+    categories: [
+      { key: "vat", label: "VAT, NHIL and GETFund payments" },
+      { key: "income_tax", label: "Company income tax" },
+      { key: "withholding_tax", label: "Withholding tax" },
+      { key: "permits_licences", label: "Business permits and licences" },
+      { key: "customs_licence", label: "Customs broker licence and fees" },
+      { key: "assembly_levies", label: "District assembly levies" },
+      { key: "fines_penalties", label: "Fines and penalties" },
+    ],
+  },
+  {
+    key: "admin",
+    label: "Admin and services",
+    categories: [
+      { key: "stationery", label: "Stationery and printing" },
+      { key: "software", label: "Software and subscriptions" },
+      { key: "professional_fees", label: "Accounting and legal fees" },
+      { key: "marketing", label: "Marketing and advertising" },
+      { key: "travel", label: "Travel and accommodation" },
+      { key: "meals", label: "Meals and entertainment" },
+      { key: "training", label: "Training" },
+      { key: "donations", label: "Donations and gifts" },
+    ],
+  },
+  {
+    key: "finance",
+    label: "Banking and finance",
+    categories: [
+      { key: "bank_charges", label: "Bank and MoMo charges" },
+      { key: "loan_repayment", label: "Loan repayments" },
+      { key: "interest", label: "Interest" },
+      { key: "business_insurance", label: "Business insurance" },
+      { key: "exchange_loss", label: "Exchange rate losses" },
+    ],
+  },
+  {
+    key: "other",
+    label: "Other",
+    categories: [{ key: "other", label: "Other (describe it)" }],
+  },
+] as const;
+
+export type ExpenseGroupKey = (typeof expenseCategoryGroups)[number]["key"];
+export type ExpenseCategoryKey =
+  (typeof expenseCategoryGroups)[number]["categories"][number]["key"];
+export const expenseCategoryKeys = expenseCategoryGroups.flatMap((group) =>
+  group.categories.map((category) => category.key),
+) as [ExpenseCategoryKey, ...ExpenseCategoryKey[]];
+export const expenseGroupKeys = expenseCategoryGroups.map(
+  (group) => group.key,
+) as [ExpenseGroupKey, ...ExpenseGroupKey[]];
+/** The group a category belongs to. */
+export function expenseGroupOf(category: string): ExpenseGroupKey | null {
+  return (
+    expenseCategoryGroups.find((group) =>
+      group.categories.some((entry) => entry.key === category),
+    )?.key ?? null
+  );
+}
+/** Payroll shows salaries, so only the super admin sees or records it. */
+export const restrictedExpenseGroups: readonly ExpenseGroupKey[] = ["payroll"];
+
+export const expensePaymentMethods = [
+  { key: "cash", label: "Cash" },
+  { key: "bank_transfer", label: "Bank transfer" },
+  { key: "mobile_money", label: "Mobile money" },
+  { key: "cheque", label: "Cheque" },
+  { key: "card", label: "Card" },
+  { key: "direct_debit", label: "Direct debit / standing order" },
+  { key: "other", label: "Other" },
+] as const;
+export type ExpensePaymentMethod =
+  (typeof expensePaymentMethods)[number]["key"];
+const expensePaymentMethodKeys = expensePaymentMethods.map(
+  (method) => method.key,
+) as [ExpensePaymentMethod, ...ExpensePaymentMethod[]];
+
+export const expenseInputSchema = z
+  .object(
+    {
+      spentOn: isoDate("spentOn"),
+      category: z.enum(expenseCategoryKeys, {
+        error: "category must be one of the listed expense categories",
+      }),
+      description: optionalText("description", 300),
+      payee: optionalText("payee", 200),
+      amountMinor: z
+        .number({ error: "amountMinor must be a whole number of minor units" })
+        .int({ error: "amountMinor must be a whole number of minor units" })
+        .min(1, { error: "amountMinor must be more than zero" })
+        .max(MAX_MINOR_AMOUNT, { error: "amountMinor is too large" }),
+      currency: currencyCode("currency"),
+      paymentMethod: z.enum(expensePaymentMethodKeys, {
+        error: `paymentMethod must be one of ${expensePaymentMethodKeys.join(", ")}`,
+      }),
+      reference: optionalText("reference", 200),
+      note: optionalText("note", 2000),
+    },
+    objectError("An expense object is required"),
+  )
+  .refine((value) => value.category !== "other" || value.description, {
+    error: "Describe the expense when the category is Other",
+    path: ["description"],
+  });
+export type ExpenseInput = z.infer<typeof expenseInputSchema>;
+
+/** Filters for the expense list; every one is optional. */
+export const expenseQuerySchema = z.object({
+  from: isoDate("from")
+    .nullish()
+    .transform((value) => value || null),
+  to: isoDate("to")
+    .nullish()
+    .transform((value) => value || null),
+  group: z
+    .enum(expenseGroupKeys, { error: "group is not a known expense group" })
+    .nullish()
+    .transform((value) => value ?? null),
+  category: z
+    .enum(expenseCategoryKeys, {
+      error: "category is not a known expense category",
+    })
+    .nullish()
+    .transform((value) => value ?? null),
+  paymentMethod: z
+    .enum(expensePaymentMethodKeys, {
+      error: "paymentMethod is not a known payment method",
+    })
+    .nullish()
+    .transform((value) => value ?? null),
+  currency: currencyCode("currency")
+    .nullish()
+    .transform((value) => value ?? null),
+  search: optionalText("search", 100),
+  includeVoided: z
+    .enum(["true", "false"], { error: "includeVoided must be true or false" })
+    .nullish()
+    .transform((value) => value === "true"),
+});
+export type ExpenseQuery = z.infer<typeof expenseQuerySchema>;
+
+export const expenseVoidInputSchema = z.object(
+  { reason: requiredText("reason", 300) },
+  objectError("A reason is required"),
+);
