@@ -2,62 +2,101 @@ import { BadRequestException } from "@nestjs/common";
 import type { TeamKey } from "@bjh/contracts";
 
 /**
- * What each staff member's performance is measured on (Evans, 2026-11-16): things a person did,
- * counted from the records that already name them. A metric belongs to a team,
- * or to "all" when everyone can do it. The keys are the ones the database query
- * produces; change them together.
+ * What each member of staff is measured on (Evans, 2026-11-16): results, not
+ * activity. A count or a money figure (per currency), counted from the records
+ * that name the person. The keys are the ones the database query produces;
+ * change them together.
  */
 export interface PerformanceMetric {
   key: string;
   label: string;
-  team: TeamKey | "all";
+  team: TeamKey;
+  kind: "count" | "money";
 }
 
 export const performanceMetrics: PerformanceMetric[] = [
-  { key: "leads_added", label: "Leads added", team: "sales" },
-  { key: "lead_followups", label: "Follow-ups logged", team: "sales" },
-  { key: "leads_won", label: "Leads won", team: "sales" },
-  { key: "prospects_promoted", label: "Prospects promoted", team: "sales" },
-  { key: "emails_sent", label: "Emails sent", team: "sales" },
+  { key: "leads_added", label: "New leads", team: "sales", kind: "count" },
   {
-    key: "requests_answered",
-    label: "Requests answered",
-    team: "customer_service",
+    key: "customers_won",
+    label: "Customers won",
+    team: "sales",
+    kind: "count",
   },
-  { key: "quotes_issued", label: "Quotes issued", team: "customer_service" },
+  {
+    key: "revenue_customers",
+    label: "Revenue from their customers",
+    team: "sales",
+    kind: "money",
+  },
+  {
+    key: "quotes_sent",
+    label: "Quotes sent",
+    team: "customer_service",
+    kind: "count",
+  },
+  {
+    key: "value_quoted",
+    label: "Value quoted",
+    team: "customer_service",
+    kind: "money",
+  },
   {
     key: "quotes_accepted",
-    label: "Quotes accepted",
+    label: "Accepted",
     team: "customer_service",
+    kind: "count",
   },
   {
-    key: "quotes_rejected",
-    label: "Quotes rejected",
+    key: "value_accepted",
+    label: "Value accepted",
     team: "customer_service",
+    kind: "money",
   },
   {
-    key: "client_messages",
-    label: "Client messages sent",
+    key: "quotes_lost",
+    label: "Lost",
     team: "customer_service",
+    kind: "count",
   },
-  { key: "jobs_opened", label: "Jobs opened", team: "customer_service" },
-  { key: "milestones", label: "Milestones recorded", team: "operations" },
-  { key: "status_changes", label: "Status changes", team: "operations" },
   {
-    key: "documents_uploaded",
-    label: "Documents uploaded",
+    key: "revenue_quotes",
+    label: "Invoiced from their quotes",
+    team: "customer_service",
+    kind: "money",
+  },
+  {
+    key: "jobs_taken",
+    label: "Jobs taken on",
     team: "operations",
+    kind: "count",
   },
-  { key: "etas_recorded", label: "ETAs recorded", team: "operations" },
   {
-    key: "deliveries_dispatched",
-    label: "Deliveries dispatched",
+    key: "jobs_completed",
+    label: "Jobs completed",
     team: "operations",
+    kind: "count",
   },
-  { key: "invoices_issued", label: "Invoices issued", team: "finance" },
-  { key: "payments_recorded", label: "Payments recorded", team: "finance" },
-  { key: "costs_recorded", label: "Costs recorded", team: "finance" },
-  { key: "tasks_done", label: "Tasks completed", team: "all" },
+  {
+    key: "milestones",
+    label: "Milestones updated",
+    team: "operations",
+    kind: "count",
+  },
+  { key: "tasks_done", label: "Tasks done", team: "operations", kind: "count" },
+  {
+    key: "invoices_sent",
+    label: "Invoices sent",
+    team: "finance",
+    kind: "count",
+  },
+  { key: "invoiced", label: "Amount invoiced", team: "finance", kind: "money" },
+  {
+    key: "payments_recorded",
+    label: "Payments recorded",
+    team: "finance",
+    kind: "count",
+  },
+  { key: "collected", label: "Collected", team: "finance", kind: "money" },
 ];
 
 /** A period of whole days (Ghana time = UTC) and the equal one just before it. */

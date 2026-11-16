@@ -100,7 +100,14 @@ export const submitReport = (input: {
     body: JSON.stringify(input),
   }).then((response) => read<PerformanceReport>(response));
 
-/** One person's numbers for the period and the period before. */
+/** Money per currency, in minor units, for the period and the one before. */
+export type MoneyFigure = Array<{
+  currency: string;
+  current: number;
+  previous: number;
+}>;
+
+/** One person's results for the period and the period before. */
 export type PersonPerformance = {
   userId: string;
   name: string;
@@ -108,8 +115,7 @@ export type PersonPerformance = {
   teams: TeamKey[];
   mine: boolean;
   metrics: Record<string, { current: number; previous: number }>;
-  /** Money recorded as received, per currency, in minor units. */
-  collected: Array<{ currency: string; current: number; previous: number }>;
+  money: Record<string, MoneyFigure>;
 };
 
 export type TeamPerformance = {
@@ -121,7 +127,7 @@ export type TeamPerformance = {
   manager: boolean;
   teams: Array<{
     teamKey: TeamKey;
-    metrics: Array<{ key: string; label: string }>;
+    metrics: Array<{ key: string; label: string; kind: "count" | "money" }>;
   }>;
   people: PersonPerformance[];
 };

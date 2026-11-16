@@ -305,9 +305,10 @@ export interface StaffPerformanceCount {
   previous: number;
 }
 
-/** Money a person recorded as received, per currency, in minor units. */
-export interface StaffCollected {
+/** A money figure a person is credited with, per currency, in minor units. */
+export interface StaffPerformanceMoney {
   userId: string;
+  metric: string;
   currency: string;
   current: number;
   previous: number;
@@ -1756,14 +1757,17 @@ export abstract class DatabasePort {
     overdueCount: number;
   }>;
   /**
-   * The work each of these people did in the window and in the period before
-   * it, from the records that name them (quotes issued, payments recorded,
-   * leads added and so on).
+   * What each of these people achieved in the window and in the period before
+   * it: counts (quotes sent, customers won, jobs completed...) and money
+   * (value quoted, revenue from their customers and quotes, collected...).
    */
   abstract staffPerformance(
     userIds: string[],
     bounds: StaffPerformanceBounds,
-  ): Promise<{ counts: StaffPerformanceCount[]; collected: StaffCollected[] }>;
+  ): Promise<{
+    counts: StaffPerformanceCount[];
+    money: StaffPerformanceMoney[];
+  }>;
   abstract createPerformanceReport(
     report: Omit<PerformanceReportRecord, "id" | "createdAt">,
   ): Promise<PerformanceReportRecord | "duplicate">;
