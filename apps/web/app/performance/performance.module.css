@@ -1,0 +1,9 @@
+/* The team switches are buttons styled as the shared tabs: drop the button chrome. */
+.teamTab {
+  border-top: 0;
+  border-right: 0;
+  border-left: 0;
+  background: none;
+  font-family: inherit;
+  cursor: pointer;
+}

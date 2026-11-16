@@ -13,6 +13,7 @@ import {
   SupabaseIdentityGuard,
 } from "../auth/auth.guards";
 import type { AuthenticatedRequest } from "../auth/auth.guards";
+import { TeamPerformanceService } from "./team-performance.service";
 import { PerformanceService } from "./performance.service";
 import type { PerformanceActor } from "./performance.service";
 
@@ -30,6 +31,8 @@ export class PerformanceController {
   constructor(
     @Inject(PerformanceService)
     private readonly performance: PerformanceService,
+    @Inject(TeamPerformanceService)
+    private readonly teamPerformance: TeamPerformanceService,
   ) {}
 
   /** The numbers a report would carry right now. */
@@ -40,6 +43,19 @@ export class PerformanceController {
     @Req() request: AuthenticatedRequest,
   ) {
     return this.performance.preview(actorOf(request), period, teamKey);
+  }
+
+  /**
+   * How each staff member performed in a period, from their own work. The super
+   * admin sees everyone; everyone else sees only themselves.
+   */
+  @Get("team")
+  team(
+    @Query("from") from: unknown,
+    @Query("to") to: unknown,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.teamPerformance.team(actorOf(request), { from, to });
   }
 
   /** Who still owes a report today and this week (super admin only). */

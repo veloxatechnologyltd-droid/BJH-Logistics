@@ -19,6 +19,7 @@ import type {
 } from "./performanceApi";
 import styles from "../jobs/jobs.module.css";
 import { ErrorPopup } from "../ErrorPopup";
+import { PerformanceTabs } from "./PerformanceTabs";
 
 const periodLabels: Record<Period, string> = {
   daily: "Daily",
@@ -150,9 +151,10 @@ export function PerformanceReports() {
 
   return (
     <main className={styles.page}>
+      <PerformanceTabs active="/performance/reports" />
       <header className={styles.header}>
         <div>
-          <h1 className={styles.title}>Performance reports</h1>
+          <h1 className={styles.title}>Daily & weekly reports</h1>
           <p className={styles.muted}>
             Each person sends one report for the day and one for the week. The
             numbers come from your tasks; you add what is blocking you and a
