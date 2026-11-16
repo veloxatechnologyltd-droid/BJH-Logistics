@@ -162,9 +162,9 @@ import {
   PushSubscriptionRecord,
   StaffRoleAssignmentRecord,
   PerformanceReportRecord,
-  StaffCollected,
   StaffPerformanceBounds,
   StaffPerformanceCount,
+  StaffPerformanceMoney,
   TeamConversationRecord,
   TeamConversationSummary,
   TeamMessageRecord,
@@ -2219,87 +2219,121 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
   async staffPerformance(
     userIds: string[],
     bounds: StaffPerformanceBounds,
-  ): Promise<{ counts: StaffPerformanceCount[]; collected: StaffCollected[] }> {
-    if (userIds.length === 0) return { counts: [], collected: [] };
+  ): Promise<{
+    counts: StaffPerformanceCount[];
+    money: StaffPerformanceMoney[];
+  }> {
+    if (userIds.length === 0) return { counts: [], money: [] };
     const params = [bounds.start, bounds.end, bounds.previousStart, userIds];
-    const [counts, collected] = await Promise.all([
+    // Who a quote belongs to: whoever issued its latest issued version.
+    // A quote's value: its lines, quantity x price, at-cost items excluded;
+    // an older per-size line counts its first size's price (one size is chosen).
+    const credit = `
+      WITH version_total AS (
+        SELECT version.version_id, version.quote_id, version.issued_by,
+          version.issued_at, version.version_number, version.currency,
+          coalesce(sum(CASE WHEN line.basis = 'at_cost' THEN 0
+            ELSE coalesce(line.amount_minor * line.quantity,
+              line.size_amounts_minor[1], 0)
+            END), 0) AS total_minor
+        FROM app.quote_version AS version
+        LEFT JOIN app.quote_line AS line ON line.version_id = version.version_id
+        WHERE version.issued_at IS NOT NULL
+        GROUP BY version.version_id),
+      quote_owner AS (
+        SELECT DISTINCT ON (quote_id) quote_id, issued_by AS user_id
+        FROM version_total ORDER BY quote_id, version_number DESC),
+      customer_owner AS (
+        SELECT DISTINCT ON (customer_company_id) customer_company_id,
+          coalesce(owner_id, created_by) AS user_id
+        FROM app.lead WHERE customer_company_id IS NOT NULL
+        ORDER BY customer_company_id, created_at),
+      live_invoice AS (
+        SELECT * FROM app.invoice
+        WHERE issued_at IS NOT NULL AND voided_at IS NULL),
+      live_payment AS (
+        SELECT payment.*, invoice.currency FROM app.invoice_payment AS payment
+        JOIN app.invoice AS invoice ON invoice.invoice_id = payment.invoice_id
+        WHERE NOT EXISTS (
+          SELECT 1 FROM app.invoice_payment_reversal AS reversal
+          WHERE reversal.payment_id = payment.payment_id))`;
+    const window = `
+      WHERE user_id = ANY($4::uuid[])
+        AND at >= $3::timestamptz AND at < $2::timestamptz`;
+    const [counts, money] = await Promise.all([
       this.pool.query(
-        `SELECT user_id, metric,
-           count(*) FILTER (WHERE at >= $1::timestamptz AND at < $2::timestamptz)
-             AS current,
-           count(*) FILTER (WHERE at >= $3::timestamptz AND at < $1::timestamptz)
-             AS previous
+        `${credit}
+         SELECT user_id, metric,
+           count(*) FILTER (WHERE at >= $1::timestamptz) AS current,
+           count(*) FILTER (WHERE at < $1::timestamptz) AS previous
          FROM (
-           SELECT created_by AS user_id, 'leads_added' AS metric, created_at AS at
-             FROM app.lead
-           UNION ALL SELECT created_by, 'leads_won', stage_changed_at
-             FROM app.lead WHERE stage = 'won' AND stage_changed_at IS NOT NULL
-           UNION ALL SELECT created_by, 'lead_followups', created_at
-             FROM app.lead_activity
-           UNION ALL SELECT promoted_by, 'prospects_promoted', promoted_at
-             FROM app.prospect WHERE promoted_at IS NOT NULL
-           UNION ALL SELECT created_by, 'emails_sent', accepted_at
-             FROM app.sales_email_message
-             WHERE direction = 'outgoing' AND send_status = 'accepted'
-               AND accepted_at IS NOT NULL
-           UNION ALL SELECT reply_sent_by, 'requests_answered', reply_sent_at
-             FROM app.quote_request WHERE reply_sent_at IS NOT NULL
-           UNION ALL SELECT issued_by, 'quotes_issued', issued_at
-             FROM app.quote_version WHERE issued_at IS NOT NULL
-           UNION ALL SELECT recorded_by,
-               CASE decision WHEN 'accepted' THEN 'quotes_accepted'
-                 ELSE 'quotes_rejected' END, recorded_at
-             FROM app.quote_decision
-           UNION ALL SELECT author_user_id, 'client_messages', created_at
-             FROM app.chat_message WHERE direction = 'to_client'
-           UNION ALL SELECT opened_by, 'jobs_opened', opened_at FROM app.job
+           SELECT coalesce(owner_id, created_by) AS user_id,
+             'leads_added' AS metric, created_at AS at FROM app.lead
+           UNION ALL SELECT coalesce(owner_id, created_by), 'customers_won',
+             stage_changed_at FROM app.lead WHERE stage = 'won'
+           UNION ALL SELECT issued_by, 'quotes_sent', issued_at
+             FROM version_total
+           UNION ALL SELECT version.issued_by,
+               CASE decision.decision WHEN 'accepted' THEN 'quotes_accepted'
+                 ELSE 'quotes_lost' END, decision.recorded_at
+             FROM app.quote_decision AS decision
+             JOIN version_total AS version
+               ON version.version_id = decision.version_id
+           UNION ALL SELECT user_id, 'jobs_taken', assigned_at
+             FROM app.job_assignment WHERE removed_at IS NULL
+           UNION ALL SELECT assignment.user_id, 'jobs_completed', job.closed_at
+             FROM app.job AS job
+             JOIN app.job_assignment AS assignment
+               ON assignment.job_id = job.job_id
+              AND assignment.kind = 'lead' AND assignment.removed_at IS NULL
+             WHERE job.status = 'closed' AND job.closed_at IS NOT NULL
            UNION ALL SELECT recorded_by, 'milestones', recorded_at
              FROM app.milestone_event
-           UNION ALL SELECT changed_by, 'status_changes', changed_at
-             FROM app.job_status_history
-           UNION ALL SELECT uploaded_by, 'documents_uploaded', uploaded_at
-             FROM app.document_version
-           UNION ALL SELECT recorded_by, 'etas_recorded', recorded_at
-             FROM app.eta_event
-           UNION ALL SELECT dispatched_by, 'deliveries_dispatched', dispatched_at
-             FROM app.delivery WHERE dispatched_at IS NOT NULL
            UNION ALL SELECT completed_by, 'tasks_done', completed_at
              FROM app.job_task WHERE completed_at IS NOT NULL
-           UNION ALL SELECT issued_by, 'invoices_issued', issued_at
-             FROM app.invoice WHERE issued_at IS NOT NULL AND voided_at IS NULL
-           UNION ALL SELECT payment.recorded_by, 'payments_recorded',
-               payment.recorded_at
-             FROM app.invoice_payment AS payment
-             WHERE NOT EXISTS (
-               SELECT 1 FROM app.invoice_payment_reversal AS reversal
-               WHERE reversal.payment_id = payment.payment_id)
-           UNION ALL SELECT recorded_by, 'costs_recorded', recorded_at
-             FROM app.job_charge_actual
-           UNION ALL SELECT recorded_by, 'costs_recorded', recorded_at
-             FROM app.business_expense WHERE voided_at IS NULL
+           UNION ALL SELECT issued_by, 'invoices_sent', issued_at
+             FROM live_invoice
+           UNION ALL SELECT recorded_by, 'payments_recorded', recorded_at
+             FROM live_payment
          ) AS event
-         WHERE user_id = ANY($4::uuid[])
-           AND at >= $3::timestamptz AND at < $2::timestamptz
+         ${window}
          GROUP BY user_id, metric`,
         params,
       ),
       this.pool.query(
-        `SELECT payment.recorded_by AS user_id, invoice.currency,
-           coalesce(sum(payment.amount_minor) FILTER (
-             WHERE payment.recorded_at >= $1::timestamptz
-               AND payment.recorded_at < $2::timestamptz), 0) AS current,
-           coalesce(sum(payment.amount_minor) FILTER (
-             WHERE payment.recorded_at >= $3::timestamptz
-               AND payment.recorded_at < $1::timestamptz), 0) AS previous
-         FROM app.invoice_payment AS payment
-         JOIN app.invoice AS invoice ON invoice.invoice_id = payment.invoice_id
-         WHERE payment.recorded_by = ANY($4::uuid[])
-           AND payment.recorded_at >= $3::timestamptz
-           AND payment.recorded_at < $2::timestamptz
-           AND NOT EXISTS (
-             SELECT 1 FROM app.invoice_payment_reversal AS reversal
-             WHERE reversal.payment_id = payment.payment_id)
-         GROUP BY payment.recorded_by, invoice.currency`,
+        `${credit}
+         SELECT user_id, metric, currency,
+           coalesce(sum(amount) FILTER (WHERE at >= $1::timestamptz), 0)
+             AS current,
+           coalesce(sum(amount) FILTER (WHERE at < $1::timestamptz), 0)
+             AS previous
+         FROM (
+           SELECT owner.user_id, 'revenue_customers' AS metric,
+             invoice.currency, invoice.total_minor AS amount,
+             invoice.issued_at AS at
+             FROM live_invoice AS invoice
+             JOIN customer_owner AS owner
+               ON owner.customer_company_id = invoice.customer_company_id
+           UNION ALL SELECT issued_by, 'value_quoted', currency, total_minor,
+             issued_at FROM version_total
+           UNION ALL SELECT version.issued_by, 'value_accepted',
+               version.currency, version.total_minor, decision.recorded_at
+             FROM app.quote_decision AS decision
+             JOIN version_total AS version
+               ON version.version_id = decision.version_id
+             WHERE decision.decision = 'accepted'
+           UNION ALL SELECT owner.user_id, 'revenue_quotes', invoice.currency,
+               invoice.total_minor, invoice.issued_at
+             FROM live_invoice AS invoice
+             JOIN app.job AS job ON job.job_id = invoice.job_id
+             JOIN quote_owner AS owner ON owner.quote_id = job.quote_id
+           UNION ALL SELECT issued_by, 'invoiced', currency, total_minor,
+             issued_at FROM live_invoice
+           UNION ALL SELECT recorded_by, 'collected', currency, amount_minor,
+             recorded_at FROM live_payment
+         ) AS event
+         ${window}
+         GROUP BY user_id, metric, currency`,
         params,
       ),
     ]);
@@ -2310,8 +2344,9 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
         current: Number(row.current),
         previous: Number(row.previous),
       })),
-      collected: collected.rows.map((row) => ({
+      money: money.rows.map((row) => ({
         userId: String(row.user_id),
+        metric: String(row.metric),
         currency: String(row.currency),
         current: Number(row.current),
         previous: Number(row.previous),

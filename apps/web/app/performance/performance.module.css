@@ -7,3 +7,16 @@
   font-family: inherit;
   cursor: pointer;
 }
+
+/* Title on the left, the period picker on the right. */
+.topBar {
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.periodPicker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-left: auto;
+}

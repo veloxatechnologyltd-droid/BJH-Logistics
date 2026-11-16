@@ -1,13 +1,25 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { getTeamPerformance, teamLabels } from "./performanceApi";
-import type { TeamKey, TeamPerformance as Result } from "./performanceApi";
+import { getTeamPerformance } from "./performanceApi";
+import type {
+  MoneyFigure,
+  TeamKey,
+  TeamPerformance as Result,
+} from "./performanceApi";
 import styles from "../jobs/jobs.module.css";
 import tiles from "../finance/finance.module.css";
 import own from "./performance.module.css";
 import { ErrorPopup } from "../ErrorPopup";
 import { PerformanceTabs } from "./PerformanceTabs";
+
+/** What each team's numbers are about, in words the staff use. */
+const teamNames: Record<TeamKey, string> = {
+  sales: "New business",
+  customer_service: "Quotes",
+  operations: "Shipments",
+  finance: "Money in",
+};
 
 type Preset =
   | "today"
@@ -32,7 +44,6 @@ const DAY = 86_400_000;
 /** Ghana is on UTC, so UTC dates are the local days. */
 const iso = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
-/** The days a preset covers, counted in Ghana time. */
 function presetRange(preset: Exclude<Preset, "custom">): [string, string] {
   const now = Date.now();
   const today = iso(now);
@@ -56,24 +67,11 @@ function presetRange(preset: Exclude<Preset, "custom">): [string, string] {
   }
 }
 
-const dayText = (value: string) =>
-  new Date(`${value}T00:00:00Z`).toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    timeZone: "UTC",
-  });
-
-const rangeText = (from: string, to: string) =>
-  from === to ? dayText(from) : `${dayText(from)} to ${dayText(to)}`;
-
-/** "+3 on the previous period", "2 fewer", "same as before". */
+/** "+3 vs before", "−2 vs before", "same as before". */
 function change(current: number, previous: number) {
   const diff = current - previous;
-  if (diff === 0) return "same as the period before";
-  return diff > 0
-    ? `${diff} more than the period before`
-    : `${-diff} fewer than the period before`;
+  if (diff === 0) return "same as before";
+  return `${diff > 0 ? "+" : "−"}${Math.abs(diff)} vs before`;
 }
 
 function money(minor: number, currency: string) {
@@ -81,11 +79,37 @@ function money(minor: number, currency: string) {
     return new Intl.NumberFormat("en-GB", {
       style: "currency",
       currency,
+      maximumFractionDigits: 0,
     }).format(minor / 100);
   } catch {
-    return `${currency} ${(minor / 100).toFixed(2)}`;
+    return `${currency} ${Math.round(minor / 100)}`;
   }
 }
+
+/** Adds money per currency across people. */
+function sumMoney(figures: MoneyFigure[]): MoneyFigure {
+  const byCurrency = new Map<string, { current: number; previous: number }>();
+  for (const figure of figures) {
+    for (const row of figure) {
+      const sum = byCurrency.get(row.currency) ?? { current: 0, previous: 0 };
+      byCurrency.set(row.currency, {
+        current: sum.current + row.current,
+        previous: sum.previous + row.previous,
+      });
+    }
+  }
+  return [...byCurrency.entries()]
+    .map(([currency, sum]) => ({ currency, ...sum }))
+    .sort((a, b) => a.currency.localeCompare(b.currency));
+}
+
+const moneyText = (figure: MoneyFigure) =>
+  figure.filter((row) => row.current > 0).length === 0
+    ? "—"
+    : figure
+        .filter((row) => row.current > 0)
+        .map((row) => money(row.current, row.currency))
+        .join(" · ");
 
 export function TeamPerformance() {
   const [preset, setPreset] = useState<Preset>("this_month");
@@ -139,91 +163,64 @@ export function TeamPerformance() {
         : [],
     [result, team],
   );
-
-  // Team totals for the tiles.
-  const totals = columns.map((column) => {
-    let current = 0;
-    let previous = 0;
-    for (const person of people) {
-      current += person.metrics[column.key]?.current ?? 0;
-      previous += person.metrics[column.key]?.previous ?? 0;
-    }
-    return { ...column, current, previous };
-  });
-  const collected = new Map<string, { current: number; previous: number }>();
-  for (const person of people) {
-    for (const row of person.collected) {
-      const sum = collected.get(row.currency) ?? { current: 0, previous: 0 };
-      collected.set(row.currency, {
-        current: sum.current + row.current,
-        previous: sum.previous + row.previous,
-      });
-    }
-  }
-  const total = (key: string) => totals.find((t) => t.key === key);
-  const accepted = total("quotes_accepted")?.current ?? 0;
-  const rejected = total("quotes_rejected")?.current ?? 0;
+  const countTotal = (key: string) =>
+    people.reduce(
+      (sum, person) => ({
+        current: sum.current + (person.metrics[key]?.current ?? 0),
+        previous: sum.previous + (person.metrics[key]?.previous ?? 0),
+      }),
+      { current: 0, previous: 0 },
+    );
+  const sent = countTotal("quotes_sent").current;
+  const accepted = countTotal("quotes_accepted").current;
 
   return (
     <main className={styles.page}>
       <PerformanceTabs active="/performance" />
-      <header className={styles.header}>
-        <div>
-          <h1 className={styles.title}>Team performance</h1>
-          <p className={styles.muted}>
-            {result && !result.manager
-              ? "Your own work, counted from what you did in the system."
-              : "What each member of staff has done, counted from their own work in the system: nobody types these numbers in."}
-          </p>
+      <header className={`${styles.header} ${own.topBar}`}>
+        <h1 className={styles.title}>Team performance</h1>
+        <div className={own.periodPicker}>
+          <label className={styles.field}>
+            Period
+            <select
+              onChange={(event) => setPreset(event.target.value as Preset)}
+              value={preset}
+            >
+              {(Object.keys(presetLabels) as Preset[]).map((key) => (
+                <option key={key} value={key}>
+                  {presetLabels[key]}
+                </option>
+              ))}
+            </select>
+          </label>
+          {preset === "custom" && (
+            <>
+              <label className={styles.field}>
+                From
+                <input
+                  onChange={(event) => setCustomFrom(event.target.value)}
+                  type="date"
+                  value={customFrom}
+                />
+              </label>
+              <label className={styles.field}>
+                To
+                <input
+                  onChange={(event) => setCustomTo(event.target.value)}
+                  type="date"
+                  value={customTo}
+                />
+              </label>
+            </>
+          )}
         </div>
       </header>
 
-      <div className={styles.filters}>
-        <label className={styles.field}>
-          Period
-          <select
-            onChange={(event) => setPreset(event.target.value as Preset)}
-            value={preset}
-          >
-            {(Object.keys(presetLabels) as Preset[]).map((key) => (
-              <option key={key} value={key}>
-                {presetLabels[key]}
-              </option>
-            ))}
-          </select>
-        </label>
-        {preset === "custom" && (
-          <>
-            <label className={styles.field}>
-              From
-              <input
-                onChange={(event) => setCustomFrom(event.target.value)}
-                type="date"
-                value={customFrom}
-              />
-            </label>
-            <label className={styles.field}>
-              To
-              <input
-                onChange={(event) => setCustomTo(event.target.value)}
-                type="date"
-                value={customTo}
-              />
-            </label>
-          </>
-        )}
-      </div>
-
       <ErrorPopup message={error} />
-      {loading && <p role="status">Counting…</p>}
+      {loading && !result && <p role="status">Counting…</p>}
 
       {result && (
         <>
-          <p className={styles.muted}>
-            {rangeText(result.from, result.to)}, compared with{" "}
-            {rangeText(result.previousFrom, result.previousTo)}.
-          </p>
-
           {result.teams.length > 1 && (
             <nav className={styles.tabs} aria-label="Teams">
               {result.teams.map((entry) => (
@@ -234,50 +231,58 @@ export function TeamPerformance() {
                   onClick={() => setTeam(entry.teamKey)}
                   type="button"
                 >
-                  {teamLabels[entry.teamKey]}
+                  {teamNames[entry.teamKey]}
                 </button>
               ))}
             </nav>
           )}
 
           {people.length === 0 ? (
-            <p className={styles.muted}>
-              Nobody on this team yet. Give staff their roles in Settings.
-            </p>
+            <p className={styles.muted}>Nobody on this team yet.</p>
           ) : (
             <>
               <section
                 className={tiles.kpis}
-                aria-label={`${team ? teamLabels[team] : ""} totals`}
+                aria-label={`${team ? teamNames[team] : ""} totals`}
               >
-                {totals.map((item) => (
-                  <div className={tiles.kpi} key={item.key}>
-                    <span>{item.label}</span>
-                    <strong>{item.current}</strong>
-                    <small>{change(item.current, item.previous)}</small>
-                  </div>
-                ))}
-                {team === "customer_service" && accepted + rejected > 0 && (
+                {columns.map((column) => {
+                  if (column.kind === "money") {
+                    const total = sumMoney(
+                      people.map((p) => p.money[column.key] ?? []),
+                    );
+                    return (
+                      <div className={tiles.kpi} key={column.key}>
+                        <span>{column.label}</span>
+                        <strong>{moneyText(total)}</strong>
+                        <small>
+                          {total.some((row) => row.previous > 0)
+                            ? `${total
+                                .filter((row) => row.previous > 0)
+                                .map((row) => money(row.previous, row.currency))
+                                .join(" · ")} before`
+                            : "none before"}
+                        </small>
+                      </div>
+                    );
+                  }
+                  const total = countTotal(column.key);
+                  return (
+                    <div className={tiles.kpi} key={column.key}>
+                      <span>{column.label}</span>
+                      <strong>{total.current}</strong>
+                      <small>{change(total.current, total.previous)}</small>
+                    </div>
+                  );
+                })}
+                {team === "customer_service" && sent > 0 && (
                   <div className={tiles.kpi}>
-                    <span>Quote win rate</span>
-                    <strong>
-                      {Math.round((accepted / (accepted + rejected)) * 100)}%
-                    </strong>
+                    <span>Win rate</span>
+                    <strong>{Math.round((accepted / sent) * 100)}%</strong>
                     <small>
-                      {accepted} accepted of {accepted + rejected} decided
+                      {accepted} of {sent} quotes accepted
                     </small>
                   </div>
                 )}
-                {team === "finance" &&
-                  [...collected.entries()].map(([currency, sum]) => (
-                    <div className={tiles.kpi} key={currency}>
-                      <span>Collected ({currency})</span>
-                      <strong>{money(sum.current, currency)}</strong>
-                      <small>
-                        {money(sum.previous, currency)} the period before
-                      </small>
-                    </div>
-                  ))}
               </section>
 
               <div className={styles.tableScroll}>
@@ -290,7 +295,6 @@ export function TeamPerformance() {
                           {column.label}
                         </th>
                       ))}
-                      {team === "finance" && <th scope="col">Collected</th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -299,33 +303,21 @@ export function TeamPerformance() {
                         <th scope="row">
                           {person.name}
                           {person.mine ? " (you)" : ""}
-                          <br />
-                          <small>{person.roles.join(", ")}</small>
                         </th>
                         {columns.map((column) => {
-                          const value = person.metrics[column.key] ?? {
-                            current: 0,
-                            previous: 0,
-                          };
+                          if (column.kind === "money") {
+                            return (
+                              <td data-label={column.label} key={column.key}>
+                                {moneyText(person.money[column.key] ?? [])}
+                              </td>
+                            );
+                          }
                           return (
                             <td data-label={column.label} key={column.key}>
-                              <strong>{value.current}</strong>
-                              <br />
-                              <small>was {value.previous}</small>
+                              {person.metrics[column.key]?.current ?? 0}
                             </td>
                           );
                         })}
-                        {team === "finance" && (
-                          <td data-label="Collected">
-                            {person.collected.length === 0
-                              ? "—"
-                              : person.collected
-                                  .map((row) =>
-                                    money(row.current, row.currency),
-                                  )
-                                  .join(", ")}
-                          </td>
-                        )}
                       </tr>
                     ))}
                   </tbody>
