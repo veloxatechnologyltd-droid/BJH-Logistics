@@ -134,7 +134,10 @@ const staffNav: NavGroup[] = [
   },
   {
     heading: "REPORTS",
-    items: [{ href: "/reports", label: "Reports", icon: "reports" }],
+    items: [
+      { href: "/reports", label: "Reports", icon: "reports" },
+      { href: "/performance", label: "Performance", icon: "tasks" },
+    ],
   },
 ];
 

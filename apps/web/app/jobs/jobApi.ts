@@ -8,7 +8,6 @@ import type {
   ReferenceKind,
   ServiceLine,
   HeldStaffRoleKey,
-  StaffRoleKey,
   TaskKind,
   ChargeKind,
   PaymentMethod,
@@ -319,13 +318,17 @@ export const recordEta = (
 
 export type JobTask = {
   id: string;
-  jobId: string;
-  fileNumber: string;
-  customerCompanyName: string;
+  /** Null for a to-do that belongs to no job. */
+  jobId: string | null;
+  fileNumber: string | null;
+  customerCompanyName: string | null;
   kind: TaskKind;
   title: string;
   details: string | null;
-  assignedRole: HeldStaffRoleKey;
+  /** The person the task is for; null on older tasks that name only a role. */
+  assignedUserId: string | null;
+  assignedUserName: string | null;
+  assignedRole: HeldStaffRoleKey | null;
   dueDate: string | null;
   status: "open" | "done";
   completedAt: string | null;
@@ -350,8 +353,9 @@ export const createJobTask = (
     kind: TaskKind;
     title: string;
     details?: string;
-    assignedRole: StaffRoleKey;
+    assignedUserId: string;
     dueDate?: string;
+    remindAt?: string;
   },
 ) => send<JobTask>(`/${encodeURIComponent(id)}/tasks`, "POST", input);
 export const completeJobTask = (id: string, taskId: string, note?: string) =>
@@ -360,13 +364,41 @@ export const completeJobTask = (id: string, taskId: string, note?: string) =>
     "POST",
     { note },
   );
-export const listTasks = (assignedRole: string, status: "open" | "all") =>
+export const listTasks = (
+  assignedRole: string,
+  status: "open" | "all",
+  assignedUserId = "",
+) =>
   authenticatedFetch(
     `${apiBaseUrl.replace(/\/$/, "")}/v1/tasks?${new URLSearchParams({
       ...(assignedRole ? { assignedRole } : {}),
+      ...(assignedUserId ? { assignedUserId } : {}),
       status,
     })}`,
   ).then((response) => readResponse<JobTask[]>(response));
+
+/** A to-do that belongs to no job, for one named person. */
+export const createTodo = (input: {
+  title: string;
+  details?: string;
+  assignedUserId: string;
+  dueDate?: string;
+  remindAt?: string;
+}) =>
+  authenticatedFetch(`${apiBaseUrl.replace(/\/$/, "")}/v1/tasks`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(input),
+  }).then((response) => readResponse<JobTask>(response));
+export const completeTodo = (taskId: string, note?: string) =>
+  authenticatedFetch(
+    `${apiBaseUrl.replace(/\/$/, "")}/v1/tasks/${encodeURIComponent(taskId)}/complete`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ note }),
+    },
+  ).then((response) => readResponse<JobTask>(response));
 
 export type ChargeActual = {
   id: string;

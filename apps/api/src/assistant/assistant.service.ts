@@ -736,7 +736,13 @@ export class AssistantService {
       case "what_needs_attention": {
         const [notices, tasks] = await Promise.all([
           this.notices.list(actor.userId),
-          this.database.listJobTasks({ open: true }, scope),
+          this.database.listJobTasks(
+            {
+              open: true,
+              viewer: { userId: actor.userId, seeAll: false },
+            },
+            scope,
+          ),
         ]);
         const today = new Date().toISOString().slice(0, 10);
         return {
@@ -747,7 +753,9 @@ export class AssistantService {
           overdueTasks: tasks
             .filter(
               (task) =>
-                actor.roles.includes(task.assignedRole) &&
+                (task.assignedUserId === actor.userId ||
+                  (task.assignedRole !== null &&
+                    actor.roles.includes(task.assignedRole))) &&
                 task.dueDate !== null &&
                 task.dueDate < today,
             )

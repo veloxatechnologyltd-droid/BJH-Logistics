@@ -78,6 +78,8 @@ import {
   createWebsiteContactFinder,
 } from "./leads/website-contacts";
 import { ChatService } from "./chat/chat.service";
+import { PerformanceController } from "./performance/performance.controller";
+import { PerformanceService } from "./performance/performance.service";
 import { TeamChatController } from "./team-chat/team-chat.controller";
 import { TeamChatService } from "./team-chat/team-chat.service";
 import { StaffNotificationsController } from "./notifications/staff-notifications.controller";
@@ -191,6 +193,7 @@ import { PushService } from "./push/push.service";
     JobAssignmentsController,
     StaffNotificationsController,
     ChatController,
+    PerformanceController,
     TeamChatController,
     AssistantController,
     JobDetailsController,
@@ -256,6 +259,7 @@ import { PushService } from "./push/push.service";
     JobAssignmentsService,
     StaffNotificationsService,
     ChatService,
+    PerformanceService,
     TeamChatService,
     AssistantService,
     {

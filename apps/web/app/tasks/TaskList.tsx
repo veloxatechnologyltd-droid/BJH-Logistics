@@ -2,19 +2,32 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { staffRoleKeys } from "@bjh/contracts";
+import type { FormEvent } from "react";
 import {
   completeJobTask,
+  completeTodo,
+  createTodo,
   listTasks,
   roleLabels,
   taskKindLabels,
 } from "../jobs/jobApi";
 import type { JobTask } from "../jobs/jobApi";
+import { listTeamPeople } from "../team-chat/teamChatApi";
+import type { TeamPerson } from "../team-chat/teamChatApi";
 import styles from "../jobs/jobs.module.css";
 import { ErrorPopup } from "../ErrorPopup";
 
+/** Ghana is on UTC, so the date part of an ISO time is the local day. */
+const todayIso = () => new Date().toISOString().slice(0, 10);
+
 export function TaskList() {
-  const [role, setRole] = useState("");
+  const [person, setPerson] = useState("");
+  const [people, setPeople] = useState<TeamPerson[]>([]);
+  const [adding, setAdding] = useState(false);
+  const [title, setTitle] = useState("");
+  const [forUser, setForUser] = useState("");
+  const [dueDate, setDueDate] = useState("");
+  const [remindAt, setRemindAt] = useState("");
   const [status, setStatus] = useState<"open" | "all">("open");
   const [tasks, setTasks] = useState<JobTask[]>([]);
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
@@ -24,7 +37,8 @@ export function TaskList() {
   async function markDone(task: JobTask) {
     setError("");
     try {
-      await completeJobTask(task.jobId, task.id);
+      if (task.jobId) await completeJobTask(task.jobId, task.id);
+      else await completeTodo(task.id);
       setReload((count) => count + 1);
     } catch (cause) {
       setError(
@@ -34,10 +48,42 @@ export function TaskList() {
     }
   }
 
+  async function addTodo(event: FormEvent) {
+    event.preventDefault();
+    setError("");
+    try {
+      await createTodo({
+        title: title.trim(),
+        assignedUserId: forUser,
+        dueDate: dueDate || undefined,
+        remindAt: remindAt ? new Date(remindAt).toISOString() : undefined,
+      });
+      setTitle("");
+      setDueDate("");
+      setRemindAt("");
+      setAdding(false);
+      setReload((count) => count + 1);
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "The to-do could not be saved",
+      );
+    }
+  }
+
+  useEffect(() => {
+    listTeamPeople()
+      .then((result) => {
+        setPeople(result);
+        setForUser(result.find((item) => item.you)?.userId ?? "");
+      })
+      // The filter and the form fall back to "everyone" and "me" without it.
+      .catch(() => undefined);
+  }, []);
+
   useEffect(() => {
     let active = true;
     setState("loading");
-    listTasks(role, status)
+    listTasks("", status, person)
       .then((result) => {
         if (active) {
           setTasks(result);
@@ -55,7 +101,7 @@ export function TaskList() {
     return () => {
       active = false;
     };
-  }, [role, status, reload]);
+  }, [person, status, reload]);
 
   return (
     <main className={styles.page}>
@@ -63,26 +109,99 @@ export function TaskList() {
         <div>
           <h1 className={styles.title}>Tasks</h1>
           <p className={styles.muted}>
-            Things that still need doing on your jobs, such as chasing a missing
-            document or dealing with damaged cargo. Open a job to add a new
-            task.
+            Things that still need doing, each for one person: chasing a missing
+            document, dealing with damaged cargo, or any to-do of your own. Job
+            tasks are added from inside a job.
           </p>
         </div>
+        {!adding && (
+          <button
+            className={styles.button}
+            onClick={() => setAdding(true)}
+            type="button"
+          >
+            Add to-do
+          </button>
+        )}
       </header>
+
+      {adding && (
+        <form
+          className={`${styles.form} ${styles.quickUpdateForm}`}
+          onSubmit={(event) => void addTodo(event)}
+        >
+          <label className={styles.field}>
+            To-do
+            <input
+              autoFocus
+              maxLength={200}
+              onChange={(event) => setTitle(event.target.value)}
+              required
+              value={title}
+            />
+          </label>
+          <label className={styles.field}>
+            For
+            <select
+              onChange={(event) => setForUser(event.target.value)}
+              required
+              value={forUser}
+            >
+              {people.map((item) => (
+                <option key={item.userId} value={item.userId}>
+                  {item.name}
+                  {item.you ? " (me)" : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className={styles.field}>
+            Due date (optional)
+            <input
+              onChange={(event) => setDueDate(event.target.value)}
+              type="date"
+              value={dueDate}
+            />
+          </label>
+          <label className={styles.field}>
+            Remind them at (optional)
+            <input
+              onChange={(event) => setRemindAt(event.target.value)}
+              type="datetime-local"
+              value={remindAt}
+            />
+          </label>
+          <div className={styles.formActions}>
+            <button className={styles.button} type="submit">
+              Save
+            </button>
+            <button
+              className={styles.secondaryButton}
+              onClick={() => setAdding(false)}
+              type="button"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
 
       <div className={styles.filters}>
         <label className={styles.field}>
           Whose work?
           <select
-            onChange={(event) => setRole(event.target.value)}
-            value={role}
+            onChange={(event) => setPerson(event.target.value)}
+            value={person}
           >
-            <option value="">Everyone's tasks</option>
-            {staffRoleKeys.map((item) => (
-              <option key={item} value={item}>
-                {roleLabels[item]}
-              </option>
-            ))}
+            <option value="">Everyone</option>
+            <option value="me">Me</option>
+            {people
+              .filter((item) => !item.you)
+              .map((item) => (
+                <option key={item.userId} value={item.userId}>
+                  {item.name}
+                </option>
+              ))}
           </select>
         </label>
         <label className={styles.field}>
@@ -105,8 +224,8 @@ export function TaskList() {
         (tasks.length === 0 ? (
           <p className={styles.muted}>
             {status === "open"
-              ? "Nothing left to do. New tasks are added from inside a job, under its Tasks tab."
-              : "No tasks yet. Tasks are added from inside a job, under its Tasks tab."}
+              ? "Nothing left to do. Add a to-do above, or add a task from inside a job."
+              : "No tasks yet. Add a to-do above, or add a task from inside a job."}
           </p>
         ) : (
           <div className={styles.tableScroll}>
@@ -114,10 +233,10 @@ export function TaskList() {
               <thead>
                 <tr>
                   <th scope="col">Task</th>
-                  <th scope="col">Job</th>
-                  <th scope="col">Type</th>
                   <th scope="col">Whose work</th>
                   <th scope="col">Due</th>
+                  <th scope="col">Job</th>
+                  <th scope="col">Type</th>
                   <th scope="col">Status</th>
                   <th scope="col">Action</th>
                 </tr>
@@ -126,20 +245,39 @@ export function TaskList() {
                 {tasks.map((task) => (
                   <tr key={task.id}>
                     <th scope="row">{task.title}</th>
+                    <td data-label="Whose work">
+                      {task.assignedUserName ??
+                        (task.assignedRole
+                          ? roleLabels[task.assignedRole]
+                          : "—")}
+                    </td>
+                    <td data-label="Due">
+                      {task.dueDate ?? "—"}
+                      {task.status === "open" &&
+                        task.dueDate !== null &&
+                        task.dueDate < todayIso() && (
+                          <>
+                            {" "}
+                            <strong>Overdue</strong>
+                          </>
+                        )}
+                    </td>
                     <td data-label="Job" data-wide>
-                      <Link
-                        className={styles.link}
-                        href={`/jobs/${task.jobId}`}
-                      >
-                        {task.fileNumber}
-                      </Link>{" "}
-                      · {task.customerCompanyName}
+                      {task.jobId ? (
+                        <>
+                          <Link
+                            className={styles.link}
+                            href={`/jobs/${task.jobId}`}
+                          >
+                            {task.fileNumber}
+                          </Link>{" "}
+                          · {task.customerCompanyName}
+                        </>
+                      ) : (
+                        "Not tied to a job"
+                      )}
                     </td>
                     <td data-label="Type">{taskKindLabels[task.kind]}</td>
-                    <td data-label="Whose work">
-                      {roleLabels[task.assignedRole]}
-                    </td>
-                    <td data-label="Due">{task.dueDate ?? "—"}</td>
                     <td data-label="Status">
                       <span className={styles.badge}>
                         {task.status === "done" ? "Done" : "To do"}

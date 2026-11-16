@@ -192,7 +192,18 @@ export class JobDetailsController {
   }
 }
 
-/** Open work across every job the caller can see (a department's task list). */
+/** Who may see every to-do that belongs to no job. */
+function viewerOf(request: AuthenticatedRequest) {
+  return {
+    userId: request.authUser!.userId,
+    seeAll: request.staffRoles?.includes("super_admin") ?? false,
+  };
+}
+
+/**
+ * Open work across every job the caller can see, plus to-dos that are theirs
+ * (a department's or a person's task list).
+ */
 @Controller("api/v1/tasks")
 @UseGuards(SupabaseIdentityGuard)
 export class TasksController {
@@ -204,9 +215,31 @@ export class TasksController {
   @UseGuards(DepartmentStaffGuard, JobScopeGuard)
   list(
     @Query("assignedRole") assignedRole: string | undefined,
+    @Query("assignedUserId") assignedUserId: string | undefined,
     @Query("status") status: string | undefined,
     @Req() request: AuthenticatedRequest,
   ) {
-    return this.details.listOpenTasks(assignedRole, status, scopeOf(request));
+    return this.details.listOpenTasks(
+      { assignedRole, assignedUserId, status },
+      scopeOf(request),
+      viewerOf(request),
+    );
+  }
+
+  /** A to-do that belongs to no job, for one named person. */
+  @Post()
+  @UseGuards(DepartmentStaffGuard, JobScopeGuard)
+  create(@Body() body: unknown, @Req() request: AuthenticatedRequest) {
+    return this.details.createTodo(body, request.authUser!.userId);
+  }
+
+  @Post(":taskId/complete")
+  @UseGuards(DepartmentStaffGuard, JobScopeGuard)
+  complete(
+    @Param("taskId") taskId: string,
+    @Body() body: unknown,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.details.completeTodo(taskId, body, viewerOf(request));
   }
 }

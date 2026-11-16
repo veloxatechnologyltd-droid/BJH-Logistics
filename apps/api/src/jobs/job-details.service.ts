@@ -16,6 +16,7 @@ import {
   shipmentReferenceInputSchema,
   staffRoleKeys,
   taskCompletionSchema,
+  todoInputSchema,
 } from "@bjh/contracts";
 import type { StaffRoleKey } from "@bjh/contracts";
 import {
@@ -28,10 +29,18 @@ import {
   ShipmentReferenceRecord,
   StaffNotificationRecord,
 } from "../database/database.port";
+import {
+  STAFF_AUTH_DIRECTORY,
+  staffDisplayName,
+} from "../auth/staff-admin.port";
+import type { StaffAuthDirectory } from "../auth/staff-admin.port";
 import { etaMessage } from "../notifications/notification-messages";
 import { NotificationsService } from "../notifications/notifications.service";
 import { isValidContainerNumber } from "../documents/document-extraction";
 import { JobsService } from "./jobs.service";
+
+/** A task as the web shows it: with the assigned person's display name. */
+export type ShownTask = JobTaskRecord & { assignedUserName: string | null };
 
 /** Parties, shipment references, manual ETA and tasks on a job. */
 @Injectable()
@@ -41,6 +50,7 @@ export class JobDetailsService {
     @Inject(JobsService) private readonly jobs: JobsService,
     @Inject(NotificationsService)
     private readonly notifications: NotificationsService,
+    @Inject(STAFF_AUTH_DIRECTORY) private readonly auth: StaffAuthDirectory,
   ) {}
 
   async listParties(id: string, scope: JobScope): Promise<JobPartyRecord[]> {
@@ -249,9 +259,11 @@ export class JobDetailsService {
     });
   }
 
-  async listTasks(id: string, scope: JobScope): Promise<JobTaskRecord[]> {
+  async listTasks(id: string, scope: JobScope): Promise<ShownTask[]> {
     const job = await this.jobs.get(id, scope);
-    return this.database.listJobTasks({ jobId: job.id }, scope);
+    return this.withNames(
+      await this.database.listJobTasks({ jobId: job.id }, scope),
+    );
   }
 
   async createTask(
@@ -259,15 +271,18 @@ export class JobDetailsService {
     input: unknown,
     createdBy: string,
     scope: JobScope,
-  ): Promise<JobTaskRecord> {
+  ): Promise<ShownTask> {
     const job = await this.editableJob(id, scope);
     const parsed = parseContract(jobTaskInputSchema, input);
     if (!parsed.success) throw new BadRequestException(parsed.message);
-    return this.database.createJobTask({
-      jobId: job.id,
-      ...parsed.data,
-      createdBy,
-    });
+    return this.saveTask(job.id, parsed.data, createdBy);
+  }
+
+  /** A to-do that belongs to no job, for one named person. */
+  async createTodo(input: unknown, createdBy: string): Promise<ShownTask> {
+    const parsed = parseContract(todoInputSchema, input);
+    if (!parsed.success) throw new BadRequestException(parsed.message);
+    return this.saveTask(null, parsed.data, createdBy);
   }
 
   async completeTask(
@@ -276,35 +291,45 @@ export class JobDetailsService {
     input: unknown,
     completedBy: string,
     scope: JobScope,
-  ): Promise<JobTaskRecord> {
+  ): Promise<ShownTask> {
     // Finishing follow-up work (a damage claim, a missing document) is allowed
     // after closure; adding tasks still needs an open job.
     const job = await this.jobs.get(id, scope);
-    const parsed = parseContract(taskCompletionSchema, input ?? {});
-    if (!parsed.success) throw new BadRequestException(parsed.message);
-    const result = isUuid(taskId)
-      ? await this.database.completeJobTask(
-          job.id,
-          taskId,
-          completedBy,
-          parsed.data.note,
-        )
-      : "not_found";
-    if (result === "not_found") {
-      throw new NotFoundException("Task was not found on this job");
-    }
-    if (result === "already_done") {
-      throw new ConflictException("Task is already complete");
-    }
-    return result;
+    return this.finish(job.id, taskId, input, completedBy);
   }
 
-  /** Tasks across the jobs the caller can see, e.g. one department's open work. */
+  /**
+   * Finishing a to-do that belongs to no job. Anyone who cannot see it is told
+   * it does not exist, so its existence is not revealed.
+   */
+  async completeTodo(
+    taskId: string,
+    input: unknown,
+    viewer: { userId: string; seeAll: boolean },
+  ): Promise<ShownTask> {
+    const visible =
+      isUuid(taskId) &&
+      (await this.database.listJobTasks({ taskId, viewer }, {})).some(
+        (task) => task.jobId === null,
+      );
+    if (!visible) throw new NotFoundException("To-do was not found");
+    return this.finish(null, taskId, input, viewer.userId);
+  }
+
+  /**
+   * Tasks across the jobs the caller can see, plus to-dos that are theirs
+   * (everyone's, for the super admin). `assignedUserId` may be `me`.
+   */
   async listOpenTasks(
-    assignedRole: string | undefined,
-    status: string | undefined,
+    filters: {
+      assignedRole?: string;
+      assignedUserId?: string;
+      status?: string;
+    },
     scope: JobScope,
-  ): Promise<JobTaskRecord[]> {
+    viewer: { userId: string; seeAll: boolean },
+  ): Promise<ShownTask[]> {
+    const { assignedRole, status } = filters;
     if (
       assignedRole !== undefined &&
       !(staffRoleKeys as readonly string[]).includes(assignedRole)
@@ -316,13 +341,121 @@ export class JobDetailsService {
     if (status !== undefined && status !== "open" && status !== "all") {
       throw new BadRequestException("status must be open or all");
     }
-    return this.database.listJobTasks(
-      {
-        assignedRole: assignedRole as StaffRoleKey | undefined,
-        open: status !== "all",
-      },
-      scope,
+    const assignedUserId =
+      filters.assignedUserId === "me" ? viewer.userId : filters.assignedUserId;
+    if (assignedUserId !== undefined && !isUuid(assignedUserId)) {
+      throw new BadRequestException("assignedUserId must be me or a valid ID");
+    }
+    return this.withNames(
+      await this.database.listJobTasks(
+        {
+          assignedRole: assignedRole as StaffRoleKey | undefined,
+          assignedUserId,
+          open: status !== "all",
+          viewer,
+        },
+        scope,
+      ),
     );
+  }
+
+  private async finish(
+    jobId: string | null,
+    taskId: string,
+    input: unknown,
+    completedBy: string,
+  ): Promise<ShownTask> {
+    const parsed = parseContract(taskCompletionSchema, input ?? {});
+    if (!parsed.success) throw new BadRequestException(parsed.message);
+    const result = isUuid(taskId)
+      ? await this.database.completeJobTask(
+          jobId,
+          taskId,
+          completedBy,
+          parsed.data.note,
+        )
+      : "not_found";
+    if (result === "not_found") {
+      throw new NotFoundException("Task was not found");
+    }
+    if (result === "already_done") {
+      throw new ConflictException("Task is already complete");
+    }
+    return (await this.withNames([result]))[0];
+  }
+
+  /**
+   * Saves a task for a person who is active staff and, when asked, sets the
+   * reminder that pops up on that person's screen.
+   */
+  private async saveTask(
+    jobId: string | null,
+    input: {
+      kind: JobTaskRecord["kind"];
+      title: string;
+      details: string | null;
+      assignedUserId: string | null;
+      assignedRole: StaffRoleKey | null;
+      dueDate: string | null;
+      remindAt: string | null;
+    },
+    createdBy: string,
+  ): Promise<ShownTask> {
+    if (input.assignedUserId) await this.requireStaff(input.assignedUserId);
+    if (input.remindAt && input.remindAt <= new Date().toISOString()) {
+      throw new BadRequestException("remindAt must be in the future");
+    }
+    const task = await this.database.createJobTask({
+      jobId,
+      kind: input.kind,
+      title: input.title,
+      details: input.details,
+      assignedUserId: input.assignedUserId,
+      assignedRole: input.assignedRole,
+      dueDate: input.dueDate,
+      createdBy,
+    });
+    if (input.remindAt && input.assignedUserId) {
+      await this.database.createStaffReminder({
+        userId: input.assignedUserId,
+        quoteRequestId: null,
+        title: `Task: ${input.title}`.slice(0, 200),
+        note: null,
+        dueAt: input.remindAt,
+        createdBy,
+      });
+    }
+    return (await this.withNames([task]))[0];
+  }
+
+  private async requireStaff(userId: string): Promise<void> {
+    const active = (await this.database.listStaffRoleAssignments()).some(
+      (assignment) => assignment.userId === userId && !assignment.revokedAt,
+    );
+    if (!active) {
+      throw new BadRequestException("Only a staff member can be chosen");
+    }
+  }
+
+  /** Display names (never emails) for the people tasks are assigned to. */
+  private async withNames(tasks: JobTaskRecord[]): Promise<ShownTask[]> {
+    const ids = [
+      ...new Set(
+        tasks.flatMap((t) => (t.assignedUserId ? [t.assignedUserId] : [])),
+      ),
+    ];
+    const users = await Promise.all(ids.map((id) => this.auth.getUser(id)));
+    const names = new Map(
+      ids.flatMap((id, index) =>
+        users[index] ? [[id, staffDisplayName(users[index])] as const] : [],
+      ),
+    );
+    return tasks.map((task) => ({
+      ...task,
+      assignedUserName: task.assignedUserId
+        ? (names.get(task.assignedUserId) ?? "Staff member")
+        : null,
+    }));
   }
 
   private async editableJob(id: string, scope: JobScope): Promise<JobRecord> {

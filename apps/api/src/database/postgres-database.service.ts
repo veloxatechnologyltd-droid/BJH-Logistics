@@ -161,6 +161,7 @@ import {
   StaffRoleKey,
   PushSubscriptionRecord,
   StaffRoleAssignmentRecord,
+  PerformanceReportRecord,
   TeamConversationRecord,
   TeamConversationSummary,
   TeamMessageRecord,
@@ -172,13 +173,18 @@ import {
 const jobTaskSelect = (source: string) => `
   SELECT task.task_id, task.job_id, job.file_number,
     company.company_name, task.kind, task.title, task.details,
-    task.assigned_role, to_char(task.due_date, 'YYYY-MM-DD') AS due_date,
+    task.assigned_user_id, task.assigned_role,
+    to_char(task.due_date, 'YYYY-MM-DD') AS due_date,
     task.status, task.created_at, task.created_by, task.completed_at,
     task.completed_by, task.completion_note
   FROM ${source} AS task
-  JOIN app.job AS job ON job.job_id = task.job_id
-  JOIN app.customer_company AS company
+  LEFT JOIN app.job AS job ON job.job_id = task.job_id
+  LEFT JOIN app.customer_company AS company
     ON company.company_id = job.customer_company_id`;
+
+const performanceReportColumns = `report_id, author_user_id, team_key, period,
+  to_char(period_start, 'YYYY-MM-DD') AS period_start, new_count,
+  completed_count, overdue_count, blockers, notes, created_at`;
 
 /** Version columns in the order the INSERT/UPDATE statements above expect. */
 const quoteVersionValues = (content: QuoteVersionContent) => [
@@ -1988,19 +1994,21 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
   }
 
   async createJobTask(task: {
-    jobId: string;
+    jobId: string | null;
     kind: TaskKind;
     title: string;
     details: string | null;
-    assignedRole: StaffRoleKey;
+    assignedUserId: string | null;
+    assignedRole: StaffRoleKey | null;
     dueDate: string | null;
     createdBy: string;
   }): Promise<JobTaskRecord> {
     const result = await this.pool.query(
       `WITH inserted AS (
          INSERT INTO app.job_task
-           (job_id, kind, title, details, assigned_role, due_date, created_by)
-         VALUES ($1::uuid, $2, $3, $4, $5, $6::date, $7::uuid)
+           (job_id, kind, title, details, assigned_user_id, assigned_role,
+            due_date, created_by)
+         VALUES ($1::uuid, $2, $3, $4, $5::uuid, $6, $7::date, $8::uuid)
          RETURNING *)
        ${jobTaskSelect("inserted")}`,
       [
@@ -2008,6 +2016,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
         task.kind,
         task.title,
         task.details,
+        task.assignedUserId,
         task.assignedRole,
         task.dueDate,
         task.createdBy,
@@ -2017,34 +2026,54 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
   }
 
   async listJobTasks(
-    filter: { jobId?: string; assignedRole?: StaffRoleKey; open?: boolean },
+    filter: {
+      jobId?: string;
+      taskId?: string;
+      assignedRole?: StaffRoleKey;
+      assignedUserId?: string;
+      open?: boolean;
+      viewer?: { userId: string; seeAll: boolean };
+    },
     scope: JobScope,
   ): Promise<JobTaskRecord[]> {
     if (scope.companyIds?.length === 0 || scope.serviceLines?.length === 0) {
       return [];
     }
+    // A to-do with no job is visible to its person, its creator and the super
+    // admin only; job scope cannot apply to it. Without a viewer, none show.
     const result = await this.pool.query(
       `${jobTaskSelect("app.job_task")}
        WHERE ($1::uuid IS NULL OR task.job_id = $1::uuid)
          AND ($2::text IS NULL OR task.assigned_role = $2)
-         AND (NOT $3::boolean OR task.status = 'open')
-         AND ($4::uuid[] IS NULL OR job.customer_company_id = ANY($4::uuid[]))
-         AND ($5::text[] IS NULL OR job.service_line = ANY($5::text[]))
+         AND ($3::uuid IS NULL OR task.assigned_user_id = $3::uuid)
+         AND (NOT $4::boolean OR task.status = 'open')
+         AND (task.job_id IS NULL
+              OR (($5::uuid[] IS NULL OR job.customer_company_id = ANY($5::uuid[]))
+                  AND ($6::text[] IS NULL OR job.service_line = ANY($6::text[]))))
+         AND (task.job_id IS NOT NULL
+              OR $7::boolean
+              OR task.assigned_user_id = $8::uuid
+              OR task.created_by = $8::uuid)
+         AND ($9::uuid IS NULL OR task.task_id = $9::uuid)
        ORDER BY (task.status = 'done'), task.due_date NULLS LAST,
          task.created_at, task.task_id`,
       [
         filter.jobId ?? null,
         filter.assignedRole ?? null,
+        filter.assignedUserId ?? null,
         filter.open ?? false,
         scope.companyIds ?? null,
         scope.serviceLines ?? null,
+        filter.viewer?.seeAll ?? false,
+        filter.viewer?.userId ?? null,
+        filter.taskId ?? null,
       ],
     );
     return result.rows.map((row) => this.mapJobTask(row));
   }
 
   async completeJobTask(
-    jobId: string,
+    jobId: string | null,
     taskId: string,
     completedBy: string,
     note: string | null,
@@ -2054,29 +2083,157 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
          UPDATE app.job_task
          SET status = 'done', completed_at = clock_timestamp(),
              completed_by = $3::uuid, completion_note = $4
-         WHERE task_id = $2::uuid AND job_id = $1::uuid AND status = 'open'
+         WHERE task_id = $2::uuid AND job_id IS NOT DISTINCT FROM $1::uuid
+           AND status = 'open'
          RETURNING *)
        ${jobTaskSelect("updated")}`,
       [jobId, taskId, completedBy, note],
     );
     if (updated.rows.length > 0) return this.mapJobTask(updated.rows[0]);
     const existing = await this.pool.query(
-      `SELECT 1 FROM app.job_task WHERE task_id = $2::uuid AND job_id = $1::uuid`,
+      `SELECT 1 FROM app.job_task
+       WHERE task_id = $2::uuid AND job_id IS NOT DISTINCT FROM $1::uuid`,
       [jobId, taskId],
     );
     return existing.rows.length > 0 ? "already_done" : "not_found";
   }
 
+  async countTasksForReport(
+    userId: string,
+    from: string,
+    to: string,
+  ): Promise<{
+    newCount: number;
+    completedCount: number;
+    overdueCount: number;
+  }> {
+    const result = await this.pool.query(
+      `SELECT
+         count(*) FILTER (
+           WHERE (created_at AT TIME ZONE 'UTC')::date
+                 BETWEEN $2::date AND $3::date) AS new_count,
+         count(*) FILTER (
+           WHERE status = 'done'
+             AND (completed_at AT TIME ZONE 'UTC')::date
+                 BETWEEN $2::date AND $3::date) AS completed_count,
+         count(*) FILTER (
+           WHERE status = 'open' AND due_date < $3::date) AS overdue_count
+       FROM app.job_task
+       WHERE assigned_user_id = $1::uuid`,
+      [userId, from, to],
+    );
+    const row = result.rows[0];
+    return {
+      newCount: Number(row.new_count),
+      completedCount: Number(row.completed_count),
+      overdueCount: Number(row.overdue_count),
+    };
+  }
+
+  async createPerformanceReport(
+    report: Omit<PerformanceReportRecord, "id" | "createdAt">,
+  ): Promise<PerformanceReportRecord | "duplicate"> {
+    const result = await this.pool.query(
+      `INSERT INTO app.performance_report
+         (author_user_id, team_key, period, period_start, new_count,
+          completed_count, overdue_count, blockers, notes)
+       VALUES ($1::uuid, $2, $3, $4::date, $5, $6, $7, $8, $9)
+       ON CONFLICT (author_user_id, period, period_start) DO NOTHING
+       RETURNING ${performanceReportColumns}`,
+      [
+        report.authorUserId,
+        report.teamKey,
+        report.period,
+        report.periodStart,
+        report.newCount,
+        report.completedCount,
+        report.overdueCount,
+        report.blockers,
+        report.notes,
+      ],
+    );
+    return result.rows.length > 0
+      ? this.mapPerformanceReport(result.rows[0])
+      : "duplicate";
+  }
+
+  async findPerformanceReport(
+    authorUserId: string,
+    period: "daily" | "weekly",
+    periodStart: string,
+  ): Promise<PerformanceReportRecord | null> {
+    const result = await this.pool.query(
+      `SELECT ${performanceReportColumns} FROM app.performance_report
+       WHERE author_user_id = $1::uuid AND period = $2
+         AND period_start = $3::date`,
+      [authorUserId, period, periodStart],
+    );
+    return result.rows.length > 0
+      ? this.mapPerformanceReport(result.rows[0])
+      : null;
+  }
+
+  async listPerformanceReports(filter: {
+    teams: TeamKey[] | null;
+    teamKey?: TeamKey;
+    period?: "daily" | "weekly";
+    periodStart?: string;
+    withBlockers?: boolean;
+  }): Promise<PerformanceReportRecord[]> {
+    if (filter.teams?.length === 0) return [];
+    const result = await this.pool.query(
+      `SELECT ${performanceReportColumns} FROM app.performance_report
+       WHERE ($1::text[] IS NULL OR team_key = ANY($1::text[]))
+         AND ($2::text IS NULL OR team_key = $2)
+         AND ($3::text IS NULL OR period = $3)
+         AND ($4::date IS NULL OR period_start = $4::date)
+         AND (NOT $5::boolean OR blockers IS NOT NULL)
+       ORDER BY period_start DESC, created_at DESC, report_id
+       LIMIT 200`,
+      [
+        filter.teams,
+        filter.teamKey ?? null,
+        filter.period ?? null,
+        filter.periodStart ?? null,
+        filter.withBlockers ?? false,
+      ],
+    );
+    return result.rows.map((row) => this.mapPerformanceReport(row));
+  }
+
+  private mapPerformanceReport(
+    row: Record<string, unknown>,
+  ): PerformanceReportRecord {
+    return {
+      id: String(row.report_id),
+      authorUserId: String(row.author_user_id),
+      teamKey: row.team_key as TeamKey,
+      period: row.period as "daily" | "weekly",
+      periodStart: String(row.period_start),
+      newCount: Number(row.new_count),
+      completedCount: Number(row.completed_count),
+      overdueCount: Number(row.overdue_count),
+      blockers: row.blockers ? String(row.blockers) : null,
+      notes: row.notes ? String(row.notes) : null,
+      createdAt: this.toIsoString(row.created_at),
+    };
+  }
+
   private mapJobTask(row: Record<string, unknown>): JobTaskRecord {
     return {
       id: String(row.task_id),
-      jobId: String(row.job_id),
-      fileNumber: String(row.file_number),
-      customerCompanyName: String(row.company_name),
+      jobId: row.job_id ? String(row.job_id) : null,
+      fileNumber: row.file_number ? String(row.file_number) : null,
+      customerCompanyName: row.company_name ? String(row.company_name) : null,
       kind: row.kind as TaskKind,
       title: String(row.title),
       details: row.details ? String(row.details) : null,
-      assignedRole: row.assigned_role as StaffRoleKey,
+      assignedUserId: row.assigned_user_id
+        ? String(row.assigned_user_id)
+        : null,
+      assignedRole: row.assigned_role
+        ? (row.assigned_role as StaffRoleKey)
+        : null,
       dueDate: row.due_date ? String(row.due_date) : null,
       status: row.status as "open" | "done",
       createdAt: this.toIsoString(row.created_at),

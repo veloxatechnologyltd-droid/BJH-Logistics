@@ -947,30 +947,67 @@ export const taskKinds = [
 ] as const;
 export type TaskKind = (typeof taskKinds)[number];
 
-export const jobTaskInputSchema = z.object(
-  {
-    kind: z
-      .enum(taskKinds, { error: `kind must be one of ${taskKinds.join(", ")}` })
-      .default("task"),
-    title: requiredText("title", 200),
-    details: optionalText("details", 2000),
-    assignedRole: z.enum(staffRoleKeys, {
-      error: `assignedRole must be one of ${staffRoleKeys.join(", ")}`,
-    }),
-    dueDate: z
-      .string({ error: "dueDate must be a date (YYYY-MM-DD)" })
-      .regex(/^\d{4}-\d{2}-\d{2}$/, {
-        error: "dueDate must be a date (YYYY-MM-DD)",
-      })
-      .refine((value) => isRealDateTime(`${value}T00:00:00Z`), {
-        error: "dueDate must be a date (YYYY-MM-DD)",
-      })
-      .nullish()
-      .transform((value) => value ?? null),
-  },
-  objectError("A task object is required"),
-);
+export const jobTaskInputSchema = z
+  .object(
+    {
+      kind: z
+        .enum(taskKinds, {
+          error: `kind must be one of ${taskKinds.join(", ")}`,
+        })
+        .default("task"),
+      title: requiredText("title", 200),
+      details: optionalText("details", 2000),
+      // A task is assigned to a person (Evans, 2026-11-16). A role is still
+      // accepted for older callers, but one of the two is required.
+      assignedUserId: uuidField("assignedUserId").nullish(),
+      assignedRole: z
+        .enum(staffRoleKeys, {
+          error: `assignedRole must be one of ${staffRoleKeys.join(", ")}`,
+        })
+        .nullish(),
+      dueDate: z
+        .string({ error: "dueDate must be a date (YYYY-MM-DD)" })
+        .regex(/^\d{4}-\d{2}-\d{2}$/, {
+          error: "dueDate must be a date (YYYY-MM-DD)",
+        })
+        .refine((value) => isRealDateTime(`${value}T00:00:00Z`), {
+          error: "dueDate must be a date (YYYY-MM-DD)",
+        })
+        .nullish()
+        .transform((value) => value ?? null),
+      /** Pops up on the assigned person's screen at this time; needs a person. */
+      remindAt: z
+        .string({ error: "remindAt must be a date and time" })
+        .refine(isRealDateTime, { error: "remindAt must be a date and time" })
+        .transform((value) => new Date(value).toISOString())
+        .nullish()
+        .transform((value) => value ?? null),
+    },
+    objectError("A task object is required"),
+  )
+  .refine((task) => task.assignedUserId || task.assignedRole, {
+    error: "Choose who the task is for (assignedUserId)",
+    path: ["assignedUserId"],
+  })
+  .refine((task) => !task.remindAt || task.assignedUserId, {
+    error: "A reminder needs a person to remind (assignedUserId)",
+    path: ["remindAt"],
+  })
+  .transform((task) => ({
+    ...task,
+    assignedUserId: task.assignedUserId ?? null,
+    assignedRole: task.assignedRole ?? null,
+  }));
 export type JobTaskInput = z.infer<typeof jobTaskInputSchema>;
+
+/** A to-do that belongs to no job: always for a named person. */
+export const todoInputSchema = jobTaskInputSchema.refine(
+  (task) => task.assignedUserId,
+  {
+    error: "Choose who the to-do is for (assignedUserId)",
+    path: ["assignedUserId"],
+  },
+);
 
 export const taskCompletionSchema = z.object(
   { note: optionalText("note", 2000) },
@@ -1841,6 +1878,34 @@ export const teamKeys = [
   "finance",
 ] as const;
 export type TeamKey = (typeof teamKeys)[number];
+
+/**
+ * A daily or weekly performance report (Evans, 2026-11-16). The counts are not
+ * sent: the API computes them from the person's tasks. The person adds the
+ * blockers (none when empty) and a note; a team is named only by people who
+ * belong to more than one (the super admin).
+ */
+export const performancePeriods = ["daily", "weekly"] as const;
+export type PerformancePeriod = (typeof performancePeriods)[number];
+export const performanceReportInputSchema = z.object(
+  {
+    period: z.enum(performancePeriods, {
+      error: `period must be one of ${performancePeriods.join(", ")}`,
+    }),
+    teamKey: z
+      .enum(teamKeys, {
+        error: `teamKey must be one of ${teamKeys.join(", ")}`,
+      })
+      .nullish()
+      .transform((value) => value ?? null),
+    blockers: optionalText("blockers", 2000),
+    notes: optionalText("notes", 2000),
+  },
+  objectError("A report object is required"),
+);
+export type PerformanceReportInput = z.infer<
+  typeof performanceReportInputSchema
+>;
 
 /** A staff message, with the people, jobs, invoices and documents it tags. */
 export const teamMessageInputSchema = z.object(
