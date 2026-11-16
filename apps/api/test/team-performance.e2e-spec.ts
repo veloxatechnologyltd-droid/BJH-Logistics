@@ -1,5 +1,6 @@
 import "reflect-metadata";
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import type { INestApplication } from "@nestjs/common";
 import { after, before, test } from "node:test";
 import {
@@ -19,31 +20,31 @@ import {
   testPostgresPool,
 } from "./postgres-test-database";
 
-// TEST_UNASSIGNED is made a sales rep, TEST_MATCHING an import rep
-// (Operations); the super admin reads everyone's numbers.
-const SALES = TEST_UNASSIGNED_TOKEN;
-const IMPORT_REP = TEST_MATCHING_TOKEN;
+// TEST_UNASSIGNED sells and runs shipments (sales and import rep);
+// TEST_MATCHING writes the quotes (customer service). The super admin reads.
+const SELLER = TEST_UNASSIGNED_TOKEN;
+const QUOTER = TEST_MATCHING_TOKEN;
 const ADMIN = TEST_SUPER_ADMIN_TOKEN;
 
 let application: INestApplication;
 let baseUrl: string;
+let companyId: string;
 const today = new Date().toISOString().slice(0, 10);
 
+type Money = Array<{ currency: string; current: number; previous: number }>;
 type Person = {
   userId: string;
-  name: string;
-  roles: string[];
   teams: string[];
   mine: boolean;
   metrics: Record<string, { current: number; previous: number }>;
-  collected: unknown[];
+  money: Record<string, Money>;
 };
 type Team = {
-  from: string;
-  to: string;
-  previousFrom: string;
   manager: boolean;
-  teams: Array<{ teamKey: string; metrics: Array<{ key: string }> }>;
+  teams: Array<{
+    teamKey: string;
+    metrics: Array<{ key: string; kind: string }>;
+  }>;
   people: Person[];
 };
 
@@ -60,7 +61,9 @@ const team = async (token: string, from = today, to = today) =>
     await call(`/api/v1/performance/team?from=${from}&to=${to}`, token)
   ).json()) as Team;
 const person = (result: Team, userId: string) =>
-  result.people.find((entry) => entry.userId === userId);
+  result.people.find((entry) => entry.userId === userId)!;
+const ghs = (money: Money | undefined) =>
+  money?.find((row) => row.currency === "GHS")?.current ?? 0;
 
 before(async () => {
   await beginTestDatabase();
@@ -68,16 +71,20 @@ before(async () => {
   application = started.application;
   baseUrl = started.baseUrl;
   const database = application.get(DatabasePort);
-  await database.assignStaffRole(
-    TEST_UNASSIGNED_USER_ID,
-    "sales_rep",
-    TEST_SUPER_ADMIN_ID,
-  );
-  await database.assignStaffRole(
-    TEST_MATCHING_USER_ID,
-    "import_rep",
-    TEST_SUPER_ADMIN_ID,
-  );
+  for (const [userId, role] of [
+    [TEST_UNASSIGNED_USER_ID, "sales_rep"],
+    [TEST_UNASSIGNED_USER_ID, "import_rep"],
+    [TEST_MATCHING_USER_ID, "customer_service_rep"],
+  ] as const) {
+    await database.assignStaffRole(userId, role, TEST_SUPER_ADMIN_ID);
+  }
+  companyId = randomUUID();
+  await database.createCustomer({
+    id: companyId,
+    companyName: "Won Synthetic Ltd",
+    createdAt: new Date().toISOString(),
+    contacts: [],
+  });
 });
 
 after(async () => {
@@ -85,96 +92,127 @@ after(async () => {
   await endTestDatabase();
 });
 
-test("each person's work is counted from what they actually did", async () => {
-  // Sales: two leads and one follow-up.
-  const leadIds: string[] = [];
-  for (const name of ["First Synthetic Ltd", "Second Synthetic Ltd"]) {
-    const lead = await post("/api/v1/leads", SALES, { companyName: name });
+test("quotes, their value, acceptance and the money they bring are credited to the right people", async () => {
+  // The seller adds two leads; one becomes the customer.
+  for (const name of ["Won Synthetic Ltd", "Other Synthetic Ltd"]) {
+    const lead = await post("/api/v1/leads", SELLER, { companyName: name });
     assert.equal(lead.status, 201, await lead.clone().text());
-    leadIds.push(((await lead.json()) as { id: string }).id);
   }
+  await testPostgresPool.query(
+    `UPDATE app.lead SET stage = 'won', stage_changed_at = clock_timestamp(),
+       customer_company_id = $1 WHERE company_name = 'Won Synthetic Ltd'`,
+    [companyId],
+  );
+
+  // The quoter sends a quote: 2 x 450.00 + 120.00; the at-cost line is not counted.
+  const created = await post("/api/v1/quotes", QUOTER, {
+    customerCompanyId: companyId,
+    serviceLine: "sea_import",
+    version: {
+      currency: "GHS",
+      title: "Synthetic clearance quotation",
+      procedureSteps: [],
+      requiredDocuments: [],
+      terms: [],
+      lines: [
+        {
+          description: "Clearing",
+          basis: "per_container",
+          quantity: 2,
+          amountMinor: 45000,
+        },
+        { description: "Documentation", basis: "fixed", amountMinor: 12000 },
+        { description: "Port charges", basis: "at_cost" },
+      ],
+    },
+  });
+  assert.equal(created.status, 201, await created.clone().text());
+  const quoteId = ((await created.json()) as { id: string }).id;
   assert.equal(
-    (
-      await post(`/api/v1/leads/${leadIds[0]}/activities`, SALES, {
-        kind: "call",
-        note: "Spoke to the manager",
-      })
-    ).status,
+    (await post(`/api/v1/quotes/${quoteId}/issue`, QUOTER)).status,
     201,
   );
-  // Operations: one task finished.
-  const task = await post("/api/v1/tasks", ADMIN, {
-    title: "Chase the BL",
-    assignedUserId: TEST_MATCHING_USER_ID,
+  const decided = await post(`/api/v1/quotes/${quoteId}/decision`, QUOTER, {
+    versionNumber: 1,
+    decision: "accepted",
+    clientSignatory: "A. Client",
   });
-  const taskId = ((await task.json()) as { id: string }).id;
-  assert.equal(
-    (await post(`/api/v1/tasks/${taskId}/complete`, IMPORT_REP)).status,
-    201,
+  assert.equal(decided.status, 201, await decided.clone().text());
+  const jobId = ((await decided.json()) as { job: { id: string } }).job.id;
+
+  // Finance invoices that job: 1,200.00.
+  await testPostgresPool.query(
+    `INSERT INTO app.invoice (job_id, invoice_number, status, currency,
+       subtotal_minor, tax_total_minor, total_minor, created_by, issued_by,
+       issued_at, customer_company_id, lines)
+     VALUES ($1, 'INV-SYN-1', 'issued', 'GHS', 120000, 0, 120000, $2, $2,
+       clock_timestamp(), $3,
+       '[{"description":"Clearing","amountMinor":120000}]'::jsonb)`,
+    [jobId, TEST_SUPER_ADMIN_ID, companyId],
   );
 
   const result = await team(ADMIN);
   assert.equal(result.manager, true);
-  assert.equal(result.from, today);
-  const sales = person(result, TEST_UNASSIGNED_USER_ID)!;
-  assert.deepEqual(sales.teams, ["sales"]);
-  assert.equal(sales.metrics.leads_added.current, 2);
-  assert.equal(sales.metrics.lead_followups.current, 1);
-  assert.equal(sales.metrics.leads_won.current, 0);
-  assert.equal(sales.metrics.tasks_done.current, 0);
+  const quoter = person(result, TEST_MATCHING_USER_ID);
+  assert.deepEqual(quoter.teams, ["customer_service"]);
+  assert.equal(quoter.metrics.quotes_sent.current, 1);
+  assert.equal(ghs(quoter.money.value_quoted), 102000);
+  assert.equal(quoter.metrics.quotes_accepted.current, 1);
+  assert.equal(ghs(quoter.money.value_accepted), 102000);
+  assert.equal(quoter.metrics.quotes_lost.current, 0);
+  assert.equal(ghs(quoter.money.revenue_quotes), 120000);
+
+  const seller = person(result, TEST_UNASSIGNED_USER_ID);
+  assert.deepEqual(seller.teams, ["sales", "operations"]);
+  assert.equal(seller.metrics.leads_added.current, 2);
+  assert.equal(seller.metrics.customers_won.current, 1);
+  assert.equal(ghs(seller.money.revenue_customers), 120000);
+  assert.equal(seller.metrics.quotes_sent, undefined, "only their teams");
+
   assert.equal(
-    sales.metrics.quotes_issued,
-    undefined,
-    "only their team's numbers",
-  );
-  const ops = person(result, TEST_MATCHING_USER_ID)!;
-  assert.equal(ops.metrics.tasks_done.current, 1);
-  assert.equal(ops.metrics.leads_added, undefined);
-  assert.ok(ops.roles.length > 0 && ops.name);
-  assert.equal(
-    person(result, TEST_SUPER_ADMIN_ID),
-    undefined,
-    "the super admin is the reader, not a row",
+    result.people.some((p) => p.userId === TEST_SUPER_ADMIN_ID),
+    false,
+    "the super admin reads; they are not a row",
   );
   assert.deepEqual(
-    result.teams.map((entry) => entry.teamKey),
-    ["sales", "operations"],
+    result.teams
+      .find((t) => t.teamKey === "customer_service")
+      ?.metrics.filter((m) => m.kind === "money")
+      .map((m) => m.key),
+    ["value_quoted", "value_accepted", "revenue_quotes"],
   );
 });
 
-test("a won lead counts, and the previous period is reported beside the current one", async () => {
-  // One lead was added yesterday and won today.
+test("shipment work counts, and the period before is reported beside it", async () => {
+  const task = await post("/api/v1/tasks", ADMIN, {
+    title: "Chase the BL",
+    assignedUserId: TEST_UNASSIGNED_USER_ID,
+  });
+  const taskId = ((await task.json()) as { id: string }).id;
+  assert.equal(
+    (await post(`/api/v1/tasks/${taskId}/complete`, SELLER)).status,
+    201,
+  );
   await testPostgresPool.query(
     `UPDATE app.lead SET created_at = created_at - interval '1 day'
-     WHERE lead_id = (SELECT lead_id FROM app.lead
-                      WHERE company_name = 'First Synthetic Ltd')`,
+     WHERE company_name = 'Other Synthetic Ltd'`,
   );
-  const company = await testPostgresPool.query(
-    `INSERT INTO app.customer_company (company_name)
-     VALUES ('First Synthetic Ltd') RETURNING company_id`,
-  );
-  await testPostgresPool.query(
-    `UPDATE app.lead SET stage = 'won', stage_changed_at = clock_timestamp(),
-       customer_company_id = $1
-     WHERE company_name = 'First Synthetic Ltd'`,
-    [company.rows[0].company_id],
-  );
-  const sales = person(await team(ADMIN), TEST_UNASSIGNED_USER_ID)!;
-  assert.deepEqual(sales.metrics.leads_added, { current: 1, previous: 1 });
-  assert.deepEqual(sales.metrics.leads_won, { current: 1, previous: 0 });
+  const seller = person(await team(ADMIN), TEST_UNASSIGNED_USER_ID);
+  assert.equal(seller.metrics.tasks_done.current, 1);
+  assert.deepEqual(seller.metrics.leads_added, { current: 1, previous: 1 });
 
-  // A period with nothing in it shows zeros, not missing people.
   const empty = person(
     await team(ADMIN, "2020-01-01", "2020-01-31"),
     TEST_UNASSIGNED_USER_ID,
-  )!;
+  );
   assert.equal(empty.metrics.leads_added.current, 0);
+  assert.deepEqual(empty.money.revenue_customers, []);
 });
 
 test("staff see only their own numbers; customers see nothing", async () => {
   for (const [token, userId] of [
-    [SALES, TEST_UNASSIGNED_USER_ID],
-    [IMPORT_REP, TEST_MATCHING_USER_ID],
+    [SELLER, TEST_UNASSIGNED_USER_ID],
+    [QUOTER, TEST_MATCHING_USER_ID],
   ]) {
     const own = await team(token);
     assert.equal(own.manager, false);

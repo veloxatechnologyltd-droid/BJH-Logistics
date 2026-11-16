@@ -19,15 +19,18 @@ export interface PersonPerformance {
   roles: string[];
   teams: TeamKey[];
   mine: boolean;
-  /** Every metric of the person's teams, zero when they did none. */
+  /** Every count of the person's teams, zero when there was none. */
   metrics: Record<string, { current: number; previous: number }>;
-  /** Money recorded as received, per currency, in minor units (Finance). */
-  collected: Array<{ currency: string; current: number; previous: number }>;
+  /** Every money figure of the person's teams, per currency, in minor units. */
+  money: Record<
+    string,
+    Array<{ currency: string; current: number; previous: number }>
+  >;
 }
 
 export interface TeamPerformanceColumns {
   teamKey: TeamKey;
-  metrics: Array<{ key: string; label: string }>;
+  metrics: Array<{ key: string; label: string; kind: "count" | "money" }>;
 }
 
 export interface TeamPerformance {
@@ -80,7 +83,7 @@ export class TeamPerformanceService {
       ]);
     }
     const userIds = [...rolesByUser.keys()];
-    const [{ counts, collected }, names] = await Promise.all([
+    const [{ counts, money }, names] = await Promise.all([
       this.database.staffPerformance(userIds, {
         start: period.start,
         end: period.end,
@@ -93,9 +96,13 @@ export class TeamPerformanceService {
       const roles = rolesByUser.get(userId) ?? [];
       const teams = teamsFor(roles);
       const metrics: PersonPerformance["metrics"] = {};
+      const earned: PersonPerformance["money"] = {};
       for (const metric of performanceMetrics) {
-        if (metric.team === "all" || teams.includes(metric.team)) {
+        if (!teams.includes(metric.team)) continue;
+        if (metric.kind === "count") {
           metrics[metric.key] = { current: 0, previous: 0 };
+        } else {
+          earned[metric.key] = [];
         }
       }
       for (const row of counts) {
@@ -106,6 +113,18 @@ export class TeamPerformanceService {
           };
         }
       }
+      for (const row of money) {
+        if (row.userId === userId && earned[row.metric]) {
+          earned[row.metric].push({
+            currency: row.currency,
+            current: row.current,
+            previous: row.previous,
+          });
+        }
+      }
+      for (const list of Object.values(earned)) {
+        list.sort((a, b) => a.currency.localeCompare(b.currency));
+      }
       return {
         userId,
         name: names.get(userId) ?? "Staff member",
@@ -113,14 +132,7 @@ export class TeamPerformanceService {
         teams,
         mine: userId === actor.userId,
         metrics,
-        collected: collected
-          .filter((row) => row.userId === userId)
-          .map(({ currency, current, previous }) => ({
-            currency,
-            current,
-            previous,
-          }))
-          .sort((a, b) => a.currency.localeCompare(b.currency)),
+        money: earned,
       };
     });
     people.sort(
@@ -141,8 +153,8 @@ export class TeamPerformanceService {
       teams: present.map((teamKey) => ({
         teamKey,
         metrics: performanceMetrics
-          .filter((m) => m.team === teamKey || m.team === "all")
-          .map(({ key, label }) => ({ key, label })),
+          .filter((m) => m.team === teamKey)
+          .map(({ key, label, kind }) => ({ key, label, kind })),
       })),
       people,
     };
