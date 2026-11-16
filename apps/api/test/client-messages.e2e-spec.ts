@@ -204,24 +204,25 @@ test("the feed is for staff only: customers and accounts with no role are refuse
 });
 
 test("the super admin sees messages on every job; a rep only those on their own lines", async () => {
+  // Each job has two messages: the tracking number sent when it opened, and
+  // the job message sent in `before`.
   const everything = await feed(TEST_SUPER_ADMIN_TOKEN);
+  const seaNumber = (await jobNumber(seaJob)) as string;
+  const airNumber = (await jobNumber(airJob)) as string;
   assert.deepEqual(
     everything.messages.map((item) => item.fileNumber).sort(),
-    [
-      (await jobNumber(seaJob)) as string,
-      (await jobNumber(airJob)) as string,
-    ].sort(),
+    [seaNumber, seaNumber, airNumber, airNumber].sort(),
   );
 
   const seaRep = await feed(TEST_MATCHING_TOKEN);
   assert.deepEqual(
     seaRep.messages.map((item) => item.jobId),
-    [seaJob],
+    [seaJob, seaJob],
   );
   const airRep = await feed(TEST_UNASSIGNED_TOKEN);
   assert.deepEqual(
     airRep.messages.map((item) => item.jobId),
-    [airJob],
+    [airJob, airJob],
   );
 });
 
@@ -240,7 +241,7 @@ test("the feed filters by company and by kind of message, and rejects bad filter
   );
   assert.deepEqual(
     byCompany.messages.map((item) => item.companyName),
-    ["Southwind Synthetic Ltd"],
+    ["Southwind Synthetic Ltd", "Southwind Synthetic Ltd"],
   );
   const byEvent = await feed(TEST_SUPER_ADMIN_TOKEN, "?event=broadcast");
   assert.equal(byEvent.messages.length, 0);

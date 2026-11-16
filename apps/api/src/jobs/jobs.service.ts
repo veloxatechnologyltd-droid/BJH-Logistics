@@ -82,11 +82,13 @@ export class JobsService {
       }
     }
 
-    return this.database.createJob(
+    const job = await this.database.createJob(
       { customerCompanyId, serviceLine, quoteRequestId },
       openedBy,
       new Date().getUTCFullYear(),
     );
+    await this.notifications.jobOpened(job, openedBy);
+    return job;
   }
 
   /**

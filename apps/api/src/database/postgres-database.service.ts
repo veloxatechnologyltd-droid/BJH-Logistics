@@ -292,6 +292,7 @@ const jobSelect = `
   SELECT
     job.job_id,
     job.file_number,
+    job.tracking_number,
     job.service_line,
     job.customer_company_id,
     company.company_name AS customer_company_name,
@@ -1399,10 +1400,21 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     return result.rows[0] ? this.mapJob(result.rows[0]) : null;
   }
 
+  async findJobByTrackingNumber(
+    trackingNumber: string,
+  ): Promise<JobRecord | null> {
+    const result = await this.pool.query(
+      `${jobSelect} WHERE job.tracking_number = $1`,
+      [trackingNumber],
+    );
+    return result.rows[0] ? this.mapJob(result.rows[0]) : null;
+  }
+
   private mapJob(row: Record<string, unknown>): JobRecord {
     return {
       id: String(row.job_id),
       fileNumber: String(row.file_number),
+      trackingNumber: String(row.tracking_number),
       serviceLine: row.service_line as ServiceLine,
       customerCompanyId: String(row.customer_company_id),
       customerCompanyName: String(row.customer_company_name),

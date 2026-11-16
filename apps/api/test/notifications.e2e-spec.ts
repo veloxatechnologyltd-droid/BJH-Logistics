@@ -206,6 +206,11 @@ after(async () => {
 });
 
 test("a milestone messages every contact by email and SMS, with a link, until the channel is changed", async () => {
+  // The tracking-number message queued when the job opened goes out first; it
+  // is not what this test is about.
+  await dispatcher.dispatchDue();
+  email.sent.length = 0;
+  sms.sent.length = 0;
   const recorded = await post(
     `/api/v1/jobs/${jobA}/milestones`,
     TEST_MATCHING_TOKEN,

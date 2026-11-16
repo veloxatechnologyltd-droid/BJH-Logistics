@@ -97,6 +97,7 @@ test("amounts always show two decimals and rates drop trailing zeros", () => {
 const job: JobRecord = {
   id: "job",
   fileNumber: "SYN/SI/2026/0001",
+  trackingNumber: "BJH-2222-2222",
   serviceLine: "sea_import",
   customerCompanyId: "company",
   customerCompanyName: "Harbor Demo Ltd",

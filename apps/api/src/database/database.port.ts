@@ -244,6 +244,8 @@ export interface StoredDocumentVersion extends DocumentVersionRecord {
 export interface JobRecord {
   id: string;
   fileNumber: string;
+  /** The random number the customer types on the public site (BJH-XXXX-XXXX). */
+  trackingNumber: string;
   serviceLine: ServiceLine;
   customerCompanyId: string;
   customerCompanyName: string;
@@ -1606,6 +1608,10 @@ export abstract class DatabasePort {
     etdAt: string | null,
   ): Promise<JobRecord | null>;
   abstract findJob(id: string, scope: JobScope): Promise<JobRecord | null>;
+  /** For the public tracking page only; takes the canonical BJH-XXXX-XXXX form. */
+  abstract findJobByTrackingNumber(
+    trackingNumber: string,
+  ): Promise<JobRecord | null>;
   abstract addJobParty(party: {
     jobId: string;
     role: PartyRole;

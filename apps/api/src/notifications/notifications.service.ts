@@ -15,7 +15,12 @@ import {
   JobRecord,
   NotificationRecord,
 } from "../database/database.port";
-import { type Message, staffMessage } from "./notification-messages";
+import {
+  jobOpenedMessage,
+  type Message,
+  staffMessage,
+} from "./notification-messages";
+import { publicTrackingUrl } from "../tracking/tracking-number";
 import { normalizePhone } from "./phone";
 
 export interface NotifyInput {
@@ -27,6 +32,8 @@ export interface NotifyInput {
   message: (sender: string) => Message;
   /** A path in the web app, added to the message as a link. */
   linkPath?: string | null;
+  /** A full address instead of a path, for a page outside the web app (the public site). */
+  linkUrl?: string | null;
   createdBy?: string | null;
   /** The job report to attach to the email. */
   jobReportQuery?: JobReportQuery | null;
@@ -81,6 +88,24 @@ export class NotificationsService {
     }
   }
 
+  /**
+   * Tells the customer a job is open and gives them its tracking number. One
+   * per job: opening the same job twice (a repeated quote decision) queues
+   * nothing new.
+   */
+  async jobOpened(job: JobRecord, createdBy: string) {
+    return this.notify({
+      companyId: job.customerCompanyId,
+      jobId: job.id,
+      event: "job_opened",
+      dedupeKey: `job_opened:${job.id}`,
+      message: (sender) =>
+        jobOpenedMessage(sender, job.fileNumber, job.trackingNumber),
+      linkUrl: publicTrackingUrl(job.trackingNumber),
+      createdBy,
+    });
+  }
+
   async queue(input: NotifyInput): Promise<NotificationRecord | "duplicate"> {
     const [mode, sender, customer] = await Promise.all([
       this.channelMode(),
@@ -88,9 +113,9 @@ export class NotificationsService {
       this.database.findCustomer(input.companyId),
     ]);
     const message = input.message(sender);
-    const linkUrl = input.linkPath
-      ? `${publicWebUrl()}${input.linkPath}`
-      : null;
+    const linkUrl =
+      input.linkUrl ??
+      (input.linkPath ? `${publicWebUrl()}${input.linkPath}` : null);
     const contacts = (customer?.contacts ?? []).filter(
       (contact) => contact.notify !== false,
     );
