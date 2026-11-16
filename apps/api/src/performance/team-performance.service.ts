@@ -94,7 +94,10 @@ export class TeamPerformanceService {
 
     const people = userIds.map((userId): PersonPerformance => {
       const roles = rolesByUser.get(userId) ?? [];
-      const teams = teamsFor(roles);
+      // A fixed order, whatever order the roles come back in.
+      const teams = teamsFor(roles).sort(
+        (a, b) => TEAM_ORDER.indexOf(a) - TEAM_ORDER.indexOf(b),
+      );
       const metrics: PersonPerformance["metrics"] = {};
       const earned: PersonPerformance["money"] = {};
       for (const metric of performanceMetrics) {
