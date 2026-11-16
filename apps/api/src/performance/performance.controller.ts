@@ -58,6 +58,15 @@ export class PerformanceController {
     return this.teamPerformance.team(actorOf(request), { from, to });
   }
 
+  /** A month generated from the daily and weekly reports (?month=2026-11). */
+  @Get("monthly")
+  monthly(
+    @Query("month") month: unknown,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.performance.monthly(actorOf(request), month);
+  }
+
   /** Who still owes a report today and this week (super admin only). */
   @Get("roster")
   roster(@Req() request: AuthenticatedRequest) {

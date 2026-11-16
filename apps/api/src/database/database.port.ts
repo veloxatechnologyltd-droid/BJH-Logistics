@@ -1785,6 +1785,11 @@ export abstract class DatabasePort {
     periodStart?: string;
     /** Only reports that name a blocker. */
     withBlockers?: boolean;
+    /** Only these authors. */
+    authorUserIds?: string[];
+    /** Only periods starting in this range (dates, inclusive); no row limit. */
+    from?: string;
+    to?: string;
   }): Promise<PerformanceReportRecord[]>;
   abstract createQuote(
     input: {

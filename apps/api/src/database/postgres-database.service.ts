@@ -2182,8 +2182,13 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     period?: "daily" | "weekly";
     periodStart?: string;
     withBlockers?: boolean;
+    authorUserIds?: string[];
+    from?: string;
+    to?: string;
   }): Promise<PerformanceReportRecord[]> {
     if (filter.teams?.length === 0) return [];
+    if (filter.authorUserIds?.length === 0) return [];
+    const bounded = filter.from !== undefined || filter.to !== undefined;
     const result = await this.pool.query(
       `SELECT ${performanceReportColumns} FROM app.performance_report
        WHERE ($1::text[] IS NULL OR team_key = ANY($1::text[]))
@@ -2191,14 +2196,22 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
          AND ($3::text IS NULL OR period = $3)
          AND ($4::date IS NULL OR period_start = $4::date)
          AND (NOT $5::boolean OR blockers IS NOT NULL)
+         AND ($6::uuid[] IS NULL OR author_user_id = ANY($6::uuid[]))
+         AND ($7::date IS NULL OR period_start >= $7::date)
+         AND ($8::date IS NULL OR period_start <= $8::date)
        ORDER BY period_start DESC, created_at DESC, report_id
-       LIMIT 200`,
+       LIMIT $9`,
       [
         filter.teams,
         filter.teamKey ?? null,
         filter.period ?? null,
         filter.periodStart ?? null,
         filter.withBlockers ?? false,
+        filter.authorUserIds ?? null,
+        filter.from ?? null,
+        filter.to ?? null,
+        // A dated range (a week, a month) is read whole; the open list is capped.
+        bounded ? null : 200,
       ],
     );
     return result.rows.map((row) => this.mapPerformanceReport(row));

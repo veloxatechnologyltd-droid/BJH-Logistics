@@ -147,6 +147,23 @@ test("the numbers come from the person's own tasks, and a client cannot set them
 });
 
 test("a weekly report starts on a Monday and is separate from the daily one", async () => {
+  // The weekly form is built from this week's daily reports.
+  const preview = (await (
+    await call("/api/v1/performance/preview?period=weekly", IMPORT_REP)
+  ).json()) as Preview & { dailies: Report[] };
+  assert.deepEqual(
+    preview.dailies.map((daily) => [daily.period, daily.blockers]),
+    [["daily", "Waiting on the customs release"]],
+  );
+  const daily = (await (
+    await call("/api/v1/performance/preview?period=daily", IMPORT_REP)
+  ).json()) as Preview & { dailies: Report[] };
+  assert.deepEqual(daily.dailies, [], "only a weekly report lists dailies");
+  const others = (await (
+    await call("/api/v1/performance/preview?period=weekly", DESK)
+  ).json()) as Preview & { dailies: Report[] };
+  assert.deepEqual(others.dailies, [], "nobody sees another person's dailies");
+
   const sent = await post("/api/v1/performance", IMPORT_REP, {
     period: "weekly",
   });
@@ -310,4 +327,77 @@ test("reports with blockers can be listed on their own", async () => {
     (await call("/api/v1/performance?blockers=maybe", ADMIN)).status,
     400,
   );
+});
+
+type Monthly = {
+  month: string;
+  from: string;
+  through: string;
+  manager: boolean;
+  people: Array<{
+    userId: string;
+    teams: string[];
+    mine: boolean;
+    dailyCount: number;
+    weeklyCount: number;
+    newCount: number;
+    completedCount: number;
+    overdueCount: number;
+    entries: Array<{ period: string; blockers: string | null }>;
+  }>;
+};
+
+test("a monthly report is generated from the month's daily and weekly reports", async () => {
+  const month = new Date().toISOString().slice(0, 7);
+  const admin = (await (
+    await call(`/api/v1/performance/monthly?month=${month}`, ADMIN)
+  ).json()) as Monthly;
+  assert.equal(admin.manager, true);
+  assert.equal(admin.from, `${month}-01`);
+  const rep = admin.people.find((p) => p.userId === TEST_MATCHING_USER_ID)!;
+  assert.equal(rep.dailyCount, 1);
+  assert.equal(rep.weeklyCount, 1);
+  assert.deepEqual(rep.teams, ["operations"]);
+  assert.equal(rep.newCount, 2, "tasks counted over the month");
+  assert.deepEqual(
+    rep.entries.map((entry) => [entry.period, entry.blockers]),
+    [["daily", "Waiting on the customs release"]],
+  );
+  assert.ok(admin.people.some((p) => p.userId === TEST_UNASSIGNED_USER_ID));
+  // The super admin is not expected to report, but does show once they have.
+  assert.equal(
+    admin.people.find((p) => p.userId === TEST_SUPER_ADMIN_ID)?.dailyCount,
+    1,
+  );
+
+  // The current month is the default; a rep sees only themselves.
+  const own = (await (
+    await call("/api/v1/performance/monthly", IMPORT_REP)
+  ).json()) as Monthly;
+  assert.equal(own.month, month);
+  assert.equal(own.manager, false);
+  assert.deepEqual(
+    own.people.map((p) => [p.userId, p.mine]),
+    [[TEST_MATCHING_USER_ID, true]],
+  );
+
+  // An earlier month has no reports yet.
+  const empty = (await (
+    await call("/api/v1/performance/monthly?month=2020-01", ADMIN)
+  ).json()) as Monthly;
+  assert.equal(empty.through, "2020-01-31");
+  assert.ok(empty.people.every((p) => p.dailyCount + p.weeklyCount === 0));
+
+  for (const bad of ["2026-13", "nov", "2999-01"]) {
+    const response = await call(
+      `/api/v1/performance/monthly?month=${bad}`,
+      ADMIN,
+    );
+    assert.equal(response.status, 400, bad);
+  }
+  const customer = await call(
+    "/api/v1/performance/monthly",
+    TEST_CUSTOMER_A_TOKEN,
+  );
+  assert.ok([401, 403].includes(customer.status));
 });

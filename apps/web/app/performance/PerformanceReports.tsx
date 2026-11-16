@@ -35,6 +35,29 @@ function periodText(report: Pick<PerformanceReport, "period" | "periodStart">) {
   return report.period === "weekly" ? `Week of ${day}` : day;
 }
 
+/** "Mon 16 Nov: text" lines from this week's daily reports. */
+function fromDailies(
+  dailies: PerformanceReport[],
+  field: "blockers" | "notes",
+) {
+  return dailies
+    .filter((daily) => daily[field])
+    .map((daily) => {
+      const day = new Date(`${daily.periodStart}T00:00:00Z`).toLocaleDateString(
+        "en-GB",
+        {
+          weekday: "short",
+          day: "numeric",
+          month: "short",
+          timeZone: "UTC",
+        },
+      );
+      return `${day}: ${daily[field]}`;
+    })
+    .join("\n")
+    .slice(0, 2000);
+}
+
 /** "3 of 8 have sent it", then who has not. */
 function RosterCard({ title, slice }: { title: string; slice: RosterSlice }) {
   return (
@@ -119,8 +142,9 @@ export function PerformanceReports() {
       const result = await getPreview(period);
       setPreview(result);
       setTeam(result.teams.length > 1 ? "" : result.teamKey);
-      setBlockers("");
-      setNotes("");
+      // A weekly report starts from the week's daily reports; the person edits it.
+      setBlockers(fromDailies(result.dailies, "blockers"));
+      setNotes(fromDailies(result.dailies, "notes"));
       setWriting(period);
     } catch (cause) {
       setError(
@@ -153,31 +177,15 @@ export function PerformanceReports() {
     <main className={styles.page}>
       <PerformanceTabs active="/performance/reports" />
       <header className={styles.header}>
-        <div>
-          <h1 className={styles.title}>Daily & weekly reports</h1>
-          <p className={styles.muted}>
-            Each person sends one report for the day and one for the week. The
-            numbers come from your tasks; you add what is blocking you and a
-            short note.
-          </p>
-        </div>
+        <h1 className={styles.title}>Reports</h1>
         {!writing && (
-          <div className={styles.formActions}>
-            <button
-              className={styles.secondaryButton}
-              onClick={() => void startReport("weekly")}
-              type="button"
-            >
-              Weekly report
-            </button>
-            <button
-              className={styles.button}
-              onClick={() => void startReport("daily")}
-              type="button"
-            >
-              Daily report
-            </button>
-          </div>
+          <button
+            className={styles.button}
+            onClick={() => void startReport("daily")}
+            type="button"
+          >
+            Record report
+          </button>
         )}
       </header>
 
@@ -204,10 +212,19 @@ export function PerformanceReports() {
           className={`${styles.form} ${styles.quickUpdateForm}`}
           onSubmit={(event) => void send(event)}
         >
-          <h2>
-            {periodLabels[writing]} report ·{" "}
-            {periodText({ period: writing, periodStart: preview.periodStart })}
-          </h2>
+          <h2>Record report</h2>
+          <label className={styles.field}>
+            Report type
+            <select
+              onChange={(event) =>
+                void startReport(event.target.value as Period)
+              }
+              value={writing}
+            >
+              <option value="daily">Daily report · today</option>
+              <option value="weekly">Weekly report · this week</option>
+            </select>
+          </label>
           {preview.submitted ? (
             <p role="status">
               You have already sent this {writing === "daily" ? "day" : "week"}
@@ -218,8 +235,7 @@ export function PerformanceReports() {
               <p className={styles.muted}>
                 From your tasks: <strong>{preview.newCount}</strong> new,{" "}
                 <strong>{preview.completedCount}</strong> completed,{" "}
-                <strong>{preview.overdueCount}</strong> overdue. These are
-                counted for you when you send.
+                <strong>{preview.overdueCount}</strong> overdue.
               </p>
               {preview.teams.length > 1 && (
                 <label className={styles.field}>
@@ -237,6 +253,13 @@ export function PerformanceReports() {
                     ))}
                   </select>
                 </label>
+              )}
+              {writing === "weekly" && (
+                <p className={styles.muted}>
+                  {preview.dailies.length === 0
+                    ? "No daily reports this week yet."
+                    : `Filled in from your ${preview.dailies.length} daily report${preview.dailies.length === 1 ? "" : "s"} this week. Edit before sending.`}
+                </p>
               )}
               <label className={styles.field}>
                 Blockers (leave empty if none)

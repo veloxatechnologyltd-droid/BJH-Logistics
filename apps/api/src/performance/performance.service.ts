@@ -49,6 +49,37 @@ export interface ReportPreview {
   overdueCount: number;
   /** Already submitted for this period: it cannot be sent twice. */
   submitted: ShownReport | null;
+  /** For a weekly report: this week's daily reports, oldest first. */
+  dailies: ShownReport[];
+}
+
+/** One person's month, built from their daily and weekly reports. */
+export interface MonthlyPerson {
+  userId: string;
+  name: string;
+  teams: TeamKey[];
+  mine: boolean;
+  dailyCount: number;
+  weeklyCount: number;
+  /** Their tasks over the month (to today, for the current month). */
+  newCount: number;
+  completedCount: number;
+  overdueCount: number;
+  /** Every blocker and note they reported, oldest first. */
+  entries: Array<{
+    period: PerformancePeriod;
+    periodStart: string;
+    blockers: string | null;
+    notes: string | null;
+  }>;
+}
+
+export interface MonthlyReport {
+  month: string;
+  from: string;
+  through: string;
+  manager: boolean;
+  people: MonthlyPerson[];
 }
 
 /** Who has and has not reported for the current day or week. */
@@ -81,6 +112,26 @@ export function reportPeriod(
   return { start: isoDay(monday), through };
 }
 
+/** "2026-11" -> the first and last day of that month, through today at most. */
+export function monthRange(
+  month: unknown,
+  now: Date = new Date(),
+): { month: string; from: string; to: string; through: string } {
+  const value =
+    month === undefined || month === "" ? isoDay(now).slice(0, 7) : month;
+  if (typeof value !== "string" || !/^\d{4}-(0[1-9]|1[0-2])$/.test(value)) {
+    throw new BadRequestException("month must look like 2026-11");
+  }
+  const [year, index] = value.split("-").map(Number);
+  const from = `${value}-01`;
+  const to = isoDay(new Date(Date.UTC(year, index, 0)));
+  const today = isoDay(now);
+  if (from > today) {
+    throw new BadRequestException("That month has not started yet");
+  }
+  return { month: value, from, to, through: to < today ? to : today };
+}
+
 /**
  * Daily and weekly performance reports (Evans, 2026-11-16). The counts come
  * from the person's own tasks and are computed here, never typed in. Reports are
@@ -102,9 +153,18 @@ export class PerformanceService {
     const period = this.period(periodInput);
     const { teams, teamKey } = this.team(actor, teamInput);
     const { start, through } = reportPeriod(period);
-    const [counts, existing] = await Promise.all([
+    const [counts, existing, dailies] = await Promise.all([
       this.database.countTasksForReport(actor.userId, start, through),
       this.database.findPerformanceReport(actor.userId, period, start),
+      period === "weekly"
+        ? this.database.listPerformanceReports({
+            teams: null,
+            period: "daily",
+            authorUserIds: [actor.userId],
+            from: start,
+            to: through,
+          })
+        : Promise.resolve([]),
     ]);
     return {
       period,
@@ -116,7 +176,82 @@ export class PerformanceService {
       submitted: existing
         ? (await this.show([existing], actor.userId))[0]
         : null,
+      dailies: (await this.show(dailies, actor.userId)).reverse(),
     };
+  }
+
+  /**
+   * A month, generated from the daily and weekly reports sent in it. The super
+   * admin sees every team member, including those who sent nothing; everyone
+   * else sees only themselves.
+   */
+  async monthly(
+    actor: PerformanceActor,
+    monthInput: unknown,
+  ): Promise<MonthlyReport> {
+    const { month, from, to, through } = monthRange(monthInput);
+    const manager = actor.roles.includes("super_admin");
+    const rolesByUser = new Map<string, StaffRoleKey[]>();
+    if (manager) {
+      for (const assignment of await this.database.listStaffRoleAssignments()) {
+        if (assignment.revokedAt || assignment.roleKey === "super_admin")
+          continue;
+        rolesByUser.set(assignment.userId, [
+          ...(rolesByUser.get(assignment.userId) ?? []),
+          assignment.roleKey,
+        ]);
+      }
+    } else {
+      rolesByUser.set(actor.userId, actor.roles);
+    }
+    const reports = await this.database.listPerformanceReports({
+      teams: null,
+      authorUserIds: manager ? undefined : [actor.userId],
+      from,
+      to,
+    });
+    // Someone who reported then lost their role still shows for that month.
+    for (const report of reports) {
+      if (!rolesByUser.has(report.authorUserId)) {
+        rolesByUser.set(report.authorUserId, []);
+      }
+    }
+    const ids = [...rolesByUser.keys()];
+    const [names, counts] = await Promise.all([
+      this.names(ids),
+      Promise.all(
+        ids.map((id) => this.database.countTasksForReport(id, from, through)),
+      ),
+    ]);
+    const people = ids.map((userId, index): MonthlyPerson => {
+      const own = reports
+        .filter((report) => report.authorUserId === userId)
+        .reverse();
+      return {
+        userId,
+        name: names.get(userId) ?? "Staff member",
+        teams: [
+          ...new Set([
+            ...teamsFor(rolesByUser.get(userId) ?? []),
+            ...own.map((report) => report.teamKey),
+          ]),
+        ],
+        mine: userId === actor.userId,
+        dailyCount: own.filter((report) => report.period === "daily").length,
+        weeklyCount: own.filter((report) => report.period === "weekly").length,
+        ...counts[index],
+        entries: own
+          .filter((report) => report.blockers || report.notes)
+          .map((report) => ({
+            period: report.period,
+            periodStart: report.periodStart,
+            blockers: report.blockers,
+            notes: report.notes,
+          })),
+      };
+    });
+    people.sort((a, b) => a.name.localeCompare(b.name));
+    return { month, from, through, manager, people };
   }
 
   async submit(actor: PerformanceActor, input: unknown): Promise<ShownReport> {

@@ -41,7 +41,39 @@ export type ReportPreview = {
   completedCount: number;
   overdueCount: number;
   submitted: PerformanceReport | null;
+  /** For a weekly report: this week's daily reports, oldest first. */
+  dailies: PerformanceReport[];
 };
+
+/** A month generated from the daily and weekly reports sent in it. */
+export type MonthlyReport = {
+  month: string;
+  from: string;
+  through: string;
+  manager: boolean;
+  people: Array<{
+    userId: string;
+    name: string;
+    teams: TeamKey[];
+    mine: boolean;
+    dailyCount: number;
+    weeklyCount: number;
+    newCount: number;
+    completedCount: number;
+    overdueCount: number;
+    entries: Array<{
+      period: Period;
+      periodStart: string;
+      blockers: string | null;
+      notes: string | null;
+    }>;
+  }>;
+};
+
+export const getMonthlyReport = (month: string) =>
+  authenticatedFetch(
+    `${performanceUrl}/monthly?${new URLSearchParams({ month })}`,
+  ).then((response) => read<MonthlyReport>(response));
 
 /** Who has and has not reported for the current day or week. */
 export type RosterSlice = {
