@@ -162,6 +162,9 @@ import {
   PushSubscriptionRecord,
   StaffRoleAssignmentRecord,
   PerformanceReportRecord,
+  StaffCollected,
+  StaffPerformanceBounds,
+  StaffPerformanceCount,
   TeamConversationRecord,
   TeamConversationSummary,
   TeamMessageRecord,
@@ -2199,6 +2202,109 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       ],
     );
     return result.rows.map((row) => this.mapPerformanceReport(row));
+  }
+
+  async staffPerformance(
+    userIds: string[],
+    bounds: StaffPerformanceBounds,
+  ): Promise<{ counts: StaffPerformanceCount[]; collected: StaffCollected[] }> {
+    if (userIds.length === 0) return { counts: [], collected: [] };
+    const params = [bounds.start, bounds.end, bounds.previousStart, userIds];
+    const [counts, collected] = await Promise.all([
+      this.pool.query(
+        `SELECT user_id, metric,
+           count(*) FILTER (WHERE at >= $1::timestamptz AND at < $2::timestamptz)
+             AS current,
+           count(*) FILTER (WHERE at >= $3::timestamptz AND at < $1::timestamptz)
+             AS previous
+         FROM (
+           SELECT created_by AS user_id, 'leads_added' AS metric, created_at AS at
+             FROM app.lead
+           UNION ALL SELECT created_by, 'leads_won', stage_changed_at
+             FROM app.lead WHERE stage = 'won' AND stage_changed_at IS NOT NULL
+           UNION ALL SELECT created_by, 'lead_followups', created_at
+             FROM app.lead_activity
+           UNION ALL SELECT promoted_by, 'prospects_promoted', promoted_at
+             FROM app.prospect WHERE promoted_at IS NOT NULL
+           UNION ALL SELECT created_by, 'emails_sent', accepted_at
+             FROM app.sales_email_message
+             WHERE direction = 'outgoing' AND send_status = 'accepted'
+               AND accepted_at IS NOT NULL
+           UNION ALL SELECT reply_sent_by, 'requests_answered', reply_sent_at
+             FROM app.quote_request WHERE reply_sent_at IS NOT NULL
+           UNION ALL SELECT issued_by, 'quotes_issued', issued_at
+             FROM app.quote_version WHERE issued_at IS NOT NULL
+           UNION ALL SELECT recorded_by,
+               CASE decision WHEN 'accepted' THEN 'quotes_accepted'
+                 ELSE 'quotes_rejected' END, recorded_at
+             FROM app.quote_decision
+           UNION ALL SELECT author_user_id, 'client_messages', created_at
+             FROM app.chat_message WHERE direction = 'to_client'
+           UNION ALL SELECT opened_by, 'jobs_opened', opened_at FROM app.job
+           UNION ALL SELECT recorded_by, 'milestones', recorded_at
+             FROM app.milestone_event
+           UNION ALL SELECT changed_by, 'status_changes', changed_at
+             FROM app.job_status_history
+           UNION ALL SELECT uploaded_by, 'documents_uploaded', uploaded_at
+             FROM app.document_version
+           UNION ALL SELECT recorded_by, 'etas_recorded', recorded_at
+             FROM app.eta_event
+           UNION ALL SELECT dispatched_by, 'deliveries_dispatched', dispatched_at
+             FROM app.delivery WHERE dispatched_at IS NOT NULL
+           UNION ALL SELECT completed_by, 'tasks_done', completed_at
+             FROM app.job_task WHERE completed_at IS NOT NULL
+           UNION ALL SELECT issued_by, 'invoices_issued', issued_at
+             FROM app.invoice WHERE issued_at IS NOT NULL AND voided_at IS NULL
+           UNION ALL SELECT payment.recorded_by, 'payments_recorded',
+               payment.recorded_at
+             FROM app.invoice_payment AS payment
+             WHERE NOT EXISTS (
+               SELECT 1 FROM app.invoice_payment_reversal AS reversal
+               WHERE reversal.payment_id = payment.payment_id)
+           UNION ALL SELECT recorded_by, 'costs_recorded', recorded_at
+             FROM app.job_charge_actual
+           UNION ALL SELECT recorded_by, 'costs_recorded', recorded_at
+             FROM app.business_expense WHERE voided_at IS NULL
+         ) AS event
+         WHERE user_id = ANY($4::uuid[])
+           AND at >= $3::timestamptz AND at < $2::timestamptz
+         GROUP BY user_id, metric`,
+        params,
+      ),
+      this.pool.query(
+        `SELECT payment.recorded_by AS user_id, invoice.currency,
+           coalesce(sum(payment.amount_minor) FILTER (
+             WHERE payment.recorded_at >= $1::timestamptz
+               AND payment.recorded_at < $2::timestamptz), 0) AS current,
+           coalesce(sum(payment.amount_minor) FILTER (
+             WHERE payment.recorded_at >= $3::timestamptz
+               AND payment.recorded_at < $1::timestamptz), 0) AS previous
+         FROM app.invoice_payment AS payment
+         JOIN app.invoice AS invoice ON invoice.invoice_id = payment.invoice_id
+         WHERE payment.recorded_by = ANY($4::uuid[])
+           AND payment.recorded_at >= $3::timestamptz
+           AND payment.recorded_at < $2::timestamptz
+           AND NOT EXISTS (
+             SELECT 1 FROM app.invoice_payment_reversal AS reversal
+             WHERE reversal.payment_id = payment.payment_id)
+         GROUP BY payment.recorded_by, invoice.currency`,
+        params,
+      ),
+    ]);
+    return {
+      counts: counts.rows.map((row) => ({
+        userId: String(row.user_id),
+        metric: String(row.metric),
+        current: Number(row.current),
+        previous: Number(row.previous),
+      })),
+      collected: collected.rows.map((row) => ({
+        userId: String(row.user_id),
+        currency: String(row.currency),
+        current: Number(row.current),
+        previous: Number(row.previous),
+      })),
+    };
   }
 
   private mapPerformanceReport(

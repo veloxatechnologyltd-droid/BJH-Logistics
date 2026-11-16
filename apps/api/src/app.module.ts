@@ -78,6 +78,7 @@ import {
   createWebsiteContactFinder,
 } from "./leads/website-contacts";
 import { ChatService } from "./chat/chat.service";
+import { TeamPerformanceService } from "./performance/team-performance.service";
 import { PerformanceController } from "./performance/performance.controller";
 import { PerformanceService } from "./performance/performance.service";
 import { TeamChatController } from "./team-chat/team-chat.controller";
@@ -259,6 +260,7 @@ import { PushService } from "./push/push.service";
     JobAssignmentsService,
     StaffNotificationsService,
     ChatService,
+    TeamPerformanceService,
     PerformanceService,
     TeamChatService,
     AssistantService,

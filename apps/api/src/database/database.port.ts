@@ -290,6 +290,29 @@ export interface EtaEventRecord {
   correctionOf: string | null;
 }
 
+/** The window a staff performance count covers, as ISO instants (`end` is exclusive). */
+export interface StaffPerformanceBounds {
+  start: string;
+  end: string;
+  /** The equal period just before: from `previousStart` up to `start`. */
+  previousStart: string;
+}
+
+export interface StaffPerformanceCount {
+  userId: string;
+  metric: string;
+  current: number;
+  previous: number;
+}
+
+/** Money a person recorded as received, per currency, in minor units. */
+export interface StaffCollected {
+  userId: string;
+  currency: string;
+  current: number;
+  previous: number;
+}
+
 /** A submitted daily or weekly performance report; the counts are a snapshot. */
 export interface PerformanceReportRecord {
   id: string;
@@ -1732,6 +1755,15 @@ export abstract class DatabasePort {
     completedCount: number;
     overdueCount: number;
   }>;
+  /**
+   * The work each of these people did in the window and in the period before
+   * it, from the records that name them (quotes issued, payments recorded,
+   * leads added and so on).
+   */
+  abstract staffPerformance(
+    userIds: string[],
+    bounds: StaffPerformanceBounds,
+  ): Promise<{ counts: StaffPerformanceCount[]; collected: StaffCollected[] }>;
   abstract createPerformanceReport(
     report: Omit<PerformanceReportRecord, "id" | "createdAt">,
   ): Promise<PerformanceReportRecord | "duplicate">;

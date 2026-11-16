@@ -99,3 +99,34 @@ export const submitReport = (input: {
     headers: { "content-type": "application/json" },
     body: JSON.stringify(input),
   }).then((response) => read<PerformanceReport>(response));
+
+/** One person's numbers for the period and the period before. */
+export type PersonPerformance = {
+  userId: string;
+  name: string;
+  roles: string[];
+  teams: TeamKey[];
+  mine: boolean;
+  metrics: Record<string, { current: number; previous: number }>;
+  /** Money recorded as received, per currency, in minor units. */
+  collected: Array<{ currency: string; current: number; previous: number }>;
+};
+
+export type TeamPerformance = {
+  from: string;
+  to: string;
+  previousFrom: string;
+  previousTo: string;
+  /** True for the super admin, who sees everyone; others see themselves. */
+  manager: boolean;
+  teams: Array<{
+    teamKey: TeamKey;
+    metrics: Array<{ key: string; label: string }>;
+  }>;
+  people: PersonPerformance[];
+};
+
+export const getTeamPerformance = (from: string, to: string) =>
+  authenticatedFetch(
+    `${performanceUrl}/team?${new URLSearchParams({ from, to })}`,
+  ).then((response) => read<TeamPerformance>(response));
