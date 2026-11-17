@@ -700,6 +700,11 @@ export interface MilestoneDefinition {
    * carry one; the other steps show in the portal without a message.
    */
   customerMessage?: string;
+  /**
+   * Shown on the public tracking page only; recording the step sends no
+   * message. Steps with a customerMessage show that wording instead.
+   */
+  trackingText?: string;
 }
 
 /**
@@ -726,6 +731,7 @@ export const seaImportMilestones: readonly MilestoneDefinition[] = [
   {
     key: "customs_declaration_submitted",
     label: "Documents entered with customs",
+    trackingText: "your documents have been submitted to customs",
   },
   { key: "duties_assessed", label: "Customs tax / duties generated" },
   { key: "customer_invoice_issued", label: "Bill issued to customer" },
@@ -739,13 +745,21 @@ export const seaImportMilestones: readonly MilestoneDefinition[] = [
     label: "Container released by shipping line",
   },
   { key: "terminal_booked", label: "Terminal charges booked" },
-  { key: "customs_inspection_completed", label: "Customs inspection done" },
+  {
+    key: "customs_inspection_completed",
+    label: "Customs inspection done",
+    trackingText: "customs inspection is complete",
+  },
   {
     key: "customs_released",
     label: "Customs released; delivery authorisation received",
     customerMessage: "customs has released your cargo",
   },
-  { key: "container_dispatched", label: "Container loaded and dispatched" },
+  {
+    key: "container_dispatched",
+    label: "Container loaded and dispatched",
+    trackingText: "your cargo is on its way to you",
+  },
   {
     key: "delivery_note_signed",
     label: "Delivered; delivery note signed by consignee",
@@ -761,15 +775,24 @@ export const seaImportMilestones: readonly MilestoneDefinition[] = [
 /** Sea export, as the client described it: invoice, booking, stuffing, customs, shipping. */
 export const seaExportMilestones: readonly MilestoneDefinition[] = [
   { key: "customer_invoice_issued", label: "Cost arranged; invoice sent" },
-  { key: "vessel_booked", label: "Vessel booked" },
+  {
+    key: "vessel_booked",
+    label: "Vessel booked",
+    trackingText: "space has been booked on a vessel",
+  },
   {
     key: "container_sent_to_customer",
     label: "Container sent to customer for loading",
   },
-  { key: "container_stuffed", label: "Container stuffed" },
+  {
+    key: "container_stuffed",
+    label: "Container stuffed",
+    trackingText: "your cargo has been loaded into the container",
+  },
   {
     key: "container_returned_to_port",
     label: "Loaded container returned to port",
+    trackingText: "your loaded container is at the port",
   },
   { key: "customs_processed", label: "Customs process done" },
   {
@@ -802,6 +825,7 @@ export const airImportMilestones: readonly MilestoneDefinition[] = [
   {
     key: "customs_declaration_submitted",
     label: "Documents entered with customs",
+    trackingText: "your documents have been submitted to customs",
   },
   { key: "duties_assessed", label: "Customs tax / duties generated" },
   { key: "customer_invoice_issued", label: "Bill issued to customer" },
@@ -821,10 +845,15 @@ export const airImportMilestones: readonly MilestoneDefinition[] = [
 
 /** Air export: booking, customs, charges, departure and waybill. */
 export const airExportMilestones: readonly MilestoneDefinition[] = [
-  { key: "air_booked", label: "Air booking made with airline" },
+  {
+    key: "air_booked",
+    label: "Air booking made with airline",
+    trackingText: "space has been booked with the airline",
+  },
   {
     key: "cargo_received_from_customer",
     label: "Goods received from customer",
+    trackingText: "we have received your goods",
   },
   { key: "customs_arranged", label: "Customs arrangements made" },
   {

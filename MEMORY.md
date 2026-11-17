@@ -2288,3 +2288,9 @@ Read MEMORY.md at the start of every session before doing anything. Never contra
 **What was decided:** The job-opened SMS now ends "Tracking no. <number>. Track it on our website: <link>" (was "Follow it: <link>"), and the email says the shipment can be followed "on our website". The link stays pre-filled (`/track/<number>`). Evans agreed after I recommended it.
 **Why:** Evans noticed the SMS did not say where the link leads. A pre-filled link saves the customer typing the number (typos lead to "not found" and calls); asking them to type it adds no security, since the number arrives in the same SMS.
 **What was rejected:** Sending the plain `/track` link that asks for the number (one more step for the customer). The plain link remains the right one for printed material or QR codes.
+
+## 2026-11-17, More steps on the public tracking page, with no extra messages
+
+**What was decided:** Evans approved showing more steps on the public tracking page "without extra SMS". A new optional `trackingText` on `MilestoneDefinition` (`packages/contracts`) is shown on the tracking page only; `customerMessage` still decides who is messaged. Added: sea import "your documents have been submitted to customs", "customs inspection is complete", "your cargo is on its way to you" (6 steps now); air import the same documents step (4); sea export "space has been booked on a vessel", "your cargo has been loaded into the container", "your loaded container is at the port" (5); air export "space has been booked with the airline", "we have received your goods" (4). No database change.
+**Why:** Customers saw "Not yet" for days during customs and called; these show movement without sending more texts.
+**What was rejected:** Money steps (bill, payment, charges) and container paperwork (shipping-line release, empty return, EIR, duties) stay staff-only; giving the new steps a `customerMessage` (would send up to 3 more SMS per job).
