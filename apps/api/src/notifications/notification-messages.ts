@@ -48,8 +48,8 @@ export const jobOpenedMessage = (
   trackingNumber: string,
 ): Message => ({
   subject: `${fileNumber}: your shipment is registered, tracking number ${trackingNumber}`,
-  body: `Your shipment ${fileNumber} has been registered with us.\n\nYour tracking number is ${trackingNumber}. You can follow the shipment at any time with it, without logging in.${sign(sender)}`,
-  smsText: `${sender}: ${fileNumber} registered. Tracking no. ${trackingNumber}. Follow it:`,
+  body: `Your shipment ${fileNumber} has been registered with us.\n\nYour tracking number is ${trackingNumber}. You can follow the shipment at any time on our website, without logging in.${sign(sender)}`,
+  smsText: `${sender}: ${fileNumber} registered. Tracking no. ${trackingNumber}. Track it on our website:`,
 });
 
 export const etaMessage = (

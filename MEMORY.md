@@ -2282,3 +2282,9 @@ Read MEMORY.md at the start of every session before doing anything. Never contra
 **What was decided:** Evans asked for tracking "right below" the hero's two buttons, then said "yes, and deploy". The hero again shows "Request a quote" and "Talk to the team" (WhatsApp), reversing the 2026-11-16 swap to a "Track your shipment" button, and a new inline box (`apps/site/app/HeroTrackForm.tsx`: label "Track your shipment", one input, a Track button) sits under them and opens `/track/<number>`, the same route as the `/track` form. The header's "Track shipment" link and the `/track` page stay as before. Site only; no API, contract or database change.
 **Why:** Customers can type the number from their SMS straight on the home page without losing the direct WhatsApp button.
 **What was rejected:** Keeping three buttons (crowded on phones); reusing `TrackForm` (its light card style is meant for the white `/track` page, not the dark hero).
+
+## 2026-11-17, Job-opened SMS says the link is on the BJH website
+
+**What was decided:** The job-opened SMS now ends "Tracking no. <number>. Track it on our website: <link>" (was "Follow it: <link>"), and the email says the shipment can be followed "on our website". The link stays pre-filled (`/track/<number>`). Evans agreed after I recommended it.
+**Why:** Evans noticed the SMS did not say where the link leads. A pre-filled link saves the customer typing the number (typos lead to "not found" and calls); asking them to type it adds no security, since the number arrives in the same SMS.
+**What was rejected:** Sending the plain `/track` link that asks for the number (one more step for the customer). The plain link remains the right one for printed material or QR codes.
