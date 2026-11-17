@@ -134,7 +134,10 @@ test("anyone holding the number sees only status, steps and ETA, with no sign-in
     steps.map((step) => step.text),
     [
       "Your cargo has arrived at the port",
+      "Your documents have been submitted to customs",
+      "Customs inspection is complete",
       "Customs has released your cargo",
+      "Your cargo is on its way to you",
       "Your cargo has been delivered",
     ],
   );
@@ -210,6 +213,26 @@ test("recorded steps and the newest ETA show, staff notes and corrections stay p
   assert.equal(body.steps[1].done, false);
   assert.ok(!JSON.stringify(body).includes("INTERNAL"));
   assert.ok(!JSON.stringify(body).includes("duty"));
+});
+
+test("a tracking-only step shows on the page but messages nobody", async () => {
+  const database = application.get(DatabasePort);
+  const before = (await database.listJobNotifications(jobId)).length;
+  const inspected = await staff(`/api/v1/jobs/${jobId}/milestones`, {
+    milestoneKey: "customs_inspection_completed",
+    occurredAt: "2026-10-06T10:00:00Z",
+  });
+  assert.equal(inspected.status, 201);
+  assert.equal((await database.listJobNotifications(jobId)).length, before);
+
+  const body = (await (await track(trackingNumber)).json()) as {
+    steps: Array<{ text: string; done: boolean }>;
+  };
+  assert.ok(
+    body.steps.some(
+      (step) => step.text === "Customs inspection is complete" && step.done,
+    ),
+  );
 });
 
 test("a closed job shows as completed", async () => {

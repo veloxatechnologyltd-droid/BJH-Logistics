@@ -67,17 +67,18 @@ export class TrackingService {
     )) {
       latest.set(event.milestoneKey, event.occurredAt);
     }
-    const steps = milestoneTemplates[job.serviceLine].flatMap((step) =>
-      step.customerMessage
+    const steps = milestoneTemplates[job.serviceLine].flatMap((step) => {
+      const wording = step.customerMessage ?? step.trackingText;
+      return wording
         ? [
             {
-              text: `${step.customerMessage.charAt(0).toUpperCase()}${step.customerMessage.slice(1)}`,
+              text: `${wording.charAt(0).toUpperCase()}${wording.slice(1)}`,
               done: latest.has(step.key),
               occurredAt: latest.get(step.key) ?? null,
             },
           ]
-        : [],
-    );
+        : [];
+    });
     return {
       trackingNumber: job.trackingNumber,
       service: serviceNames[job.serviceLine],
