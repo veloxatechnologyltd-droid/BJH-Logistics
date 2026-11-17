@@ -87,6 +87,11 @@ test("a new job gets a tracking number and the customer is messaged it once", as
   assert.ok(messages[0].subject.includes(trackingNumber));
   assert.ok(messages[0].body.includes(trackingNumber));
   assert.ok(messages[0].smsText.includes(trackingNumber));
+  assert.ok(
+    messages[0].smsText.endsWith(
+      `Track it on our website: http://127.0.0.1:3003/track/${trackingNumber}`,
+    ),
+  );
   assert.equal(
     messages[0].linkUrl,
     `http://127.0.0.1:3003/track/${trackingNumber}`,
