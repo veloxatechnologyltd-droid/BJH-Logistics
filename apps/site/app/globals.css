@@ -367,6 +367,53 @@ svg {
   margin-top: 34px;
 }
 
+.hero-track {
+  max-width: 460px;
+  margin-top: 22px;
+}
+
+.hero-track label {
+  display: block;
+  margin-bottom: 8px;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.hero-track-row {
+  display: flex;
+  gap: 6px;
+  padding: 5px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(6px);
+}
+
+.hero-track-row:focus-within {
+  border-color: var(--white);
+}
+
+.hero-track input {
+  flex: 1;
+  min-width: 0;
+  padding: 0 14px;
+  border: 0;
+  background: transparent;
+  color: var(--white);
+  font: inherit;
+  font-size: 0.95rem;
+  outline: none;
+}
+
+.hero-track input::placeholder {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.hero-track .btn {
+  padding: 10px 18px;
+}
+
 .hero-pills {
   display: flex;
   flex-wrap: wrap;
@@ -406,6 +453,10 @@ svg {
 
 .hero-copy > :nth-child(5) {
   animation-delay: 0.4s;
+}
+
+.hero-copy > :nth-child(n + 6) {
+  animation-delay: 0.5s;
 }
 
 .hero-showcase {
@@ -2241,6 +2292,10 @@ h2 {
 
   .hero-actions {
     margin-top: 24px;
+  }
+
+  .hero-track {
+    margin-top: 16px;
   }
 
   .hero-pills {

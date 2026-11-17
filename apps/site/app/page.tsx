@@ -12,8 +12,10 @@ import {
   featuredServices,
   FOUNDED,
   processSteps,
+  whatsappHref,
 } from "./content";
 import { ContactSection } from "./ContactSection";
+import { HeroTrackForm } from "./HeroTrackForm";
 import { Icon } from "./Icon";
 import { HeroShowcase } from "./HeroShowcase";
 import { JsonLd } from "./JsonLd";
@@ -76,10 +78,16 @@ export default function HomePage() {
               <Link href="/request-a-quote" className="btn btn-white">
                 Request a quote <Icon name="arrow" size={18} />
               </Link>
-              <Link href="/track" className="btn btn-outline-white">
-                <Icon name="pin" size={18} /> Track your shipment
-              </Link>
+              <a
+                href={whatsappHref()}
+                className="btn btn-outline-white"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <Icon name="whatsapp" size={18} /> Talk to the team
+              </a>
             </div>
+            <HeroTrackForm />
             <ul className="hero-pills">
               <li>
                 <Icon name="plane" size={18} /> Air
