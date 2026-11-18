@@ -1,4 +1,5 @@
 import PDFDocument from "pdfkit";
+import { readableText } from "../assets/pdf-text";
 import { pickBankAccounts } from "@bjh/contracts";
 import type { BusinessSettings, InvoiceShipment } from "@bjh/contracts";
 import { drawLogo } from "../assets/logo";
@@ -101,6 +102,7 @@ export function renderInvoicePdf(
       Author: issuerName,
     },
   });
+  readableText(doc);
   const done = collect(doc);
   drawInvoice(doc, input);
   const range = doc.bufferedPageRange();
@@ -516,6 +518,7 @@ export function renderInvoiceSummaryPdf(
       Author: issuerName,
     },
   });
+  readableText(doc);
   const done = collect(doc);
   const left = PAGE_MARGIN;
   const width = doc.page.width - PAGE_MARGIN * 2;

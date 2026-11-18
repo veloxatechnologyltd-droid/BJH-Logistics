@@ -1,4 +1,5 @@
 import PDFDocument from "pdfkit";
+import { readableText } from "../assets/pdf-text";
 import { drawLogo } from "../assets/logo";
 import { renderDeliveryDocumentPdf } from "./delivery-document-pdf";
 import { renderHouseBlPdf } from "./house-bl-pdf";
@@ -89,6 +90,7 @@ export function renderTransportDocumentPdf(
       Author: issuerName,
     },
   });
+  readableText(doc);
   const chunks: Buffer[] = [];
   doc.on("data", (chunk: Buffer) => chunks.push(chunk));
   const done = new Promise<Buffer>((resolve, reject) => {
