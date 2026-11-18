@@ -10,6 +10,7 @@ import {
   groupLines,
   quoteDraftReason,
   renderQuotePdf,
+  withoutListMarker,
 } from "../src/quotations/quote-pdf";
 
 const line = (
@@ -187,6 +188,40 @@ test("the PDF carries the quote content and the issuer from the settings", async
     assert.ok(text.includes(expected), `missing: ${expected}`);
   }
   assert.ok(!text.includes("DRAFT"));
+});
+
+test("text pasted from Word with tabs prints readably", async () => {
+  const v = version({
+    procedureSteps: ["1.\tSubmit shipment documents"],
+    requiredDocuments: ["•\tBill of lading or Sea waybill"],
+  });
+  const file = await renderQuotePdf(
+    { quote: quote(v), version: v, settings },
+    { compress: false },
+  );
+  const text = pdfText(file);
+  for (const expected of [
+    "1. Submit shipment documents",
+    "- Bill of lading or Sea waybill",
+  ]) {
+    assert.ok(text.includes(expected), `missing: ${expected}`);
+  }
+});
+
+test("a number or bullet pasted with a list item is not printed twice", () => {
+  assert.equal(withoutListMarker("1.\tSubmit documents"), "Submit documents");
+  assert.equal(withoutListMarker("2) Pay duties"), "Pay duties");
+  assert.equal(withoutListMarker("\u2022\tPacking list"), "Packing list");
+  assert.equal(withoutListMarker("\uf0b7Packing list"), "Packing list");
+  assert.equal(withoutListMarker("- Packing list"), "Packing list");
+  for (const kept of [
+    "1.5 tonnes max",
+    "20ft container",
+    "-5C reefer",
+    "Packing list",
+  ]) {
+    assert.equal(withoutListMarker(kept), kept);
+  }
 });
 
 test("the PDF prints quote-specific container sizes and single-amount lines", async () => {

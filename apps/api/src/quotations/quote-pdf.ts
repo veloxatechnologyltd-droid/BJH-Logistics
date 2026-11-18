@@ -1,4 +1,5 @@
 import PDFDocument from "pdfkit";
+import { readableText } from "../assets/pdf-text";
 import {
   pickBankAccounts,
   quoteBasisLabels,
@@ -81,6 +82,14 @@ function formatDate(iso: string): string {
   }).format(new Date(iso));
 }
 
+/** Drops a number or bullet pasted with a list item (from Word); the PDF adds its own. */
+export function withoutListMarker(item: string): string {
+  return item.replace(
+    /^\s*(?:\d{1,2}[.)]\s+|[\u2022\u00b7\u25aa\u25e6\uf0b7]\s*|[-\u2013*]\s+)/,
+    "",
+  );
+}
+
 /** Groups consecutive lines that share a heading, as printed in the samples. */
 export function groupLines(
   lines: QuoteLineRecord[],
@@ -113,6 +122,7 @@ export function renderQuotePdf(
       Author: issuerName,
     },
   });
+  readableText(doc);
   const chunks: Buffer[] = [];
   doc.on("data", (chunk: Buffer) => chunks.push(chunk));
   const done = new Promise<Buffer>((resolve, reject) => {
@@ -377,7 +387,7 @@ export function renderQuotePdf(
     heading("Clearance procedure");
     version.procedureSteps.forEach((step, index) => {
       ensure(30);
-      paragraph(`${index + 1}. ${step}`);
+      paragraph(`${index + 1}. ${withoutListMarker(step)}`);
       doc.moveDown(0.2);
     });
   }
@@ -385,7 +395,7 @@ export function renderQuotePdf(
     heading("Documents required");
     for (const item of version.requiredDocuments) {
       ensure(20);
-      paragraph(`- ${item}`);
+      paragraph(`- ${withoutListMarker(item)}`);
     }
     if (version.documentsNote) {
       doc.moveDown(0.3);
@@ -400,7 +410,7 @@ export function renderQuotePdf(
     heading("Important terms");
     for (const item of version.terms) {
       ensure(24);
-      paragraph(`- ${item}`);
+      paragraph(`- ${withoutListMarker(item)}`);
       doc.moveDown(0.2);
     }
   }

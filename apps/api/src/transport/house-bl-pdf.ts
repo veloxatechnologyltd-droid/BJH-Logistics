@@ -1,4 +1,5 @@
 import PDFDocument from "pdfkit";
+import { readableText } from "../assets/pdf-text";
 import { drawLogo } from "../assets/logo";
 import {
   parseDocumentTableRows,
@@ -63,6 +64,7 @@ export function renderHouseBlPdf(
       Author: issuerName,
     },
   });
+  readableText(doc);
   const chunks: Buffer[] = [];
   doc.on("data", (chunk: Buffer) => chunks.push(chunk));
   const done = new Promise<Buffer>((resolve, reject) => {

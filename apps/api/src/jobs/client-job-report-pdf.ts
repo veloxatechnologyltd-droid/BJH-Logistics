@@ -1,4 +1,5 @@
 import PDFDocument from "pdfkit";
+import { readableText } from "../assets/pdf-text";
 import { drawLogo } from "../assets/logo";
 import type { BusinessSettings } from "@bjh/contracts";
 import type {
@@ -82,6 +83,7 @@ export function renderClientJobReportPdf(
       Author: issuerName,
     },
   });
+  readableText(doc);
   const chunks: Buffer[] = [];
   doc.on("data", (chunk: Buffer) => chunks.push(chunk));
   const done = new Promise<Buffer>((resolve, reject) => {
