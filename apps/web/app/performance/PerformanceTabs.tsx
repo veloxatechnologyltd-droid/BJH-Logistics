@@ -2,8 +2,8 @@ import Link from "next/link";
 import styles from "../jobs/jobs.module.css";
 
 const tabs = [
-  { href: "/performance", label: "Team performance" },
-  { href: "/performance/reports", label: "Daily & weekly reports" },
+  { href: "/performance", label: "Reports" },
+  { href: "/performance/team", label: "Team numbers" },
 ];
 
 export function PerformanceTabs({ active }: { active: string }) {

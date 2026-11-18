@@ -1,17 +1,23 @@
 import {
   BadRequestException,
-  ConflictException,
   ForbiddenException,
   Inject,
   Injectable,
+  NotFoundException,
 } from "@nestjs/common";
 import {
   parseContract,
   performancePeriods,
   performanceReportInputSchema,
+  serviceLinesForRoles,
   teamKeys,
 } from "@bjh/contracts";
-import type { PerformancePeriod, TeamKey } from "@bjh/contracts";
+import type {
+  PerformanceDepartment,
+  PerformanceJobUpdateInput,
+  PerformancePeriod,
+  TeamKey,
+} from "@bjh/contracts";
 import {
   STAFF_AUTH_DIRECTORY,
   staffDisplayName,
@@ -19,10 +25,14 @@ import {
 import type { StaffAuthDirectory } from "../auth/staff-admin.port";
 import { DatabasePort } from "../database/database.port";
 import type {
+  PerformanceJobUpdate,
   PerformanceReportRecord,
+  ReportActivity,
+  ReportTaskCounts,
   StaffRoleKey,
 } from "../database/database.port";
 import { teamsFor } from "../team-chat/team-chat.service";
+import { performanceMetrics } from "./performance-metrics";
 
 /** The signed-in staff member writing or reading reports. */
 export interface PerformanceActor {
@@ -36,7 +46,15 @@ export interface ShownReport extends PerformanceReportRecord {
   mine: boolean;
 }
 
-export interface ReportPreview {
+/** The department a team's people usually report as; they may pick another. */
+const departmentForTeam: Record<TeamKey, PerformanceDepartment> = {
+  sales: "sales_marketing",
+  customer_service: "customer_service",
+  operations: "operations",
+  finance: "finance",
+};
+
+export interface ReportPreview extends ReportTaskCounts {
   period: PerformancePeriod;
   periodStart: string;
   /** The last day the counts cover: today. */
@@ -44,10 +62,11 @@ export interface ReportPreview {
   teamKey: TeamKey;
   /** The teams this person may report for. */
   teams: TeamKey[];
-  newCount: number;
-  completedCount: number;
-  overdueCount: number;
-  /** Already submitted for this period: it cannot be sent twice. */
+  /** The department the form starts on. */
+  department: PerformanceDepartment;
+  /** What the system recorded for this person so far in the period. */
+  activity: ReportActivity;
+  /** The latest report already sent for this period; another may follow. */
   submitted: ShownReport | null;
 }
 
@@ -100,11 +119,16 @@ export class PerformanceService {
     teamInput: unknown,
   ): Promise<ReportPreview> {
     const period = this.period(periodInput);
-    const { teams, teamKey } = this.team(actor, teamInput);
+    // The preview opens on the person's first team; they may switch.
+    const { teams, teamKey } = this.team(
+      actor,
+      teamInput || teamsFor(actor.roles)[0],
+    );
     const { start, through } = reportPeriod(period);
-    const [counts, existing] = await Promise.all([
+    const [counts, existing, activity] = await Promise.all([
       this.database.countTasksForReport(actor.userId, start, through),
       this.database.findPerformanceReport(actor.userId, period, start),
+      this.activity(actor.userId, teamKey, period),
     ]);
     return {
       period,
@@ -112,7 +136,9 @@ export class PerformanceService {
       through,
       teamKey,
       teams,
+      department: departmentForTeam[teamKey],
       ...counts,
+      activity,
       submitted: existing
         ? (await this.show([existing], actor.userId))[0]
         : null,
@@ -122,30 +148,81 @@ export class PerformanceService {
   async submit(actor: PerformanceActor, input: unknown): Promise<ShownReport> {
     const parsed = parseContract(performanceReportInputSchema, input);
     if (!parsed.success) throw new BadRequestException(parsed.message);
-    const { teamKey } = this.team(actor, parsed.data.teamKey);
-    const { start, through } = reportPeriod(parsed.data.period);
-    const counts = await this.database.countTasksForReport(
-      actor.userId,
-      start,
-      through,
-    );
+    const report = parsed.data;
+    const daily = report.period === "daily";
+    const { teamKey } = this.team(actor, report.teamKey);
+    const { start, through } = reportPeriod(report.period);
+    const jobUpdates = daily
+      ? await this.jobUpdates(actor, report.jobUpdates)
+      : null;
+    const [counts, activity] = await Promise.all([
+      this.database.countTasksForReport(actor.userId, start, through),
+      this.activity(actor.userId, teamKey, report.period),
+    ]);
     const saved = await this.database.createPerformanceReport({
       authorUserId: actor.userId,
       teamKey,
-      period: parsed.data.period,
+      period: report.period,
       periodStart: start,
-      ...counts,
-      blockers: parsed.data.blockers,
-      notes: parsed.data.notes,
+      newCount: counts.newCount,
+      completedCount: counts.completedCount,
+      overdueCount: counts.overdueCount,
+      openingActive: daily ? null : counts.openingActive,
+      closingActive: daily ? null : counts.closingActive,
+      department: report.department,
+      jobUpdates,
+      blockers: report.blockers,
+      notes: report.notes,
+      summary: report.summary,
+      plan: report.plan,
+      kpiTarget: daily ? null : report.kpiTarget,
+      kpiActual: daily ? null : report.kpiActual,
+      kpiAction: daily ? null : report.kpiAction,
+      activity,
     });
-    if (saved === "duplicate") {
-      throw new ConflictException(
-        parsed.data.period === "daily"
-          ? "You have already sent today's report"
-          : "You have already sent this week's report",
-      );
-    }
     return (await this.show([saved], actor.userId))[0];
+  }
+
+  /**
+   * Job updates as they are stored: each system job must be one the person may
+   * see, and its file number is copied in; the next action goes to an active
+   * staff member, whose display name is copied in.
+   */
+  private async jobUpdates(
+    actor: PerformanceActor,
+    updates: PerformanceJobUpdateInput[],
+  ): Promise<PerformanceJobUpdate[]> {
+    const scope = actor.roles.includes("super_admin")
+      ? {}
+      : { serviceLines: serviceLinesForRoles(actor.roles) };
+    const people = [
+      ...new Set(updates.flatMap((u) => u.nextActionUserId ?? [])),
+    ];
+    for (const userId of people) {
+      if ((await this.database.getActiveStaffRoles(userId)).length === 0) {
+        throw new BadRequestException(
+          "The next action must go to an active staff member",
+        );
+      }
+    }
+    const names = await this.names(people);
+    return Promise.all(
+      updates.map(async (update) => {
+        let jobReference: string | null = null;
+        if (update.jobId) {
+          const job = await this.database.findJob(update.jobId, scope);
+          if (!job) throw new NotFoundException("Job not found");
+          jobReference = job.fileNumber;
+        }
+        return {
+          ...update,
+          jobReference,
+          nextActionName: update.nextActionUserId
+            ? (names.get(update.nextActionUserId) ?? "Staff member")
+            : null,
+        };
+      }),
+    );
   }
 
   /**
@@ -229,6 +306,66 @@ export class PerformanceService {
       withBlockers: query.blockers === "yes",
     });
     return this.show(reports, actor.userId);
+  }
+
+  /**
+   * The person's results for the team they report for, today or this week so
+   * far, next to yesterday or the whole of last week, and the items behind
+   * them, newest first.
+   */
+  private async activity(
+    userId: string,
+    teamKey: TeamKey,
+    period: PerformancePeriod,
+  ): Promise<ReportActivity> {
+    const { start, through } = reportPeriod(period);
+    const startMs = Date.parse(`${start}T00:00:00.000Z`);
+    const bounds = {
+      start: new Date(startMs).toISOString(),
+      end: new Date(
+        Date.parse(`${through}T00:00:00.000Z`) + 86_400_000,
+      ).toISOString(),
+      previousStart: new Date(
+        startMs - (period === "daily" ? 1 : 7) * 86_400_000,
+      ).toISOString(),
+    };
+    const [{ counts, money }, items] = await Promise.all([
+      this.database.staffPerformance([userId], bounds),
+      this.database.staffActivity(userId, bounds),
+    ]);
+    return {
+      metrics: performanceMetrics
+        .filter((metric) => metric.team === teamKey)
+        .map(({ key, label, kind }) => {
+          if (kind === "count") {
+            const row = counts.find((count) => count.metric === key);
+            return {
+              key,
+              label,
+              kind,
+              current: row?.current ?? 0,
+              previous: row?.previous ?? 0,
+            };
+          }
+          const rows = money
+            .filter((figure) => figure.metric === key)
+            .map(({ currency, current, previous }) => ({
+              currency,
+              current,
+              previous,
+            }))
+            .sort((a, b) => a.currency.localeCompare(b.currency));
+          return {
+            key,
+            label,
+            kind,
+            current: rows.reduce((sum, row) => sum + row.current, 0),
+            previous: rows.reduce((sum, row) => sum + row.previous, 0),
+            money: rows,
+          };
+        }),
+      items,
+    };
   }
 
   private period(value: unknown): PerformancePeriod {

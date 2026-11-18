@@ -19,13 +19,11 @@ SELECT extensions.lives_ok(
     VALUES ('00000000-0000-4000-8000-0000000000a8', 'sales', 'daily', '2099-01-07', 1, 1, 0)$$,
   'a daily report can be stored'
 );
-SELECT extensions.throws_ok(
+SELECT extensions.lives_ok(
   $$INSERT INTO app.performance_report
       (author_user_id, team_key, period, period_start, new_count, completed_count, overdue_count)
     VALUES ('00000000-0000-4000-8000-0000000000a8', 'sales', 'daily', '2099-01-07', 2, 0, 0)$$,
-  '23505',
-  NULL,
-  'the same person cannot report the same day twice'
+  'the same person may send another report for the same day'
 );
 SELECT extensions.lives_ok(
   $$INSERT INTO app.performance_report

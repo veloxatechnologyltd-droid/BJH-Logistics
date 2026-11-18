@@ -20,3 +20,256 @@
   gap: 12px;
   margin-left: auto;
 }
+
+.choices {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+  gap: 12px;
+}
+.choice {
+  display: grid;
+  gap: 4px;
+  border: 1px solid var(--brand-border);
+  border-radius: 10px;
+  background: none;
+  padding: 16px;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.choice strong {
+  color: var(--brand-primary);
+  font-size: 1.1rem;
+}
+.choice:hover,
+.choice:focus-visible {
+  border-color: var(--brand-primary);
+  outline: none;
+  box-shadow: 0 0 0 2px var(--brand-primary);
+}
+.choiceNote {
+  color: var(--brand-muted);
+  font-size: 0.85rem;
+}
+
+/* Results as tiles, with the period before underneath. */
+.counts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 150px), 1fr));
+  gap: 10px;
+  margin: 0;
+}
+.count {
+  display: grid;
+  align-content: start;
+  gap: 2px;
+  border: 1px solid var(--brand-border);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.count dt {
+  color: var(--brand-muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+.count dd {
+  margin: 0;
+  color: var(--brand-primary);
+  font-size: 1.4rem;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+.before {
+  color: var(--brand-muted);
+  font-size: 0.75rem;
+}
+
+/* What was recorded, newest first. */
+.timeline {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.timeline li {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--brand-border);
+  font-size: 0.9rem;
+}
+.timeline time {
+  color: var(--brand-muted);
+  font-variant-numeric: tabular-nums;
+}
+.linkButton {
+  justify-self: start;
+  border: 0;
+  background: none;
+  padding: 6px 0;
+  color: var(--brand-primary);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.notice {
+  border-left: 4px solid var(--brand-primary);
+  padding: 10px 14px;
+  font-weight: 700;
+}
+
+/* Sent reports, read as documents. */
+.listTitle {
+  margin: 28px 0 0;
+  font-size: 1.2rem;
+}
+.reportList {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+.reportCardItem {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 0;
+}
+.reportHead {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+}
+.reportHead h3 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+.reportHead p {
+  margin: 2px 0 0;
+}
+.flags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 6px;
+}
+.excerpt {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  white-space: pre-line;
+}
+.reportBody {
+  display: grid;
+  gap: 14px;
+}
+.reportBody section {
+  display: grid;
+  gap: 8px;
+}
+.reportBody h4 {
+  margin: 0;
+  color: var(--brand-muted);
+  font-size: 0.8rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.reportBody p {
+  margin: 0;
+}
+.prose {
+  white-space: pre-line;
+}
+
+/* Generating a report: one focused screen at a time. */
+.flow {
+  max-width: 760px;
+}
+.flowTop {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.flowLabel {
+  margin: 12px 0 4px;
+  color: var(--brand-primary);
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+.screen {
+  display: grid;
+  gap: 18px;
+  margin-top: 8px;
+}
+.screen textarea {
+  width: 100%;
+}
+
+/* The client's tracker form: one card per job update. */
+.jobCard {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  border: 1px solid var(--brand-border);
+  border-radius: 10px;
+  padding: 14px 16px 16px;
+}
+.jobCard > legend {
+  padding: 0 6px;
+  color: var(--brand-primary);
+  font-weight: 800;
+}
+.jobCard > .linkButton {
+  justify-self: end;
+  margin-top: -8px;
+}
+.statusChoice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+.statusChoice legend {
+  margin-bottom: 6px;
+  padding: 0;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+.statusChoice label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.pair,
+.kpi {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
+  gap: 12px;
+}
+.more {
+  display: grid;
+  gap: 12px;
+}
+.more summary {
+  color: var(--brand-primary);
+  font-weight: 700;
+  cursor: pointer;
+}
+.more[open] summary {
+  margin-bottom: 12px;
+}
+.formHeading {
+  margin: 0 0 4px;
+  font-size: 1.05rem;
+}
+.jobUpdate {
+  border-left: 3px solid var(--brand-primary);
+  padding-left: 12px;
+}
