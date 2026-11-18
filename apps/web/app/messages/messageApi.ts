@@ -100,6 +100,7 @@ export async function sendClientMessage(input: {
   audience: "all" | string[];
   subject?: string;
   body: string;
+  channels: ChannelMode;
 }): Promise<SendResult> {
   return read<SendResult>(
     await authenticatedFetch(`${apiBaseUrl}/v1/messages`, {

@@ -6,13 +6,24 @@ import { listCustomers } from "../../customers/customerApi";
 import type { CustomerCompany } from "../../customers/customerApi";
 import styles from "../../jobs/jobs.module.css";
 import { draftClientMessage, getFeed, sendClientMessage } from "../messageApi";
+import { channelLabels } from "../messageApi";
 import type { ChannelMode, SendResult } from "../messageApi";
 import { ErrorPopup } from "../../ErrorPopup";
 
-/** Write to one company, several, or all of them, by the channels set in Business settings. */
+const channelChoices: Array<{ value: ChannelMode; label: string }> = [
+  { value: "both", label: "Email and SMS" },
+  { value: "email", label: "Email only" },
+  { value: "sms", label: "SMS only" },
+];
+
+/**
+ * Write to one company (individual) or to several or all of them (bulk), by
+ * email, SMS or both; the channel starts at the Business-settings choice.
+ */
 export function ComposeMessage() {
   const [companies, setCompanies] = useState<CustomerCompany[]>([]);
   const [channels, setChannels] = useState<ChannelMode>("both");
+  const [bulk, setBulk] = useState(false);
   const [everyone, setEveryone] = useState(false);
   const [chosen, setChosen] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState("");
@@ -51,8 +62,10 @@ export function ComposeMessage() {
 
   const audience = useMemo(
     () =>
-      everyone ? companies : companies.filter((item) => chosen.has(item.id)),
-    [companies, chosen, everyone],
+      bulk && everyone
+        ? companies
+        : companies.filter((item) => chosen.has(item.id)),
+    [bulk, companies, chosen, everyone],
   );
   const reached = audience.flatMap((company) =>
     company.contacts.filter((contact) => contact.notify),
@@ -69,7 +82,18 @@ export function ComposeMessage() {
     company.companyName.toLowerCase().includes(search.trim().toLowerCase()),
   );
 
+  function chooseMode(toBulk: boolean) {
+    setBulk(toBulk);
+    setEveryone(false);
+    // Individual is one client: a bulk selection does not carry over.
+    if (!toBulk && chosen.size > 1) setChosen(new Set());
+  }
+
   function toggle(id: string) {
+    if (!bulk) {
+      setChosen(new Set([id]));
+      return;
+    }
     setChosen((current) => {
       const next = new Set(current);
       if (next.has(id)) next.delete(id);
@@ -109,9 +133,10 @@ export function ComposeMessage() {
     setError("");
     try {
       const outcome = await sendClientMessage({
-        audience: everyone ? "all" : [...chosen],
+        audience: bulk && everyone ? "all" : [...chosen],
         subject: subject.trim() || undefined,
         body,
+        channels,
       });
       setResult(outcome);
       setBody("");
@@ -135,29 +160,42 @@ export function ComposeMessage() {
           <h2 id="who-title">Who is it for?</h2>
           <label className={styles.choice}>
             <input
-              checked={!everyone}
+              checked={!bulk}
               name="audience"
-              onChange={() => setEveryone(false)}
+              onChange={() => chooseMode(false)}
               type="radio"
             />
             <span>
-              <strong>Chosen clients</strong>
-              <small>Tick one company or several.</small>
+              <strong>Individual</strong>
+              <small>One client company.</small>
             </span>
           </label>
           <label className={styles.choice}>
             <input
-              checked={everyone}
+              checked={bulk}
               name="audience"
-              onChange={() => setEveryone(true)}
+              onChange={() => chooseMode(true)}
               type="radio"
             />
             <span>
-              <strong>Every client</strong>
-              <small>A broadcast to all {companies.length} companies.</small>
+              <strong>Bulk</strong>
+              <small>Several client companies, or all of them.</small>
             </span>
           </label>
-          {!everyone && (
+          {bulk && (
+            <label className={styles.choice}>
+              <input
+                checked={everyone}
+                onChange={(changed) => setEveryone(changed.target.checked)}
+                type="checkbox"
+              />
+              <span>
+                <strong>Every client</strong>
+                <small>A broadcast to all {companies.length} companies.</small>
+              </span>
+            </label>
+          )}
+          {!(bulk && everyone) && (
             <>
               <input
                 aria-label="Search clients"
@@ -179,8 +217,9 @@ export function ComposeMessage() {
                     <label className={styles.choice} key={company.id}>
                       <input
                         checked={chosen.has(company.id)}
+                        name={bulk ? undefined : "client"}
                         onChange={() => toggle(company.id)}
-                        type="checkbox"
+                        type={bulk ? "checkbox" : "radio"}
                       />
                       <span>
                         <strong>{company.companyName}</strong>
@@ -247,6 +286,22 @@ export function ComposeMessage() {
               </small>
             </label>
           </div>
+          <fieldset className={styles.channelChoice}>
+            <legend>Send it by</legend>
+            {channelChoices.map((choice) => (
+              <label className={styles.choice} key={choice.value}>
+                <input
+                  checked={channels === choice.value}
+                  name="channels"
+                  onChange={() => setChannels(choice.value)}
+                  type="radio"
+                />
+                <span>
+                  <strong>{choice.label}</strong>
+                </span>
+              </label>
+            ))}
+          </fieldset>
           <p className={styles.muted}>
             {audience.length === 0
               ? "Choose who it is for."
@@ -296,8 +351,9 @@ export function ComposeMessage() {
           <p className={styles.muted}>
             It will go to {reached.length}{" "}
             {reached.length === 1 ? "person" : "people"} at {companiesReached}{" "}
-            {companiesReached === 1 ? "company" : "companies"}. A message that
-            has been sent cannot be taken back.
+            {companiesReached === 1 ? "company" : "companies"} by{" "}
+            {channelLabels[channels]}. A message that has been sent cannot be
+            taken back.
           </p>
           <div className={styles.actions}>
             <button

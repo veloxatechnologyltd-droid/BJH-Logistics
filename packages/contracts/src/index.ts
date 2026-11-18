@@ -2347,7 +2347,8 @@ export type MessageDraftInput = z.infer<typeof messageDraftInputSchema>;
 
 /**
  * A message to client companies that is not about one job: to every company
- * ("all") or to the companies chosen, sent by the configured channels.
+ * ("all") or to the companies chosen, by the channels staff pick (or the
+ * configured ones).
  */
 export const clientMessageInputSchema = z.object(
   {
@@ -2365,6 +2366,12 @@ export const clientMessageInputSchema = z.object(
     ),
     subject: optionalText("subject", 200),
     body: requiredText("body", 1500),
+    /** Email, SMS or both for this message; the Business-settings choice when absent. */
+    channels: z
+      .enum(notificationChannelModes, {
+        error: "channels must be email, sms or both",
+      })
+      .optional(),
   },
   objectError("A message object is required"),
 );
