@@ -297,6 +297,33 @@ test("a message to one company reaches its contacts who have not opted out, by e
   );
 });
 
+test("staff can pick SMS only or email only for one message, and a bad choice is refused", async () => {
+  for (const channels of ["sms", "email"] as const) {
+    const subject = `Only ${channels}`;
+    const response = await post("/api/v1/messages", TEST_MATCHING_TOKEN, {
+      audience: [companyA],
+      subject,
+      body: "Channel check.",
+      channels,
+    });
+    assert.equal(response.status, 201);
+    const sent = (
+      await feed(TEST_SUPER_ADMIN_TOKEN, `?companyId=${companyA}&event=message`)
+    ).messages.find((item) => item.subject === subject);
+    assert.ok(sent);
+    assert.deepEqual(
+      [...new Set(sent.deliveries.map((item) => item.channel))],
+      [channels],
+    );
+  }
+  const refused = await post("/api/v1/messages", TEST_MATCHING_TOKEN, {
+    audience: [companyA],
+    body: "Channel check.",
+    channels: "fax",
+  });
+  assert.equal(refused.status, 400);
+});
+
 test("a broadcast to chosen companies creates one message per company", async () => {
   const response = await post("/api/v1/messages", TEST_MATCHING_TOKEN, {
     audience: [companyA, companyB],

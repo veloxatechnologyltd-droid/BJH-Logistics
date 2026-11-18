@@ -37,6 +37,8 @@ export interface NotifyInput {
   createdBy?: string | null;
   /** The job report to attach to the email. */
   jobReportQuery?: JobReportQuery | null;
+  /** Overrides the Business-settings channels for this one message. */
+  channels?: NotificationChannelMode;
 }
 
 /** The base address of the web app, used to build the links in messages. */
@@ -108,7 +110,7 @@ export class NotificationsService {
 
   async queue(input: NotifyInput): Promise<NotificationRecord | "duplicate"> {
     const [mode, sender, customer] = await Promise.all([
-      this.channelMode(),
+      input.channels ?? this.channelMode(),
       this.senderName(),
       this.database.findCustomer(input.companyId),
     ]);
@@ -234,7 +236,7 @@ export class NotificationsService {
   async sendClientMessage(input: unknown, sentBy: string) {
     const parsed = parseContract(clientMessageInputSchema, input);
     if (!parsed.success) throw new BadRequestException(parsed.message);
-    const { audience, subject, body } = parsed.data;
+    const { audience, subject, body, channels } = parsed.data;
 
     const everyone = await this.database.listCustomers("");
     const chosen =
@@ -277,6 +279,7 @@ export class NotificationsService {
         message: (sender) => staffMessage(sender, subject, body),
         linkPath: "/portal",
         createdBy: sentBy,
+        channels,
       });
       if (result !== "duplicate") {
         sent.push({
