@@ -914,6 +914,20 @@
   }
 }
 
+/* Email, SMS or both, for a message to clients. */
+.channelChoice {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0 12px;
+  padding: 0;
+  border: 0;
+}
+.channelChoice legend {
+  margin-bottom: 4px;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
 /* An invoice's shipment details: two columns, one on a phone. */
 .shipmentFields {
   display: grid;

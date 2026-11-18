@@ -93,6 +93,12 @@ const staffNav: NavGroup[] = [
         alsoMatches: ["/inquiries"],
       },
       { href: "/quotes", label: "Quotes", icon: "quotes" },
+      {
+        href: "/invoices",
+        label: "Invoices",
+        icon: "invoices",
+        roles: ["super_admin", "finance_rep", "customer_service_rep"],
+      },
     ],
   },
   {
@@ -161,15 +167,16 @@ function visibleGroups(
 
 /** The menu entry for this page: the longest match, so Leads is not also Customers. */
 function activeHref(pathname: string, groups: NavGroup[]): string | undefined {
-  // Staff reach invoices from the Finance menu (its Invoices tab).
-  if (pathname === "/invoices" || pathname.startsWith("/invoices/")) {
-    const finance = groups
-      .flatMap((group) => group.items)
-      .find((item) => item.href === "/finance");
+  // Without their own Invoices entry, staff reach invoices from Finance (its Invoices tab).
+  const items = groups.flatMap((group) => group.items);
+  if (
+    (pathname === "/invoices" || pathname.startsWith("/invoices/")) &&
+    !items.some((item) => item.href === "/invoices")
+  ) {
+    const finance = items.find((item) => item.href === "/finance");
     if (finance) return finance.href;
   }
-  return groups
-    .flatMap((group) => group.items)
+  return items
     .filter((entry) => matchesItem(pathname, entry))
     .sort((a, b) => b.href.length - a.href.length)[0]?.href;
 }
