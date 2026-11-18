@@ -7,7 +7,7 @@ import { listCustomerInsights, listCustomers } from "./customerApi";
 import type { CustomerCompany, CustomerInsight } from "./customerApi";
 import { canWorkFinance } from "../auth/roleAccess";
 import { useStaffAccess } from "../auth/useStaffAccess";
-import { canWorkClientDesk } from "../auth/roleAccess";
+import { canWorkQuotes } from "../auth/roleAccess";
 import { formatMoney } from "../quotes/quoteApi";
 import ui from "../jobs/jobs.module.css";
 import styles from "./customerDirectory.module.css";
@@ -170,7 +170,7 @@ export function CustomerDirectory() {
               quotes and money.
             </p>
           </div>
-          {canWorkClientDesk(roles) && (
+          {canWorkQuotes(roles) && (
             <Link className={styles.newCustomerLink} href="/customers/new">
               New customer
             </Link>
@@ -432,11 +432,11 @@ export function CustomerDirectory() {
               <div className={styles.emptyState}>
                 <h2>No customers yet</h2>
                 <p>
-                  {canWorkClientDesk(roles)
+                  {canWorkQuotes(roles)
                     ? "Create a company profile to start the customer directory."
                     : "Customer profiles will appear here when they are available."}
                 </p>
-                {canWorkClientDesk(roles) && (
+                {canWorkQuotes(roles) && (
                   <Link
                     className={styles.emptyClearButton}
                     href="/customers/new"

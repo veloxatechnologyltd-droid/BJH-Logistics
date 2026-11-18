@@ -2,7 +2,16 @@ import "reflect-metadata";
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import type { INestApplication } from "@nestjs/common";
-import { createTestApplication, staffFetch } from "./test-application";
+import {
+  TEST_CUSTOMER_A_TOKEN,
+  TEST_MATCHING_TOKEN,
+  TEST_MATCHING_USER_ID,
+  TEST_SUPER_ADMIN_ID,
+  TEST_UNASSIGNED_TOKEN,
+  createTestApplication,
+  staffFetch,
+} from "./test-application";
+import { DatabasePort } from "../src/database/database.port";
 import {
   beginTestDatabase,
   endTestDatabase,
@@ -350,4 +359,40 @@ test("customer companies and contacts persist after an API restart", async () =>
     contacts: Array<{ email: string }>;
   };
   assert.equal(customer.contacts[0]?.email, "taylor@example.test");
+});
+
+test("whoever prepares quotes can make a customer with only the essentials; others cannot", async () => {
+  await application
+    .get(DatabasePort)
+    .assignStaffRole(TEST_MATCHING_USER_ID, "import_rep", TEST_SUPER_ADMIN_ID);
+  const post = (token: string) =>
+    fetch(`${baseUrl}/api/v1/customers`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        companyName: "Quick Synthetic Ltd",
+        contactName: "Quinn Quick",
+        email: "quinn@quick.test",
+      }),
+    });
+
+  const made = await post(TEST_MATCHING_TOKEN);
+  assert.equal(made.status, 201);
+  const customer = (await made.json()) as {
+    companyName: string;
+    taxNumber: string | null;
+    billingAddress: string | null;
+    contacts: { email: string; isPrimary: boolean }[];
+  };
+  assert.equal(customer.companyName, "Quick Synthetic Ltd");
+  assert.equal(customer.taxNumber, null);
+  assert.equal(customer.billingAddress, null);
+  assert.equal(customer.contacts[0]?.email, "quinn@quick.test");
+  assert.equal(customer.contacts[0]?.isPrimary, true);
+
+  assert.equal((await post(TEST_CUSTOMER_A_TOKEN)).status, 403);
+  assert.equal((await post(TEST_UNASSIGNED_TOKEN)).status, 403);
 });

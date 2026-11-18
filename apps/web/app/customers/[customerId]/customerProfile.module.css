@@ -177,6 +177,18 @@
   resize: vertical;
 }
 
+.alignStart {
+  align-items: start;
+}
+
+.moreDetails summary {
+  cursor: pointer;
+  color: var(--brand-primary);
+  font-size: 0.78rem;
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+
 .profileActions {
   display: flex;
   justify-content: flex-end;
