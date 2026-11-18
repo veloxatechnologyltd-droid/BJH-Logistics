@@ -36,7 +36,12 @@ export type CustomerCompany = {
   contacts: CustomerContact[];
 };
 
-export type NewCustomer = CustomerInput;
+/** Only the name, contact and email are required; the API defaults the rest to empty. */
+export type NewCustomer = Pick<
+  CustomerInput,
+  "companyName" | "contactName" | "email"
+> &
+  Partial<CustomerInput>;
 
 const apiBaseUrl =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:3001/api";

@@ -118,7 +118,7 @@ test("customer service sees every job and opens any line", async () => {
   assert.equal(opened.status, 201);
 });
 
-test("customer service and sales keep customer records and requests; import, export and finance do not", async () => {
+test("customer service and sales keep customer records and requests; import may create a customer (for a quote); finance may not", async () => {
   const newCustomer = (name: string) => ({
     companyName: name,
     contactName: "Ama Synthetic",
@@ -146,18 +146,21 @@ test("customer service and sales keep customer records and requests; import, exp
     assert.equal(request.status, 201, `${role} request`);
   }
 
-  for (const [token, role] of [
-    [TEST_MATCHING_TOKEN, "import_rep"],
-    [TEST_UNASSIGNED_TOKEN, "finance_rep"],
-  ] as const) {
-    if (role === "finance_rep") await actAs("finance_rep");
-    const refused = await post(
-      "/api/v1/customers",
-      token,
-      newCustomer(`Refused ${role}`),
-    );
-    assert.equal(refused.status, 403, role);
-  }
+  // Evans, 2026-11-18: whoever prepares quotes may create a customer.
+  const byImport = await post(
+    "/api/v1/customers",
+    TEST_MATCHING_TOKEN,
+    newCustomer("Quote import_rep"),
+  );
+  assert.equal(byImport.status, 201, "import_rep");
+
+  await actAs("finance_rep");
+  const refused = await post(
+    "/api/v1/customers",
+    TEST_UNASSIGNED_TOKEN,
+    newCustomer("Refused finance_rep"),
+  );
+  assert.equal(refused.status, 403, "finance_rep");
 });
 
 test("old roles can no longer be assigned through staff management", async () => {

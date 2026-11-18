@@ -14,8 +14,10 @@ import {
 import {
   ClientDeskGuard,
   DepartmentStaffGuard,
+  StaffRolesGuard,
   SupabaseIdentityGuard,
   StaffCompanyReadGuard,
+  quoteDeskRoles,
 } from "../auth/auth.guards";
 import type { AuthenticatedRequest } from "../auth/auth.guards";
 import { CustomersService } from "./customers.service";
@@ -27,8 +29,9 @@ export class CustomersController {
     @Inject(CustomersService) private readonly customers: CustomersService,
   ) {}
 
+  /** Whoever may prepare quotes, so a quote for a new client needs no hand-off. */
   @Post()
-  @UseGuards(ClientDeskGuard)
+  @UseGuards(DepartmentStaffGuard, StaffRolesGuard(quoteDeskRoles))
   create(@Body() body: unknown) {
     return this.customers.create(body);
   }

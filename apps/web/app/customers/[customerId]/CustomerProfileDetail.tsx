@@ -36,6 +36,16 @@ const shortDate = (value: string | null) =>
       })
     : "—";
 
+/** Profile details that are rarely needed, kept out of the way until recorded. */
+const extraFields = [
+  ["tradingName", "Trading name"],
+  ["registrationNumber", "Registration number"],
+  ["taxNumber", "Tax / TIN number"],
+  ["companyEmail", "Company email"],
+  ["website", "Website"],
+  ["billingAddress", "Billing address (if different)"],
+] as const;
+
 export function CustomerProfileDetail() {
   const { customerId } = useParams<{ customerId: string }>();
   const [customer, setCustomer] = useState<CustomerCompany | null>(null);
@@ -220,6 +230,8 @@ export function CustomerProfileDetail() {
     };
   }, [customerId]);
 
+  const extraDetails = extraFields.filter(([name]) => customer?.[name]);
+
   return (
     <main className={styles.page}>
       <Link className={styles.backLink} href="/customers/directory">
@@ -348,9 +360,9 @@ export function CustomerProfileDetail() {
             <ErrorPopup message={profileError} />
             {editingCompany ? (
               <form className={styles.profileForm} onSubmit={saveCompany}>
-                <div className={styles.profileFields}>
+                <div className={`${styles.profileFields} ${styles.alignStart}`}>
                   <label className={styles.profileField}>
-                    Registered / legal company name
+                    Company name
                     <input
                       defaultValue={customer.companyName}
                       maxLength={160}
@@ -359,54 +371,12 @@ export function CustomerProfileDetail() {
                     />
                   </label>
                   <label className={styles.profileField}>
-                    Trading name
-                    <input
-                      defaultValue={customer.tradingName ?? ""}
-                      maxLength={160}
-                      name="tradingName"
-                    />
-                  </label>
-                  <label className={styles.profileField}>
-                    Company registration number
-                    <input
-                      defaultValue={customer.registrationNumber ?? ""}
-                      maxLength={120}
-                      name="registrationNumber"
-                    />
-                  </label>
-                  <label className={styles.profileField}>
-                    Tax / TIN number
-                    <input
-                      defaultValue={customer.taxNumber ?? ""}
-                      maxLength={120}
-                      name="taxNumber"
-                    />
-                  </label>
-                  <label className={styles.profileField}>
-                    Company phone
+                    Phone
                     <input
                       defaultValue={customer.phone ?? ""}
                       maxLength={40}
                       name="phone"
                       type="tel"
-                    />
-                  </label>
-                  <label className={styles.profileField}>
-                    General company email
-                    <input
-                      defaultValue={customer.companyEmail ?? ""}
-                      maxLength={254}
-                      name="companyEmail"
-                      type="email"
-                    />
-                  </label>
-                  <label className={styles.profileField}>
-                    Website
-                    <input
-                      defaultValue={customer.website ?? ""}
-                      maxLength={300}
-                      name="website"
-                      type="text"
                     />
                   </label>
                   <label className={styles.profileField}>
@@ -418,7 +388,7 @@ export function CustomerProfileDetail() {
                     />
                   </label>
                   <label className={styles.profileField}>
-                    Business / registered address
+                    Address
                     <textarea
                       defaultValue={customer.businessAddress ?? ""}
                       maxLength={1000}
@@ -426,16 +396,46 @@ export function CustomerProfileDetail() {
                       rows={3}
                     />
                   </label>
-                  <label className={styles.profileField}>
-                    Billing address (if different)
-                    <textarea
-                      defaultValue={customer.billingAddress ?? ""}
-                      maxLength={1000}
-                      name="billingAddress"
-                      rows={3}
-                    />
-                  </label>
                 </div>
+                {/* Rarely needed; still saved with the form when closed. */}
+                <details
+                  className={styles.moreDetails}
+                  open={extraDetails.length > 0}
+                >
+                  <summary>More details (optional)</summary>
+                  <div
+                    className={`${styles.profileFields} ${styles.alignStart}`}
+                  >
+                    {extraFields.map(([name, label]) => (
+                      <label className={styles.profileField} key={name}>
+                        {label}
+                        {name === "billingAddress" ? (
+                          <textarea
+                            defaultValue={customer[name] ?? ""}
+                            maxLength={1000}
+                            name={name}
+                            rows={3}
+                          />
+                        ) : (
+                          <input
+                            defaultValue={customer[name] ?? ""}
+                            maxLength={
+                              name === "companyEmail"
+                                ? 254
+                                : name === "website"
+                                  ? 300
+                                  : name === "tradingName"
+                                    ? 160
+                                    : 120
+                            }
+                            name={name}
+                            type={name === "companyEmail" ? "email" : "text"}
+                          />
+                        )}
+                      </label>
+                    ))}
+                  </div>
+                </details>
                 <div className={styles.profileActions}>
                   <button
                     onClick={() => setEditingCompany(false)}
@@ -449,47 +449,28 @@ export function CustomerProfileDetail() {
             ) : (
               <dl className={styles.companyGrid}>
                 <div>
-                  <dt>Registered / legal name</dt>
+                  <dt>Company name</dt>
                   <dd>{customer.companyName}</dd>
                 </div>
                 <div>
-                  <dt>Trading name</dt>
-                  <dd>{customer.tradingName ?? "Not recorded"}</dd>
-                </div>
-                <div>
-                  <dt>Company registration number</dt>
-                  <dd>{customer.registrationNumber ?? "Not recorded"}</dd>
-                </div>
-                <div>
-                  <dt>Tax / TIN number</dt>
-                  <dd>{customer.taxNumber ?? "Not recorded"}</dd>
-                </div>
-                <div>
-                  <dt>Company phone</dt>
+                  <dt>Phone</dt>
                   <dd>{customer.phone ?? "Not recorded"}</dd>
-                </div>
-                <div>
-                  <dt>General company email</dt>
-                  <dd>{customer.companyEmail ?? "Not recorded"}</dd>
-                </div>
-                <div>
-                  <dt>Website</dt>
-                  <dd>{customer.website ?? "Not recorded"}</dd>
                 </div>
                 <div>
                   <dt>Country</dt>
                   <dd>{customer.country ?? "Not recorded"}</dd>
                 </div>
                 <div>
-                  <dt>Business / registered address</dt>
+                  <dt>Address</dt>
                   <dd>{customer.businessAddress ?? "Not recorded"}</dd>
                 </div>
-                <div>
-                  <dt>Billing address</dt>
-                  <dd>
-                    {customer.billingAddress ?? "Same as business address"}
-                  </dd>
-                </div>
+                {/* The optional details appear only once recorded. */}
+                {extraDetails.map(([name, label]) => (
+                  <div key={name}>
+                    <dt>{label}</dt>
+                    <dd>{customer[name]}</dd>
+                  </div>
+                ))}
               </dl>
             )}
           </section>

@@ -22,7 +22,7 @@ import type {
   ServiceLine,
 } from "@bjh/contracts";
 import { useStaffAccess } from "../auth/useStaffAccess";
-import { listCustomers } from "../customers/customerApi";
+import { createCustomer, listCustomers } from "../customers/customerApi";
 import type { CustomerCompany } from "../customers/customerApi";
 import { leadToCustomer, listLeads } from "../customers/leadApi";
 import type { Lead } from "../customers/leadApi";
@@ -138,8 +138,17 @@ export function QuoteEditor({
   const [customers, setCustomers] = useState<CustomerCompany[]>([]);
   /** Open leads not yet linked to a customer; a quote can be prepared for them too. */
   const [leads, setLeads] = useState<Lead[]>([]);
-  /** Whether the quote is for a customer or a lead; picked before the name. */
-  const [partyKind, setPartyKind] = useState<"customer" | "lead">("customer");
+  /** Whether the quote is for a customer, a lead or a new client; picked before the name. */
+  const [partyKind, setPartyKind] = useState<"customer" | "lead" | "new">(
+    "customer",
+  );
+  /** A client in neither list: a customer profile is made when the quote is saved. */
+  const [newClient, setNewClient] = useState({
+    companyName: "",
+    contactName: "",
+    email: "",
+    phone: "",
+  });
   const [customerId, setCustomerId] = useState(
     fromRequest?.customerId ?? initialCustomerId ?? "",
   );
@@ -314,10 +323,16 @@ export function QuoteEditor({
       if (quote) {
         onSaved?.(await saveQuoteDraft(quote.id, body));
       } else {
-        // A lead becomes a customer first; the quote is saved for that company.
-        const companyId = customerId.startsWith("lead:")
-          ? (await leadToCustomer(customerId.slice(5))).customerCompanyId
-          : customerId;
+        // A lead or a new client becomes a customer first; the quote is saved for that company.
+        // Once made, the new profile is kept, so a failed quote save does not make it twice.
+        let companyId = customerId;
+        if (partyKind === "new" && !companyId) {
+          companyId = (await createCustomer(newClient)).id;
+          setCustomerId(companyId);
+        } else if (customerId.startsWith("lead:")) {
+          companyId = (await leadToCustomer(customerId.slice(5)))
+            .customerCompanyId;
+        }
         const created = await createQuote({
           customerCompanyId: companyId,
           serviceLine: serviceLine as ServiceLine,
@@ -354,47 +369,80 @@ export function QuoteEditor({
                 <select
                   disabled={Boolean(fromRequest)}
                   onChange={(event) => {
-                    setPartyKind(event.target.value as "customer" | "lead");
+                    setPartyKind(
+                      event.target.value as "customer" | "lead" | "new",
+                    );
                     setCustomerId("");
                   }}
                   value={partyKind}
                 >
                   <option value="customer">Customer</option>
                   <option value="lead">Lead</option>
+                  <option value="new">New customer</option>
                 </select>
               </label>
-              <label className={styles.field}>
-                {partyKind === "customer" ? "Customer" : "Lead"}
-                <select
-                  disabled={Boolean(fromRequest)}
-                  onChange={(event) => setCustomerId(event.target.value)}
-                  required
-                  value={customerId}
-                >
-                  {partyKind === "customer" ? (
-                    <>
-                      <option value="">Select a customer</option>
-                      {customers.map((customer) => (
-                        <option key={customer.id} value={customer.id}>
-                          {customer.companyName} ({customer.customerNumber})
+              {partyKind === "new" ? (
+                <>
+                  {(
+                    [
+                      ["companyName", "Company name", "text", true],
+                      ["contactName", "Contact person", "text", true],
+                      ["email", "Email", "email", true],
+                      ["phone", "Phone", "tel", false],
+                    ] as const
+                  ).map(([key, label, type, required]) => (
+                    <label className={styles.field} key={key}>
+                      {label}
+                      <input
+                        disabled={Boolean(customerId)}
+                        maxLength={key === "email" ? 254 : 160}
+                        onChange={(event) =>
+                          setNewClient((client) => ({
+                            ...client,
+                            [key]: event.target.value,
+                          }))
+                        }
+                        required={required}
+                        type={type}
+                        value={newClient[key]}
+                      />
+                    </label>
+                  ))}
+                </>
+              ) : (
+                <label className={styles.field}>
+                  {partyKind === "customer" ? "Customer" : "Lead"}
+                  <select
+                    disabled={Boolean(fromRequest)}
+                    onChange={(event) => setCustomerId(event.target.value)}
+                    required
+                    value={customerId}
+                  >
+                    {partyKind === "customer" ? (
+                      <>
+                        <option value="">Select a customer</option>
+                        {customers.map((customer) => (
+                          <option key={customer.id} value={customer.id}>
+                            {customer.companyName} ({customer.customerNumber})
+                          </option>
+                        ))}
+                      </>
+                    ) : (
+                      <>
+                        <option value="">
+                          {leads.length ? "Select a lead" : "No open leads"}
                         </option>
-                      ))}
-                    </>
-                  ) : (
-                    <>
-                      <option value="">
-                        {leads.length ? "Select a lead" : "No open leads"}
-                      </option>
-                      {leads.map((lead) => (
-                        <option key={lead.id} value={`lead:${lead.id}`}>
-                          {lead.companyName}
-                          {lead.contactName ? ` (${lead.contactName})` : ""}
-                        </option>
-                      ))}
-                    </>
-                  )}
-                </select>
-              </label>
+                        {leads.map((lead) => (
+                          <option key={lead.id} value={`lead:${lead.id}`}>
+                            {lead.companyName}
+                            {lead.contactName ? ` (${lead.contactName})` : ""}
+                          </option>
+                        ))}
+                      </>
+                    )}
+                  </select>
+                </label>
+              )}
             </div>
           )}
           {!quote && (
