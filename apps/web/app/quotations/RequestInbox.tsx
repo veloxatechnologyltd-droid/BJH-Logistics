@@ -1,12 +1,12 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   listQuoteRequests,
   listStaffNotices,
   misfiledLabel,
-  requestSourceLabels,
 } from "./quoteRequestApi";
 import type { QuoteRequest, RequestMailbox } from "./quoteRequestApi";
 import { eventLabels, getFeed } from "../messages/messageApi";
@@ -14,9 +14,11 @@ import type { ClientMessage } from "../messages/messageApi";
 import { useStaffAccess } from "../auth/useStaffAccess";
 import styles from "./quotation.module.css";
 import { ErrorPopup, plainMessage } from "../ErrorPopup";
+import { QuoteRequestDetail } from "./requests/[requestId]/QuoteRequestDetail";
+import type { DetailTab } from "./requests/[requestId]/QuoteRequestDetail";
 
 type LoadState = "loading" | "ready" | "error";
-type Tab = "person" | "received" | "sent" | "other";
+type Tab = "person" | "received" | "drafts" | "sent" | "other";
 
 const tabs: Array<{ key: Tab; label: string; empty: string }> = [
   {
@@ -27,8 +29,14 @@ const tabs: Array<{ key: Tab; label: string; empty: string }> = [
   },
   {
     key: "received",
-    label: "Received",
+    label: "Inbox",
     empty: "Emails and requests from customers will appear here.",
+  },
+  {
+    key: "drafts",
+    label: "Drafts",
+    empty:
+      "Draft replies and draft quotes waiting for a person to check them will appear here.",
   },
   {
     key: "sent",
@@ -42,8 +50,6 @@ const tabs: Array<{ key: Tab; label: string; empty: string }> = [
   },
 ];
 
-const kindLabels = { quote: "Quote request", inquiry: "Question" } as const;
-
 /** What the Sent tab lists: replies to emails, and quotes sent to customers; for inquiries, the replies to them. */
 const sentEvents: Record<RequestMailbox, string[]> = {
   quotes: ["email_reply", "quote_issued", "quote_sent"],
@@ -52,13 +58,21 @@ const sentEvents: Record<RequestMailbox, string[]> = {
 
 /** Each inbox's tabs: only inquiries are escalated to a person. */
 const tabsOf: Record<RequestMailbox, Tab[]> = {
-  quotes: ["received", "sent", "other"],
-  inquiries: ["person", "received", "sent", "other"],
+  quotes: ["received", "drafts", "sent", "other"],
+  inquiries: ["person", "received", "drafts", "sent", "other"],
 };
 
 /** An inquiry the assistant could not answer, still waiting for a person to reply. */
 const needsPerson = (request: QuoteRequest) =>
   Boolean(request.intake?.escalation && !request.intake.reply?.sentAt);
+
+/** A reply or a quote the assistant prepared that nobody has sent or issued yet. */
+const hasDraft = (request: QuoteRequest) =>
+  request.intake?.kind !== "other" &&
+  Boolean(
+    (request.intake?.reply && !request.intake.reply.sentAt) ||
+    request.quoteStatus === "draft",
+  );
 
 const deliveryLabels = {
   sent: "Delivered",
@@ -137,23 +151,17 @@ const tabOf = (request: QuoteRequest): Tab =>
 const senderName = (request: QuoteRequest) =>
   request.intake?.fromName || request.contactName || request.email;
 
-/** Where it came from and what it is; the quote and reply waiting on it are shown under the row. */
-function receivedPills(request: QuoteRequest): string[] {
-  const source = request.source
-    ? requestSourceLabels[request.source]
-    : "Earlier request";
-  const intake = request.intake;
-  if (!intake) return [source];
-  if (!intake.kind) return [source, "Not sorted"];
-  return intake.kind === "other" ? [source] : [source, kindLabels[intake.kind]];
-}
-
 export function RequestInbox({
   mailbox = "quotes",
 }: {
   mailbox?: RequestMailbox;
 }) {
   const { isSuperAdmin } = useStaffAccess();
+  const router = useRouter();
+  const pathname = usePathname();
+  const openId = useSearchParams().get("open");
+  // A sent message opened in the reading pane (a request's id lives in the address).
+  const [openSentId, setOpenSentId] = useState<string | null>(null);
   const [requests, setRequests] = useState<QuoteRequest[]>([]);
   const [sent, setSent] = useState<ClientMessage[]>([]);
   const [loadState, setLoadState] = useState<LoadState>("loading");
@@ -206,34 +214,54 @@ export function RequestInbox({
     [reminders, now],
   );
 
-  const load = useCallback(async () => {
-    setLoadState("loading");
-    setLoadError("");
-    try {
-      const [loaded, ...feeds] = await Promise.all([
-        listQuoteRequests(undefined, mailbox),
-        ...sentEvents[mailbox].map((event) => getFeed({ event, limit: 200 })),
-      ]);
-      setRequests(loaded);
-      setSent(
-        feeds
-          .flatMap((feed) => feed.messages)
-          .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
-      );
-      setLoadState("ready");
-    } catch (error) {
-      setLoadError(
-        error instanceof Error
-          ? error.message
-          : "The request inbox is unavailable",
-      );
-      setLoadState("error");
-    }
-  }, [mailbox]);
+  const load = useCallback(
+    async (quiet = false) => {
+      if (!quiet) {
+        setLoadState("loading");
+        setLoadError("");
+      }
+      try {
+        const [loaded, ...feeds] = await Promise.all([
+          listQuoteRequests(undefined, mailbox),
+          ...sentEvents[mailbox].map((event) => getFeed({ event, limit: 200 })),
+        ]);
+        setRequests(loaded);
+        setSent(
+          feeds
+            .flatMap((feed) => feed.messages)
+            .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+        );
+        setLoadState("ready");
+      } catch (error) {
+        // A refresh after an action keeps what is on screen if it fails.
+        if (quiet) return;
+        setLoadError(
+          error instanceof Error
+            ? error.message
+            : "The request inbox is unavailable",
+        );
+        setLoadState("error");
+      }
+    },
+    [mailbox],
+  );
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Something changed inside the reading pane: update its row and the counts.
+  const onOpenedChanged = useCallback(
+    (next: QuoteRequest) => {
+      setRequests((previous) =>
+        previous.map((request) =>
+          request.id === next.id ? { ...request, ...next } : request,
+        ),
+      );
+      void load(true);
+    },
+    [load],
+  );
 
   const byTab = useMemo(() => {
     const received = (request: QuoteRequest) =>
@@ -254,6 +282,7 @@ export function RequestInbox({
       person: of("person"),
       received: of("received"),
       other: of("other"),
+      drafts: requests.filter((request) => hasDraft(request)).sort(order),
     };
   }, [requests, reminderDue]);
 
@@ -300,13 +329,40 @@ export function RequestInbox({
     );
   }, [byTab, tab, normalizedQuery, since]);
 
+  const openRequest = openId
+    ? (requests.find((request) => request.id === openId) ?? null)
+    : null;
+  const openSent = openSentId
+    ? (sent.find((message) => message.id === openSentId) ?? null)
+    : null;
+  const readerOpen = tab === "sent" ? openSent !== null : openId !== null;
+  const rowHref = (request: QuoteRequest) => `${pathname}?open=${request.id}`;
+  const closeReader = () => {
+    setOpenSentId(null);
+    if (openId) router.replace(pathname, { scroll: false });
+  };
+  function changeTab(next: Tab) {
+    setTab(next);
+    closeReader();
+  }
+  // In Drafts, open on what is waiting: the reply, else the quote.
+  const readerTab: DetailTab =
+    tab === "drafts"
+      ? openRequest?.intake?.reply && !openRequest.intake.reply.sentAt
+        ? "reply"
+        : "details"
+      : "email";
+
   const newCount = byTab.received.filter(
     (request) => request.intake && !request.intake.reviewedAt,
   ).length;
   const current = shownTabs.find((entry) => entry.key === tab)!;
 
   return (
-    <section className={styles.inbox} aria-labelledby="inbox-title">
+    <section
+      className={`${styles.inbox}${readerOpen ? ` ${styles.inboxReading}` : ""}`}
+      aria-labelledby="inbox-title"
+    >
       <div className={styles.inboxHeader}>
         <div>
           <h2 id="inbox-title">
@@ -368,7 +424,7 @@ export function RequestInbox({
                 aria-selected={tab === entry.key}
                 className={`${styles.inboxTab}${tab === entry.key ? ` ${styles.inboxTabActive}` : ""}`}
                 key={entry.key}
-                onClick={() => setTab(entry.key)}
+                onClick={() => changeTab(entry.key)}
                 role="tab"
                 type="button"
               >
@@ -408,53 +464,106 @@ export function RequestInbox({
             </select>
           </div>
 
-          {tab === "sent" && shownSent.length > 0 ? (
-            <ul className={styles.requestList}>
-              {shownSent.map((message) => (
-                <SentRow key={message.id} message={message} />
-              ))}
-            </ul>
-          ) : tab !== "sent" && shown.length > 0 ? (
-            <ul className={styles.requestList}>
-              {shown.map((request) => (
-                <ReceivedRow
-                  key={request.id}
-                  reminderDue={reminderDue(request) !== null}
-                  request={request}
-                />
-              ))}
-            </ul>
-          ) : (
-            <div className={styles.emptyState}>
-              {filtering ? (
-                <>
-                  <h3>Nothing matches</h3>
-                  <p>
-                    {normalizedQuery
-                      ? "Try another name, address or phrase, or a longer period."
-                      : "Nothing in this period. Try a longer one."}
-                  </p>
-                  <button
-                    onClick={() => {
-                      setQuery("");
-                      setPeriod("all");
-                    }}
-                    type="button"
-                  >
-                    Clear filters
-                  </button>
-                </>
+          <div
+            className={`${styles.split}${readerOpen ? ` ${styles.splitOpen}` : ""}`}
+          >
+            <div className={styles.splitList}>
+              {tab === "sent" && shownSent.length > 0 ? (
+                <ul className={styles.requestList}>
+                  {shownSent.map((message) => (
+                    <SentRow
+                      key={message.id}
+                      message={message}
+                      onOpen={() => setOpenSentId(message.id)}
+                      selected={message.id === openSentId}
+                    />
+                  ))}
+                </ul>
+              ) : tab !== "sent" && shown.length > 0 ? (
+                <ul className={styles.requestList}>
+                  {shown.map((request) => (
+                    <ReceivedRow
+                      href={rowHref(request)}
+                      key={request.id}
+                      reminderDue={reminderDue(request) !== null}
+                      request={request}
+                      selected={request.id === openId}
+                    />
+                  ))}
+                </ul>
               ) : (
-                <>
-                  <span className={styles.emptyIcon} aria-hidden="true">
-                    ◷
-                  </span>
-                  <h3>Nothing here yet</h3>
-                  <p>{current.empty}</p>
-                </>
+                <div className={styles.emptyState}>
+                  {filtering ? (
+                    <>
+                      <h3>Nothing matches</h3>
+                      <p>
+                        {normalizedQuery
+                          ? "Try another name, address or phrase, or a longer period."
+                          : "Nothing in this period. Try a longer one."}
+                      </p>
+                      <button
+                        onClick={() => {
+                          setQuery("");
+                          setPeriod("all");
+                        }}
+                        type="button"
+                      >
+                        Clear filters
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <span className={styles.emptyIcon} aria-hidden="true">
+                        ◷
+                      </span>
+                      <h3>Nothing here yet</h3>
+                      <p>{current.empty}</p>
+                    </>
+                  )}
+                </div>
               )}
             </div>
-          )}
+
+            <div className={styles.splitReader}>
+              {readerOpen ? (
+                <>
+                  <button
+                    className={styles.readerBack}
+                    onClick={closeReader}
+                    type="button"
+                  >
+                    <span aria-hidden="true">←</span> Back to {current.label}
+                  </button>
+                  {tab === "sent" && openSent ? (
+                    <SentMessageView message={openSent} />
+                  ) : (
+                    <QuoteRequestDetail
+                      embedded
+                      initialTab={readerTab}
+                      key={openId}
+                      onChanged={onOpenedChanged}
+                      requestId={openId!}
+                    />
+                  )}
+                </>
+              ) : (
+                <div className={styles.readerEmpty}>
+                  <span className={styles.emptyIcon} aria-hidden="true">
+                    ✉
+                  </span>
+                  <h3>
+                    {tab === "sent"
+                      ? "Select a sent message to read it"
+                      : "Select an email to read it"}
+                  </h3>
+                  <p>
+                    The email, its draft reply and its draft quote open here,
+                    each on its own tab.
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
         </>
       )}
     </section>
@@ -464,9 +573,13 @@ export function RequestInbox({
 function ReceivedRow({
   request,
   reminderDue,
+  selected,
+  href,
 }: {
   request: QuoteRequest;
   reminderDue: boolean;
+  selected: boolean;
+  href: string;
 }) {
   const intake = request.intake;
   const isNew = Boolean(intake && !intake.reviewedAt);
@@ -475,15 +588,17 @@ function ReceivedRow({
   return (
     <li>
       <Link
-        className={`${styles.requestRow}${isNew ? ` ${styles.requestRowNew}` : ""}`}
-        href={`/quotations/requests/${request.id}`}
+        aria-current={selected ? "true" : undefined}
+        className={`${styles.requestRow}${isNew ? ` ${styles.requestRowNew}` : ""}${selected ? ` ${styles.requestRowSelected}` : ""}`}
+        href={href}
+        scroll={false}
       >
         <span className={styles.requestMark} aria-hidden="true">
           {initials(name)}
         </span>
         <span className={styles.requestMain}>
           <span className={styles.rowFrom}>
-            <strong>From {name}</strong>
+            <strong>{name}</strong>
             <span>{intake?.fromEmail ?? request.email}</span>
           </span>
           <span className={styles.rowSubject}>
@@ -503,11 +618,19 @@ function ReceivedRow({
             {misfiledLabel(request) && (
               <span className={styles.pillNew}>{misfiledLabel(request)}</span>
             )}
-            {receivedPills(request).map((pill) => (
-              <span className={styles.pill} key={pill}>
-                {pill}
-              </span>
-            ))}
+            {request.quoteStatus === "draft" && (
+              <span className={styles.pillDraft}>Draft quote</span>
+            )}
+            {reply && !reply.sentAt && (
+              <span className={styles.pillDraft}>Draft reply</span>
+            )}
+            {reply?.sentAt && <span className={styles.pill}>Replied</span>}
+            {request.quoteStatus === "issued" && (
+              <span className={styles.pill}>Quote issued</span>
+            )}
+            {intake && !intake.kind && (
+              <span className={styles.pill}>Not sorted</span>
+            )}
             <span className={styles.rowCustomer}>
               {request.customerCompanyName ?? "No customer linked"}
             </span>
@@ -520,61 +643,38 @@ function ReceivedRow({
           {shortTime(intake?.receivedAt ?? request.createdAt)}
         </time>
       </Link>
-
-      {/* What is waiting on this email: the draft quote and the reply. */}
-      {(request.quoteId || reply) && (
-        <div className={styles.followUps}>
-          {request.quoteId && (
-            <div className={styles.followUp}>
-              <span>
-                {request.quoteStatus === "issued"
-                  ? `Quote ${request.quoteNumber ?? ""} issued`
-                  : "Draft quote waiting for approval"}
-              </span>
-              <Link href={`/quotes/${request.quoteId}`}>
-                {request.quoteStatus === "issued"
-                  ? "View quote"
-                  : "Check, edit and issue"}{" "}
-                <span aria-hidden="true">→</span>
-              </Link>
-            </div>
-          )}
-          {reply && (
-            <div className={styles.followUp}>
-              <span>
-                {reply.sentAt
-                  ? `Replied ${shortTime(reply.sentAt)}${reply.sentByAssistant ? " by the assistant" : ""}`
-                  : "Reply drafted, not sent yet"}
-              </span>
-              <Link href={`/quotations/requests/${request.id}`}>
-                {reply.sentAt ? "See the reply" : "Read, edit and send"}{" "}
-                <span aria-hidden="true">→</span>
-              </Link>
-            </div>
-          )}
-        </div>
-      )}
     </li>
   );
 }
 
-/** One message BJH sent: a reply to an email, or a quote. A click opens it as it went out. */
-function SentRow({ message }: { message: ClientMessage }) {
-  const [open, setOpen] = useState(false);
+const sentTo = (message: ClientMessage) => {
   const first = message.deliveries[0];
-  const to = first?.contactName || first?.recipient || message.companyName;
-  const byAssistant =
-    (message.event === "email_reply" || message.event === "inquiry_reply") &&
-    !message.createdBy;
+  return first?.contactName || first?.recipient || message.companyName;
+};
+
+const sentByAssistant = (message: ClientMessage) =>
+  (message.event === "email_reply" || message.event === "inquiry_reply") &&
+  !message.createdBy;
+
+/** One message BJH sent: a reply to an email, or a quote. A click opens it in the reading pane. */
+function SentRow({
+  message,
+  selected,
+  onOpen,
+}: {
+  message: ClientMessage;
+  selected: boolean;
+  onOpen: () => void;
+}) {
   const notDelivered = message.deliveries.filter(
     (delivery) => delivery.status !== "sent",
   );
   return (
     <li>
       <button
-        aria-expanded={open}
-        className={`${styles.requestRow} ${styles.sentRow}`}
-        onClick={() => setOpen(!open)}
+        aria-pressed={selected}
+        className={`${styles.requestRow} ${styles.sentRow}${selected ? ` ${styles.requestRowSelected}` : ""}`}
+        onClick={onOpen}
         type="button"
       >
         <span
@@ -585,16 +685,16 @@ function SentRow({ message }: { message: ClientMessage }) {
         </span>
         <span className={styles.requestMain}>
           <span className={styles.rowFrom}>
-            <strong>Sent to {to}</strong>
+            <strong>To {sentTo(message)}</strong>
             <span>{message.companyName}</span>
           </span>
           <span className={styles.rowSubject}>{message.subject}</span>
-          {!open && <span className={styles.sentBody}>{message.body}</span>}
+          <span className={styles.messagePreview}>{message.body}</span>
           <span className={styles.rowPills}>
             <span className={styles.pillNew}>
               {eventLabels[message.event] ?? message.event}
             </span>
-            {byAssistant && (
+            {sentByAssistant(message) && (
               <span className={styles.pill}>Sent by the assistant</span>
             )}
             {message.deliveries.length > 0 && (
@@ -610,40 +710,50 @@ function SentRow({ message }: { message: ClientMessage }) {
           {shortTime(message.createdAt)}
         </time>
       </button>
-
-      {open && (
-        <div className={styles.sentMessage}>
-          <dl>
-            <dt>To</dt>
-            <dd>
-              {message.deliveries
-                .map(
-                  (delivery) =>
-                    `${delivery.contactName ? `${delivery.contactName} ` : ""}<${delivery.recipient ?? "no address"}> by ${delivery.channel}: ${deliveryLabels[delivery.status]}${delivery.lastError ? ` (${delivery.lastError})` : ""}`,
-                )
-                .join("; ") || message.companyName}
-            </dd>
-            <dt>Sent</dt>
-            <dd>
-              {new Date(message.createdAt).toLocaleString("en-GB", {
-                timeZone: "Africa/Accra",
-                dateStyle: "medium",
-                timeStyle: "short",
-              })}
-              {byAssistant ? ", by the assistant" : ""}
-            </dd>
-            <dt>Subject</dt>
-            <dd>{message.subject}</dd>
-          </dl>
-          <p className={styles.sentMessageBody}>{message.body}</p>
-          {message.linkUrl && (
-            <a href={message.linkUrl} rel="noreferrer" target="_blank">
-              Open the link the customer received{" "}
-              <span aria-hidden="true">→</span>
-            </a>
-          )}
-        </div>
-      )}
     </li>
+  );
+}
+
+/** A sent message as it went out, in the reading pane. */
+function SentMessageView({ message }: { message: ClientMessage }) {
+  return (
+    <article className={styles.requestDetail}>
+      <header className={styles.readerHeader}>
+        <div className={styles.readerTitle}>
+          <h2>{message.subject}</h2>
+          <p>
+            <strong>Sent to {sentTo(message)}</strong> ·{" "}
+            {new Date(message.createdAt).toLocaleString("en-GB", {
+              timeZone: "Africa/Accra",
+              dateStyle: "medium",
+              timeStyle: "short",
+            })}
+            {sentByAssistant(message) ? ", by the assistant" : ""}
+          </p>
+        </div>
+      </header>
+      <div className={styles.sentMessage}>
+        <dl>
+          <dt>To</dt>
+          <dd>
+            {message.deliveries
+              .map(
+                (delivery) =>
+                  `${delivery.contactName ? `${delivery.contactName} ` : ""}<${delivery.recipient ?? "no address"}> by ${delivery.channel}: ${deliveryLabels[delivery.status]}${delivery.lastError ? ` (${delivery.lastError})` : ""}`,
+              )
+              .join("; ") || message.companyName}
+          </dd>
+          <dt>Type</dt>
+          <dd>{eventLabels[message.event] ?? message.event}</dd>
+        </dl>
+        <p className={styles.sentMessageBody}>{message.body}</p>
+        {message.linkUrl && (
+          <a href={message.linkUrl} rel="noreferrer" target="_blank">
+            Open the link the customer received{" "}
+            <span aria-hidden="true">→</span>
+          </a>
+        )}
+      </div>
+    </article>
   );
 }
