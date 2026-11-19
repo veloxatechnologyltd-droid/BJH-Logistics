@@ -37,6 +37,8 @@ import type {
 } from "../leads/lead-run";
 import type {
   JobReportQuery,
+  PerformanceDepartment,
+  PerformanceJobStatus,
   TeamKey,
   TeamTagKind,
   BankAccount,
@@ -316,6 +318,50 @@ export interface StaffPerformanceMoney {
   previous: number;
 }
 
+/**
+ * One thing the system recorded a person doing: a quote sent, a milestone
+ * updated, a payment recorded... `reference` is the quote, file or invoice
+ * number; `party` the customer or lead company.
+ */
+export interface StaffActivityItem {
+  at: string;
+  kind:
+    | "lead_added"
+    | "customer_won"
+    | "quote_sent"
+    | "quote_accepted"
+    | "quote_lost"
+    | "job_taken"
+    | "job_completed"
+    | "milestone"
+    | "task_done"
+    | "invoice_sent"
+    | "payment_recorded";
+  reference: string | null;
+  party: string | null;
+  /** A milestone key or a task title. */
+  detail: string | null;
+  currency: string | null;
+  amountMinor: number | null;
+}
+
+/** A result in a report: this period and the equal period before it. */
+export interface ReportActivityMetric {
+  key: string;
+  label: string;
+  kind: "count" | "money";
+  current: number;
+  previous: number;
+  /** For money: per currency, in minor units. */
+  money?: Array<{ currency: string; current: number; previous: number }>;
+}
+
+/** What the system recorded for the author in the period, as sent. */
+export interface ReportActivity {
+  metrics: ReportActivityMetric[];
+  items: StaffActivityItem[];
+}
+
 /** A submitted daily or weekly performance report; the counts are a snapshot. */
 export interface PerformanceReportRecord {
   id: string;
@@ -329,7 +375,50 @@ export interface PerformanceReportRecord {
   overdueCount: number;
   blockers: string | null;
   notes: string | null;
+  /** What the person worked on, in their words (null on older reports). */
+  summary: string | null;
+  /** Their plan for the next day or week (weekly: the next action). */
+  plan: string | null;
+  activity: ReportActivity | null;
+  /** The client's department named on the report (null on older reports). */
+  department: PerformanceDepartment | null;
+  /** Daily: the job updates, as sent. */
+  jobUpdates: PerformanceJobUpdate[] | null;
+  /** Weekly: the person's tasks open when the week began and when sent. */
+  openingActive: number | null;
+  closingActive: number | null;
+  /** Weekly: the person's own department figure. */
+  kpiTarget: string | null;
+  kpiActual: string | null;
+  kpiAction: string | null;
   createdAt: string;
+}
+
+/** A person's workload for a report, counted from the tasks assigned to them. */
+export interface ReportTaskCounts {
+  openingActive: number;
+  newCount: number;
+  completedCount: number;
+  closingActive: number;
+  overdueCount: number;
+}
+
+/** One job update in a daily report, kept as it was sent. */
+export interface PerformanceJobUpdate {
+  jobId: string | null;
+  /** The job's file number when the update was sent. */
+  jobReference: string | null;
+  /** Client or prospect, and the BL, AWB or container reference. */
+  client: string | null;
+  workDone: string;
+  agreedDeadline: string | null;
+  nextAction: string;
+  nextActionUserId: string | null;
+  /** The next action's person, by display name when the update was sent. */
+  nextActionName: string | null;
+  followUpDate: string | null;
+  evidence: string | null;
+  status: PerformanceJobStatus;
 }
 
 export interface JobTaskRecord {
@@ -1749,19 +1838,15 @@ export abstract class DatabasePort {
     note: string | null,
   ): Promise<JobTaskRecord | "not_found" | "already_done">;
   /**
-   * A person's task counts for a report: tasks assigned to them that were
-   * created and completed between `from` and `to` (dates, inclusive), and their
-   * open tasks due before `to`.
+   * A person's task counts for a report: tasks assigned to them that were open
+   * when `from` began, created and completed between `from` and `to` (dates,
+   * inclusive), open now, and open and due before `to`.
    */
   abstract countTasksForReport(
     userId: string,
     from: string,
     to: string,
-  ): Promise<{
-    newCount: number;
-    completedCount: number;
-    overdueCount: number;
-  }>;
+  ): Promise<ReportTaskCounts>;
   /**
    * What each of these people achieved in the window and in the period before
    * it: counts (quotes sent, customers won, jobs completed...) and money
@@ -1774,9 +1859,14 @@ export abstract class DatabasePort {
     counts: StaffPerformanceCount[];
     money: StaffPerformanceMoney[];
   }>;
+  /** The items behind a person's results in the window, newest first. */
+  abstract staffActivity(
+    userId: string,
+    bounds: { start: string; end: string },
+  ): Promise<StaffActivityItem[]>;
   abstract createPerformanceReport(
     report: Omit<PerformanceReportRecord, "id" | "createdAt">,
-  ): Promise<PerformanceReportRecord | "duplicate">;
+  ): Promise<PerformanceReportRecord>;
   abstract findPerformanceReport(
     authorUserId: string,
     period: "daily" | "weekly",

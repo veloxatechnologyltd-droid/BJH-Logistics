@@ -1,10 +1,10 @@
-import { TeamPerformance } from "./TeamPerformance";
+import { PerformanceReports } from "./PerformanceReports";
 
 export const metadata = {
-  title: "Team performance | BJH Logistics",
-  description: "What each member of staff has done, by day, week or month.",
+  title: "Reports | BJH Logistics",
+  description: "Daily and weekly reports from each member of staff.",
 };
 
 export default function PerformancePage() {
-  return <TeamPerformance />;
+  return <PerformanceReports />;
 }

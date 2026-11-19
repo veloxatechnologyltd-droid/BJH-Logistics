@@ -1,4 +1,5 @@
 import "reflect-metadata";
+import { randomUUID } from "node:crypto";
 import assert from "node:assert/strict";
 import type { INestApplication } from "@nestjs/common";
 import { after, before, test } from "node:test";
@@ -35,6 +36,12 @@ type Report = {
   overdueCount: number;
   blockers: string | null;
   notes: string | null;
+  summary: string | null;
+  plan: string | null;
+  activity: {
+    metrics: Array<{ key: string; current: number }>;
+    items: Array<{ kind: string; detail: string | null }>;
+  } | null;
   authorName: string;
   mine: boolean;
 };
@@ -46,7 +53,30 @@ type Preview = {
   newCount: number;
   completedCount: number;
   overdueCount: number;
+  activity: NonNullable<Report["activity"]>;
   submitted: Report | null;
+};
+const SUMMARY = "Followed up two shipments";
+// A job update for a client not opened as a job yet (a prospect).
+const UPDATE = {
+  client: "Synthetic Prospect Ltd",
+  workDone: "Sent the rate request",
+  nextAction: "Call back with the rate",
+  status: "in_progress",
+};
+const DAILY = {
+  period: "daily",
+  department: "operations",
+  jobUpdates: [UPDATE],
+};
+const WEEKLY = {
+  period: "weekly",
+  department: "operations",
+  summary: SUMMARY,
+  kpiTarget: "95% delivered on time",
+  kpiActual: "90%",
+  kpiAction: "Book trucks a day earlier",
+  plan: "Clear the overdue file, Kofi, by Friday",
 };
 
 function call(path: string, token: string, init: RequestInit = {}) {
@@ -115,10 +145,37 @@ test("the numbers come from the person's own tasks, and a client cannot set them
   assert.equal(preview.completedCount, 1);
   assert.equal(preview.overdueCount, 1);
   assert.equal(preview.submitted, null);
+  // What the system recorded: the finished task, as a result and as an item.
+  assert.deepEqual(
+    preview.activity.metrics.map((m) => m.key),
+    ["jobs_taken", "jobs_completed", "milestones", "tasks_done"],
+    "the Operations results only",
+  );
+  assert.equal(
+    preview.activity.metrics.find((m) => m.key === "tasks_done")?.current,
+    1,
+  );
+  assert.deepEqual(
+    preview.activity.items.map((item) => [item.kind, item.detail]),
+    [["task_done", "Quick job"]],
+  );
+
+  // A daily report needs at least one job update.
+  assert.equal(
+    (
+      await post("/api/v1/performance", IMPORT_REP, {
+        ...DAILY,
+        jobUpdates: [],
+      })
+    ).status,
+    400,
+  );
 
   const sent = await post("/api/v1/performance", IMPORT_REP, {
-    period: "daily",
+    ...DAILY,
+    summary: `  ${SUMMARY}  `,
     blockers: "  Waiting on the customs release  ",
+    plan: "Call the shipping line",
     notes: "Chased two documents",
     // Counts sent by a client are ignored.
     newCount: 99,
@@ -132,41 +189,48 @@ test("the numbers come from the person's own tasks, and a client cannot set them
   assert.equal(report.overdueCount, 1);
   assert.equal(report.teamKey, "operations");
   assert.equal(report.blockers, "Waiting on the customs release");
+  assert.equal(report.summary, SUMMARY);
+  assert.equal(report.plan, "Call the shipping line");
+  assert.deepEqual(
+    report.activity,
+    preview.activity,
+    "the recorded activity is kept with the report",
+  );
   assert.equal(report.mine, true);
   assert.ok(report.authorName);
   assert.equal(report.periodStart, preview.periodStart);
 
   const again = await post("/api/v1/performance", IMPORT_REP, {
-    period: "daily",
+    ...DAILY,
   });
-  assert.equal(again.status, 409, "a day is reported once");
+  assert.equal(again.status, 201, "a person may add another report");
+  const second = (await again.json()) as Report;
   const after = (await (
     await call("/api/v1/performance/preview?period=daily", IMPORT_REP)
   ).json()) as Preview;
-  assert.equal(after.submitted?.id, report.id);
+  assert.equal(after.submitted?.id, second.id, "the latest one is shown");
 });
 
 test("a weekly report starts on a Monday and is separate from the daily one", async () => {
   const sent = await post("/api/v1/performance", IMPORT_REP, {
-    period: "weekly",
+    ...WEEKLY,
   });
   assert.equal(sent.status, 201);
   const report = (await sent.json()) as Report;
   assert.equal(report.blockers, null, "no blockers when none are given");
   assert.equal(new Date(`${report.periodStart}T00:00:00Z`).getUTCDay(), 1);
-  assert.equal(
-    (await post("/api/v1/performance", IMPORT_REP, { period: "weekly" }))
-      .status,
-    409,
-  );
 });
 
 test("reports are visible to the author's team and the super admin only", async () => {
   const own = await listFor(IMPORT_REP);
-  assert.deepEqual(own.map((r) => r.period).sort(), ["daily", "weekly"]);
+  assert.deepEqual(own.map((r) => r.period).sort(), [
+    "daily",
+    "daily",
+    "weekly",
+  ]);
   assert.equal(
     (await listFor(ADMIN)).length,
-    2,
+    3,
     "the super admin sees every team",
   );
   assert.deepEqual(
@@ -183,23 +247,27 @@ test("reports are visible to the author's team and the super admin only", async 
 
 test("a person reports only for their own team", async () => {
   const wrongTeam = await post("/api/v1/performance", DESK, {
-    period: "daily",
+    ...DAILY,
     teamKey: "operations",
   });
   assert.equal(wrongTeam.status, 403);
-  const own = await post("/api/v1/performance", DESK, { period: "daily" });
+  const own = await post("/api/v1/performance", DESK, {
+    ...DAILY,
+  });
   assert.equal(own.status, 201);
   assert.equal(((await own.json()) as Report).teamKey, "customer_service");
   // The Operations rep still cannot see it; the super admin can.
-  assert.equal((await listFor(IMPORT_REP)).length, 2);
+  assert.equal((await listFor(IMPORT_REP)).length, 3);
   assert.equal((await listFor(DESK)).length, 1);
-  assert.equal((await listFor(ADMIN)).length, 3);
+  assert.equal((await listFor(ADMIN)).length, 4);
 
   // The super admin is in every team, so must say which one.
-  const unnamed = await post("/api/v1/performance", ADMIN, { period: "daily" });
+  const unnamed = await post("/api/v1/performance", ADMIN, {
+    ...DAILY,
+  });
   assert.equal(unnamed.status, 400);
   const named = await post("/api/v1/performance", ADMIN, {
-    period: "daily",
+    ...DAILY,
     teamKey: "finance",
   });
   assert.equal(named.status, 201);
@@ -209,8 +277,20 @@ test("invalid requests are rejected and customers are refused", async () => {
   for (const body of [
     { period: "monthly" },
     {},
-    { period: "daily", teamKey: "marketing" },
-    { period: "daily", notes: "x".repeat(2001) },
+    { ...DAILY, teamKey: "marketing" },
+    { ...DAILY, department: "marketing" },
+    { ...DAILY, department: undefined },
+    { ...DAILY, notes: "x".repeat(2001) },
+    { ...DAILY, summary: "x".repeat(4001) },
+    { ...DAILY, jobUpdates: [{ ...UPDATE, client: undefined }] },
+    { ...DAILY, jobUpdates: [{ ...UPDATE, workDone: "  " }] },
+    { ...DAILY, jobUpdates: [{ ...UPDATE, nextAction: undefined }] },
+    { ...DAILY, jobUpdates: [{ ...UPDATE, status: "maybe" }] },
+    { ...DAILY, jobUpdates: [{ ...UPDATE, followUpDate: "2026-02-30" }] },
+    { ...DAILY, jobUpdates: Array(21).fill(UPDATE) },
+    { ...WEEKLY, summary: undefined },
+    { ...WEEKLY, kpiActual: "  " },
+    { ...WEEKLY, plan: undefined },
   ]) {
     const response = await post("/api/v1/performance", IMPORT_REP, body);
     assert.equal(response.status, 400, JSON.stringify(body).slice(0, 40));
@@ -288,7 +368,11 @@ test("the super admin sees who still owes a report; others do not", async () => 
 
   // Once customer service sends the weekly report, they leave the list.
   assert.equal(
-    (await post("/api/v1/performance", DESK, { period: "weekly" })).status,
+    (
+      await post("/api/v1/performance", DESK, {
+        ...WEEKLY,
+      })
+    ).status,
     201,
   );
   const after = (await (
@@ -310,4 +394,115 @@ test("reports with blockers can be listed on their own", async () => {
     (await call("/api/v1/performance?blockers=maybe", ADMIN)).status,
     400,
   );
+});
+
+test("a daily report carries the person's job updates, checked against their jobs", async () => {
+  const database = application.get(DatabasePort);
+  const company = randomUUID();
+  await database.createCustomer({
+    id: company,
+    companyName: "Synthetic Cocoa Exporters Ltd",
+    createdAt: new Date().toISOString(),
+    contacts: [],
+  });
+  const importJob = await database.createJob(
+    {
+      customerCompanyId: company,
+      serviceLine: "sea_import",
+      quoteRequestId: null,
+    },
+    TEST_SUPER_ADMIN_ID,
+    2026,
+  );
+  const exportJob = await database.createJob(
+    {
+      customerCompanyId: company,
+      serviceLine: "sea_export",
+      quoteRequestId: null,
+    },
+    TEST_SUPER_ADMIN_ID,
+    2026,
+  );
+  const jobUpdate = {
+    jobId: importJob.id,
+    client: "Synthetic Cocoa Exporters Ltd · BL SYNTH0001",
+    workDone: "Collected the release",
+    agreedDeadline: "20/11/2026 17:00",
+    nextAction: "Deliver to the warehouse",
+    nextActionUserId: TEST_UNASSIGNED_USER_ID,
+    followUpDate: "2026-11-20",
+    evidence: "Release order 4411",
+    status: "in_progress",
+  };
+
+  const sent = await post("/api/v1/performance", IMPORT_REP, {
+    ...DAILY,
+    jobUpdates: [jobUpdate, { ...UPDATE, status: "blocked" }],
+    blockers: "Waiting on the shipping line",
+  });
+  assert.equal(sent.status, 201);
+  const report = (await sent.json()) as Report & {
+    department: string;
+    jobUpdates: Array<Record<string, unknown>>;
+  };
+  assert.equal(report.department, "operations");
+  assert.equal(report.jobUpdates.length, 2, "several jobs in one report");
+  assert.equal(report.jobUpdates[0].jobReference, importJob.fileNumber);
+  assert.equal(report.jobUpdates[0].workDone, "Collected the release");
+  assert.ok(report.jobUpdates[0].nextActionName, "the person's name is kept");
+  assert.equal(report.jobUpdates[1].jobId, null);
+  assert.equal(report.jobUpdates[1].status, "blocked");
+
+  // An import rep cannot report on an export job, nor an unknown one.
+  for (const jobId of [exportJob.id, randomUUID()]) {
+    const refused = await post("/api/v1/performance", IMPORT_REP, {
+      ...DAILY,
+      jobUpdates: [{ ...jobUpdate, jobId }],
+    });
+    assert.equal(refused.status, 404);
+  }
+  // The next action goes to staff, not to a customer.
+  const toCustomer = await post("/api/v1/performance", IMPORT_REP, {
+    ...DAILY,
+    jobUpdates: [{ ...jobUpdate, nextActionUserId: randomUUID() }],
+  });
+  assert.equal(toCustomer.status, 400);
+});
+
+test("a weekly review carries the workload totals and the department figure", async () => {
+  const preview = (await (
+    await call("/api/v1/performance/preview?period=weekly", IMPORT_REP)
+  ).json()) as Preview & {
+    department: string;
+    openingActive: number;
+    closingActive: number;
+  };
+  assert.equal(preview.department, "operations");
+  assert.equal(typeof preview.openingActive, "number");
+  // The overdue task is still open.
+  assert.ok(preview.closingActive >= 1);
+  const sent = await post("/api/v1/performance", IMPORT_REP, {
+    ...WEEKLY,
+    department: "documentation",
+    // Counts sent by a client are ignored.
+    openingActive: 99,
+    closingActive: 99,
+  });
+  assert.equal(sent.status, 201);
+  const report = (await sent.json()) as Report & {
+    department: string;
+    openingActive: number;
+    closingActive: number;
+    kpiTarget: string;
+    kpiActual: string;
+    kpiAction: string;
+    jobUpdates: unknown;
+  };
+  assert.equal(report.department, "documentation", "the person may pick");
+  assert.equal(report.openingActive, preview.openingActive);
+  assert.equal(report.closingActive, preview.closingActive);
+  assert.equal(report.kpiTarget, "95% delivered on time");
+  assert.equal(report.kpiActual, "90%");
+  assert.equal(report.kpiAction, "Book trucks a day earlier");
+  assert.equal(report.jobUpdates, null);
 });

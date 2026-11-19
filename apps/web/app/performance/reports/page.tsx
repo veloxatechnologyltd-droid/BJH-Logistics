@@ -1,10 +1,6 @@
-import { PerformanceReports } from "../PerformanceReports";
+import { redirect } from "next/navigation";
 
-export const metadata = {
-  title: "Daily & weekly reports | BJH Logistics",
-  description: "Daily and weekly reports from each team.",
-};
-
-export default function PerformanceReportsPage() {
-  return <PerformanceReports />;
+// The reports moved to /performance; keep old links working.
+export default function OldReportsPage() {
+  redirect("/performance");
 }

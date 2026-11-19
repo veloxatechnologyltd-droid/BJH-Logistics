@@ -61,6 +61,7 @@ import type {
   LeadStage,
   RequestDetails,
   RequestKind,
+  PerformanceDepartment,
   TeamKey,
   VehicleInput,
 } from "@bjh/contracts";
@@ -161,7 +162,11 @@ import {
   StaffRoleKey,
   PushSubscriptionRecord,
   StaffRoleAssignmentRecord,
+  PerformanceJobUpdate,
   PerformanceReportRecord,
+  ReportTaskCounts,
+  ReportActivity,
+  StaffActivityItem,
   StaffPerformanceBounds,
   StaffPerformanceCount,
   StaffPerformanceMoney,
@@ -187,7 +192,9 @@ const jobTaskSelect = (source: string) => `
 
 const performanceReportColumns = `report_id, author_user_id, team_key, period,
   to_char(period_start, 'YYYY-MM-DD') AS period_start, new_count,
-  completed_count, overdue_count, blockers, notes, created_at`;
+  completed_count, overdue_count, blockers, notes, summary, plan, activity,
+  department, job_updates, opening_active, closing_active, kpi_target,
+  kpi_actual, kpi_action, created_at`;
 
 /** Version columns in the order the INSERT/UPDATE statements above expect. */
 const quoteVersionValues = (content: QuoteVersionContent) => [
@@ -2117,13 +2124,14 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     userId: string,
     from: string,
     to: string,
-  ): Promise<{
-    newCount: number;
-    completedCount: number;
-    overdueCount: number;
-  }> {
+  ): Promise<ReportTaskCounts> {
     const result = await this.pool.query(
       `SELECT
+         count(*) FILTER (
+           WHERE (created_at AT TIME ZONE 'UTC')::date < $2::date
+             AND (status = 'open'
+                  OR (completed_at AT TIME ZONE 'UTC')::date >= $2::date)
+         ) AS opening_active,
          count(*) FILTER (
            WHERE (created_at AT TIME ZONE 'UTC')::date
                  BETWEEN $2::date AND $3::date) AS new_count,
@@ -2131,6 +2139,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
            WHERE status = 'done'
              AND (completed_at AT TIME ZONE 'UTC')::date
                  BETWEEN $2::date AND $3::date) AS completed_count,
+         count(*) FILTER (WHERE status = 'open') AS closing_active,
          count(*) FILTER (
            WHERE status = 'open' AND due_date < $3::date) AS overdue_count
        FROM app.job_task
@@ -2139,21 +2148,25 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     );
     const row = result.rows[0];
     return {
+      openingActive: Number(row.opening_active),
       newCount: Number(row.new_count),
       completedCount: Number(row.completed_count),
+      closingActive: Number(row.closing_active),
       overdueCount: Number(row.overdue_count),
     };
   }
 
   async createPerformanceReport(
     report: Omit<PerformanceReportRecord, "id" | "createdAt">,
-  ): Promise<PerformanceReportRecord | "duplicate"> {
+  ): Promise<PerformanceReportRecord> {
     const result = await this.pool.query(
       `INSERT INTO app.performance_report
          (author_user_id, team_key, period, period_start, new_count,
-          completed_count, overdue_count, blockers, notes)
-       VALUES ($1::uuid, $2, $3, $4::date, $5, $6, $7, $8, $9)
-       ON CONFLICT (author_user_id, period, period_start) DO NOTHING
+          completed_count, overdue_count, blockers, notes, summary, plan,
+          activity, department, job_updates, opening_active, closing_active,
+          kpi_target, kpi_actual, kpi_action)
+       VALUES ($1::uuid, $2, $3, $4::date, $5, $6, $7, $8, $9, $10, $11,
+         $12::jsonb, $13, $14::jsonb, $15, $16, $17, $18, $19)
        RETURNING ${performanceReportColumns}`,
       [
         report.authorUserId,
@@ -2165,11 +2178,19 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
         report.overdueCount,
         report.blockers,
         report.notes,
+        report.summary,
+        report.plan,
+        report.activity === null ? null : JSON.stringify(report.activity),
+        report.department,
+        report.jobUpdates === null ? null : JSON.stringify(report.jobUpdates),
+        report.openingActive,
+        report.closingActive,
+        report.kpiTarget,
+        report.kpiActual,
+        report.kpiAction,
       ],
     );
-    return result.rows.length > 0
-      ? this.mapPerformanceReport(result.rows[0])
-      : "duplicate";
+    return this.mapPerformanceReport(result.rows[0]);
   }
 
   async findPerformanceReport(
@@ -2180,7 +2201,9 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     const result = await this.pool.query(
       `SELECT ${performanceReportColumns} FROM app.performance_report
        WHERE author_user_id = $1::uuid AND period = $2
-         AND period_start = $3::date`,
+         AND period_start = $3::date
+       ORDER BY created_at DESC
+       LIMIT 1`,
       [authorUserId, period, periodStart],
     );
     return result.rows.length > 0
@@ -2354,6 +2377,117 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     };
   }
 
+  async staffActivity(
+    userId: string,
+    bounds: { start: string; end: string },
+  ): Promise<StaffActivityItem[]> {
+    // The same records, and the same credit rules, as staffPerformance.
+    const result = await this.pool.query(
+      `WITH version_total AS (
+         SELECT version.version_id, version.quote_id, version.issued_by,
+           version.issued_at, version.currency,
+           coalesce(sum(CASE WHEN line.basis = 'at_cost' THEN 0
+             ELSE coalesce(line.amount_minor * line.quantity,
+               line.size_amounts_minor[1], 0)
+             END), 0) AS total_minor
+         FROM app.quote_version AS version
+         LEFT JOIN app.quote_line AS line ON line.version_id = version.version_id
+         WHERE version.issued_at IS NOT NULL
+         GROUP BY version.version_id),
+       live_invoice AS (
+         SELECT * FROM app.invoice
+         WHERE issued_at IS NOT NULL AND voided_at IS NULL)
+       SELECT * FROM (
+         SELECT coalesce(owner_id, created_by) AS user_id, 'lead_added' AS kind,
+           created_at AS at, NULL::text AS reference, company_name AS party,
+           NULL::text AS detail, NULL::text AS currency,
+           NULL::bigint AS amount_minor
+           FROM app.lead
+         UNION ALL SELECT coalesce(owner_id, created_by), 'customer_won',
+           stage_changed_at, NULL, company_name, NULL, NULL, NULL
+           FROM app.lead WHERE stage = 'won'
+         UNION ALL SELECT version.issued_by, 'quote_sent', version.issued_at,
+           quote.quote_number, company.company_name, NULL, version.currency,
+           version.total_minor
+           FROM version_total AS version
+           JOIN app.quote AS quote ON quote.quote_id = version.quote_id
+           LEFT JOIN app.customer_company AS company
+             ON company.company_id = quote.customer_company_id
+         UNION ALL SELECT version.issued_by,
+           CASE decision.decision WHEN 'accepted' THEN 'quote_accepted'
+             ELSE 'quote_lost' END,
+           decision.recorded_at, quote.quote_number, company.company_name,
+           NULL, version.currency, version.total_minor
+           FROM app.quote_decision AS decision
+           JOIN version_total AS version
+             ON version.version_id = decision.version_id
+           JOIN app.quote AS quote ON quote.quote_id = version.quote_id
+           LEFT JOIN app.customer_company AS company
+             ON company.company_id = quote.customer_company_id
+         UNION ALL SELECT assignment.user_id, 'job_taken', assignment.assigned_at,
+           job.file_number, company.company_name, NULL, NULL, NULL
+           FROM app.job_assignment AS assignment
+           JOIN app.job AS job ON job.job_id = assignment.job_id
+           LEFT JOIN app.customer_company AS company
+             ON company.company_id = job.customer_company_id
+           WHERE assignment.removed_at IS NULL
+         UNION ALL SELECT assignment.user_id, 'job_completed', job.closed_at,
+           job.file_number, company.company_name, NULL, NULL, NULL
+           FROM app.job AS job
+           JOIN app.job_assignment AS assignment
+             ON assignment.job_id = job.job_id
+            AND assignment.kind = 'lead' AND assignment.removed_at IS NULL
+           LEFT JOIN app.customer_company AS company
+             ON company.company_id = job.customer_company_id
+           WHERE job.status = 'closed' AND job.closed_at IS NOT NULL
+         UNION ALL SELECT event.recorded_by, 'milestone', event.recorded_at,
+           job.file_number, company.company_name, event.milestone_key,
+           NULL, NULL
+           FROM app.milestone_event AS event
+           JOIN app.job AS job ON job.job_id = event.job_id
+           LEFT JOIN app.customer_company AS company
+             ON company.company_id = job.customer_company_id
+         UNION ALL SELECT task.completed_by, 'task_done', task.completed_at,
+           job.file_number, company.company_name, task.title, NULL, NULL
+           FROM app.job_task AS task
+           LEFT JOIN app.job AS job ON job.job_id = task.job_id
+           LEFT JOIN app.customer_company AS company
+             ON company.company_id = job.customer_company_id
+           WHERE task.completed_at IS NOT NULL
+         UNION ALL SELECT invoice.issued_by, 'invoice_sent', invoice.issued_at,
+           invoice.invoice_number, company.company_name, NULL,
+           invoice.currency, invoice.total_minor
+           FROM live_invoice AS invoice
+           LEFT JOIN app.customer_company AS company
+             ON company.company_id = invoice.customer_company_id
+         UNION ALL SELECT payment.recorded_by, 'payment_recorded',
+           payment.recorded_at, invoice.invoice_number, company.company_name,
+           NULL, invoice.currency, payment.amount_minor
+           FROM app.invoice_payment AS payment
+           JOIN app.invoice AS invoice ON invoice.invoice_id = payment.invoice_id
+           LEFT JOIN app.customer_company AS company
+             ON company.company_id = invoice.customer_company_id
+           WHERE NOT EXISTS (
+             SELECT 1 FROM app.invoice_payment_reversal AS reversal
+             WHERE reversal.payment_id = payment.payment_id)
+       ) AS event
+       WHERE user_id = $1::uuid
+         AND at >= $2::timestamptz AND at < $3::timestamptz
+       ORDER BY at DESC
+       LIMIT 300`,
+      [userId, bounds.start, bounds.end],
+    );
+    return result.rows.map((row) => ({
+      at: this.toIsoString(row.at),
+      kind: row.kind as StaffActivityItem["kind"],
+      reference: row.reference ? String(row.reference) : null,
+      party: row.party ? String(row.party) : null,
+      detail: row.detail ? String(row.detail) : null,
+      currency: row.currency ? String(row.currency) : null,
+      amountMinor: row.amount_minor === null ? null : Number(row.amount_minor),
+    }));
+  }
+
   private mapPerformanceReport(
     row: Record<string, unknown>,
   ): PerformanceReportRecord {
@@ -2368,6 +2502,20 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       overdueCount: Number(row.overdue_count),
       blockers: row.blockers ? String(row.blockers) : null,
       notes: row.notes ? String(row.notes) : null,
+      summary: row.summary ? String(row.summary) : null,
+      plan: row.plan ? String(row.plan) : null,
+      activity: row.activity ? (row.activity as ReportActivity) : null,
+      department: (row.department as PerformanceDepartment | null) ?? null,
+      jobUpdates: row.job_updates
+        ? (row.job_updates as PerformanceJobUpdate[])
+        : null,
+      openingActive:
+        row.opening_active === null ? null : Number(row.opening_active),
+      closingActive:
+        row.closing_active === null ? null : Number(row.closing_active),
+      kpiTarget: row.kpi_target ? String(row.kpi_target) : null,
+      kpiActual: row.kpi_actual ? String(row.kpi_actual) : null,
+      kpiAction: row.kpi_action ? String(row.kpi_action) : null,
       createdAt: this.toIsoString(row.created_at),
     };
   }

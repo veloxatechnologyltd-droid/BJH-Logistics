@@ -1916,22 +1916,117 @@ export type TeamKey = (typeof teamKeys)[number];
  */
 export const performancePeriods = ["daily", "weekly"] as const;
 export type PerformancePeriod = (typeof performancePeriods)[number];
-export const performanceReportInputSchema = z.object(
-  {
-    period: z.enum(performancePeriods, {
-      error: `period must be one of ${performancePeriods.join(", ")}`,
-    }),
-    teamKey: z
-      .enum(teamKeys, {
-        error: `teamKey must be one of ${teamKeys.join(", ")}`,
-      })
-      .nullish()
-      .transform((value) => value ?? null),
-    blockers: optionalText("blockers", 2000),
-    notes: optionalText("notes", 2000),
-  },
-  objectError("A report object is required"),
-);
+/** The client's seven departments, as on their tracker form (2026-11-18). */
+export const performanceDepartments = [
+  "customer_service",
+  "operations",
+  "documentation",
+  "field_operations",
+  "finance",
+  "transport",
+  "sales_marketing",
+] as const;
+export type PerformanceDepartment = (typeof performanceDepartments)[number];
+export const performanceJobStatuses = [
+  "not_started",
+  "in_progress",
+  "blocked",
+  "completed",
+] as const;
+export type PerformanceJobStatus = (typeof performanceJobStatuses)[number];
+/**
+ * One job update in a daily report. A system job, or (for a prospect or work
+ * not opened as a job yet) the client's name.
+ */
+export const performanceJobUpdateSchema = z
+  .object(
+    {
+      jobId: uuidField("jobId")
+        .nullish()
+        .transform((value) => value ?? null),
+      client: optionalText("client", 500),
+      workDone: requiredText("workDone", 4000),
+      agreedDeadline: optionalText("agreedDeadline", 100),
+      nextAction: requiredText("nextAction", 2000),
+      nextActionUserId: uuidField("nextActionUserId")
+        .nullish()
+        .transform((value) => value ?? null),
+      followUpDate: z
+        .string({ error: "followUpDate must be a date (YYYY-MM-DD)" })
+        .regex(/^\d{4}-\d{2}-\d{2}$/, {
+          error: "followUpDate must be a date (YYYY-MM-DD)",
+        })
+        .refine((value) => isRealDateTime(`${value}T00:00:00Z`), {
+          error: "followUpDate must be a date (YYYY-MM-DD)",
+        })
+        .nullish()
+        .transform((value) => value ?? null),
+      evidence: optionalText("evidence", 1000),
+      status: z.enum(performanceJobStatuses, {
+        error: `status must be one of ${performanceJobStatuses.join(", ")}`,
+      }),
+    },
+    objectError("A job update object is required"),
+  )
+  .refine((update) => update.jobId || update.client, {
+    error: "Choose a job or write the client's name for each update",
+  });
+export const performanceReportInputSchema = z
+  .object(
+    {
+      period: z.enum(performancePeriods, {
+        error: `period must be one of ${performancePeriods.join(", ")}`,
+      }),
+      teamKey: z
+        .enum(teamKeys, {
+          error: `teamKey must be one of ${teamKeys.join(", ")}`,
+        })
+        .nullish()
+        .transform((value) => value ?? null),
+      department: z.enum(performanceDepartments, {
+        error: `department must be one of ${performanceDepartments.join(", ")}`,
+      }),
+      // Daily: one or more job updates, as the person chooses.
+      jobUpdates: z
+        .array(performanceJobUpdateSchema, {
+          error: "jobUpdates must be a list",
+        })
+        .max(20, { error: "A report can carry at most 20 job updates" })
+        .default([]),
+      // Weekly: the week's progress, in the person's own words.
+      summary: optionalText("summary", 4000),
+      // Weekly: the person's own department figure.
+      kpiTarget: optionalText("kpiTarget", 1000),
+      kpiActual: optionalText("kpiActual", 1000),
+      kpiAction: optionalText("kpiAction", 1000),
+      blockers: optionalText("blockers", 2000),
+      // Weekly: next action, person responsible and follow-up deadline.
+      plan: optionalText("plan", 2000),
+      notes: optionalText("notes", 2000),
+    },
+    objectError("A report object is required"),
+  )
+  .superRefine((report, context) => {
+    const need = (ok: unknown, path: string, message: string) => {
+      if (!ok) context.addIssue({ code: "custom", path: [path], message });
+    };
+    if (report.period === "daily") {
+      need(
+        report.jobUpdates.length > 0,
+        "jobUpdates",
+        "Add at least one job update",
+      );
+    } else {
+      need(report.summary, "summary", "Write a summary of the week");
+      need(report.kpiTarget, "kpiTarget", "Enter your department target");
+      need(report.kpiActual, "kpiActual", "Enter your department actual");
+      need(report.kpiAction, "kpiAction", "Enter your department action");
+      need(report.plan, "plan", "Write the next action");
+    }
+  });
+export type PerformanceJobUpdateInput = z.infer<
+  typeof performanceJobUpdateSchema
+>;
 export type PerformanceReportInput = z.infer<
   typeof performanceReportInputSchema
 >;

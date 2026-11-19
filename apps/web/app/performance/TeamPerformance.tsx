@@ -176,7 +176,7 @@ export function TeamPerformance() {
 
   return (
     <main className={styles.page}>
-      <PerformanceTabs active="/performance" />
+      <PerformanceTabs active="/performance/team" />
       <header className={`${styles.header} ${own.topBar}`}>
         <h1 className={styles.title}>Team performance</h1>
         <div className={own.periodPicker}>
