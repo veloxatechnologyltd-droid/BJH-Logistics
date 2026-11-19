@@ -17,7 +17,6 @@ import type {
   ReportActivity,
   ReportPreview,
   Roster,
-  RosterSlice,
   TeamKey,
 } from "./performanceApi";
 import styles from "../jobs/jobs.module.css";
@@ -315,34 +314,6 @@ function ReportCard({ report }: { report: PerformanceReport }) {
   );
 }
 
-/** "3 of 8 have sent it", then who has not. */
-function RosterCard({ title, slice }: { title: string; slice: RosterSlice }) {
-  return (
-    <section className={styles.card} aria-label={title}>
-      <h2>{title}</h2>
-      <p>
-        <strong>
-          {slice.reported} of {slice.expected}
-        </strong>{" "}
-        have sent their report.
-      </p>
-      {slice.missing.length === 0 ? (
-        <p className={styles.muted}>Everyone has reported.</p>
-      ) : (
-        <p>
-          <span className={styles.muted}>Not yet: </span>
-          {slice.missing
-            .map(
-              (person) =>
-                `${person.name} (${person.teams.map((team) => teamLabels[team]).join(", ")})`,
-            )
-            .join(", ")}
-        </p>
-      )}
-    </section>
-  );
-}
-
 type Step =
   | { kind: "idle" }
   | { kind: "choose"; daily?: ReportPreview; weekly?: ReportPreview }
@@ -621,22 +592,6 @@ export function PerformanceReports() {
         <p className={own.notice} role="status">
           {sent}
         </p>
-      )}
-
-      {roster?.manager && roster.daily && roster.weekly && (
-        <div className={styles.grid}>
-          <RosterCard
-            slice={roster.daily}
-            title={`Today · ${periodText({ period: "daily", periodStart: roster.daily.periodStart })}`}
-          />
-          <RosterCard
-            slice={roster.weekly}
-            title={periodText({
-              period: "weekly",
-              periodStart: roster.weekly.periodStart,
-            })}
-          />
-        </div>
       )}
 
       <h2 className={own.listTitle}>

@@ -83,6 +83,39 @@
   font-size: 1rem;
 }
 
+.passwordBox {
+  position: relative;
+  display: grid;
+}
+
+.passwordBox input {
+  padding-right: 50px;
+}
+
+.eyeButton {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  transform: translateY(-50%);
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #6b7f90;
+  cursor: pointer;
+}
+
+.eyeButton:hover {
+  color: var(--brand-primary);
+}
+
+.eyeButton:focus-visible {
+  outline: 3px solid rgb(11 63 174 / 25%);
+}
+
 .form input:focus {
   border-color: var(--brand-primary);
   outline: 3px solid rgb(11 63 174 / 12%);

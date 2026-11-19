@@ -1,5 +1,12 @@
 Maintain a file called MEMORY.md. After any significant decision, about direction, format, content, approach, or strategy, add an entry:
 
+## 2026-11-19, Performance page: "Today" and "Week of" report-count cards removed (code only, not deployed)
+
+**What was decided:** On the super admin's Performance reports page, the two cards "Today · date: 0 of 5 have sent their report" and "Week of date: ..." are gone. Only the card component and its two uses were removed (`apps/web/app/performance/PerformanceReports.tsx`); the list of sent reports, filters and the roster API (`GET /performance/roster`) are untouched, because the page still uses the roster to know whether the viewer is the manager.
+**Why:** Evans: "daily and weekly reports is not needed".
+**What was rejected:** Deleting the roster endpoint and its test (not asked for; still feeds the manager flag; easy to remove later if he wants "who has not reported" gone from the API too).
+**Checked:** web `tsc` and prettier pass; not seen on screen.
+
 ## 2026-11-15, Business expenses (salary, fuel, rent, tax...) and Finance split into Revenue / Expenses (code only, not deployed)
 
 **What was decided:** Evans asked to record every running cost. New table `app.business_expense` (migration `20261119000000_business_expenses.sql`, applied to LOCAL only): date, category, description, paid to, amount + currency, payment method, reference, note, recorded by; voided with a reason, never edited or deleted (trigger). 55 categories in 8 groups (payroll, vehicles, operations, premises, taxes, admin, banking, other) in `@bjh/contracts` (`expenseCategoryGroups`); "Other" needs a description. 7 payment methods (cash, bank transfer, MoMo, cheque, card, direct debit, other). API `GET/POST /api/v1/finance/expenses`, `POST /:id/void` for `financeRoles`; filters: from/to, group, category, payment method, currency, text search, include voided; returns per-currency totals and a per-category breakdown. Finance tabs are now Overview · Revenue (Invoices, Payments received, Statements) · Expenses (Business expenses, Job costs). Recording is a full page `/finance/expenses/new` (Evans: "should be a full page") with "Save" (back to the list) and "Save and add another" (keeps date, category, currency, method). List page `/finance/expenses`: period presets (this month default, last month, last 3 months, this/last year, all, custom dates), filters, totals, "Where the money went" bars, table, Void with reason.

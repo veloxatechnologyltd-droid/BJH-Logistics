@@ -35,6 +35,59 @@ async function responseError(response: Response): Promise<Error | null> {
   return new Error(message ?? "Authentication could not be completed");
 }
 
+/** A password box with an eye button that shows or hides what was typed. */
+function PasswordInput({
+  autoComplete,
+  id,
+  minLength,
+  onChange,
+  value,
+}: {
+  autoComplete: string;
+  id: string;
+  minLength?: number;
+  onChange: (value: string) => void;
+  value: string;
+}) {
+  const [visible, setVisible] = useState(false);
+  return (
+    <div className={styles.passwordBox}>
+      <input
+        autoComplete={autoComplete}
+        id={id}
+        minLength={minLength}
+        onChange={(event) => onChange(event.target.value)}
+        required
+        type={visible ? "text" : "password"}
+        value={value}
+      />
+      <button
+        aria-label={visible ? "Hide password" : "Show password"}
+        aria-pressed={visible}
+        className={styles.eyeButton}
+        onClick={() => setVisible((shown) => !shown)}
+        type="button"
+      >
+        <svg
+          aria-hidden="true"
+          fill="none"
+          height="20"
+          stroke="currentColor"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth="2"
+          viewBox="0 0 24 24"
+          width="20"
+        >
+          <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z" />
+          <circle cx="12" cy="12" r="3" />
+          {visible && <path d="m3 3 18 18" />}
+        </svg>
+      </button>
+    </div>
+  );
+}
+
 export function SignInForm() {
   const router = useRouter();
   const [bootstrapAvailable, setBootstrapAvailable] = useState<boolean | null>(
@@ -270,15 +323,13 @@ export function SignInForm() {
             {mode === "signin"
               ? "Password"
               : `Password (${passwordRuleText.toLowerCase()})`}
-            <input
+            <PasswordInput
               autoComplete={
                 mode === "signin" ? "current-password" : "new-password"
               }
               id="auth-password"
               minLength={mode === "signin" ? undefined : 6}
-              onChange={(event) => setPassword(event.target.value)}
-              required
-              type="password"
+              onChange={setPassword}
               value={password}
             />
           </label>
@@ -286,13 +337,11 @@ export function SignInForm() {
         {(mode === "signup" || mode === "bootstrap") && (
           <label htmlFor="auth-confirm-password">
             Type the password again
-            <input
+            <PasswordInput
               autoComplete="new-password"
               id="auth-confirm-password"
               minLength={6}
-              onChange={(event) => setConfirmPassword(event.target.value)}
-              required
-              type="password"
+              onChange={setConfirmPassword}
               value={confirmPassword}
             />
           </label>
