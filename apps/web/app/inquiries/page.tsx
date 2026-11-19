@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import { InquiryTabs } from "../quotations/InquiryTabs";
 import { RequestInbox } from "../quotations/RequestInbox";
 import styles from "../quotations/quotation.module.css";
@@ -10,7 +11,7 @@ export const metadata = {
 
 export default function InquiriesPage() {
   return (
-    <main className={styles.page}>
+    <main className={`${styles.page} ${styles.pageWide}`}>
       <Link className={styles.backLink} href="/">
         <span aria-hidden="true">←</span> Back to overview
       </Link>
@@ -23,7 +24,9 @@ export default function InquiriesPage() {
 
       <InquiryTabs active="/inquiries" />
 
-      <RequestInbox mailbox="inquiries" />
+      <Suspense fallback={null}>
+        <RequestInbox mailbox="inquiries" />
+      </Suspense>
     </main>
   );
 }

@@ -394,7 +394,7 @@
 .sentMessage {
   display: grid;
   gap: 14px;
-  margin: -6px 10px 16px 64px;
+  margin: 16px 20px 20px;
   border: 1px solid #d7e3ed;
   border-radius: 12px;
   background: #fff;
@@ -440,44 +440,6 @@
 
 .sentMessage a:hover {
   text-decoration: underline;
-}
-
-/* Under a received email: the draft quote and the reply waiting on it. */
-.followUps {
-  display: grid;
-  gap: 6px;
-  margin: -6px 10px 14px 64px;
-}
-
-.followUp {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px 16px;
-  border: 1px solid #d7e3ed;
-  border-radius: 10px;
-  background: #fff;
-  padding: 9px 12px;
-  color: var(--brand-ink);
-  font-size: 0.8rem;
-  font-weight: 600;
-}
-
-.followUp a {
-  color: var(--brand-primary);
-  font-weight: 700;
-  text-decoration: none;
-  white-space: nowrap;
-}
-
-.followUp a:hover {
-  text-decoration: underline;
-}
-@media (pointer: coarse) {
-  .followUp a {
-    padding-block: 10px;
-  }
 }
 
 .inboxTabs {
@@ -1057,11 +1019,6 @@ input:focus-visible {
     display: none;
   }
 
-  .followUps,
-  .sentMessage {
-    margin-left: 46px;
-  }
-
   .contactGrid {
     grid-template-columns: 1fr;
   }
@@ -1342,4 +1299,328 @@ input:focus-visible {
   margin: 0;
   color: var(--brand-muted);
   font-size: 0.85rem;
+}
+
+/* The inbox reads like a mailbox: folders on top, the list on the left, the opened email on the right. */
+.pageWide {
+  width: min(100%, 1480px);
+}
+
+.split {
+  display: grid;
+  grid-template-columns: minmax(300px, 400px) minmax(0, 1fr);
+  align-items: start;
+  gap: 16px;
+  margin-top: 12px;
+}
+
+.splitList,
+.splitReader {
+  min-width: 0;
+  max-height: calc(100vh - 150px);
+  min-height: 360px;
+  overflow-y: auto;
+}
+
+.splitList {
+  border: 1px solid #e5ebf0;
+  border-radius: 10px;
+}
+
+.splitList .requestList {
+  border-top: 0;
+}
+
+.splitList .emptyState {
+  margin: 0;
+}
+
+.splitReader .requestDetail {
+  border-radius: 10px;
+}
+
+.requestRowSelected,
+.requestRowSelected:hover {
+  background: #e8f0fd;
+  box-shadow: inset 3px 0 0 var(--brand-primary);
+}
+
+.pillDraft {
+  border: 1px solid var(--brand-primary);
+  border-radius: 999px;
+  background: #fff;
+  padding: 1px 9px;
+  color: var(--brand-primary);
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.readerHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 20px 14px;
+}
+
+.readerTitle {
+  min-width: 0;
+}
+
+.readerTitle h2 {
+  margin: 0 0 6px;
+  color: #233d55;
+  font-size: 1.1rem;
+  overflow-wrap: anywhere;
+}
+
+.readerTitle p {
+  margin: 2px 0 0;
+  color: #536b7d;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.readerTitle strong {
+  color: var(--brand-ink);
+}
+
+.readerTitle a {
+  color: var(--brand-primary);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.readerTitle a:hover {
+  text-decoration: underline;
+}
+
+.readerTabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid #e5ebf0;
+  padding: 0 14px;
+}
+
+.tabBadge {
+  border: 1px solid var(--brand-primary);
+  border-radius: 999px;
+  padding: 0 7px;
+  color: var(--brand-primary);
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.tabBadgeDone {
+  border-color: #c3d4ea;
+  color: #526b7d;
+}
+
+.readerBody {
+  min-width: 0;
+}
+
+.readerEmpty {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  border: 1px dashed #d7e3ed;
+  border-radius: 10px;
+  padding: 80px 24px;
+  color: var(--brand-muted);
+  text-align: center;
+}
+
+.readerEmpty h3 {
+  margin: 0;
+  color: #354e63;
+  font-size: 0.95rem;
+}
+
+.readerEmpty p {
+  max-width: 34ch;
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.readerBack {
+  display: none;
+}
+
+/* Narrow screens: the list, then the opened email in its place (like a phone mail app). */
+@media (max-width: 900px) {
+  .split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .splitList,
+  .splitReader {
+    max-height: none;
+  }
+
+  .splitOpen .splitList,
+  .split:not(.splitOpen) .splitReader {
+    display: none;
+  }
+
+  .readerBack {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+    border: 0;
+    background: none;
+    padding: 8px 0;
+    color: var(--brand-primary);
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 700;
+    cursor: pointer;
+  }
+}
+
+/* The inbox pages give the mailbox the room: less heading, no address in the narrow list. */
+.pageWide {
+  padding-top: 18px;
+}
+
+.pageWide .pageHeader {
+  margin: 10px 0 8px;
+}
+
+.pageWide .pageHeader h1 {
+  font-size: 1.7rem;
+}
+
+.splitList .rowFrom span {
+  display: none;
+}
+
+.assistantDetails {
+  margin: 0 0 12px;
+}
+
+.assistantDetails summary {
+  color: var(--brand-primary);
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.quoteCard {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  margin-top: 10px;
+  color: #536b7d;
+  font-size: 0.82rem;
+}
+
+@media (max-width: 620px) {
+  .inboxTabs,
+  .readerTabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+
+  .inboxTab {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+}
+
+/* A phone shows one thing at a time: with an email open, the folders and search step aside. */
+@media (max-width: 900px) {
+  .inboxReading .inboxHeader,
+  .inboxReading .inboxTabs,
+  .inboxReading .searchRow {
+    display: none;
+  }
+}
+
+@media (max-width: 620px) {
+  .inboxTabs,
+  .readerTabs {
+    scrollbar-width: none;
+  }
+
+  .readerHeader {
+    flex-direction: column;
+    padding: 14px 14px 12px;
+  }
+
+  .readerTabs {
+    padding: 0 6px;
+  }
+
+  .emailPanel {
+    margin: 0 12px 14px;
+  }
+}
+
+.quoteActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.quotePreview {
+  margin-top: 14px;
+  border-top: 1px solid #e5ebf0;
+  padding-top: 12px;
+}
+
+.quotePreview ul {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.quotePreview li {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid #eef2f6;
+  padding: 7px 0;
+  color: var(--brand-ink);
+  font-size: 0.82rem;
+}
+
+.quotePreview li strong {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.quotePreviewTitle {
+  margin: 0;
+  color: #233d55;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.quotePreviewTotal {
+  margin: 10px 0 0;
+  color: var(--brand-ink);
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-align: right;
+}
+
+@media (max-width: 620px) {
+  .quotePreview li {
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .quotePreview li strong {
+    text-align: left;
+    white-space: normal;
+  }
 }

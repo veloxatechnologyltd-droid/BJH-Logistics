@@ -90,7 +90,7 @@ export function AssistantPanel({
 
   return (
     <section aria-labelledby="assistant-title" className={styles.emailPanel}>
-      <h3 id="assistant-title">What the assistant did</h3>
+      <h3 id="assistant-title">Reply</h3>
       <p className={styles.emailStatus}>
         {intake.kind ? kindLabels[intake.kind] : "Not sorted: decide by hand"}
       </p>
@@ -112,11 +112,16 @@ export function AssistantPanel({
         </div>
       )}
       {intake.assistantNotes.length > 0 && (
-        <ul className={styles.assistantNotes}>
-          {intake.assistantNotes.map((note, index) => (
-            <li key={index}>{note}</li>
-          ))}
-        </ul>
+        <details className={styles.assistantDetails} open={!reply}>
+          <summary>
+            What the assistant did ({intake.assistantNotes.length} steps)
+          </summary>
+          <ul className={styles.assistantNotes}>
+            {intake.assistantNotes.map((note, index) => (
+              <li key={index}>{note}</li>
+            ))}
+          </ul>
+        </details>
       )}
       {request.quoteId && request.quoteStatus === "draft" && (
         <p className={styles.emailStatus}>

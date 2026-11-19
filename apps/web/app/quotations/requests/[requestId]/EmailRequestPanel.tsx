@@ -44,10 +44,13 @@ export function EmailRequestPanel({
   request,
   canEdit,
   onChange,
+  part,
 }: {
   request: QuoteRequest;
   canEdit: boolean;
   onChange: (request: QuoteRequest) => void;
+  /** Which half to show: the details the AI read, or the email with its files. */
+  part: "details" | "email";
 }) {
   const intake = request.intake;
   const [editing, setEditing] = useState(false);
@@ -117,169 +120,175 @@ export function EmailRequestPanel({
 
   return (
     <>
-      <section
-        aria-labelledby="request-details-title"
-        className={styles.emailPanel}
-      >
-        <h3 id="request-details-title">Details from the email</h3>
-        <p className={styles.emailStatus}>
-          {intake.extractionStatus === "pending" &&
-            "The email is waiting to be read."}
-          {intake.extractionStatus === "failed" &&
-            `The email could not be read automatically (${intake.extractionError ?? "unknown reason"}). Fill in the details yourself${canEdit ? ", or try reading it again" : ""}.`}
-          {needsCheck && (
-            <>
-              <span className={styles.emailNeedsCheck}>Please check.</span> AI
-              read these from the email and its attachments; compare them with
-              the message and the files below.
-            </>
-          )}
-          {intake.reviewedAt && `Checked on ${formatDate(intake.reviewedAt)}.`}
-        </p>
-        {editing ? (
-          <form className={styles.detailsForm} onSubmit={submit}>
-            <label>
-              {requestDetailLabels.service}
-              <select
-                onChange={(event) =>
-                  setForm({ ...form, service: event.target.value })
-                }
-                value={form.service}
-              >
-                <option value="">Not stated</option>
-                {Object.entries(serviceLineLabels).map(([key, label]) => (
-                  <option key={key} value={key}>
-                    {label}
-                  </option>
+      {part === "details" && (
+        <section
+          aria-labelledby="request-details-title"
+          className={styles.emailPanel}
+        >
+          <h3 id="request-details-title">Details from the email</h3>
+          <p className={styles.emailStatus}>
+            {intake.extractionStatus === "pending" &&
+              "The email is waiting to be read."}
+            {intake.extractionStatus === "failed" &&
+              `The email could not be read automatically (${intake.extractionError ?? "unknown reason"}). Fill in the details yourself${canEdit ? ", or try reading it again" : ""}.`}
+            {needsCheck && (
+              <>
+                <span className={styles.emailNeedsCheck}>Please check.</span> AI
+                read these from the email and its attachments; compare them with
+                the message and the files below.
+              </>
+            )}
+            {intake.reviewedAt &&
+              `Checked on ${formatDate(intake.reviewedAt)}.`}
+          </p>
+          {editing ? (
+            <form className={styles.detailsForm} onSubmit={submit}>
+              <label>
+                {requestDetailLabels.service}
+                <select
+                  onChange={(event) =>
+                    setForm({ ...form, service: event.target.value })
+                  }
+                  value={form.service}
+                >
+                  <option value="">Not stated</option>
+                  {Object.entries(serviceLineLabels).map(([key, label]) => (
+                    <option key={key} value={key}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {requestDetailKeys
+                .filter((key) => key !== "service")
+                .map((key) => (
+                  <label key={key}>
+                    {requestDetailLabels[key]}
+                    <input
+                      onChange={(event) =>
+                        setForm({ ...form, [key]: event.target.value })
+                      }
+                      value={form[key]}
+                    />
+                  </label>
                 ))}
-              </select>
-            </label>
-            {requestDetailKeys
-              .filter((key) => key !== "service")
-              .map((key) => (
-                <label key={key}>
-                  {requestDetailLabels[key]}
-                  <input
-                    onChange={(event) =>
-                      setForm({ ...form, [key]: event.target.value })
-                    }
-                    value={form[key]}
-                  />
-                </label>
-              ))}
-            <div className={styles.emailActions}>
-              <button
-                className={styles.primaryButton}
-                disabled={busy}
-                type="submit"
-              >
-                Save and mark as checked
-              </button>
-              <button
-                className={styles.secondaryButton}
-                disabled={busy}
-                onClick={() => setEditing(false)}
-                type="button"
-              >
-                Cancel
-              </button>
-            </div>
-          </form>
-        ) : (
-          <>
-            <dl className={styles.detailsList}>
-              {requestDetailKeys.map((key) => {
-                const value = shown(key, request.details);
-                return (
-                  <div key={key}>
-                    <dt>{requestDetailLabels[key]}</dt>
-                    <dd data-unknown={value ? undefined : ""}>
-                      {value ?? "Not stated"}
-                    </dd>
-                  </div>
-                );
-              })}
-            </dl>
-            {canEdit && (
               <div className={styles.emailActions}>
-                {needsCheck && (
-                  <button
-                    className={styles.primaryButton}
-                    disabled={busy}
-                    onClick={() =>
-                      void run(() =>
-                        saveRequestDetails(request.id, request.details),
-                      )
-                    }
-                    type="button"
-                  >
-                    Looks right
-                  </button>
-                )}
+                <button
+                  className={styles.primaryButton}
+                  disabled={busy}
+                  type="submit"
+                >
+                  Save and mark as checked
+                </button>
                 <button
                   className={styles.secondaryButton}
                   disabled={busy}
-                  onClick={startEditing}
+                  onClick={() => setEditing(false)}
                   type="button"
                 >
-                  Edit details
+                  Cancel
                 </button>
-                {!intake.reviewedAt && intake.extractionStatus !== "done" && (
+              </div>
+            </form>
+          ) : (
+            <>
+              <dl className={styles.detailsList}>
+                {requestDetailKeys.map((key) => {
+                  const value = shown(key, request.details);
+                  return (
+                    <div key={key}>
+                      <dt>{requestDetailLabels[key]}</dt>
+                      <dd data-unknown={value ? undefined : ""}>
+                        {value ?? "Not stated"}
+                      </dd>
+                    </div>
+                  );
+                })}
+              </dl>
+              {canEdit && (
+                <div className={styles.emailActions}>
+                  {needsCheck && (
+                    <button
+                      className={styles.primaryButton}
+                      disabled={busy}
+                      onClick={() =>
+                        void run(() =>
+                          saveRequestDetails(request.id, request.details),
+                        )
+                      }
+                      type="button"
+                    >
+                      Looks right
+                    </button>
+                  )}
                   <button
                     className={styles.secondaryButton}
                     disabled={busy}
-                    onClick={() =>
-                      void run(() => readRequestEmailAgain(request.id))
-                    }
+                    onClick={startEditing}
                     type="button"
                   >
-                    Read the email again
+                    Edit details
                   </button>
-                )}
-              </div>
-            )}
-          </>
-        )}
-        <ErrorPopup message={error} />
-      </section>
+                  {!intake.reviewedAt && intake.extractionStatus !== "done" && (
+                    <button
+                      className={styles.secondaryButton}
+                      disabled={busy}
+                      onClick={() =>
+                        void run(() => readRequestEmailAgain(request.id))
+                      }
+                      type="button"
+                    >
+                      Read the email again
+                    </button>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+          <ErrorPopup message={error} />
+        </section>
+      )}
 
-      <section
-        aria-labelledby="request-email-title"
-        className={styles.emailPanel}
-      >
-        <h3 id="request-email-title">
-          {request.source === "website" ? "The website request" : "The email"}
-        </h3>
-        <p className={styles.emailStatus}>
-          {request.source === "website" && "Website quote form · "}From{" "}
-          {intake.fromName ? `${intake.fromName} · ` : ""}
-          {intake.fromEmail} · {formatDate(intake.receivedAt)}
-          {intake.subject ? ` · “${intake.subject}”` : ""}
-        </p>
-        {intake.attachments.length > 0 && (
-          <ul className={styles.attachmentList}>
-            {intake.attachments.map((attachment) => (
-              <li key={attachment.id}>
-                <span>
-                  {attachment.filename} · {formatSize(attachment.sizeBytes)}
-                </span>
-                <button
-                  className={styles.secondaryButton}
-                  onClick={() => void openAttachment(attachment.id)}
-                  type="button"
-                >
-                  Open
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-        {intake.skippedAttachments.map((skipped) => (
-          <p className={styles.attachmentNote} key={skipped.filename}>
-            Not kept: {skipped.filename} ({skipped.reason})
+      {part === "email" && (
+        <section
+          aria-labelledby="request-email-title"
+          className={styles.emailPanel}
+        >
+          <h3 id="request-email-title">
+            {request.source === "website" ? "The website request" : "The email"}
+          </h3>
+          <p className={styles.emailStatus}>
+            {request.source === "website" && "Website quote form · "}From{" "}
+            {intake.fromName ? `${intake.fromName} · ` : ""}
+            {intake.fromEmail} · {formatDate(intake.receivedAt)}
+            {intake.subject ? ` · “${intake.subject}”` : ""}
           </p>
-        ))}
-      </section>
+          {intake.attachments.length > 0 && (
+            <ul className={styles.attachmentList}>
+              {intake.attachments.map((attachment) => (
+                <li key={attachment.id}>
+                  <span>
+                    {attachment.filename} · {formatSize(attachment.sizeBytes)}
+                  </span>
+                  <button
+                    className={styles.secondaryButton}
+                    onClick={() => void openAttachment(attachment.id)}
+                    type="button"
+                  >
+                    Open
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          {intake.skippedAttachments.map((skipped) => (
+            <p className={styles.attachmentNote} key={skipped.filename}>
+              Not kept: {skipped.filename} ({skipped.reason})
+            </p>
+          ))}
+          <ErrorPopup message={error} />
+        </section>
+      )}
     </>
   );
 }
