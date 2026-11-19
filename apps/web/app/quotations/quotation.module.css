@@ -1624,3 +1624,11 @@ input:focus-visible {
     white-space: normal;
   }
 }
+
+.readerActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 8px;
+}

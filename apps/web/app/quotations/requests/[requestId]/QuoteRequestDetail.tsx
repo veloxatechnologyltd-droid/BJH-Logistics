@@ -247,9 +247,31 @@ export function QuoteRequestDetail({
                 )}
               </p>
             </div>
-            {staffAccess.roles.length > 0 && (
-              <RemindMe requestId={request.id} />
-            )}
+            <div className={styles.readerActions}>
+              {request.customerCompanyId &&
+                request.mailbox === "quotes" &&
+                (request.quoteId ? (
+                  <Link
+                    className={styles.primaryButton}
+                    href={`/quotes/${request.quoteId}`}
+                  >
+                    Open quote
+                    {request.quoteNumber ? ` ${request.quoteNumber}` : ""}
+                  </Link>
+                ) : (
+                  canWorkQuotes(staffAccess.roles) && (
+                    <Link
+                      className={styles.primaryButton}
+                      href={`/quotes/new?requestId=${request.id}&customerId=${request.customerCompanyId}`}
+                    >
+                      Create quote
+                    </Link>
+                  )
+                ))}
+              {staffAccess.roles.length > 0 && (
+                <RemindMe requestId={request.id} />
+              )}
+            </div>
           </header>
 
           <div className={styles.readerTabs} role="tablist">
@@ -341,9 +363,7 @@ export function QuoteRequestDetail({
                             className={styles.primaryButton}
                             href={`/quotes/${request.quoteId}`}
                           >
-                            {request.quoteStatus === "issued"
-                              ? "View quote"
-                              : "Check and issue"}
+                            Open full quote
                           </Link>
                         </span>
                       </div>
