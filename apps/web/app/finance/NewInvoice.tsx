@@ -4,10 +4,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
-import { canWorkFinance } from "../auth/roleAccess";
+import { canWorkFinance, canWorkQuotes } from "../auth/roleAccess";
 import { useStaffAccess } from "../auth/useStaffAccess";
-import { listCustomers } from "../customers/customerApi";
+import { createCustomer, listCustomers } from "../customers/customerApi";
 import type { CustomerCompany } from "../customers/customerApi";
+import { leadToCustomer, listLeads } from "../customers/leadApi";
+import type { Lead } from "../customers/leadApi";
 import { FinanceTabs } from "../invoices/FinanceTabs";
 import {
   createInvoice,
@@ -62,6 +64,19 @@ export function NewInvoice() {
   const [customers, setCustomers] = useState<CustomerCompany[]>([]);
   const [configured, setConfigured] = useState<string[]>([]);
   const [companyId, setCompanyId] = useState("");
+  /** Open leads not yet linked to a customer; an invoice can be started for them too. */
+  const [leads, setLeads] = useState<Lead[]>([]);
+  /** Whether the invoice is for a customer, a lead or a client in neither list. */
+  const [partyKind, setPartyKind] = useState<"customer" | "lead" | "new">(
+    "customer",
+  );
+  const [leadId, setLeadId] = useState("");
+  const [newClient, setNewClient] = useState({
+    companyName: "",
+    contactName: "",
+    email: "",
+    phone: "",
+  });
   const [jobs, setJobs] = useState<Job[] | null>(null);
   const [start, setStart] = useState<Start>("quote");
   const [jobId, setJobId] = useState("");
@@ -81,6 +96,17 @@ export function NewInvoice() {
   useEffect(() => {
     listCustomers("")
       .then(setCustomers)
+      .catch(() => undefined);
+    listLeads()
+      .then((all) =>
+        setLeads(
+          all.filter(
+            (lead) =>
+              !lead.customerCompanyId &&
+              ["new", "contacted", "quoted"].includes(lead.stage),
+          ),
+        ),
+      )
       .catch(() => undefined);
     getSettings()
       .then((result) => {
@@ -106,7 +132,14 @@ export function NewInvoice() {
   useEffect(() => {
     setJobs(null);
     setJobId("");
-    if (!companyId) return;
+    if (!companyId) {
+      // A lead or a new client has no jobs yet: the invoice is a fresh one.
+      if (partyKind !== "customer") {
+        setJobs([]);
+        setStart("fresh");
+      }
+      return;
+    }
     listJobs("", { customerCompanyId: companyId })
       .then((found) => {
         // Invoices are prepared on open jobs only.
@@ -134,7 +167,19 @@ export function NewInvoice() {
           ),
         ),
       );
-  }, [companyId]);
+  }, [companyId, partyKind]);
+
+  // Set once the client is chosen or, for a client in neither list, described.
+  const clientReady =
+    companyId ||
+    (partyKind === "lead"
+      ? leadId
+      : partyKind === "new" &&
+        newClient.companyName.trim() &&
+        newClient.contactName.trim() &&
+        newClient.email.trim());
+  // Only whoever may make customers (as in the API) is offered a lead or a new client.
+  const canAddClient = canWorkQuotes(roles);
 
   const choices = (jobs ?? []).filter(
     (job) => start === "fresh" || job.quoteId,
@@ -219,11 +264,21 @@ export function NewInvoice() {
       // Bank accounts left out: the defaults in settings print.
       const details = { currency, shipment: shipmentInput(shipment) };
       if (!job) {
-        const created = await createInvoice(clientHome(companyId), {
+        // A lead or a new client becomes a customer first. Once made, the
+        // profile is kept (the fields lock), so a failed save does not make it twice.
+        let clientId = companyId;
+        if (!clientId) {
+          clientId =
+            partyKind === "lead"
+              ? (await leadToCustomer(leadId)).customerCompanyId
+              : (await createCustomer(newClient)).id;
+          setCompanyId(clientId);
+        }
+        const created = await createInvoice(clientHome(clientId), {
           ...details,
           lines: parsed.lines,
         });
-        router.push(`/finance/clients/${companyId}/invoices/${created.id}`);
+        router.push(`/finance/clients/${clientId}/invoices/${created.id}`);
       } else if (fromQuote) {
         const count = Number(containers);
         // Lines already brought in from the quote are skipped, not doubled.
@@ -307,24 +362,99 @@ export function NewInvoice() {
         <form className={styles.form} onSubmit={submit}>
           <section className={styles.card} aria-labelledby="client-title">
             <h2 id="client-title">1. Client</h2>
-            <label className={styles.field}>
-              Who is the invoice for?
-              <select
-                onChange={(event) => setCompanyId(event.target.value)}
-                required
-                value={companyId}
-              >
-                <option value="">Choose a client</option>
-                {customers.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.companyName}
+            {canAddClient && (
+              <label className={styles.field}>
+                Invoice for
+                <select
+                  disabled={Boolean(companyId) && partyKind !== "customer"}
+                  onChange={(event) => {
+                    setPartyKind(
+                      event.target.value as "customer" | "lead" | "new",
+                    );
+                    setCompanyId("");
+                    setLeadId("");
+                  }}
+                  value={partyKind}
+                >
+                  <option value="customer">Customer</option>
+                  <option value="lead">Lead</option>
+                  <option value="new">New customer</option>
+                </select>
+              </label>
+            )}
+            {partyKind === "new" ? (
+              (
+                [
+                  ["companyName", "Company name", "text", true],
+                  ["contactName", "Contact person", "text", true],
+                  ["email", "Email", "email", true],
+                  ["phone", "Phone", "tel", false],
+                ] as const
+              ).map(([key, label, type, required]) => (
+                <label className={styles.field} key={key}>
+                  {label}
+                  <input
+                    disabled={Boolean(companyId)}
+                    maxLength={key === "email" ? 254 : 160}
+                    onChange={(event) =>
+                      setNewClient((client) => ({
+                        ...client,
+                        [key]: event.target.value,
+                      }))
+                    }
+                    required={required}
+                    type={type}
+                    value={newClient[key]}
+                  />
+                </label>
+              ))
+            ) : partyKind === "lead" ? (
+              <label className={styles.field}>
+                Lead
+                <select
+                  disabled={Boolean(companyId)}
+                  onChange={(event) => setLeadId(event.target.value)}
+                  required
+                  value={leadId}
+                >
+                  <option value="">
+                    {leads.length ? "Select a lead" : "No open leads"}
                   </option>
-                ))}
-              </select>
-            </label>
+                  {leads.map((lead) => (
+                    <option key={lead.id} value={lead.id}>
+                      {lead.companyName}
+                      {lead.contactName ? ` (${lead.contactName})` : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <label className={styles.field}>
+                Who is the invoice for?
+                <select
+                  onChange={(event) => setCompanyId(event.target.value)}
+                  required
+                  value={companyId}
+                >
+                  <option value="">Choose a client</option>
+                  {customers.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.companyName}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {partyKind !== "customer" && (
+              <p className={styles.muted}>
+                {partyKind === "lead"
+                  ? "The lead becomes a customer when the draft is created."
+                  : "A customer profile is made when the draft is created."}
+              </p>
+            )}
           </section>
 
-          {companyId && (
+          {companyId && partyKind === "customer" && (
             <section className={styles.card} aria-labelledby="start-title">
               <h2 id="start-title">2. Start from</h2>
               <label className={styles.choice}>
@@ -363,7 +493,7 @@ export function NewInvoice() {
             </section>
           )}
 
-          {companyId && (
+          {companyId && partyKind === "customer" && (
             <section className={styles.card} aria-labelledby="job-title">
               <h2 id="job-title">3. Job it bills (optional)</h2>
               {!jobs && <p role="status">Loading the client&apos;s jobs…</p>}
@@ -410,10 +540,11 @@ export function NewInvoice() {
             </section>
           )}
 
-          {companyId && (job || start === "fresh") && (
+          {clientReady && (job || start === "fresh") && (
             <section className={styles.card} aria-labelledby="details-title">
               <h2 id="details-title">
-                4. {fromQuote ? "Currency" : "Currency and charges"}
+                {partyKind === "customer" ? 4 : 2}.{" "}
+                {fromQuote ? "Currency" : "Currency and charges"}
               </h2>
               {fromQuote && quote?.quoteNumber && (
                 <p className={styles.muted}>
@@ -509,7 +640,7 @@ export function NewInvoice() {
               </div>
             </section>
           )}
-          {!(companyId && (job || start === "fresh")) && error && (
+          {!(clientReady && (job || start === "fresh")) && error && (
             <p className={styles.error} role="alert">
               {error}
             </p>
