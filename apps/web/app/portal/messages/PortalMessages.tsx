@@ -7,6 +7,7 @@ import type { Conversation as Thread } from "../../chat/chatApi";
 import { ErrorPopup } from "../../ErrorPopup";
 import jobStyles from "../../jobs/jobs.module.css";
 import styles from "../../chat/chat.module.css";
+import { pollWhileVisible } from "../../pollWhileVisible";
 
 const refreshEveryMs = 30_000;
 
@@ -28,8 +29,7 @@ export function PortalMessages() {
 
   useEffect(() => {
     void load();
-    const timer = window.setInterval(() => void load(), refreshEveryMs);
-    return () => window.clearInterval(timer);
+    return pollWhileVisible(load, refreshEveryMs);
   }, [load]);
 
   async function send(body: string) {

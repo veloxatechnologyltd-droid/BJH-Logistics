@@ -16,6 +16,7 @@ import { SampleDataNotice } from "./SampleDataNotice";
 import ui from "../jobs/jobs.module.css";
 import styles from "../customers/customerDirectory.module.css";
 import own from "./campaigns.module.css";
+import { pollWhileVisible } from "../pollWhileVisible";
 
 const message = (cause: unknown, fallback: string) =>
   cause instanceof Error ? cause.message : fallback;
@@ -53,8 +54,7 @@ export function CampaignsList() {
   );
   useEffect(() => {
     if (!searching) return;
-    const timer = setInterval(load, 5000);
-    return () => clearInterval(timer);
+    return pollWhileVisible(load, 5000);
   }, [searching, load]);
 
   return (

@@ -12,6 +12,7 @@ import { Conversation } from "./Conversation";
 import { getConversation, listChatThreads, replyToClient } from "./chatApi";
 import type { ChatThread, Conversation as Thread } from "./chatApi";
 import styles from "./chat.module.css";
+import { pollWhileVisible } from "../pollWhileVisible";
 
 const refreshEveryMs = 30_000;
 
@@ -83,11 +84,7 @@ export function ClientChat() {
   useEffect(() => {
     if (!selected) return;
     void loadThread(selected).then(loadThreads);
-    const timer = window.setInterval(
-      () => void loadThread(selected),
-      refreshEveryMs,
-    );
-    return () => window.clearInterval(timer);
+    return pollWhileVisible(() => loadThread(selected), refreshEveryMs);
   }, [selected, loadThread, loadThreads]);
 
   async function send(body: string) {

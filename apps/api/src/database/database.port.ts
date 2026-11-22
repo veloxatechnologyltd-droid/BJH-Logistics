@@ -164,6 +164,19 @@ export interface EmailToRead {
   bodyText: string;
 }
 
+export type WorkspaceBadgeCounts = {
+  /** Emailed quote requests nobody has checked yet. */
+  newQuoteRequests: number;
+  /** Inquiries the assistant could not answer and nobody has replied to. */
+  inquiriesForAPerson: number;
+  /** Quotes whose latest version is still a draft. */
+  draftQuotes: number;
+  /** Client messages from the past 7 days with a failed email or SMS. */
+  failedMessages: number;
+  /** Client chat messages customer service has not read. */
+  chatUnread: number;
+};
+
 export type ServiceLine =
   | "sea_import"
   | "sea_export"
@@ -2131,6 +2144,14 @@ export abstract class DatabasePort {
     from: string,
     to: string,
   ): Promise<SalesServiceReportRecord>;
+  /**
+   * The numbers beside the staff menu, counted in the database so the menu
+   * never downloads whole lists. `serviceLines` limits quotes and messages as
+   * the quote and message lists do; null is every service line.
+   */
+  abstract countWorkspaceBadges(
+    serviceLines: ServiceLine[] | null,
+  ): Promise<WorkspaceBadgeCounts>;
   abstract listChatThreads(): Promise<ChatThreadRecord[]>;
   abstract listChatMessages(companyId: string): Promise<ChatMessageRecord[]>;
   /** `emailMessageId` is an emailed reply's Message-ID, kept so it is never added twice. */

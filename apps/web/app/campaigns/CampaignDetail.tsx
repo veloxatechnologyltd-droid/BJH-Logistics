@@ -27,6 +27,7 @@ import { SearchProgress } from "./SearchProgress";
 import ui from "../jobs/jobs.module.css";
 import styles from "../customers/customerDirectory.module.css";
 import own from "./campaigns.module.css";
+import { pollWhileVisible } from "../pollWhileVisible";
 
 const message = (cause: unknown, fallback: string) =>
   cause instanceof Error ? cause.message : fallback;
@@ -72,8 +73,7 @@ export function CampaignDetail() {
   }, [searching, run?.status]);
   useEffect(() => {
     if (!searching) return;
-    const timer = setInterval(load, 2000);
-    return () => clearInterval(timer);
+    return pollWhileVisible(load, 2000);
   }, [searching, load]);
 
   /** Runs a change, then fetches the campaign again (not when the change removed it). */

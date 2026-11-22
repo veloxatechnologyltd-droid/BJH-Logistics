@@ -12,15 +12,13 @@ import type { NavIconName } from "./NavIcon";
 import { SettingsSidebarSection } from "./SettingsSidebarSection";
 import { StaffNotices } from "./StaffNotices";
 import { SupportButton } from "./support/SupportButton";
-import { listChatThreads } from "./chat/chatApi";
 import { getTeamUnread } from "./team-chat/teamChatApi";
 import { PushPrompt } from "./push/PushPrompt";
+import { pollWhileVisible } from "./pollWhileVisible";
+import { getWorkspaceBadges } from "./workspaceApi";
+import type { WorkspaceBadges } from "./workspaceApi";
 import { newPopupState, syncPopups } from "./team-chat/teamNotifications";
 import type { PopupState } from "./team-chat/teamNotifications";
-import { listQuoteRequests } from "./quotations/quoteRequestApi";
-import type { RequestMailbox } from "./quotations/quoteRequestApi";
-import { getFeed } from "./messages/messageApi";
-import { listQuotes } from "./quotes/quoteApi";
 
 type NavItem = {
   href: string;
@@ -186,66 +184,43 @@ const collapsedKey = "bjh.sidebar.collapsed";
 const drawerQuery = "(max-width: 900px)";
 const newRequestsEveryMs = 60_000;
 
+const noBadges: WorkspaceBadges = {
+  newQuoteRequests: 0,
+  inquiriesForAPerson: 0,
+  draftQuotes: 0,
+  failedMessages: 0,
+  chatUnread: 0,
+};
+
 /**
- * The badge beside an inbox: emailed quote requests nobody has checked yet,
- * or inquiries the assistant could not answer that still need a person.
+ * The menu badges: quote mail nobody has checked, inquiries that need a
+ * person, draft quotes, messages that failed this week and unread client
+ * chat. One small request, counted by the API, every minute while the tab is
+ * on screen and after each page change.
  */
-function useNewRequestCount(
+function useWorkspaceBadges(
   enabled: boolean,
   pathname: string,
-  mailbox: RequestMailbox = "quotes",
-): number {
-  const [count, setCount] = useState(0);
+): WorkspaceBadges {
+  const [badges, setBadges] = useState<WorkspaceBadges>(noBadges);
   useEffect(() => {
     if (!enabled) return;
     let current = true;
     const load = () =>
-      listQuoteRequests(undefined, mailbox)
-        .then((requests) => {
-          if (current) {
-            setCount(
-              requests.filter((request) =>
-                mailbox === "inquiries"
-                  ? request.intake?.escalation && !request.intake.reply?.sentAt
-                  : request.intake && !request.intake.reviewedAt,
-              ).length,
-            );
-          }
+      getWorkspaceBadges()
+        .then((counts) => {
+          if (current) setBadges(counts);
         })
-        // The badge is a hint; the Requests page shows any failure.
+        // The badges are a hint; each page shows its own failures.
         .catch(() => undefined);
     void load();
-    const timer = window.setInterval(load, newRequestsEveryMs);
+    const stop = pollWhileVisible(load, newRequestsEveryMs);
     return () => {
       current = false;
-      window.clearInterval(timer);
-    };
-  }, [enabled, pathname, mailbox]);
-  return enabled ? count : 0;
-}
-
-/** Client messages customer service has not opened yet, for the Client chat badge. */
-function useChatUnread(enabled: boolean, pathname: string): number {
-  const [count, setCount] = useState(0);
-  useEffect(() => {
-    if (!enabled) return;
-    let current = true;
-    const load = () =>
-      listChatThreads()
-        .then((threads) => {
-          if (current)
-            setCount(threads.reduce((sum, item) => sum + item.unread, 0));
-        })
-        // The badge is a hint; the chat page shows any failure.
-        .catch(() => undefined);
-    void load();
-    const timer = window.setInterval(load, newRequestsEveryMs);
-    return () => {
-      current = false;
-      window.clearInterval(timer);
+      stop();
     };
   }, [enabled, pathname]);
-  return enabled ? count : 0;
+  return enabled ? badges : noBadges;
 }
 
 /**
@@ -282,60 +257,6 @@ function useTeamUnread(enabled: boolean, pathname: string): number {
     };
   }, [enabled, pathname, router]);
   return enabled ? count : 0;
-}
-
-const weekMs = 7 * 24 * 60 * 60 * 1000;
-
-/**
- * Quotes still in draft (not yet issued to the customer), and messages from
- * the past week that failed to reach someone by email or SMS.
- */
-function useWorkCounts(
-  enabled: boolean,
-  pathname: string,
-): { draftQuotes: number; failedMessages: number } {
-  const [draftQuotes, setDraftQuotes] = useState(0);
-  const [failedMessages, setFailedMessages] = useState(0);
-  useEffect(() => {
-    if (!enabled) return;
-    let current = true;
-    const load = () => {
-      listQuotes()
-        .then((quotes) => {
-          if (current)
-            setDraftQuotes(
-              quotes.filter((quote) => quote.latestStatus === "draft").length,
-            );
-        })
-        // The badge is a hint; the Quotes page shows any failure.
-        .catch(() => undefined);
-      getFeed({})
-        .then((feed) => {
-          if (!current) return;
-          const since = Date.now() - weekMs;
-          setFailedMessages(
-            feed.messages.filter(
-              (message) =>
-                Date.parse(message.createdAt) >= since &&
-                message.deliveries.some(
-                  (delivery) => delivery.status === "failed",
-                ),
-            ).length,
-          );
-        })
-        // The badge is a hint; the Messages page shows any failure.
-        .catch(() => undefined);
-    };
-    load();
-    const timer = window.setInterval(load, newRequestsEveryMs);
-    return () => {
-      current = false;
-      window.clearInterval(timer);
-    };
-  }, [enabled, pathname]);
-  return enabled
-    ? { draftQuotes, failedMessages }
-    : { draftQuotes: 0, failedMessages: 0 };
 }
 
 /** Pages reached from Settings or a link, not from the main menu. */
@@ -401,36 +322,22 @@ export function WorkspaceFrame({ children }: { children: ReactNode }) {
   const menuButton = useRef<HTMLButtonElement>(null);
   const closeButton = useRef<HTMLButtonElement>(null);
   const wasOpen = useRef(false);
-  const newRequests = useNewRequestCount(
+  const badges = useWorkspaceBadges(
     status === "ready" && !isCustomer,
-    pathname,
-  );
-  const inquiriesForAPerson = useNewRequestCount(
-    status === "ready" && !isCustomer,
-    pathname,
-    "inquiries",
-  );
-  const unreadChat = useChatUnread(
-    status === "ready" &&
-      (roles.includes("customer_service_rep") || roles.includes("super_admin")),
     pathname,
   );
   const unreadTeam = useTeamUnread(status === "ready" && !isCustomer, pathname);
-  const { draftQuotes, failedMessages } = useWorkCounts(
-    status === "ready" && !isCustomer,
-    pathname,
-  );
   const badgeOf = (item: NavItem) =>
     item.href === "/quotations"
-      ? newRequests + inquiriesForAPerson
+      ? badges.newQuoteRequests + badges.inquiriesForAPerson
       : item.href === "/chat"
-        ? unreadChat
+        ? badges.chatUnread
         : item.href === "/team-chat"
           ? unreadTeam
           : item.href === "/quotes"
-            ? draftQuotes
+            ? badges.draftQuotes
             : item.href === "/messages"
-              ? failedMessages
+              ? badges.failedMessages
               : 0;
 
   // A new password, then the super admin's second step, come before any page.
