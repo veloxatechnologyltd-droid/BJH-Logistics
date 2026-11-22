@@ -28,6 +28,7 @@ import { askForPopups, popupPermission } from "./teamNotifications";
 import type { PopupPermission } from "./teamNotifications";
 import jobStyles from "../jobs/jobs.module.css";
 import styles from "./teamChat.module.css";
+import { pollWhileVisible } from "../pollWhileVisible";
 
 const listEveryMs = 15_000;
 const conversationEveryMs = 5_000;
@@ -161,22 +162,17 @@ export function TeamChat() {
     void loadList();
     loadPeople();
     // The people list also carries who is online, so it refreshes with the list.
-    const timer = window.setInterval(() => {
+    return pollWhileVisible(() => {
       void loadList();
       loadPeople();
     }, listEveryMs);
-    return () => window.clearInterval(timer);
   }, [loadList, loadPeople]);
 
   useEffect(() => {
     if (!selected) return;
     setOpen((current) => (current?.id === selected ? current : null));
     void loadOpen(selected).then(loadList);
-    const timer = window.setInterval(
-      () => void loadOpen(selected),
-      conversationEveryMs,
-    );
-    return () => window.clearInterval(timer);
+    return pollWhileVisible(() => loadOpen(selected), conversationEveryMs);
   }, [selected, loadOpen, loadList]);
 
   const messageCount = open?.messages.length ?? 0;

@@ -175,6 +175,7 @@ import {
   TeamMessageRecord,
   TeamTag,
   TeamTagTargets,
+  WorkspaceBadgeCounts,
 } from "./database.port";
 
 /** Task rows joined to their job; `source` is the table or CTE holding the task. */
@@ -4400,6 +4401,49 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
             email: String(row.created_by_email),
           })
         : null,
+    };
+  }
+
+  async countWorkspaceBadges(
+    serviceLines: ServiceLine[] | null,
+  ): Promise<WorkspaceBadgeCounts> {
+    const result = await this.pool.query(
+      `SELECT
+         (SELECT count(*) FROM app.quote_request AS r
+          WHERE r.mailbox = 'quotes' AND r.inbound_email_id IS NOT NULL
+            AND r.reviewed_at IS NULL) AS new_quote_requests,
+         (SELECT count(*) FROM app.quote_request AS r
+          WHERE r.mailbox = 'inquiries' AND r.inbound_email_id IS NOT NULL
+            AND r.escalated_at IS NOT NULL AND r.reply_sent_at IS NULL)
+           AS inquiries_for_a_person,
+         (SELECT count(*) FROM app.quote AS q
+          WHERE ($1::text[] IS NULL OR q.service_line = ANY($1::text[]))
+            AND (SELECT v.status FROM app.quote_version AS v
+                 WHERE v.quote_id = q.quote_id
+                 ORDER BY v.version_number DESC LIMIT 1) = 'draft')
+           AS draft_quotes,
+         (SELECT count(*) FROM app.notification AS n
+          WHERE n.created_at >= clock_timestamp() - interval '7 days'
+            AND ($1::text[] IS NULL OR n.job_id IS NULL OR EXISTS (
+              SELECT 1 FROM app.job AS scoped
+              WHERE scoped.job_id = n.job_id
+                AND scoped.service_line = ANY($1::text[])))
+            AND EXISTS (
+              SELECT 1 FROM app.notification_delivery AS d
+              WHERE d.notification_id = n.notification_id
+                AND d.status = 'failed')) AS failed_messages,
+         (SELECT count(*) FROM app.chat_message AS m
+          WHERE m.direction = 'from_client' AND m.read_at IS NULL)
+           AS chat_unread`,
+      [serviceLines],
+    );
+    const row = result.rows[0];
+    return {
+      newQuoteRequests: Number(row.new_quote_requests),
+      inquiriesForAPerson: Number(row.inquiries_for_a_person),
+      draftQuotes: Number(row.draft_quotes),
+      failedMessages: Number(row.failed_messages),
+      chatUnread: Number(row.chat_unread),
     };
   }
 

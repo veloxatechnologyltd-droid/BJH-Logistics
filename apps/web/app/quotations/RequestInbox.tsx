@@ -16,6 +16,7 @@ import styles from "./quotation.module.css";
 import { ErrorPopup, plainMessage } from "../ErrorPopup";
 import { QuoteRequestDetail } from "./requests/[requestId]/QuoteRequestDetail";
 import type { DetailTab } from "./requests/[requestId]/QuoteRequestDetail";
+import { pollWhileVisible } from "../pollWhileVisible";
 
 type LoadState = "loading" | "ready" | "error";
 type Tab = "person" | "received" | "drafts" | "sent" | "other";
@@ -199,10 +200,10 @@ export function RequestInbox({
         .catch(() => undefined);
     };
     refresh();
-    const timer = window.setInterval(refresh, 30_000);
+    const stop = pollWhileVisible(refresh, 30_000);
     return () => {
       active = false;
-      window.clearInterval(timer);
+      stop();
     };
   }, []);
 

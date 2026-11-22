@@ -102,6 +102,9 @@ const PAGE = 100;
 /** Seen this recently counts as online: the menu badge asks every 30 seconds. */
 const ONLINE_WITHIN_MS = 75_000;
 
+/** How long a staff name is reused before Supabase Auth is asked again. */
+const NAME_CACHE_MS = 5 * 60_000;
+
 /**
  * Internal team chat (Evans, 2026-11-02): direct messages, groups and one
  * channel per team, for staff only. A message may tag people, jobs, invoices
@@ -119,6 +122,11 @@ export class TeamChatService implements OnModuleInit {
    * request. With more than one API instance each would know only its own.
    */
   private readonly lastSeen = new Map<string, number>();
+  /** Display names by user, with when they were looked up (null: no such account). */
+  private readonly nameCache = new Map<
+    string,
+    { name: string | null; at: number }
+  >();
 
   constructor(
     @Inject(DatabasePort) private readonly database: DatabasePort,
@@ -593,14 +601,31 @@ export class TeamChatService implements OnModuleInit {
     }
   }
 
-  /** Display names (never emails) for staff accounts that still exist. */
+  /**
+   * Display names (never emails) for staff accounts that still exist. Team
+   * chat refreshes every few seconds, so a name is kept for a few minutes
+   * instead of asking Supabase Auth for every person on every refresh.
+   */
   private async names(userIds: string[]): Promise<Map<string, string>> {
     const unique = [...new Set(userIds)];
-    const users = await Promise.all(unique.map((id) => this.auth.getUser(id)));
+    const now = Date.now();
+    const missing = unique.filter((id) => {
+      const known = this.nameCache.get(id);
+      return !known || now - known.at >= NAME_CACHE_MS;
+    });
+    const users = await Promise.all(missing.map((id) => this.auth.getUser(id)));
+    missing.forEach((id, index) => {
+      const user = users[index];
+      this.nameCache.set(id, {
+        name: user ? staffDisplayName(user) : null,
+        at: now,
+      });
+    });
     return new Map(
-      unique.flatMap((id, index) =>
-        users[index] ? [[id, staffDisplayName(users[index])] as const] : [],
-      ),
+      unique.flatMap((id) => {
+        const name = this.nameCache.get(id)?.name;
+        return name === null || name === undefined ? [] : [[id, name] as const];
+      }),
     );
   }
 }

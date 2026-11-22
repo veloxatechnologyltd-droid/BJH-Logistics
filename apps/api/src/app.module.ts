@@ -10,6 +10,7 @@ import { PasswordResetController } from "./auth/password-reset.controller";
 import { PasswordResetService } from "./auth/password-reset.service";
 import { DatabaseModule } from "./database/database.module";
 import { HealthController } from "./health.controller";
+import { WorkspaceController } from "./workspace/workspace.controller";
 import {
   DocumentLibraryController,
   DocumentsController,
@@ -182,6 +183,7 @@ import { PushService } from "./push/push.service";
   ],
   controllers: [
     HealthController,
+    WorkspaceController,
     PasswordResetController,
     QuoteRequestsController,
     QuotesController,
