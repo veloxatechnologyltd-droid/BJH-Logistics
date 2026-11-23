@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { listCustomers } from "../customers/customerApi";
 import { listLeads } from "../customers/leadApi";
+import { canWorkQuotes } from "../auth/roleAccess";
+import { useStaffAccess } from "../auth/useStaffAccess";
 import ui from "../jobs/jobs.module.css";
 import styles from "../customers/customerDirectory.module.css";
 import { ErrorPopup, plainMessage } from "../ErrorPopup";
@@ -58,6 +60,7 @@ async function loadContacts(): Promise<ContactRow[]> {
 }
 
 export function Contacts() {
+  const { roles } = useStaffAccess();
   const [contacts, setContacts] = useState<ContactRow[]>([]);
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [loadError, setLoadError] = useState("");
@@ -101,6 +104,17 @@ export function Contacts() {
 
   return (
     <section className={styles.directory} aria-label="Contacts">
+      {canWorkQuotes(roles) && (
+        <div className={styles.searchHeader}>
+          <p className={styles.searchHint}>
+            Adding a contact creates a customer profile, the same as New
+            customer.
+          </p>
+          <Link className={styles.newCustomerLink} href="/customers/new">
+            Add contact
+          </Link>
+        </div>
+      )}
       <div className={styles.searchRow}>
         <span className={styles.searchIcon} aria-hidden="true">
           ⌕
