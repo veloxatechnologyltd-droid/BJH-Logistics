@@ -2372,3 +2372,10 @@ Read MEMORY.md at the start of every session before doing anything. Never contra
 **Why:** Billing a walk-in client meant leaving the invoice to make a profile first.
 **What was rejected:** Widening `quoteDeskRoles` for finance reps (the role is not in use).
 **Evidence:** lint, Prettier, typecheck all workspaces, web tests 51/51. Not browser-checked (local Supabase not answering). Deployed by Evans's request the same day.
+
+## 2026-11-23, Sidebar "Jobs" reads Quotation; Contacts page under Sales
+
+**What was decided:** The client asked for the sidebar's Jobs title to say Quotation and for a Contacts section under Sales. (1) Staff sidebar "Jobs" (OPERATIONS) now reads **Quotation** and the customer sidebar's "Your jobs" reads **Your quotations**; both still open `/jobs`. Evans chose this reading from three offered (rename Jobs, rename the existing Quotes link, or staff only). (2) New **Contacts** entry in SALES after Customers, page `/contacts`: one searchable table of Business, Contact, Telephone, Email and Type (Customer or Lead). Customers contribute every contact on their profile (a contact without a phone shows the company phone); leads contribute their one contact, except leads already turned into a customer, whose people are already listed. Business names of customers link to the profile. Web only; reads the existing customers and leads endpoints, so no API, contract or schema change.
+**Why:** The client wanted one place for the phone numbers and emails of their leads and customers, without opening each record.
+**What was rejected:** A new contacts table or API (the data is already on customers and leads); editing contacts from this page (stays on the customer profile); listing converted leads again (duplicates).
+**Open:** the customer menu now shows "Your quotations" twice (the existing quotes link and the renamed jobs link): a consequence of the requested rename, for Evans to decide. No unit test for the page; browser-checked as the local super admin on desktop width only.
