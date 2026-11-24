@@ -3,7 +3,7 @@ import { Contacts } from "./Contacts";
 import styles from "../customers/customerDirectory.module.css";
 
 export const metadata = {
-  title: "Contacts | BJH Logistics",
+  title: "Address book | BJH Logistics",
   description: "Phone numbers and emails of leads and customers.",
 };
 
@@ -16,7 +16,7 @@ export default function ContactsPage() {
 
       <header className={styles.header}>
         <div>
-          <h1 className={styles.title}>Contacts</h1>
+          <h1 className={styles.title}>Address book</h1>
           <p className={styles.description}>
             The people to call or email at your leads and customers.
           </p>
