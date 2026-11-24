@@ -1,5 +1,12 @@
 Maintain a file called MEMORY.md. After any significant decision, about direction, format, content, approach, or strategy, add an entry:
 
+## 2026-11-24, Customers and Leads toolbars take less of the screen (code only, not deployed)
+
+**What was decided:** Customers: the "Customer records" heading and hint are gone (the heading stays as a hidden label for the search box); search and "New customer" share one row, and the status buttons and the three dropdowns sit on one row below with their labels beside them instead of above. Leads: the two rows of summary tiles are smaller (less padding, smaller figures, one-line notes cut with "…"), the search/Add lead row was already one row. Table height offsets lowered to match (Customers 500px, Leads 600px). Files: `customerDirectory.module.css`, `CustomerDirectory.tsx`, `leads/LeadsBoard.tsx`.
+**Why:** Evans: the header block "is taking much of the screen"; he wants the table to have the screen, on both Customers and Leads.
+**What was rejected:** Hiding the Leads summary tiles behind a toggle (loses the figures at a glance); touching the Customers Overview page, which shares the tile styles (the compact style is an extra class used only on Leads).
+**Open:** Not seen in a browser (the local stack still will not start); sizes and offsets are estimates. `tsc`, eslint, prettier and web tests (51) pass.
+
 ## 2026-11-24, Customers and Leads tables scroll inside their card; "New" joins the status filter (released)
 
 **What was decided:** On screens wider than 900px the Customers and Leads tables scroll inside their own card with the header row pinned, so the page stays still (`.tableScroll` in `customerDirectory.module.css`, shared by both; height is the viewport minus `--customer-table-offset`, 580px default, 680px set on Leads, never under 320px). Phones keep the card layout and page scroll. On Customers the status buttons are now All / Active / Inactive / **New** (created in the last 90 days, `customerActiveDays`); the old "New clients (90 days)" entry in the Customer activity dropdown was removed so there is one place for it.

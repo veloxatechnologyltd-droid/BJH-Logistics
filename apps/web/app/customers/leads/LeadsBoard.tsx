@@ -192,7 +192,7 @@ export function LeadsBoard({
     <>
       {summary && (
         <section
-          className={styles.overview}
+          className={`${styles.overview} ${styles.overviewCompact}`}
           aria-label="Sales this week and month"
         >
           {(
@@ -221,7 +221,7 @@ export function LeadsBoard({
         </section>
       )}
       <section
-        className={styles.overview}
+        className={`${styles.overview} ${styles.overviewCompact}`}
         aria-label={`${pipeline === "generated" ? "Campaign" : "Manual"} lead overview`}
       >
         <div className={styles.metric}>
@@ -485,7 +485,7 @@ export function LeadsBoard({
         {shown.length > 0 && (
           <div
             className={styles.tableScroll}
-            style={{ "--customer-table-offset": "680px" } as CSSProperties}
+            style={{ "--customer-table-offset": "600px" } as CSSProperties}
           >
             <table className={styles.customerTable} data-cards>
               <thead>
