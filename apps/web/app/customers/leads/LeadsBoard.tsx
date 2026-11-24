@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import type { CSSProperties } from "react";
 import type {
   LeadCreateSource,
   LeadPipeline,
@@ -482,7 +483,10 @@ export function LeadsBoard({
           </div>
         )}
         {shown.length > 0 && (
-          <div className={styles.tableScroll}>
+          <div
+            className={styles.tableScroll}
+            style={{ "--customer-table-offset": "680px" } as CSSProperties}
+          >
             <table className={styles.customerTable} data-cards>
               <thead>
                 <tr>

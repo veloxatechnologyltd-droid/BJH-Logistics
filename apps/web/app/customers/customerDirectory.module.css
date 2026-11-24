@@ -350,6 +350,21 @@
   margin: 0 -22px;
 }
 
+/* On a wide screen the table scrolls inside the card, header row pinned, so
+   the page itself stays put. Phones show cards and scroll with the page. */
+@media (min-width: 901px) {
+  .tableScroll {
+    overflow-y: auto;
+    max-height: max(320px, calc(100dvh - var(--customer-table-offset, 580px)));
+  }
+
+  .customerTable thead {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+  }
+}
+
 .customerTable {
   width: 100%;
   min-width: 790px;
