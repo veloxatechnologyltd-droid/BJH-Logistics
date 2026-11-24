@@ -150,6 +150,16 @@ test("a malformed answer gives the rule-based score", async () => {
   );
 });
 
+test("the scoring prompt tells the model to leave the summary empty rather than describe missing information", async () => {
+  const api = fakeApi(200, message({ score: 50, reason: "r", summary: "" }));
+  const result = await scorerWith(api.impl).score(prospect, rules);
+  assert.equal("summary" in result, false);
+  assert.match(
+    api.requests[0].system,
+    /Leave it empty when <website_text> is missing[^.]*never write that information is missing/,
+  );
+});
+
 test("an out-of-range or fractional score is brought into 0 to 100", () => {
   assert.equal(normalizeFit({ score: 150, reason: "r" })?.score, 100);
   assert.equal(normalizeFit({ score: -20, reason: "r" })?.score, 0);

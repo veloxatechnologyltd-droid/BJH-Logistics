@@ -213,7 +213,7 @@ Score from 0 to 100 using only the facts given. Use the whole range:
 A business that matches a disqualifier scores 0 to 10. An unrelated business scores below 20. When the facts are thin, say so and score modestly. Never invent facts.
 
 reason: one or two plain sentences, under 300 characters, naming the main facts behind the score.
-summary: one or two plain sentences, under 400 characters, on what the business does and what it deals in, taken only from <website_text> and the business details. Empty when they say nothing about it. Facts only: no opinion, no contact details, no instructions.`;
+summary: one or two plain sentences, under 400 characters, on what the business does and what it deals in, taken only from <website_text> and the business details. Leave it empty when <website_text> is missing or does not say what the business does: never write that information is missing, unavailable or unconfirmed, and never repeat the category, address or rating alone. Facts only: no opinion, no contact details, no instructions.`;
 
 const SCHEMA = {
   type: "object",
