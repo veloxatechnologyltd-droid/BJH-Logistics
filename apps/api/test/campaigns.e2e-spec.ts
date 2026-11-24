@@ -346,7 +346,7 @@ test("a campaign can be changed, paused and resumed, and unknown ones are not fo
   }
 });
 
-test("a campaign writes emails only when it has both the context and the call to action", async () => {
+test("a campaign may write emails with or without its own context and call to action", async () => {
   const plain = await newCampaign();
   assert.equal(plain.generateEmails, false);
   assert.equal(plain.emailContext, null);
@@ -354,16 +354,10 @@ test("a campaign writes emails only when it has both the context and the call to
 
   const create = (extra: Record<string, unknown>) =>
     send("POST", "/api/v1/campaigns", admin, { ...validCampaign, ...extra });
-  assert.equal((await create({ generateEmails: true })).status, 400);
-  assert.equal(
-    (await create({ generateEmails: true, emailContext: "We ship cars." }))
-      .status,
-    400,
-  );
-  assert.equal(
-    (await create({ generateEmails: true, emailCta: "Reply to us." })).status,
-    400,
-  );
+  // The knowledge base in Settings carries what BJH offers, so the brief is optional.
+  const bare = await create({ generateEmails: true });
+  assert.equal(bare.status, 201);
+  assert.equal(((await bare.json()) as Campaign).generateEmails, true);
   // Text kept without switching emails on is fine; too long is not.
   assert.equal((await create({ emailContext: "x".repeat(2001) })).status, 400);
   const brief = {
@@ -380,18 +374,10 @@ test("a campaign writes emails only when it has both the context and the call to
 
   const patch = (target: Campaign, body: unknown) =>
     send("PATCH", `/api/v1/campaigns/${target.id}`, admin, body);
-  // The rule holds for the campaign as it would be after the change.
-  assert.equal((await patch(plain, { generateEmails: true })).status, 400);
-  assert.equal((await patch(campaign, { emailCta: "" })).status, 400);
-  assert.equal((await patch(campaign, { emailContext: null })).status, 400);
+  assert.equal((await patch(plain, { generateEmails: true })).status, 200);
+  assert.equal((await patch(campaign, { emailCta: "" })).status, 200);
+  assert.equal((await patch(campaign, { emailContext: null })).status, 200);
   assert.equal((await patch(campaign, { name: "Renamed" })).status, 200);
-  assert.equal(
-    (await patch(campaign, { generateEmails: false, emailCta: "" })).status,
-    200,
-  );
-  const switchedOn = await patch(plain, { ...brief });
-  assert.equal(switchedOn.status, 200);
-  assert.equal(((await switchedOn.json()) as Campaign).generateEmails, true);
 });
 
 test("a search is started once at a time, only for an active campaign, and can be cancelled", async () => {

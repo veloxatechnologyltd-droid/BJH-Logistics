@@ -172,6 +172,10 @@ export interface ProspectDraftingInfo {
   category: string | null;
   address: string | null;
   emails: string[];
+  /** What the business does, from its website; null when unknown. */
+  summary: string | null;
+  /** Why the AI judged it a fit; null for rule-scored businesses. */
+  fitReason: string | null;
   dismissed: boolean;
   campaign: {
     targetService: string;

@@ -149,31 +149,6 @@ export class CampaignsService {
     const parsed = parseContract(campaignUpdateInputSchema, input);
     if (!parsed.success) throw new BadRequestException(parsed.message);
     const change = parsed.data;
-    if (
-      change.generateEmails !== undefined ||
-      change.emailContext !== undefined ||
-      change.emailCta !== undefined
-    ) {
-      // The brief is checked as it would be after the change, not just the fields sent.
-      const current = isUuid(id)
-        ? await this.database.findLeadCampaign(id)
-        : null;
-      if (!current) throw new NotFoundException("Campaign was not found");
-      const after = {
-        generateEmails: change.generateEmails ?? current.generateEmails,
-        emailContext:
-          change.emailContext === undefined
-            ? current.emailContext
-            : change.emailContext,
-        emailCta:
-          change.emailCta === undefined ? current.emailCta : change.emailCta,
-      };
-      if (after.generateEmails && !(after.emailContext && after.emailCta)) {
-        throw new BadRequestException(
-          "To write emails, give the email context and the call to action",
-        );
-      }
-    }
     const updated = isUuid(id)
       ? await this.database.updateLeadCampaign(id, change)
       : null;

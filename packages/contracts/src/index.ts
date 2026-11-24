@@ -3185,31 +3185,26 @@ const campaignFields = {
 };
 
 /** What to find and how to judge it; what is left out takes the usual value (set by the API). */
-export const campaignCreateInputSchema = z
-  .object(
-    {
-      name: campaignFields.name,
-      targetService: campaignFields.targetService,
-      targetIndustry: campaignFields.targetIndustry,
-      targetLocation: campaignFields.targetLocation,
-      searchKeywords: campaignFields.searchKeywords.optional(),
-      excludedKeywords: campaignFields.excludedKeywords.optional(),
-      minRating: campaignFields.minRating,
-      requireWebsite: campaignFields.requireWebsite.optional(),
-      idealCustomerProfile: campaignFields.idealCustomerProfile,
-      disqualifiers: campaignFields.disqualifiers,
-      generateEmails: campaignFields.generateEmails.optional(),
-      emailContext: campaignFields.emailContext,
-      emailCta: campaignFields.emailCta,
-      qualificationThreshold: campaignFields.qualificationThreshold.optional(),
-      maxProspects: campaignFields.maxProspects.optional(),
-    },
-    objectError("A campaign object is required"),
-  )
-  .refine(
-    (value) => !value.generateEmails || (value.emailContext && value.emailCta),
-    { error: "To write emails, give the email context and the call to action" },
-  );
+export const campaignCreateInputSchema = z.object(
+  {
+    name: campaignFields.name,
+    targetService: campaignFields.targetService,
+    targetIndustry: campaignFields.targetIndustry,
+    targetLocation: campaignFields.targetLocation,
+    searchKeywords: campaignFields.searchKeywords.optional(),
+    excludedKeywords: campaignFields.excludedKeywords.optional(),
+    minRating: campaignFields.minRating,
+    requireWebsite: campaignFields.requireWebsite.optional(),
+    idealCustomerProfile: campaignFields.idealCustomerProfile,
+    disqualifiers: campaignFields.disqualifiers,
+    generateEmails: campaignFields.generateEmails.optional(),
+    emailContext: campaignFields.emailContext,
+    emailCta: campaignFields.emailCta,
+    qualificationThreshold: campaignFields.qualificationThreshold.optional(),
+    maxProspects: campaignFields.maxProspects.optional(),
+  },
+  objectError("A campaign object is required"),
+);
 export type CampaignCreateInput = z.infer<typeof campaignCreateInputSchema>;
 
 /** Any subset of the fields, and the status (pause, resume or archive). */
