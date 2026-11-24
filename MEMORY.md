@@ -1,5 +1,18 @@
 Maintain a file called MEMORY.md. After any significant decision, about direction, format, content, approach, or strategy, add an entry:
 
+## 2026-11-24, Customers and Leads tables scroll inside their card; "New" joins the status filter (released)
+
+**What was decided:** On screens wider than 900px the Customers and Leads tables scroll inside their own card with the header row pinned, so the page stays still (`.tableScroll` in `customerDirectory.module.css`, shared by both; height is the viewport minus `--customer-table-offset`, 580px default, 680px set on Leads, never under 320px). Phones keep the card layout and page scroll. On Customers the status buttons are now All / Active / Inactive / **New** (created in the last 90 days, `customerActiveDays`); the old "New clients (90 days)" entry in the Customer activity dropdown was removed so there is one place for it.
+**Why:** Evans: both tables should scroll on their own, and the filter should allow new customers (read as a visible "New" filter; the option was buried in a dropdown).
+**What was rejected:** Fixing the whole layout height from the workspace shell (touches every page); keeping "New" in both places (duplicate).
+**Open:** Offsets are estimated from Evans's screenshots and **not seen in a browser**: the local stack would not start (local DB has another worktree's migrations; repair needs a decision, not done). `tsc` and prettier pass.
+
+## 2026-11-24, Saving a new customer returns to the customers table (released)
+
+**What was decided:** After "Create customer" succeeds, `CustomerCreateForm.tsx` sends the user to `/customers/directory` (the table) instead of the new customer's profile page. It applies to every route into the form, including the "won lead" route. One line changed.
+**Why:** Evans: after creating a customer it should show the customers table with the new customer, not the profile page.
+**What was rejected:** Opening the profile (previous behaviour); a toast or highlight of the new row (not asked for). **Not seen in a browser yet**; web `tsc` and prettier pass.
+
 ## 2026-11-24, Sidebar: "Contacts" renamed "Address book"; headings no longer open and close
 
 **What was decided:** Evans asked for the sidebar item "Contacts" to read "Address book" and for the sidebar headings (SALES, CUSTOMER SERVICE, OPERATIONS, ...) to stop collapsing: every page is always listed under its heading. Headings are plain labels again (no button, chevron or closed-group badge sum). The `/contacts` page heading and browser title also say "Address book" so they match the menu; the route stays `/contacts`. Files: `apps/web/app/WorkspaceFrame.tsx`, `styles.css`, `contacts/page.tsx`.

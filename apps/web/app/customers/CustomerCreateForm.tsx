@@ -74,7 +74,7 @@ export function CustomerCreateForm() {
           customerCompanyId: customer.id,
         });
       }
-      router.push(`/customers/${customer.id}`);
+      router.push("/customers/directory");
     } catch (cause) {
       setError(
         cause instanceof Error

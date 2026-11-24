@@ -14,8 +14,8 @@ import styles from "./customerDirectory.module.css";
 import { ErrorPopup, plainMessage } from "../ErrorPopup";
 
 type LoadState = "loading" | "ready" | "error";
-type StatusFilter = "all" | "active" | "inactive";
-type CustomerFilter = "all" | "quotes" | "paid" | "new";
+type StatusFilter = "all" | "active" | "inactive" | "new";
+type CustomerFilter = "all" | "quotes" | "paid";
 type SortKey = "name" | "revenue" | "owing" | "lastJob";
 
 const shortDate = (value: string | null) =>
@@ -97,7 +97,13 @@ export function CustomerDirectory() {
     };
     const filtered = customers.filter((company) => {
       const insight = insights?.get(company.id);
-      if (status !== "all" && insights) {
+      if (status === "new") {
+        if (
+          Date.now() - Date.parse(company.createdAt) >
+          customerActiveDays * 86400000
+        )
+          return false;
+      } else if (status !== "all" && insights) {
         const active = insight?.active ?? false;
         if (status === "active" ? !active : active) return false;
       }
@@ -110,12 +116,6 @@ export function CustomerDirectory() {
             entry.invoicedMinor > 0 &&
             entry.receivedMinor >= entry.invoicedMinor,
         )
-      )
-        return false;
-      if (
-        customerFilter === "new" &&
-        Date.now() - Date.parse(company.createdAt) >
-          customerActiveDays * 86400000
       )
         return false;
       return true;
@@ -205,7 +205,7 @@ export function CustomerDirectory() {
         {insights && (
           <div className={styles.filterRow}>
             <div className={ui.segmented} role="group" aria-label="Status">
-              {(["all", "active", "inactive"] as const).map((option) => (
+              {(["all", "active", "inactive", "new"] as const).map((option) => (
                 <button
                   aria-pressed={status === option}
                   className={status === option ? ui.segmentActive : ""}
@@ -217,7 +217,9 @@ export function CustomerDirectory() {
                     ? "All"
                     : option === "active"
                       ? "Active"
-                      : "Inactive"}
+                      : option === "inactive"
+                        ? "Inactive"
+                        : "New"}
                 </button>
               ))}
             </div>
@@ -232,7 +234,6 @@ export function CustomerDirectory() {
                 <option value="all">All customers</option>
                 <option value="quotes">Quotes issued</option>
                 {finance && <option value="paid">Paid invoices</option>}
-                <option value="new">New clients (90 days)</option>
               </select>
             </label>
             <label className={styles.sortLabel}>
