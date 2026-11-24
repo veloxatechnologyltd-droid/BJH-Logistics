@@ -1,5 +1,12 @@
 Maintain a file called MEMORY.md. After any significant decision, about direction, format, content, approach, or strategy, add an entry:
 
+## 2026-11-24, Sidebar: "Contacts" renamed "Address book"; headings no longer open and close
+
+**What was decided:** Evans asked for the sidebar item "Contacts" to read "Address book" and for the sidebar headings (SALES, CUSTOMER SERVICE, OPERATIONS, ...) to stop collapsing: every page is always listed under its heading. Headings are plain labels again (no button, chevron or closed-group badge sum). The `/contacts` page heading and browser title also say "Address book" so they match the menu; the route stays `/contacts`. Files: `apps/web/app/WorkspaceFrame.tsx`, `styles.css`, `contacts/page.tsx`.
+**Why:** Evans wants everything visible under its heading without clicking. This reverses the 2026-11-15 "Quieter sidebar: headings open and close" decision on that one point (MESSAGES group, no Warehouse, Finance tabs stay).
+**What was rejected:** Keeping the toggle with all groups open by default (still hides things after one click; Evans said not to collapse).
+**Checked:** web `tsc`, prettier, eslint and 51 unit tests pass. Not seen on screen (no local stack running).
+
 ## 2026-11-22, Menu badges counted by the API; polling stops in hidden tabs (PR, deploying on Evans's "deploy when it looks good")
 
 **What was decided:** The hosted Supabase project was restricted (`exceed_egress_quota`: 14.77 GB of 5 GB, 95% "Shared Pooler Egress", i.e. API query results). Cause found in code: every open staff tab, every minute and on every page change, downloaded the **whole** quote-mail and inquiries lists, all quotes and the last 100 client messages (full bodies) only to count badges. Fix on branch `fix/db-egress`: (1) `GET /api/v1/workspace/badges` returns the five menu numbers from `count(*)` queries (same visibility as the lists: department reps count their service lines; client chat only for customer service and super admin; customers/unassigned 403). (2) `pollWhileVisible` (web): badges, team chat page, client chat, portal messages, request inbox and campaign pages make no requests while their tab is hidden and catch up when shown. (3) Team chat keeps staff names for 5 minutes instead of calling Supabase Auth for every person on every 2–15 s refresh.

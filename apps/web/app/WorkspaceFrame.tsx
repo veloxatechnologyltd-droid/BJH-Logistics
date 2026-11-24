@@ -79,7 +79,7 @@ const staffNav: NavGroup[] = [
       },
       { href: "/customers/leads", label: "Leads", icon: "leads" },
       { href: "/customers", label: "Customers", icon: "customers" },
-      { href: "/contacts", label: "Contacts", icon: "customers" },
+      { href: "/contacts", label: "Address book", icon: "customers" },
     ],
   },
   {
@@ -409,33 +409,6 @@ export function WorkspaceFrame({ children }: { children: ReactNode }) {
   const crumb = pageCrumb(pathname, groups, isCustomer);
   const current = activeHref(pathname, groups);
 
-  // Headings open and close. Left alone, only the heading you are in is open;
-  // what someone opens or closes by hand overrides that.
-  const activeHeading = groups.find((group) =>
-    group.items.some((item) => item.href === current),
-  )?.heading;
-  const [headingChoice, setHeadingChoice] = useState<Record<string, boolean>>(
-    {},
-  );
-  const headingOpen = (heading: string) =>
-    headingChoice[heading] ?? heading === activeHeading;
-  const toggleHeading = (heading: string) =>
-    setHeadingChoice((choices) => ({
-      ...choices,
-      [heading]: !(choices[heading] ?? heading === activeHeading),
-    }));
-  // Going to a page opens its heading, even one that was closed by hand, so
-  // the page you are on is never hidden.
-  useEffect(() => {
-    if (!activeHeading) return;
-    setHeadingChoice((choices) => {
-      if (choices[activeHeading] !== false) return choices;
-      const next = { ...choices };
-      delete next[activeHeading];
-      return next;
-    });
-  }, [activeHeading]);
-
   const toggle = () => {
     const next = !collapsed;
     setCollapsed(next);
@@ -525,53 +498,10 @@ export function WorkspaceFrame({ children }: { children: ReactNode }) {
         >
           {(resolving ? [] : groups).map((group) => {
             const heading = group.heading;
-            // The icon rail has no room for headings, so it shows every page.
-            const open =
-              !heading || (collapsed && !drawerMode) || headingOpen(heading);
-            const itemsId = `nav-${(heading ?? "main").toLowerCase().replace(/\s+/g, "-")}`;
-            // A closed heading still shows what is waiting inside it.
-            const waiting = group.items.reduce(
-              (total, item) => total + badgeOf(item),
-              0,
-            );
             return (
               <div className="nav-group" key={heading ?? "main"}>
-                {heading && (
-                  <button
-                    aria-controls={itemsId}
-                    aria-expanded={open}
-                    aria-label={
-                      !open && waiting > 0
-                        ? `${heading}, ${waiting} waiting`
-                        : undefined
-                    }
-                    className="nav-heading nav-toggle"
-                    onClick={() => toggleHeading(heading)}
-                    type="button"
-                  >
-                    <span>{heading}</span>
-                    {!open && waiting > 0 && (
-                      <span className="nav-badge" aria-hidden="true">
-                        {waiting > 99 ? "99+" : waiting}
-                      </span>
-                    )}
-                    <svg
-                      aria-hidden="true"
-                      className="nav-chevron"
-                      fill="none"
-                      height="14"
-                      stroke="currentColor"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth="2.5"
-                      viewBox="0 0 24 24"
-                      width="14"
-                    >
-                      <path d="M9 6l6 6-6 6" />
-                    </svg>
-                  </button>
-                )}
-                <div className="nav-items" hidden={!open} id={itemsId}>
+                {heading && <div className="nav-heading">{heading}</div>}
+                <div className="nav-items">
                   {group.items.map((item) => {
                     const active = item.href === current;
                     const badge = badgeOf(item);
