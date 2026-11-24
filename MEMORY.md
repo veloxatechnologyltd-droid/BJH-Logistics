@@ -2407,3 +2407,9 @@ Read MEMORY.md at the start of every session before doing anything. Never contra
 **What was decided:** The outreach drafter receives the Settings knowledge (free text and all entries), plus, per business, a short summary of what it does and (for AI-scored businesses only) why it fits. The summary is written by the scoring model in the same call (no extra AI cost) and stored in `app.prospect.website_summary` (migration `20261124000100`); the website text is still cleared at scoring. A campaign's "Context for the email" and "Call to action" are optional (migration `20261124000000` drops `lead_campaign_emails_need_brief`), and the campaign form folds the narrowing and fit sections under "More options".
 **Why:** The drafter saw only name, category and address, so emails were generic, while the form made staff retype BJH's pitch for every campaign although the knowledge base already holds it.
 **What was rejected:** A new "About BJH" setting (the knowledge base exists); marking entries outreach-safe (all entries are used; the prompt still forbids prices unless the campaign context states them; staff approve every draft); keeping the raw website text (it stays dropped at scoring); passing rule-based score reasons to the drafter (they read like internal notes).
+
+## 2026-11-24, Website summary is left empty when nothing is known
+
+**What was decided:** The scoring prompt now tells the model to leave `website_summary` empty when the website text is missing or does not say what the business does, instead of writing that information is unavailable.
+**Why:** A local test run (stub businesses without readable websites) stored summaries such as "Website text is not available", which add nothing to the first email and could leak into it.
+**What was rejected:** Filtering such phrases in code after the fact (brittle); changing the drafter prompt as well (the fix belongs at the source).
