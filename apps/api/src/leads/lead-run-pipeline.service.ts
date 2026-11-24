@@ -14,7 +14,10 @@ import type {
   BusinessSearchQuery,
 } from "./business-search";
 import { crmRoles } from "../auth/auth.guards";
-import { OUTREACH_DRAFTER } from "../sales/outreach-drafting";
+import {
+  OUTREACH_DRAFTER,
+  loadOutreachKnowledge,
+} from "../sales/outreach-drafting";
 import type { OutreachDrafter } from "../sales/outreach-drafting";
 import { checkDuplicates } from "./duplicate-check";
 import type {
@@ -338,8 +341,11 @@ export class LeadRunPipeline implements OnModuleInit, OnModuleDestroy {
         run.campaign.qualificationThreshold,
         DRAFT_BATCH,
       );
+      const knowledge = batch.length
+        ? await loadOutreachKnowledge(this.database)
+        : undefined;
       for (const info of batch) {
-        const email = await this.drafter.draft(info, info.campaign);
+        const email = await this.drafter.draft(info, info.campaign, knowledge);
         await this.database.createOutreachDraft({
           id: randomUUID(),
           prospectId: info.prospectId,

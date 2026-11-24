@@ -17,7 +17,7 @@ import {
 import { randomUUID } from "node:crypto";
 import { DatabasePort } from "../database/database.port";
 import { SalesMailboxService } from "./sales-mailbox.service";
-import { OUTREACH_DRAFTER } from "./outreach-drafting";
+import { OUTREACH_DRAFTER, loadOutreachKnowledge } from "./outreach-drafting";
 import type { OutreachDrafter } from "./outreach-drafting";
 import type {
   OutreachDraftFilter,
@@ -160,6 +160,7 @@ export class SalesService {
         await this.database.findProspectsForDrafting(parsed.data.prospectIds)
       ).map((info) => [info.prospectId, info]),
     );
+    const knowledge = await loadOutreachKnowledge(this.database);
     const created: OutreachDraftRecord[] = [];
     const skipped: Array<{
       prospectId: string;
@@ -187,7 +188,7 @@ export class SalesService {
         skip("no_email");
         continue;
       }
-      const email = await this.drafter.draft(info, info.campaign);
+      const email = await this.drafter.draft(info, info.campaign, knowledge);
       const draft = await this.database.createOutreachDraft({
         id: randomUUID(),
         prospectId,

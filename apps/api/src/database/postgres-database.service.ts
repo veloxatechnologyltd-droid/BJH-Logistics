@@ -7661,7 +7661,8 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
   ): Promise<ProspectDraftingInfo[]> {
     const result = await this.pool.query(
       `SELECT prospect.prospect_id, prospect.business_name, prospect.category,
-              prospect.address, prospect.emails,
+              prospect.address, prospect.emails, prospect.website_summary,
+              prospect.score_reason, prospect.score_method,
               campaign.target_service, campaign.target_industry,
               campaign.target_location, campaign.email_context, campaign.email_cta
        FROM app.prospect prospect
@@ -7683,6 +7684,12 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       category: row.category === null ? null : String(row.category),
       address: row.address === null ? null : String(row.address),
       emails: row.emails as string[],
+      summary:
+        row.website_summary === null ? null : String(row.website_summary),
+      fitReason:
+        row.score_method === "ai" && row.score_reason !== null
+          ? String(row.score_reason)
+          : null,
       dismissed: false,
       campaign: {
         targetService: String(row.target_service),
@@ -7841,9 +7848,10 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     await this.pool.query(
       `UPDATE app.prospect
        SET score = $2, score_reason = $3, score_method = $4,
-           scored_at = clock_timestamp(), website_excerpt = NULL
+           scored_at = clock_timestamp(), website_excerpt = NULL,
+           website_summary = $5
        WHERE prospect_id = $1::uuid AND score IS NULL`,
-      [prospectId, fit.score, fit.reason, fit.method],
+      [prospectId, fit.score, fit.reason, fit.method, fit.summary ?? null],
     );
   }
 
@@ -8342,7 +8350,8 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
   ): Promise<ProspectDraftingInfo[]> {
     const result = await this.pool.query(
       `SELECT prospect.prospect_id, prospect.business_name, prospect.category,
-              prospect.address, prospect.emails,
+              prospect.address, prospect.emails, prospect.website_summary,
+              prospect.score_reason, prospect.score_method,
               prospect.dismissed_at IS NOT NULL AS dismissed,
               campaign.target_service, campaign.target_industry,
               campaign.target_location, campaign.email_context, campaign.email_cta
@@ -8357,6 +8366,12 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       category: row.category === null ? null : String(row.category),
       address: row.address === null ? null : String(row.address),
       emails: row.emails as string[],
+      summary:
+        row.website_summary === null ? null : String(row.website_summary),
+      fitReason:
+        row.score_method === "ai" && row.score_reason !== null
+          ? String(row.score_reason)
+          : null,
       dismissed: row.dismissed === true,
       campaign: {
         targetService: String(row.target_service),

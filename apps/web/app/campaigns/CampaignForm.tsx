@@ -179,129 +179,134 @@ export function CampaignForm({
         </div>
       </fieldset>
 
-      <fieldset className={own.fieldset}>
-        <legend>How to narrow the search</legend>
-        <div className={ui.grid}>
-          <Field
-            help="One per line. Leave empty to search for the kind of business above."
-            label="Words to search for (optional)"
-          >
-            {(props) => (
-              <textarea
-                {...props}
-                onChange={(event) => setKeywords(event.target.value)}
-                rows={3}
-                value={keywords}
-              />
-            )}
-          </Field>
-          <Field
-            help="One per line. A business whose name, type, address or website has one of these is left out."
-            label="Words to skip (optional)"
-          >
-            {(props) => (
-              <textarea
-                {...props}
-                onChange={(event) => setExcluded(event.target.value)}
-                rows={3}
-                value={excluded}
-              />
-            )}
-          </Field>
-          <Field label="Lowest public rating">
-            {(props) => (
-              <select
-                {...props}
-                onChange={(event) => setMinRating(event.target.value)}
-                value={minRating}
-              >
-                <option value="">Any rating</option>
-                {ratingSteps.map((step) => (
-                  <option key={step} value={step}>
-                    {step.toFixed(1)} stars or more
-                  </option>
-                ))}
-              </select>
-            )}
-          </Field>
-          <Field
-            help="From 1 to 500. A real search is charged by the business found, so start small."
-            label="Most businesses to find"
-          >
-            {(props) => (
-              <input
-                {...props}
-                max={500}
-                min={1}
-                onChange={(event) => setMaxProspects(event.target.value)}
-                required
-                step={1}
-                type="number"
-                value={maxProspects}
-              />
-            )}
-          </Field>
-        </div>
-        <label className={own.checkLabel}>
-          <input
-            checked={requireWebsite}
-            onChange={(event) => setRequireWebsite(event.target.checked)}
-            type="checkbox"
-          />
-          Only businesses that have a website
-        </label>
-      </fieldset>
+      <details className={own.more}>
+        <summary>
+          More options: words, rating, how many to find, and how to judge a fit
+        </summary>
+        <fieldset className={own.fieldset}>
+          <legend>How to narrow the search</legend>
+          <div className={ui.grid}>
+            <Field
+              help="One per line. Leave empty to search for the kind of business above."
+              label="Words to search for (optional)"
+            >
+              {(props) => (
+                <textarea
+                  {...props}
+                  onChange={(event) => setKeywords(event.target.value)}
+                  rows={3}
+                  value={keywords}
+                />
+              )}
+            </Field>
+            <Field
+              help="One per line. A business whose name, type, address or website has one of these is left out."
+              label="Words to skip (optional)"
+            >
+              {(props) => (
+                <textarea
+                  {...props}
+                  onChange={(event) => setExcluded(event.target.value)}
+                  rows={3}
+                  value={excluded}
+                />
+              )}
+            </Field>
+            <Field label="Lowest public rating">
+              {(props) => (
+                <select
+                  {...props}
+                  onChange={(event) => setMinRating(event.target.value)}
+                  value={minRating}
+                >
+                  <option value="">Any rating</option>
+                  {ratingSteps.map((step) => (
+                    <option key={step} value={step}>
+                      {step.toFixed(1)} stars or more
+                    </option>
+                  ))}
+                </select>
+              )}
+            </Field>
+            <Field
+              help="From 1 to 500. A real search is charged by the business found, so start small."
+              label="Most businesses to find"
+            >
+              {(props) => (
+                <input
+                  {...props}
+                  max={500}
+                  min={1}
+                  onChange={(event) => setMaxProspects(event.target.value)}
+                  required
+                  step={1}
+                  type="number"
+                  value={maxProspects}
+                />
+              )}
+            </Field>
+          </div>
+          <label className={own.checkLabel}>
+            <input
+              checked={requireWebsite}
+              onChange={(event) => setRequireWebsite(event.target.checked)}
+              type="checkbox"
+            />
+            Only businesses that have a website
+          </label>
+        </fieldset>
 
-      <fieldset className={own.fieldset}>
-        <legend>How to judge a fit</legend>
-        <div className={ui.grid}>
-          <Field
-            help="In your own words, for example “Regular importers who ship full containers every month”."
-            label="The ideal customer (optional)"
-          >
-            {(props) => (
-              <textarea
-                {...props}
-                maxLength={2000}
-                onChange={(event) => setIdeal(event.target.value)}
-                rows={3}
-                value={ideal}
-              />
-            )}
-          </Field>
-          <Field
-            help="For example “freight forwarders, shipping lines, individuals”. A business like this scores very low."
-            label="Not a fit (optional)"
-          >
-            {(props) => (
-              <textarea
-                {...props}
-                maxLength={2000}
-                onChange={(event) => setDisqualifiers(event.target.value)}
-                rows={3}
-                value={disqualifiers}
-              />
-            )}
-          </Field>
-          <Field
-            help="From 0 to 100. A business at or above this is a good fit."
-            label="Score that counts as a good fit"
-          >
-            {(props) => (
-              <input
-                {...props}
-                max={100}
-                min={0}
-                onChange={(event) => setThreshold(event.target.value)}
-                required
-                step={1}
-                type="number"
-                value={threshold}
-              />
-            )}
-          </Field>
-        </div>
-      </fieldset>
+        <fieldset className={own.fieldset}>
+          <legend>How to judge a fit</legend>
+          <div className={ui.grid}>
+            <Field
+              help="In your own words, for example “Regular importers who ship full containers every month”."
+              label="The ideal customer (optional)"
+            >
+              {(props) => (
+                <textarea
+                  {...props}
+                  maxLength={2000}
+                  onChange={(event) => setIdeal(event.target.value)}
+                  rows={3}
+                  value={ideal}
+                />
+              )}
+            </Field>
+            <Field
+              help="For example “freight forwarders, shipping lines, individuals”. A business like this scores very low."
+              label="Not a fit (optional)"
+            >
+              {(props) => (
+                <textarea
+                  {...props}
+                  maxLength={2000}
+                  onChange={(event) => setDisqualifiers(event.target.value)}
+                  rows={3}
+                  value={disqualifiers}
+                />
+              )}
+            </Field>
+            <Field
+              help="From 0 to 100. A business at or above this is a good fit."
+              label="Score that counts as a good fit"
+            >
+              {(props) => (
+                <input
+                  {...props}
+                  max={100}
+                  min={0}
+                  onChange={(event) => setThreshold(event.target.value)}
+                  required
+                  step={1}
+                  type="number"
+                  value={threshold}
+                />
+              )}
+            </Field>
+          </div>
+        </fieldset>
+      </details>
 
       <fieldset className={own.fieldset}>
         <legend>What the search should do</legend>
@@ -327,29 +332,29 @@ export function CampaignForm({
           <>
             <p className={own.help}>
               Emails are only drafted for you to read, edit and approve in
-              Sales. Nothing is sent. The more you tell the writer, the better
-              the email.
+              Sales. Nothing is sent. The writer already knows BJH from the
+              knowledge base in Settings, so you only need to say what is
+              special about this campaign.
             </p>
             <div className={ui.grid}>
               <Field
-                help="What BJH offers these businesses and why it matters to them: the routes or services that fit, what makes BJH a good choice, and any facts you are happy to have stated. Say what it must not mention."
-                label="Context for the email"
+                help="What to emphasise for these businesses, such as the route or service that fits them. Leave empty to use the knowledge base alone. Say what it must not mention."
+                label="Context for the email (optional)"
               >
                 {(props) => (
                   <textarea
                     {...props}
                     maxLength={2000}
                     onChange={(event) => setEmailContext(event.target.value)}
-                    placeholder="For example: BJH ships cars from Antwerp and Hamburg to Tema every week, and clears them at the port. Many importers lose time and money to port delays; we handle the paperwork. Do not mention prices."
-                    required
+                    placeholder="For example: These are car importers, so lead with the weekly Antwerp to Tema sailing and port clearance. Do not mention prices."
                     rows={5}
                     value={emailContext}
                   />
                 )}
               </Field>
               <Field
-                help="The one thing you want the reader to do."
-                label="Call to action"
+                help="The one thing you want the reader to do. Leave empty for a simple question."
+                label="Call to action (optional)"
               >
                 {(props) => (
                   <textarea
@@ -357,7 +362,6 @@ export function CampaignForm({
                     maxLength={500}
                     onChange={(event) => setEmailCta(event.target.value)}
                     placeholder="For example: Reply to this email to get a quote, or to book a 15 minute call this week."
-                    required
                     rows={2}
                     value={emailCta}
                   />

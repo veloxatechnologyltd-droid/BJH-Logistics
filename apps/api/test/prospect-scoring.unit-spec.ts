@@ -160,6 +160,29 @@ test("an out-of-range or fractional score is brought into 0 to 100", () => {
   assert.equal(normalizeFit({ score: NaN, reason: "r" }), null);
 });
 
+test("the summary is kept tidy and capped, and a missing or empty one only means none", () => {
+  const fit = normalizeFit({
+    score: 60,
+    reason: "r",
+    summary: "  Imports\nrice  and   sugar. " + "x".repeat(800),
+  });
+  assert.match(fit?.summary ?? "", /^Imports rice and sugar\. x+$/);
+  assert.equal(fit?.summary?.length, 600);
+  assert.equal(
+    normalizeFit({ score: 60, reason: "r", summary: "" })?.score,
+    60,
+  );
+  assert.equal(
+    "summary" in normalizeFit({ score: 60, reason: "r", summary: " " })!,
+    false,
+  );
+  assert.equal("summary" in normalizeFit({ score: 60, reason: "r" })!, false);
+  assert.equal(
+    "summary" in normalizeFit({ score: 60, reason: "r", summary: 5 })!,
+    false,
+  );
+});
+
 test("the reason is one tidy line of at most 500 characters", () => {
   const fit = normalizeFit({
     score: 40,

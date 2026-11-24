@@ -628,6 +628,57 @@ test("the scorer gets the campaign's rules and the website excerpt, and it is dr
   assert.equal(row.disqualified_count, 0);
 });
 
+test("the scorer's summary is kept, and the drafter gets it and the AI's reason", async () => {
+  const scorer: ProspectScorer = {
+    name: "test",
+    async score(): Promise<FitScore> {
+      return {
+        score: 80,
+        reason: "Regular food importer.",
+        method: "ai",
+        summary: "Imports rice for supermarkets.",
+      };
+    },
+  };
+  const given: Array<{ summary?: string | null; fitReason?: string | null }> =
+    [];
+  const drafter: OutreachDrafter = {
+    name: "spy",
+    async draft(prospect) {
+      given.push({ summary: prospect.summary, fitReason: prospect.fitReason });
+      return { subject: "Hello", body: "Hello there", method: "template" };
+    },
+  };
+  const runId = await queueRun(await campaign({ threshold: 0 }), 2);
+  const row = await drive(pipelineWith({ scorer, drafter }), runId);
+  assert.equal(row.status, "ready");
+  assert.ok(given.length > 0);
+  for (const item of given) {
+    assert.equal(item.summary, "Imports rice for supermarkets.");
+    assert.equal(item.fitReason, "Regular food importer.");
+  }
+});
+
+test("a rule-scored business has no summary and no reason for the drafter", async () => {
+  const given: Array<{ summary?: string | null; fitReason?: string | null }> =
+    [];
+  const drafter: OutreachDrafter = {
+    name: "spy",
+    async draft(prospect) {
+      given.push({ summary: prospect.summary, fitReason: prospect.fitReason });
+      return { subject: "Hello", body: "Hello there", method: "template" };
+    },
+  };
+  const runId = await queueRun(await campaign({ threshold: 0 }), 2);
+  const row = await drive(pipelineWith({ drafter }), runId);
+  assert.equal(row.status, "ready");
+  assert.ok(given.length > 0);
+  for (const item of given) {
+    assert.equal(item.summary, null);
+    assert.equal(item.fitReason, null);
+  }
+});
+
 test("a scorer that breaks does not stop the run: the rules score is used", async () => {
   const scorer: ProspectScorer = {
     name: "broken",

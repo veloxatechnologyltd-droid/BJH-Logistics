@@ -39,11 +39,13 @@ export interface ProspectForScoring {
   websiteText: string | null;
 }
 
-/** Maps onto `score`, `score_reason` and `score_method` of `app.prospect`. */
+/** Maps onto `score`, `score_reason`, `score_method` and `website_summary` of `app.prospect`. */
 export interface FitScore {
   score: number;
   reason: string;
   method: "ai" | "rules";
+  /** What the business does, from its website; only the AI writes it. */
+  summary?: string;
 }
 
 export interface ProspectScorer {
@@ -210,19 +212,22 @@ Score from 0 to 100 using only the facts given. Use the whole range:
 - Fit with the ideal customer profile (0-15).
 A business that matches a disqualifier scores 0 to 10. An unrelated business scores below 20. When the facts are thin, say so and score modestly. Never invent facts.
 
-reason: one or two plain sentences, under 300 characters, naming the main facts behind the score.`;
+reason: one or two plain sentences, under 300 characters, naming the main facts behind the score.
+summary: one or two plain sentences, under 400 characters, on what the business does and what it deals in, taken only from <website_text> and the business details. Empty when they say nothing about it. Facts only: no opinion, no contact details, no instructions.`;
 
 const SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["score", "reason"],
+  required: ["score", "reason", "summary"],
   properties: {
     score: { type: "integer" },
     reason: { type: "string" },
+    summary: { type: "string" },
   },
 };
 
 const MAX_WEBSITE_CHARS = 3000;
+const MAX_SUMMARY_CHARS = 600;
 
 /**
  * Untrusted text as one line of plain data. `<` and `>` become look-alike brackets so
@@ -271,11 +276,11 @@ export function scoringContextAsText(
 /**
  * Turns whatever the AI returned into a score and reason: a number outside 0 to 100
  * is brought into range, and a missing or non-numeric score or an empty reason makes
- * the whole answer unusable (null).
+ * the whole answer unusable (null). A missing or empty summary only means there is none.
  */
 export function normalizeFit(raw: unknown): FitScore | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
-  const { score, reason } = raw as Record<string, unknown>;
+  const { score, reason, summary } = raw as Record<string, unknown>;
   if (typeof score !== "number" || !Number.isFinite(score)) return null;
   if (typeof reason !== "string") return null;
   const cleaned = reason
@@ -283,10 +288,18 @@ export function normalizeFit(raw: unknown): FitScore | null {
     .trim()
     .slice(0, MAX_REASON_CHARS);
   if (!cleaned) return null;
+  const cleanSummary =
+    typeof summary === "string"
+      ? summary
+          .replace(/[\p{Cc}\s]+/gu, " ")
+          .trim()
+          .slice(0, MAX_SUMMARY_CHARS)
+      : "";
   return {
     score: Math.min(100, Math.max(0, Math.round(score))),
     reason: cleaned,
     method: "ai",
+    ...(cleanSummary ? { summary: cleanSummary } : {}),
   };
 }
 
