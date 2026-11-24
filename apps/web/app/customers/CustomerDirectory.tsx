@@ -160,45 +160,38 @@ export function CustomerDirectory() {
   return (
     <>
       <section className={styles.directory} aria-label="Customer companies">
-        <div className={styles.searchHeader}>
-          <div>
-            <label className={styles.searchLabel} htmlFor="customer-search">
-              Customer records
-            </label>
-            <p className={styles.searchHint}>
-              Search profiles and contacts, then open a record to see its jobs,
-              quotes and money.
-            </p>
+        <div className={styles.toolbar}>
+          <label className={styles.visuallyHidden} htmlFor="customer-search">
+            Customer records
+          </label>
+          <div className={styles.searchRow}>
+            <span className={styles.searchIcon} aria-hidden="true">
+              ⌕
+            </span>
+            <input
+              autoComplete="off"
+              className={styles.searchInput}
+              id="customer-search"
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Try a company, ID number, address, contact, or phone"
+              type="search"
+              value={query}
+            />
+            {query && (
+              <button
+                aria-label="Clear customer search"
+                className={styles.clearButton}
+                onClick={() => setQuery("")}
+                type="button"
+              >
+                Clear
+              </button>
+            )}
           </div>
           {canWorkQuotes(roles) && (
             <Link className={styles.newCustomerLink} href="/customers/new">
               New customer
             </Link>
-          )}
-        </div>
-
-        <div className={styles.searchRow}>
-          <span className={styles.searchIcon} aria-hidden="true">
-            ⌕
-          </span>
-          <input
-            autoComplete="off"
-            className={styles.searchInput}
-            id="customer-search"
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Try a company, ID number, address, contact, or phone"
-            type="search"
-            value={query}
-          />
-          {query && (
-            <button
-              aria-label="Clear customer search"
-              className={styles.clearButton}
-              onClick={() => setQuery("")}
-              type="button"
-            >
-              Clear
-            </button>
           )}
         </div>
 
