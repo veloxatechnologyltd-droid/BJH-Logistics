@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { ErrorPopup } from "../ErrorPopup";
 import {
@@ -443,9 +443,19 @@ export function NewCampaignForm() {
     assumptions: string[];
     key: number;
   } | null>(null);
+  // The form stays hidden until the AI has drafted it, or the person chooses to fill it in.
+  const [byHand, setByHand] = useState(false);
+  // A new key throws the chat away.
+  const [chatKey, setChatKey] = useState(0);
+  const formTop = useRef<HTMLDivElement>(null);
+  // Bring the filled-in form into view when the AI has drafted it.
+  useEffect(() => {
+    if (draft) formTop.current?.scrollIntoView?.({ behavior: "smooth" });
+  }, [draft]);
   return (
     <>
       <CampaignHelper
+        key={chatKey}
         onDraft={(campaign, assumptions) =>
           setDraft((last) => ({
             campaign,
@@ -453,14 +463,23 @@ export function NewCampaignForm() {
             key: (last?.key ?? 0) + 1,
           }))
         }
+        onFillByHand={draft || byHand ? undefined : () => setByHand(true)}
+        onStartAgain={() => {
+          setDraft(null);
+          setByHand(false);
+          setChatKey((key) => key + 1);
+        }}
       />
-      <CampaignForm
-        key={draft?.key ?? 0}
-        draft={draft?.campaign}
-        searchNote={charged ? startSearchWarning : undefined}
-        onCancel={() => router.push("/campaigns")}
-        onSaved={(campaign) => router.push(`/campaigns/${campaign.id}`)}
-      />
+      <div ref={formTop} />
+      {(draft || byHand) && (
+        <CampaignForm
+          key={draft?.key ?? 0}
+          draft={draft?.campaign}
+          searchNote={charged ? startSearchWarning : undefined}
+          onCancel={() => router.push("/campaigns")}
+          onSaved={(campaign) => router.push(`/campaigns/${campaign.id}`)}
+        />
+      )}
     </>
   );
 }
