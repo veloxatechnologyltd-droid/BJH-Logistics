@@ -1,8 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import type { CSSProperties } from "react";
+import { useEffect, useRef, useState } from "react";
 import type {
   LeadCreateSource,
   LeadPipeline,
@@ -120,6 +119,26 @@ export function LeadsBoard({
           .filter(Boolean)
           .some((text) => String(text).toLowerCase().includes(words)),
     );
+
+  const hasRows = shown.length > 0;
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // The table fills the screen from where it starts to the bottom of the page
+  // (room kept for the page's own bottom padding), whatever sits above it.
+  useEffect(() => {
+    const box = scrollRef.current;
+    if (!box) return;
+    const fit = () => {
+      const below = 72;
+      box.style.setProperty(
+        "--customer-table-offset",
+        `${Math.round(box.getBoundingClientRect().top + window.scrollY + below)}px`,
+      );
+    };
+    fit();
+    window.addEventListener("resize", fit);
+    return () => window.removeEventListener("resize", fit);
+  }, [hasRows, adding, pending, error]);
 
   function replace(saved: Lead) {
     setLeads((current) =>
@@ -406,10 +425,7 @@ export function LeadsBoard({
           </div>
         )}
         {shown.length > 0 && (
-          <div
-            className={styles.tableScroll}
-            style={{ "--customer-table-offset": "480px" } as CSSProperties}
-          >
+          <div className={styles.tableScroll} ref={scrollRef}>
             <table className={styles.customerTable} data-cards>
               <thead>
                 <tr>
