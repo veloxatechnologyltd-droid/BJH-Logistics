@@ -243,7 +243,7 @@ test("an issued invoice prints its lines, tax lines, total and balance", async (
   assert.ok(!text.includes("SHIPMENT DETAILS"), "no shipment, no table");
 });
 
-test("drafts and unconfigured settings are marked, and void invoices say why", async () => {
+test("only unconfigured settings are marked; a draft prints clean, and void invoices say why", async () => {
   assert.equal(
     invoiceDraftReason({ invoice: invoice(), job, customer, settings }),
     null,
@@ -255,7 +255,7 @@ test("drafts and unconfigured settings are marked, and void invoices say why", a
       customer,
       settings,
     }),
-    "Draft - not yet issued",
+    null,
   );
   assert.equal(
     invoiceDraftReason({ invoice: invoice(), job, customer, settings: null }),

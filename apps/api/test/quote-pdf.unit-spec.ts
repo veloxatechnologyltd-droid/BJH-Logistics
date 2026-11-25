@@ -132,7 +132,7 @@ test("amounts are shown like the sample quotations", () => {
   assert.equal(formatQuoteAmount(380000, "GHS"), "GHS 3,800");
 });
 
-test("a copy is a draft until it is issued and the settings are configured", () => {
+test("only unconfigured settings mark a copy; a draft version prints clean", () => {
   const issued = version();
   assert.equal(
     quoteDraftReason({ quote: quote(issued), version: issued, settings }),
@@ -145,7 +145,7 @@ test("a copy is a draft until it is issued and the settings are configured", () 
   const draft = version({ status: "draft", issuedAt: null, issuedBy: null });
   assert.equal(
     quoteDraftReason({ quote: quote(draft), version: draft, settings }),
-    "Draft - not yet issued",
+    null,
   );
 });
 
