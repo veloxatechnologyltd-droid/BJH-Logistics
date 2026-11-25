@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { CustomerTabs } from "../CustomerTabs";
 import { LeadsBoard } from "./LeadsBoard";
 import styles from "../customerDirectory.module.css";
 
@@ -22,11 +21,9 @@ export default async function LeadsPage({
 
       <header className={styles.header}>
         <div>
-          <h1 className={styles.title}>Customers</h1>
+          <h1 className={styles.title}>Leads</h1>
         </div>
       </header>
-
-      <CustomerTabs active="/customers/leads" />
 
       <LeadsBoard initialSearch={search} />
     </main>

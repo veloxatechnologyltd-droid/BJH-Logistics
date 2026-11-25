@@ -20,6 +20,17 @@ if (process.env.VERCEL) {
 }
 
 const nextConfig: NextConfig = {
+  // The Customers list and its overview were folded into the Address book.
+  redirects() {
+    return [
+      { source: "/customers", destination: "/contacts", permanent: false },
+      {
+        source: "/customers/directory",
+        destination: "/contacts",
+        permanent: false,
+      },
+    ];
+  },
   // No other site may frame these pages (clickjacking on admin actions).
   headers() {
     return [
