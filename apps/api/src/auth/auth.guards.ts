@@ -255,17 +255,18 @@ export const leadGenerationRoles: StaffRoleKey[] = [
 ];
 
 /**
- * Who may use the CRM (Sales hub, campaigns). `CRM_ACCESS` is `admin` (the
- * super admin only; also when unset or unrecognised), `everyone` (the
- * lead-generation roles above) or `off`. Read on every request, so the value
- * set in the host takes effect when the API restarts.
+ * Who may use the CRM (Sales hub, campaigns). `CRM_ACCESS` is `everyone` (the
+ * lead-generation roles above; also when unset), `admin` (the super admin
+ * only; also for an unrecognised value, so a typo never opens it wider) or
+ * `off`. Read on every request, so the value set in the host takes effect
+ * when the API restarts.
  */
 export function crmRoles(
   environment: NodeJS.ProcessEnv = process.env,
 ): StaffRoleKey[] {
   const mode = environment.CRM_ACCESS?.trim().toLowerCase();
   if (mode === "off") return [];
-  if (mode === "everyone") return leadGenerationRoles;
+  if (!mode || mode === "everyone") return leadGenerationRoles;
   return ["super_admin"];
 }
 

@@ -59,7 +59,8 @@ WHERE invoice_id = '00000000-0000-4000-8000-0000000004d0';
 SELECT extensions.throws_ok(
   $$UPDATE app.invoice SET shipment = '{"billOfLading":"CHANGED"}'::jsonb
     WHERE invoice_id = '00000000-0000-4000-8000-0000000004d0'$$,
-  NULL, 'an issued invoice is immutable', 'the shipment details freeze when the invoice is issued'
+  NULL, 'editing an issued invoice raises its revision by one',
+  'the shipment details change only through a counted revision'
 );
 
 SELECT extensions.ok(

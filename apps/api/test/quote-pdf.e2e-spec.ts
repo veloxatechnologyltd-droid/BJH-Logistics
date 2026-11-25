@@ -120,7 +120,7 @@ test("a rep downloads a draft quote as a PDF", async () => {
   assert.equal(response.headers.get("content-type"), "application/pdf");
   assert.match(
     String(response.headers.get("content-disposition")),
-    /^inline; filename="quote-draft-v1\.pdf"$/,
+    /^inline; filename="BJH-Q-SI-\d{4}-0001-v1\.pdf"$/,
   );
   const file = Buffer.from(await response.arrayBuffer());
   assert.equal(file.subarray(0, 5).toString(), "%PDF-");

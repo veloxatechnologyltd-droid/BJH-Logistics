@@ -222,6 +222,16 @@ export function JobInvoices({
     });
   }
 
+  function toggleEditor(invoice: Invoice) {
+    setEditing(editing === invoice.id ? null : invoice.id);
+    setDraftCurrency(invoice.currency);
+    setDraftBank(savedBankAccountIds(invoice.bankAccounts));
+    setDraftShipment(toShipmentForm(invoice.shipment));
+    setDraftDueDate(invoice.dueDate ?? "");
+    setDraftNotes(invoice.notes ?? "");
+    setLines(toDraftLines(invoice.lines));
+  }
+
   function askReason(action: (why: string) => Promise<unknown>) {
     const why = window.prompt("Reason")?.trim();
     if (!why) return;
@@ -260,6 +270,13 @@ export function JobInvoices({
                 <span className={styles.badge}>
                   {invoiceStatusLabels[invoice.paymentStatus]}
                 </span>{" "}
+                {invoice.revision > 0 && (
+                  <>
+                    <span className={styles.badge}>
+                      Revised ({invoice.revision})
+                    </span>{" "}
+                  </>
+                )}
                 {formatMoney(invoice.totalMinor, invoice.currency)}
                 {invoice.status === "issued" && (
                   <>
@@ -400,15 +417,7 @@ export function JobInvoices({
                   </button>
                   <button
                     className={styles.secondaryButton}
-                    onClick={() => {
-                      setEditing(editing === invoice.id ? null : invoice.id);
-                      setDraftCurrency(invoice.currency);
-                      setDraftBank(savedBankAccountIds(invoice.bankAccounts));
-                      setDraftShipment(toShipmentForm(invoice.shipment));
-                      setDraftDueDate(invoice.dueDate ?? "");
-                      setDraftNotes(invoice.notes ?? "");
-                      setLines(toDraftLines(invoice.lines));
-                    }}
+                    onClick={() => toggleEditor(invoice)}
                     type="button"
                   >
                     Edit draft
@@ -433,7 +442,7 @@ export function JobInvoices({
               )}
               {finance &&
                 editing === invoice.id &&
-                invoice.status === "draft" && (
+                (invoice.status === "draft" || invoice.status === "issued") && (
                   <form
                     className={styles.form}
                     onSubmit={(event) => {
@@ -441,9 +450,16 @@ export function JobInvoices({
                       saveDraft(invoice);
                     }}
                   >
+                    {invoice.status === "issued" && (
+                      <p className={styles.muted}>
+                        {invoice.invoiceNumber} keeps its number. Saving counts
+                        as revision {invoice.revision + 1}, and the PDF says so.
+                      </p>
+                    )}
                     <label className={styles.field}>
                       Invoice currency
                       <select
+                        disabled={invoice.status === "issued"}
                         onChange={(event) =>
                           setDraftCurrency(event.target.value)
                         }
@@ -511,13 +527,28 @@ export function JobInvoices({
                     </label>
                     <div className={styles.actions}>
                       <button className={styles.button} type="submit">
-                        Save draft
+                        {invoice.status === "draft"
+                          ? "Save draft"
+                          : "Save changes"}
                       </button>
                     </div>
                   </form>
                 )}
               {(invoice.status !== "draft" || !(finance && canEdit)) && (
                 <div className={styles.actions}>
+                  {/* The API refuses while a payment stands; reverse it first. */}
+                  {finance &&
+                    canEdit &&
+                    invoice.status === "issued" &&
+                    invoice.paidMinor === 0 && (
+                      <button
+                        className={styles.secondaryButton}
+                        onClick={() => toggleEditor(invoice)}
+                        type="button"
+                      >
+                        Edit invoice
+                      </button>
+                    )}
                   {finance &&
                     canEdit &&
                     invoice.status === "issued" &&

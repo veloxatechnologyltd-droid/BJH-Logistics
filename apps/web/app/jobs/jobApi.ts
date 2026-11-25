@@ -532,6 +532,8 @@ export type Invoice = {
   totalMinor: number;
   issuedAt: string | null;
   voidReason: string | null;
+  /** How many times the issued invoice was edited; 0 when never. */
+  revision: number;
   paidMinor: number;
   outstandingMinor: number;
   paymentStatus: "draft" | "void" | "unpaid" | "partial" | "paid";

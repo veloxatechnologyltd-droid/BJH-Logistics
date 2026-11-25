@@ -106,6 +106,8 @@ type Invoice = {
   outstandingMinor: number;
   paymentStatus: string;
   voidReason: string | null;
+  revision: number;
+  issuedAt: string | null;
   payments?: Array<{
     id: string;
     receiptNumber: string | null;
@@ -211,7 +213,8 @@ test("a draft can be prepared before settings exist, but cannot be issued", asyn
   assert.equal(response.status, 201);
   invoice = (await response.json()) as Invoice;
   assert.equal(invoice.status, "draft");
-  assert.equal(invoice.invoiceNumber, null);
+  // Numbered when created (no settings yet, so the default prefix).
+  assert.equal(invoice.invoiceNumber, `BJH/INV/${year}/0001`);
   assert.equal(invoice.currency, "GHS");
   assert.equal(invoice.notes, "Thank you");
   assert.equal(invoice.subtotalMinor, 239780);
@@ -313,19 +316,13 @@ test("tax lines come from the settings; issuing numbers the invoice and freezes 
   assert.equal(issued.status, 201);
   invoice = (await issued.json()) as Invoice;
   assert.equal(invoice.status, "issued");
-  assert.equal(invoice.invoiceNumber, `SYN/INV/${year}/0001`);
+  // Issuing keeps the number the draft was given when it was created.
+  assert.equal(invoice.invoiceNumber, `BJH/INV/${year}/0001`);
   assert.equal(invoice.dueDate, daysFromNow(30));
   assert.equal(invoice.totalMinor, 287736);
   assert.equal(invoice.paymentStatus, "unpaid");
   assert.equal(invoice.outstandingMinor, 287736);
 
-  const edit = await put(
-    `/api/v1/jobs/${jobA}/invoices/${invoice.id}`,
-    TEST_MATCHING_TOKEN,
-    { currency: "GHS", lines: [{ description: "Changed", amountMinor: 1 }] },
-  );
-  assert.equal(edit.status, 409);
-  assert.match(await message(edit), /Only a draft invoice can be edited/);
   const again = await post(
     `/api/v1/jobs/${jobA}/invoices/${invoice.id}/issue`,
     TEST_MATCHING_TOKEN,
@@ -357,7 +354,7 @@ test("an empty draft cannot be issued", async () => {
   );
   assert.equal(response.status, 400);
   assert.equal(await message(response), "Add at least one line before issuing");
-  // A draft that will not be used is voided; it never consumed a number.
+  // A draft that will not be used is voided; it keeps the number it was given.
   const voided = await post(
     `/api/v1/jobs/${jobA}/invoices/${draft.id}/void`,
     TEST_MATCHING_TOKEN,
@@ -365,7 +362,7 @@ test("an empty draft cannot be issued", async () => {
   );
   assert.equal(voided.status, 201);
   const voidedDraft = (await voided.json()) as Invoice;
-  assert.equal(voidedDraft.invoiceNumber, null);
+  assert.equal(voidedDraft.invoiceNumber, `SYN/INV/${year}/0002`);
   voidedDraftId = voidedDraft.id;
 });
 
@@ -552,7 +549,7 @@ test("access boundaries: customers read issued invoices of their own company onl
   assert.equal(staffPdf.headers.get("content-type"), "application/pdf");
   assert.match(
     staffPdf.headers.get("content-disposition") ?? "",
-    new RegExp(`^inline; filename="SYN-INV-${year}-0001\\.pdf"$`),
+    new RegExp(`^inline; filename="BJH-INV-${year}-0001\\.pdf"$`),
   );
   assert.equal(
     Buffer.from(await staffPdf.arrayBuffer())
@@ -709,8 +706,9 @@ test("an invoice starts from the job's charges and a void invoice takes no payme
       {},
     )
   ).json()) as Invoice;
-  // The unused draft consumed no number: this is the second issued invoice.
-  assert.equal(issued.invoiceNumber, `SYN/INV/${year}/0002`);
+  // Numbered when the draft was made, after the voided draft's 0002 and
+  // the drafts of the tests between.
+  assert.equal(issued.invoiceNumber, `SYN/INV/${year}/0004`);
   assert.equal(issued.dueDate, daysFromNow(5));
 
   const voided = await post(
@@ -723,7 +721,7 @@ test("an invoice starts from the job's charges and a void invoice takes no payme
   assert.equal(voidInvoice.status, "void");
   assert.equal(voidInvoice.voidReason, "Wrong customer");
   assert.equal(voidInvoice.outstandingMinor, 0);
-  assert.equal(voidInvoice.invoiceNumber, `SYN/INV/${year}/0002`);
+  assert.equal(voidInvoice.invoiceNumber, `SYN/INV/${year}/0004`);
 
   const payment = await post(
     `/api/v1/jobs/${jobA}/invoices/${issued.id}/payments`,
@@ -1186,7 +1184,7 @@ test("an invoice can be made for a client with no job, with its shipment details
         lines: [],
       })
     ).status,
-    409,
+    400,
   );
 
   // Finance's list shows it with no job; the client sees it once issued.
@@ -1266,4 +1264,133 @@ test("an invoice can be made for a client with no job, with its shipment details
     409,
     "a standing payment must be reversed first",
   );
+});
+
+test("an issued invoice can be edited while nothing is paid: same number, a new revision, the rates it was issued with", async () => {
+  const base = `/api/v1/jobs/${jobA}/invoices`;
+  await put(
+    "/api/v1/settings",
+    TEST_SUPER_ADMIN_TOKEN,
+    settings({ taxLines: [{ name: "VAT", rateBasisPoints: 1500 }] }),
+  );
+  const draft = (await (
+    await post(base, TEST_MATCHING_TOKEN, {
+      currency: "GHS",
+      lines: [{ description: "Fee", amountMinor: 100_000 }],
+    })
+  ).json()) as Invoice;
+  assert.match(draft.invoiceNumber ?? "", new RegExp(`^SYN/INV/${year}/`));
+  const issued = (await (
+    await post(`${base}/${draft.id}/issue`, TEST_MATCHING_TOKEN, {})
+  ).json()) as Invoice;
+  assert.equal(issued.invoiceNumber, draft.invoiceNumber);
+  assert.equal(issued.revision, 0);
+  assert.equal(issued.totalMinor, 115_000);
+
+  // The rate in settings changes; the invoice keeps the one it was issued with.
+  await put(
+    "/api/v1/settings",
+    TEST_SUPER_ADMIN_TOKEN,
+    settings({ taxLines: [] }),
+  );
+  const edited = await put(`${base}/${issued.id}`, TEST_MATCHING_TOKEN, {
+    currency: "GHS",
+    lines: [
+      { description: "Fee", amountMinor: 200_000 },
+      { description: "Disbursement", amountMinor: 50_000, taxable: false },
+    ],
+    notes: "Client changed the scope",
+  });
+  assert.equal(edited.status, 200);
+  const revised = (await edited.json()) as Invoice;
+  assert.equal(revised.status, "issued");
+  assert.equal(revised.invoiceNumber, issued.invoiceNumber);
+  assert.equal(revised.issuedAt, issued.issuedAt);
+  assert.equal(revised.dueDate, issued.dueDate);
+  assert.equal(revised.revision, 1);
+  assert.equal(revised.subtotalMinor, 250_000);
+  assert.equal(revised.taxTotalMinor, 30_000);
+  assert.equal(revised.totalMinor, 280_000);
+  assert.equal(revised.outstandingMinor, 280_000);
+
+  // An unchanged save is not a revision.
+  const same = (await (
+    await put(`${base}/${issued.id}`, TEST_MATCHING_TOKEN, {
+      currency: "GHS",
+      lines: revised.lines,
+      notes: "Client changed the scope",
+    })
+  ).json()) as Invoice;
+  assert.equal(same.revision, 1);
+
+  // Not the client, not another currency, not an empty invoice.
+  const body = { currency: "GHS", lines: revised.lines };
+  assert.equal(
+    (await put(`${base}/${issued.id}`, TEST_CUSTOMER_A_TOKEN, body)).status,
+    403,
+  );
+  const other = await put(`${base}/${issued.id}`, TEST_MATCHING_TOKEN, {
+    ...body,
+    currency: "USD",
+  });
+  assert.equal(other.status, 400);
+  assert.match(await message(other), /keeps its currency/);
+  assert.equal(
+    (
+      await put(`${base}/${issued.id}`, TEST_MATCHING_TOKEN, {
+        ...body,
+        lines: [],
+      })
+    ).status,
+    400,
+  );
+
+  // A standing payment locks it until the payment is reversed.
+  const paid = (await (
+    await post(`${base}/${issued.id}/payments`, TEST_MATCHING_TOKEN, {
+      amountMinor: 10_000,
+      receivedOn: daysFromNow(0),
+      method: "cash",
+    })
+  ).json()) as { id: string };
+  const locked = await put(`${base}/${issued.id}`, TEST_MATCHING_TOKEN, {
+    ...body,
+    notes: "Another change",
+  });
+  assert.equal(locked.status, 409);
+  assert.equal(
+    await message(locked),
+    "Reverse the payments before editing this invoice",
+  );
+  assert.equal(
+    (
+      await post(
+        `${base}/${issued.id}/payments/${paid.id}/reverse`,
+        TEST_MATCHING_TOKEN,
+        { reason: "Wrong amount" },
+      )
+    ).status,
+    201,
+  );
+  const again = (await (
+    await put(`${base}/${issued.id}`, TEST_MATCHING_TOKEN, {
+      ...body,
+      notes: "Another change",
+    })
+  ).json()) as Invoice;
+  assert.equal(again.revision, 2);
+  assert.equal(again.invoiceNumber, issued.invoiceNumber);
+
+  // A void invoice is final.
+  assert.equal(
+    (
+      await post(`${base}/${issued.id}/void`, TEST_MATCHING_TOKEN, {
+        reason: "Cancelled",
+      })
+    ).status,
+    201,
+  );
+  const gone = await put(`${base}/${issued.id}`, TEST_MATCHING_TOKEN, body);
+  assert.equal(gone.status, 409);
+  assert.equal(await message(gone), "A voided invoice cannot be edited");
 });

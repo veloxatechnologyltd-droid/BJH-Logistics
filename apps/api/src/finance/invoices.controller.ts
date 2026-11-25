@@ -87,7 +87,13 @@ export class InvoicesController {
     @Body() body: unknown,
     @Req() request: AuthenticatedRequest,
   ) {
-    return this.invoices.update(id, invoiceId, body, scopeOf(request));
+    return this.invoices.update(
+      id,
+      invoiceId,
+      body,
+      request.authUser!.userId,
+      scopeOf(request),
+    );
   }
 
   @Post(":invoiceId/issue")
@@ -281,6 +287,7 @@ export class ClientInvoicesController {
       { companyId: id },
       invoiceId,
       body,
+      request.authUser!.userId,
       scopeOf(request),
     );
   }

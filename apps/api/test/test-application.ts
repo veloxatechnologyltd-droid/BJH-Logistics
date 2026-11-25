@@ -139,9 +139,9 @@ export const testDocumentReader: {
   },
 };
 
-// The CRM is open to the super admin only unless CRM_ACCESS says otherwise. The
-// existing CRM suites sign in as sales and customer-service staff, so the test
-// application opens it to them; crm-access.e2e-spec.ts covers the real default.
+// The CRM suites sign in as sales and customer-service staff. Pinned so a
+// CRM_ACCESS in a developer's shell cannot change them; crm-access.e2e-spec.ts
+// covers the default and each setting.
 process.env.CRM_ACCESS ??= "everyone";
 
 export const TEST_SUPER_ADMIN_TOKEN = "test-super-admin-token";

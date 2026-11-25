@@ -336,7 +336,8 @@ test("a request shows the quote prepared for it, from draft to issued", async ()
 
   const drafted = await listed();
   assert.equal(drafted.quoteId, quote.id);
-  assert.equal(drafted.quoteNumber, null);
+  // Staff see the number from the moment the quote is made.
+  assert.match(drafted.quoteNumber ?? "", /^BJH\/Q\/SI\//);
   assert.equal(drafted.quoteStatus, "draft");
 
   assert.equal(
@@ -351,7 +352,7 @@ test("a request shows the quote prepared for it, from draft to issued", async ()
   );
   const issued = await listed();
   assert.equal(issued.quoteStatus, "issued");
-  assert.match(issued.quoteNumber ?? "", /^BJH\/Q\//);
+  assert.equal(issued.quoteNumber, drafted.quoteNumber);
 
   // A request from another company cannot be used to open a quote.
   const other = (await (

@@ -323,40 +323,71 @@ export class InvoicesService {
     };
   }
 
+  /**
+   * Edits a draft, or an issued invoice nothing has been paid on (a client
+   * asked for a change after it was shared). An issued invoice keeps its
+   * number, issue date, currency and the tax rates it was issued with.
+   */
   async update(
     id: InvoiceHome,
     invoiceId: string,
     input: unknown,
+    editedBy: string,
     scope: JobScope,
   ): Promise<InvoiceView> {
     const home = await this.resolveHome(id, scope, true);
     const parsed = parseContract(invoiceInputSchema, input);
     if (!parsed.success) throw new BadRequestException(parsed.message);
+    const existing = await this.find(home.ownerId, invoiceId);
+    if (existing.status === "void") {
+      throw new ConflictException("A voided invoice cannot be edited");
+    }
+    const issued = existing.status === "issued";
+    if (issued && parsed.data.currency !== existing.currency) {
+      throw new BadRequestException(
+        `An issued invoice keeps its currency (${existing.currency})`,
+      );
+    }
+    if (issued && parsed.data.lines.length === 0) {
+      throw new BadRequestException(
+        "An issued invoice needs at least one line",
+      );
+    }
     const settings = await this.requireConfiguredCurrency(parsed.data.currency);
-    const result = isUuid(invoiceId)
-      ? await this.database.updateDraftInvoice(home.ownerId, invoiceId, {
-          currency: parsed.data.currency,
-          shipment: parsed.data.shipment,
-          lines: parsed.data.lines,
-          dueDate: parsed.data.dueDate,
-          notes: parsed.data.notes,
-          bankAccounts: resolveBankAccounts(
-            settings,
-            parsed.data.currency,
-            parsed.data.bankAccountIds,
-          ),
-          totals: computeInvoiceTotals(
-            parsed.data.lines,
-            settings?.taxLines ?? [],
-          ),
-        })
-      : "not_found";
+    const result = await this.database.updateInvoice(
+      home.ownerId,
+      existing.id,
+      {
+        currency: parsed.data.currency,
+        shipment: parsed.data.shipment,
+        lines: parsed.data.lines,
+        // An issued invoice always has a due date; leaving it out keeps it.
+        dueDate: issued
+          ? (parsed.data.dueDate ?? existing.dueDate)
+          : parsed.data.dueDate,
+        notes: parsed.data.notes,
+        bankAccounts: resolveBankAccounts(
+          settings,
+          parsed.data.currency,
+          parsed.data.bankAccountIds,
+        ),
+        totals: computeInvoiceTotals(
+          parsed.data.lines,
+          // Tax rates may have changed in settings since it was issued.
+          issued ? existing.taxLines : (settings?.taxLines ?? []),
+        ),
+        editedBy,
+      },
+    );
     if (result === "not_found") {
       throw new NotFoundException("Invoice was not found on this job");
     }
-    if (result === "not_draft") {
+    if (result === "void") {
+      throw new ConflictException("A voided invoice cannot be edited");
+    }
+    if (result === "has_payments") {
       throw new ConflictException(
-        "Only a draft invoice can be edited; void this one and issue a new invoice",
+        "Reverse the payments before editing this invoice",
       );
     }
     return this.view(result, [], true);
