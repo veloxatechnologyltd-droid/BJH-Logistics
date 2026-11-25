@@ -152,6 +152,43 @@ export async function createCampaign(
   );
 }
 
+/** Every field of a campaign, as the form fills them in. */
+export type DraftedCampaign = Pick<
+  Campaign,
+  | "name"
+  | "targetService"
+  | "targetIndustry"
+  | "targetLocation"
+  | "searchKeywords"
+  | "excludedKeywords"
+  | "minRating"
+  | "requireWebsite"
+  | "idealCustomerProfile"
+  | "disqualifiers"
+  | "generateEmails"
+  | "emailContext"
+  | "emailCta"
+  | "qualificationThreshold"
+  | "maxProspects"
+>;
+
+export type CampaignDraft =
+  | { status: "questions"; questions: string[] }
+  | { status: "draft"; campaign: DraftedCampaign; assumptions: string[] };
+
+/** The AI fills in a campaign, or asks a few questions first. Nothing is saved and no search starts. */
+export async function draftCampaign(
+  description: string,
+  answers: Array<{ question: string; answer: string }>,
+): Promise<CampaignDraft> {
+  return readResponse(
+    await authenticatedFetch(
+      `${campaignsUrl}/draft`,
+      jsonInit("POST", { description, answers }),
+    ),
+  );
+}
+
 export async function updateCampaign(
   id: string,
   update: CampaignUpdateInput,

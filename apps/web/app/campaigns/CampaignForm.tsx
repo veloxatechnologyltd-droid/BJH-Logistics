@@ -10,7 +10,8 @@ import {
   startSearch,
   updateCampaign,
 } from "./campaignApi";
-import type { Campaign } from "./campaignApi";
+import type { Campaign, DraftedCampaign } from "./campaignApi";
+import { CampaignHelper } from "./CampaignHelper";
 import {
   joinWords,
   parseWords,
@@ -23,6 +24,8 @@ import own from "./campaigns.module.css";
 type Props = {
   /** Present when editing; absent when creating. */
   campaign?: Campaign;
+  /** Creating only: what the AI filled in. The person still checks it and starts the search. */
+  draft?: DraftedCampaign;
   onSaved: (campaign: Campaign) => void;
   onCancel?: () => void;
   /** Shown beside the button that starts a search, when the search is charged. */
@@ -32,44 +35,44 @@ type Props = {
 /** What to look for, how to narrow it, and how to judge a fit. Used to create and to edit. */
 export function CampaignForm({
   campaign,
+  draft,
   onSaved,
   onCancel,
   searchNote,
 }: Props) {
-  const [name, setName] = useState(campaign?.name ?? "");
-  const [service, setService] = useState(campaign?.targetService ?? "");
-  const [industry, setIndustry] = useState(campaign?.targetIndustry ?? "");
-  const [location, setLocation] = useState(campaign?.targetLocation ?? "");
+  const initial: DraftedCampaign | undefined = campaign ?? draft;
+  const [name, setName] = useState(initial?.name ?? "");
+  const [service, setService] = useState(initial?.targetService ?? "");
+  const [industry, setIndustry] = useState(initial?.targetIndustry ?? "");
+  const [location, setLocation] = useState(initial?.targetLocation ?? "");
   const [keywords, setKeywords] = useState(
-    joinWords(campaign?.searchKeywords ?? []),
+    joinWords(initial?.searchKeywords ?? []),
   );
   const [excluded, setExcluded] = useState(
-    joinWords(campaign?.excludedKeywords ?? []),
+    joinWords(initial?.excludedKeywords ?? []),
   );
   const [minRating, setMinRating] = useState(
-    campaign?.minRating === null || campaign?.minRating === undefined
+    initial?.minRating === null || initial?.minRating === undefined
       ? ""
-      : String(campaign.minRating),
+      : String(initial.minRating),
   );
   const [requireWebsite, setRequireWebsite] = useState(
-    campaign?.requireWebsite ?? false,
+    initial?.requireWebsite ?? false,
   );
-  const [ideal, setIdeal] = useState(campaign?.idealCustomerProfile ?? "");
+  const [ideal, setIdeal] = useState(initial?.idealCustomerProfile ?? "");
   const [disqualifiers, setDisqualifiers] = useState(
-    campaign?.disqualifiers ?? "",
+    initial?.disqualifiers ?? "",
   );
   const [generateEmails, setGenerateEmails] = useState(
-    campaign?.generateEmails ?? false,
+    initial?.generateEmails ?? false,
   );
-  const [emailContext, setEmailContext] = useState(
-    campaign?.emailContext ?? "",
-  );
-  const [emailCta, setEmailCta] = useState(campaign?.emailCta ?? "");
+  const [emailContext, setEmailContext] = useState(initial?.emailContext ?? "");
+  const [emailCta, setEmailCta] = useState(initial?.emailCta ?? "");
   const [threshold, setThreshold] = useState(
-    String(campaign?.qualificationThreshold ?? 50),
+    String(initial?.qualificationThreshold ?? 50),
   );
   const [maxProspects, setMaxProspects] = useState(
-    String(campaign?.maxProspects ?? 50),
+    String(initial?.maxProspects ?? 500),
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -179,7 +182,7 @@ export function CampaignForm({
         </div>
       </fieldset>
 
-      <details className={own.more}>
+      <details className={own.more} open={draft ? true : undefined}>
         <summary>
           More options: words, rating, how many to find, and how to judge a fit
         </summary>
@@ -229,7 +232,7 @@ export function CampaignForm({
               )}
             </Field>
             <Field
-              help="From 1 to 500. A real search is charged by the business found, so start small."
+              help="From 1 to 500. A real search is charged by the business found, about US$0.01 each. You may get fewer than this: it is the most to keep, not a number to reach."
               label="Most businesses to find"
             >
               {(props) => (
@@ -434,11 +437,30 @@ export function NewCampaignForm() {
       .then((config) => setCharged(!config.sampleData))
       .catch(() => undefined);
   }, []);
+  // A new key starts the form again from the AI's draft.
+  const [draft, setDraft] = useState<{
+    campaign: DraftedCampaign;
+    assumptions: string[];
+    key: number;
+  } | null>(null);
   return (
-    <CampaignForm
-      searchNote={charged ? startSearchWarning : undefined}
-      onCancel={() => router.push("/campaigns")}
-      onSaved={(campaign) => router.push(`/campaigns/${campaign.id}`)}
-    />
+    <>
+      <CampaignHelper
+        onDraft={(campaign, assumptions) =>
+          setDraft((last) => ({
+            campaign,
+            assumptions,
+            key: (last?.key ?? 0) + 1,
+          }))
+        }
+      />
+      <CampaignForm
+        key={draft?.key ?? 0}
+        draft={draft?.campaign}
+        searchNote={charged ? startSearchWarning : undefined}
+        onCancel={() => router.push("/campaigns")}
+        onSaved={(campaign) => router.push(`/campaigns/${campaign.id}`)}
+      />
+    </>
   );
 }
