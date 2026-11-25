@@ -102,6 +102,12 @@ export class SalesController {
     return this.sales.pool(query);
   }
 
+  @Post("suppressions/check")
+  @HttpCode(200)
+  suppressionCheck(@Body() body: unknown) {
+    return this.sales.suppressedAmong(body);
+  }
+
   @Post("pool/dismiss")
   @HttpCode(200)
   dismiss(@Body() body: unknown, @Req() request: AuthenticatedRequest) {

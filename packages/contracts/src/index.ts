@@ -3255,6 +3255,21 @@ export const poolDismissInputSchema = z.object(
 );
 export type PoolDismissInput = z.infer<typeof poolDismissInputSchema>;
 
+/** Sales hub: email addresses to check against the do-not-email list (the Address book asks for the page it shows). */
+export const salesSuppressionCheckInputSchema = z.object(
+  {
+    emails: z
+      .array(z.string({ error: "emails must be a list of addresses" }), {
+        error: "emails must be a list of addresses",
+      })
+      .max(5000, { error: "At most 5000 addresses can be checked at a time" }),
+  },
+  objectError("emails is required"),
+);
+export type SalesSuppressionCheckInput = z.infer<
+  typeof salesSuppressionCheckInputSchema
+>;
+
 /** Prospects to draft an outreach email for. Drafting is a paid AI call, so the batch is small. */
 export const outreachDraftCreateInputSchema = z.object(
   {

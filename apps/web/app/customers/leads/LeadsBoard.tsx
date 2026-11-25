@@ -65,8 +65,11 @@ const emptyForm = {
  */
 export function LeadsBoard({
   pipeline = "manual",
+  initialSearch = "",
 }: {
   pipeline?: LeadPipeline;
+  /** Arriving from the Address book: show every stage of that business. */
+  initialSearch?: string;
 }) {
   const stages = leadStagesFor(pipeline);
   const { roles } = useStaffAccess();
@@ -76,8 +79,8 @@ export function LeadsBoard({
   const [summary, setSummary] = useState<SalesSummary | null>(null);
   const [customers, setCustomers] = useState<CustomerCompany[]>([]);
   const [error, setError] = useState("");
-  const [filter, setFilter] = useState<Filter>("open");
-  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState<Filter>(initialSearch ? "all" : "open");
+  const [search, setSearch] = useState(initialSearch);
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [busy, setBusy] = useState(false);

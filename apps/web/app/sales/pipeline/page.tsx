@@ -7,6 +7,11 @@ export const metadata = {
 };
 
 /** Leads found by campaigns only. Leads added by hand stay on Customers, Leads. */
-export default function PipelinePage() {
-  return <LeadsBoard pipeline="generated" />;
+export default async function PipelinePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ search?: string }>;
+}) {
+  const { search } = await searchParams;
+  return <LeadsBoard pipeline="generated" initialSearch={search} />;
 }

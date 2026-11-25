@@ -4,7 +4,7 @@ import styles from "../customers/customerDirectory.module.css";
 
 export const metadata = {
   title: "Address book | BJH Logistics",
-  description: "Phone numbers and emails of leads and customers.",
+  description: "Every customer and lead, with phone, email and source.",
 };
 
 export default function ContactsPage() {
@@ -18,7 +18,7 @@ export default function ContactsPage() {
         <div>
           <h1 className={styles.title}>Address book</h1>
           <p className={styles.description}>
-            The people to call or email at your leads and customers.
+            Every customer and lead in one list, with where each came from.
           </p>
         </div>
       </header>

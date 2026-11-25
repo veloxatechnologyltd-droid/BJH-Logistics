@@ -208,6 +208,19 @@ const jsonInit = (method: string, body: unknown): RequestInit => ({
 
 const draftUrl = (id: string) => `${salesUrl}/drafts/${encodeURIComponent(id)}`;
 
+/** Which of these addresses are on the do-not-email list (lower case). */
+export async function listSuppressedEmails(
+  emails: string[],
+): Promise<string[]> {
+  const result = await readResponse<{ emails: string[] }>(
+    await authenticatedFetch(
+      `${salesUrl}/suppressions/check`,
+      jsonInit("POST", { emails }),
+    ),
+  );
+  return result.emails;
+}
+
 export async function getSalesOverview(): Promise<SalesOverview> {
   return readResponse(await authenticatedFetch(`${salesUrl}/overview`));
 }

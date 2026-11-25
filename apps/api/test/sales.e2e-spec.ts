@@ -186,6 +186,7 @@ test("customers, other staff roles and anonymous callers are refused on every sa
       "/api/v1/sales/pool/dismiss",
       { prospectIds: [id], dismissed: true },
     ],
+    ["POST", "/api/v1/sales/suppressions/check", { emails: [] }],
     ["POST", "/api/v1/sales/drafts", { prospectIds: [id] }],
     ["GET", "/api/v1/sales/drafts"],
     ["GET", "/api/v1/sales/messages"],
@@ -339,6 +340,32 @@ test("dismissing sets a business aside and restoring brings it back; a lead cann
       bad,
     );
     assert.equal(response.status, 400, JSON.stringify(bad));
+  }
+});
+
+test("the do-not-email check returns only the suppressed addresses, whatever their case", async () => {
+  await application.get(DatabasePort).suppressSalesEmail({
+    email: "Check-Out@Example.test",
+    reason: "manual",
+  });
+  const response = await send(
+    "POST",
+    "/api/v1/sales/suppressions/check",
+    salesRep,
+    { emails: ["check-out@example.test", "fine@example.test"] },
+  );
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    emails: ["check-out@example.test"],
+  });
+  for (const bad of [{}, { emails: "a@example.test" }, { emails: [1] }]) {
+    const rejected = await send(
+      "POST",
+      "/api/v1/sales/suppressions/check",
+      salesRep,
+      bad,
+    );
+    assert.equal(rejected.status, 400, JSON.stringify(bad));
   }
 });
 
