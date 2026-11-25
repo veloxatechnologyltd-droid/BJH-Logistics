@@ -22,7 +22,12 @@ let baseUrl: string;
 let companyId: string;
 let leadId: string;
 
-type Lead = { id: string; stage: string; ownerId: string | null };
+type Lead = {
+  id: string;
+  stage: string;
+  ownerId: string | null;
+  address: string | null;
+};
 type Summary = {
   thisWeek: {
     newLeads: number;
@@ -102,11 +107,14 @@ test("sales logs a lead and its follow-ups, newest first", async () => {
   const today = new Date().toISOString().slice(0, 10);
   const created = await send("POST", "/api/v1/leads", TEST_UNASSIGNED_TOKEN, {
     companyName: "Prospect Synthetic Ltd",
+    address: "  12 Synthetic Road, Tema ",
     source: "walk_in",
     nextFollowUp: today,
   });
   assert.equal(created.status, 201, await created.clone().text());
-  leadId = ((await created.json()) as Lead).id;
+  const lead = (await created.json()) as Lead;
+  leadId = lead.id;
+  assert.equal(lead.address, "12 Synthetic Road, Tema");
 
   for (const [kind, note] of [
     ["call", "Spoke to the logistics manager"],
@@ -139,6 +147,37 @@ test("sales logs a lead and its follow-ups, newest first", async () => {
     { kind: "fax", note: "x" },
   );
   assert.equal(bad.status, 400);
+});
+
+test("a lead's address can be changed and cleared", async () => {
+  const path = `/api/v1/leads/${leadId}`;
+  const changed = await send("PATCH", path, TEST_UNASSIGNED_TOKEN, {
+    address: "5 Other Street, Accra",
+  });
+  assert.equal(changed.status, 200);
+  assert.equal(
+    ((await changed.json()) as Lead).address,
+    "5 Other Street, Accra",
+  );
+  const cleared = await send("PATCH", path, TEST_UNASSIGNED_TOKEN, {
+    address: "",
+  });
+  assert.equal(((await cleared.json()) as Lead).address, null);
+  const kept = await send("PATCH", path, TEST_UNASSIGNED_TOKEN, {
+    notes: "Called again",
+  });
+  assert.equal(((await kept.json()) as Lead).address, null);
+  assert.equal(
+    (
+      await send("PATCH", path, TEST_UNASSIGNED_TOKEN, {
+        address: "x".repeat(501),
+      })
+    ).status,
+    400,
+  );
+  await send("PATCH", path, TEST_UNASSIGNED_TOKEN, {
+    address: "12 Synthetic Road, Tema",
+  });
 });
 
 test("a lead can be handed to another sales rep, never to a customer", async () => {

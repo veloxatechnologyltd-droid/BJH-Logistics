@@ -24,7 +24,7 @@ import {
 } from "../leadApi";
 import type { Lead } from "../leadApi";
 import { LeadActivities } from "./LeadActivities";
-import folded from "./leadActivities.module.css";
+import table from "./leadsTable.module.css";
 import ui from "../../jobs/jobs.module.css";
 import styles from "../customerDirectory.module.css";
 import { ErrorPopup } from "../../ErrorPopup";
@@ -35,6 +35,10 @@ import { leadCampaignNote } from "../../campaigns/campaignView";
 type Filter = "open" | "overdue" | "won" | "lost" | "all";
 
 const isOpen = (stage: LeadStage) => leadOpenStageKeys.includes(stage);
+
+// A quoted lead already has a customer record, so it leaves the working views
+// (Open, Overdue); "All" still lists it.
+const inPlay = (lead: Lead) => isOpen(lead.stage) && lead.stage !== "quoted";
 
 const shortDate = (value: string) =>
   new Date(`${value}T00:00:00`).toLocaleDateString("en-GH", {
@@ -51,6 +55,7 @@ const emptyForm = {
   contactName: "",
   email: "",
   phone: "",
+  address: "",
   source: "other" as LeadCreateSource,
   nextFollowUp: "",
   notes: "",
@@ -99,7 +104,9 @@ export function LeadsBoard({
       .catch(() => undefined);
   }, [pipeline]);
 
-  const overdue = (leads ?? []).filter((lead) => lead.followUpOverdue).length;
+  const overdue = (leads ?? []).filter(
+    (lead) => inPlay(lead) && lead.followUpOverdue,
+  ).length;
 
   const words = search.trim().toLowerCase();
   const shown = (leads ?? [])
@@ -107,9 +114,9 @@ export function LeadsBoard({
       filter === "all"
         ? true
         : filter === "open"
-          ? isOpen(lead.stage)
+          ? inPlay(lead)
           : filter === "overdue"
-            ? lead.followUpOverdue
+            ? inPlay(lead) && lead.followUpOverdue
             : lead.stage === filter,
     )
     .filter(
@@ -187,6 +194,7 @@ export function LeadsBoard({
         contactName: form.contactName,
         email: form.email,
         phone: form.phone,
+        address: form.address,
         source: form.source,
         nextFollowUp: form.nextFollowUp || null,
         notes: form.notes,
@@ -290,6 +298,16 @@ export function LeadsBoard({
                   }
                   type="tel"
                   value={form.phone}
+                />
+              </label>
+              <label className={ui.field}>
+                Address
+                <input
+                  maxLength={500}
+                  onChange={(event) =>
+                    setForm({ ...form, address: event.target.value })
+                  }
+                  value={form.address}
                 />
               </label>
               <label className={ui.field}>
@@ -426,56 +444,37 @@ export function LeadsBoard({
         )}
         {shown.length > 0 && (
           <div className={styles.tableScroll} ref={scrollRef}>
-            <table className={styles.customerTable} data-cards>
+            <table
+              className={`${styles.customerTable} ${table.table}`}
+              data-cards
+            >
               <thead>
                 <tr>
-                  <th scope="col">Lead</th>
-                  <th scope="col">Stage</th>
+                  <th scope="col">Company</th>
+                  <th scope="col">Contact</th>
+                  <th scope="col">Email</th>
+                  <th scope="col">Phone</th>
+                  <th scope="col">Address</th>
                   <th scope="col">Source</th>
+                  <th scope="col">Stage</th>
                   <th scope="col">Owner</th>
                   <th scope="col">Follow up</th>
+                  <th scope="col">Notes</th>
+                  <th scope="col">Customer</th>
                 </tr>
               </thead>
               <tbody>
                 {shown.map((lead) => (
                   <tr key={lead.id}>
-                    <th scope="row">
-                      {lead.companyName}
-                      <span className={styles.tradingName}>
-                        {[lead.contactName, lead.email, lead.phone]
-                          .filter(Boolean)
-                          .join(" · ") || "No contact details"}
-                      </span>
-                      {lead.stage === "lost" && lead.lostReason && (
-                        <span className={styles.tradingName}>
-                          Lost: {lead.lostReason}
-                        </span>
-                      )}
-                      {lead.stage !== "won" &&
-                        lead.stage !== "lost" &&
-                        canConvert && (
-                          <Link
-                            className={ui.textButton}
-                            href={`/customers/new?fromLead=${encodeURIComponent(lead.id)}`}
-                          >
-                            Convert to customer
-                          </Link>
-                        )}
-                      {lead.stage === "won" && lead.customerCompanyName && (
-                        <span className={styles.tradingName}>
-                          Customer: {lead.customerCompanyName}
-                        </span>
-                      )}
-                      {lead.notes && (
-                        <details className={folded.activities}>
-                          <summary>Notes</summary>
-                          <span className={styles.tradingName}>
-                            {lead.notes}
-                          </span>
-                        </details>
-                      )}
-                      <LeadActivities leadId={lead.id} />
-                    </th>
+                    <th scope="row">{lead.companyName}</th>
+                    <td data-label="Contact">{lead.contactName}</td>
+                    <td data-label="Email">{lead.email}</td>
+                    <td data-label="Phone">{lead.phone}</td>
+                    <td data-label="Address">{lead.address}</td>
+                    <td data-label="Source">
+                      {sourceLabels[lead.source]}
+                      <CampaignNote canOpen={canUseCampaigns} lead={lead} />
+                    </td>
                     <td data-label="Stage">
                       <select
                         aria-label={`Stage of ${lead.companyName}`}
@@ -490,10 +489,11 @@ export function LeadsBoard({
                           </option>
                         ))}
                       </select>
-                    </td>
-                    <td data-label="Source">
-                      {sourceLabels[lead.source]}
-                      <CampaignNote canOpen={canUseCampaigns} lead={lead} />
+                      {lead.stage === "lost" && lead.lostReason && (
+                        <span className={styles.tradingName}>
+                          Lost: {lead.lostReason}
+                        </span>
+                      )}
                     </td>
                     <td data-label="Owner">
                       {lead.ownerName ?? "Unassigned"}{" "}
@@ -531,6 +531,22 @@ export function LeadsBoard({
                       ) : (
                         "—"
                       )}
+                      <LeadActivities leadId={lead.id} />
+                    </td>
+                    <td data-label="Notes" data-wide>
+                      {lead.notes && <NotesText text={lead.notes} />}
+                    </td>
+                    <td data-label="Customer">
+                      {lead.stage === "won" ? (
+                        lead.customerCompanyName
+                      ) : lead.stage !== "lost" && canConvert ? (
+                        <Link
+                          className={ui.textButton}
+                          href={`/customers/new?fromLead=${encodeURIComponent(lead.id)}`}
+                        >
+                          Convert to customer
+                        </Link>
+                      ) : null}
                     </td>
                   </tr>
                 ))}
@@ -539,6 +555,28 @@ export function LeadsBoard({
           </div>
         )}
       </section>
+    </>
+  );
+}
+
+/** A lead's notes, cut to three lines until "More" is pressed. */
+function NotesText({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  const long = text.length > 140 || text.split("\n").length > 3;
+  return (
+    <>
+      <p className={`${table.notes} ${long && !open ? table.clamped : ""}`}>
+        {text}
+      </p>
+      {long && (
+        <button
+          className={`${ui.textButton} ${table.more}`}
+          onClick={() => setOpen(!open)}
+          type="button"
+        >
+          {open ? "Less" : "More"}
+        </button>
+      )}
     </>
   );
 }

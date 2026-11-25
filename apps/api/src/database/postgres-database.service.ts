@@ -7465,7 +7465,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
 
   private readonly leadSelect = `
     SELECT lead.lead_id, lead.company_name, lead.contact_name, lead.email,
-           lead.phone, lead.source, lead.stage, lead.owner_id,
+           lead.phone, lead.address, lead.source, lead.stage, lead.owner_id,
            owner.email AS owner_email,
            NULLIF(btrim(owner.raw_user_meta_data->>'full_name'), '') AS owner_name,
            to_char(lead.next_follow_up, 'YYYY-MM-DD') AS next_follow_up_text,
@@ -7488,6 +7488,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       contactName: optional(row.contact_name),
       email: optional(row.email),
       phone: optional(row.phone),
+      address: optional(row.address),
       source: String(row.source) as LeadSource,
       stage: String(row.stage) as LeadStage,
       ownerId: optional(row.owner_id),
@@ -8886,7 +8887,6 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
         `Found by the campaign "${campaignName}".`,
         scored,
         prospect.website ? `Website: ${prospect.website}` : null,
-        prospect.address ? `Address: ${prospect.address}` : null,
         prospect.category ? `Category: ${prospect.category}` : null,
         prospect.rating !== null
           ? `Public rating: ${prospect.rating} of 5`
@@ -8910,9 +8910,9 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
         .slice(0, 2000);
       const lead = await client.query(
         `INSERT INTO app.lead
-           (company_name, email, phone, source, stage, owner_id, notes,
+           (company_name, email, phone, address, source, stage, owner_id, notes,
             campaign_id, created_by)
-         VALUES ($1, $2, $3, 'campaign', 'new', $4::uuid, $5, $6::uuid, $4::uuid)
+         VALUES ($1, $2, $3, $7, 'campaign', 'new', $4::uuid, $5, $6::uuid, $4::uuid)
          RETURNING lead_id`,
         [
           prospect.businessName.slice(0, 160),
@@ -8921,6 +8921,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
           userId,
           notes,
           campaignId,
+          prospect.address?.trim().slice(0, 500) || null,
         ],
       );
       const leadId = String(lead.rows[0].lead_id);
@@ -8971,17 +8972,18 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     try {
       await this.pool.query(
         `INSERT INTO app.lead
-           (lead_id, company_name, contact_name, email, phone, source, stage,
-            owner_id, next_follow_up, notes, lost_reason, quote_request_id,
+           (lead_id, company_name, contact_name, email, phone, address, source,
+            stage, owner_id, next_follow_up, notes, lost_reason, quote_request_id,
             customer_company_id, created_by, created_by_assistant)
-         VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8::uuid, $9::date, $10, $11,
-                 $12::uuid, $13::uuid, $14::uuid, $15)`,
+         VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9::uuid, $10::date, $11,
+                 $12, $13::uuid, $14::uuid, $15::uuid, $16)`,
         [
           input.id,
           input.companyName,
           input.contactName,
           input.email,
           input.phone,
+          input.address,
           input.source,
           input.stage,
           input.ownerId,
@@ -9010,10 +9012,11 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       const result = await this.pool.query(
         `UPDATE app.lead SET
            company_name = $2, contact_name = $3, email = $4, phone = $5,
-           stage = $6, owner_id = $7::uuid, next_follow_up = $8::date,
-           notes = $9, lost_reason = $10, customer_company_id = $11::uuid,
+           address = $6,
+           stage = $7, owner_id = $8::uuid, next_follow_up = $9::date,
+           notes = $10, lost_reason = $11, customer_company_id = $12::uuid,
            updated_at = clock_timestamp(),
-           stage_changed_at = CASE WHEN stage <> $6
+           stage_changed_at = CASE WHEN stage <> $7
              THEN clock_timestamp() ELSE stage_changed_at END
          WHERE lead_id = $1::uuid`,
         [
@@ -9022,6 +9025,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
           lead.contactName,
           lead.email,
           lead.phone,
+          lead.address,
           lead.stage,
           lead.ownerId,
           lead.nextFollowUp,

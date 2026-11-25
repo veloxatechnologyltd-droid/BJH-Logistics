@@ -63,6 +63,7 @@ export class LeadsService {
       contactName: parsed.data.contactName,
       email: parsed.data.email,
       phone: parsed.data.phone,
+      address: parsed.data.address,
       source: parsed.data.source,
       stage: "new",
       ownerId: userId,
@@ -98,6 +99,7 @@ export class LeadsService {
           : current.contactName,
       email: change.email !== undefined ? change.email : current.email,
       phone: change.phone !== undefined ? change.phone : current.phone,
+      address: change.address !== undefined ? change.address : current.address,
       notes: change.notes !== undefined ? change.notes : current.notes,
       nextFollowUp:
         change.nextFollowUp !== undefined

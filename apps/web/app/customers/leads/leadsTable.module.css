@@ -1,0 +1,59 @@
+/* The Leads table: one fact per column, scrolled sideways inside its card. On a
+   phone the shared `data-cards` layout turns each row into a card instead. */
+@media (min-width: 901px) {
+  .table :is(th, td) {
+    vertical-align: top;
+  }
+
+  .table :is(th, td):nth-child(1) {
+    min-width: 190px;
+  }
+  .table :is(th, td):nth-child(2) {
+    min-width: 150px;
+  }
+  .table :is(th, td):nth-child(3) {
+    min-width: 220px;
+    white-space: nowrap;
+  }
+  .table :is(th, td):nth-child(4) {
+    min-width: 140px;
+    white-space: nowrap;
+  }
+  .table :is(th, td):nth-child(5) {
+    min-width: 240px;
+  }
+  .table :is(th, td):nth-child(6) {
+    min-width: 130px;
+  }
+  .table :is(th, td):nth-child(7) {
+    min-width: 140px;
+  }
+  .table :is(th, td):nth-child(8) {
+    min-width: 150px;
+  }
+  .table :is(th, td):nth-child(9) {
+    min-width: 250px;
+  }
+  .table :is(th, td):nth-child(10) {
+    min-width: 300px;
+  }
+  .table :is(th, td):nth-child(11) {
+    min-width: 170px;
+  }
+}
+
+.notes {
+  margin: 0;
+  white-space: pre-line;
+}
+
+.clamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.more {
+  margin-top: 4px;
+}

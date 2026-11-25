@@ -13,6 +13,7 @@ export type Lead = {
   contactName: string | null;
   email: string | null;
   phone: string | null;
+  address: string | null;
   source: LeadSource;
   stage: LeadStage;
   ownerId: string | null;

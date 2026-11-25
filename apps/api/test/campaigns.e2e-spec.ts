@@ -659,6 +659,9 @@ test("chosen prospects become leads once, with an activity, and repeating change
   );
   assert.match(String(lead.notes), /Fit score \d+ of 100 \(simple rules\)/);
   assert.match(String(lead.notes), /Sample data, not a real business\./);
+  // The address has its own column and is not repeated inside the notes.
+  assert.match(String(lead.address), /Synthetic Road, Accra/);
+  assert.doesNotMatch(String(lead.notes), /Address:/);
 
   // It shows on the leads board and in its history.
   const board = (await (await call("/api/v1/leads", admin)).json()) as Array<{

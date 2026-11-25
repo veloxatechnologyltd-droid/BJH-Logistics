@@ -3059,6 +3059,7 @@ export const leadCreateInputSchema = z.object(
     contactName: optionalText("contactName", 160),
     email: leadEmailField,
     phone: phoneField,
+    address: optionalText("address", 500),
     source: z
       .enum(leadCreateSourceKeys, {
         error: "source is not a supported lead source",
@@ -3082,6 +3083,7 @@ export const leadUpdateInputSchema = z
       contactName: optionalText("contactName", 160),
       email: leadEmailField,
       phone: phoneField,
+      address: optionalText("address", 500),
       notes: optionalText("notes", 2000),
       nextFollowUp: leadDateField("nextFollowUp"),
       stage: z.enum(leadStageKeys, { error: "stage is not a supported stage" }),
