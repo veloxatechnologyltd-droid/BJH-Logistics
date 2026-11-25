@@ -158,7 +158,8 @@ test("a rep prepares a quote with its own container sizes and prices", async () 
   assert.equal(response.status, 201);
   const quote = (await response.json()) as QuoteBody;
   quoteId = quote.id;
-  assert.equal(quote.quoteNumber, null);
+  // Numbered when it is made, before anything is issued.
+  assert.match(String(quote.quoteNumber), /^BJH\/Q\/SI\/\d{4}\/0001$/);
   assert.equal(quote.versions.length, 1);
   const [first] = quote.versions;
   assert.equal(first.versionNumber, 1);
@@ -361,15 +362,20 @@ test("a change after issue is a new version; the issued one stays as sent", asyn
 
 test("the next quote in the same line and year gets the next number", async () => {
   const created = await createQuote(TEST_MATCHING_TOKEN, {});
-  draftOnlyQuoteId = ((await created.json()) as QuoteBody).id;
+  const draftOnly = (await created.json()) as QuoteBody;
+  draftOnlyQuoteId = draftOnly.id;
   const other = await createQuote(TEST_SUPER_ADMIN_TOKEN, {
     customerCompanyId: companyB,
   });
-  const otherId = ((await other.json()) as QuoteBody).id;
+  const second = (await other.json()) as QuoteBody;
+  // Numbers follow the order quotes are made, issued or not.
+  const sequence = (quote: QuoteBody) =>
+    Number(String(quote.quoteNumber).split("/").at(-1));
+  assert.equal(sequence(second), sequence(draftOnly) + 1);
   const issued = (await (
-    await post(`/api/v1/quotes/${otherId}/issue`, TEST_SUPER_ADMIN_TOKEN, {})
+    await post(`/api/v1/quotes/${second.id}/issue`, TEST_SUPER_ADMIN_TOKEN, {})
   ).json()) as QuoteBody;
-  assert.match(String(issued.quoteNumber), /\/0002$/);
+  assert.equal(issued.quoteNumber, second.quoteNumber);
 });
 
 test("customers see only issued versions of their own company's quotes", async () => {

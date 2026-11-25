@@ -674,7 +674,10 @@ export interface InvoiceRecord extends InvoiceTotals {
   jobId: string | null;
   /** The client billed: the job's client when there is a job. */
   customerCompanyId: string;
-  /** Null until the invoice is issued. */
+  /**
+   * Given when the invoice is created, so a printed draft already carries it.
+   * Null only for a draft made before that rule.
+   */
   invoiceNumber: string | null;
   status: "draft" | "issued" | "void";
   currency: string;
@@ -694,6 +697,10 @@ export interface InvoiceRecord extends InvoiceTotals {
   voidedBy: string | null;
   voidedAt: string | null;
   voidReason: string | null;
+  /** How many times the issued invoice was edited; 0 when never. */
+  revision: number;
+  revisedAt: string | null;
+  revisedBy: string | null;
 }
 
 /** One message in a client company's conversation with customer service. */
@@ -2074,10 +2081,15 @@ export abstract class DatabasePort {
   abstract listInvoicePayments(
     ownerId: string,
   ): Promise<InvoicePaymentRecord[]>;
-  abstract updateDraftInvoice(
+  /**
+   * Edits a draft, or an issued invoice with no payment standing against it.
+   * An issued invoice keeps its number, issue date and currency; a change to
+   * its content raises `revision` and keeps the replaced version.
+   */
+  abstract updateInvoice(
     ownerId: string,
     invoiceId: string,
-    draft: {
+    edit: {
       currency: string;
       shipment: InvoiceShipment | null;
       lines: InvoiceLineRecord[];
@@ -2085,8 +2097,9 @@ export abstract class DatabasePort {
       notes: string | null;
       bankAccounts: BankAccount[] | null;
       totals: InvoiceTotals;
+      editedBy: string;
     },
-  ): Promise<InvoiceRecord | "not_found" | "not_draft">;
+  ): Promise<InvoiceRecord | "not_found" | "void" | "has_payments">;
   abstract issueInvoice(
     ownerId: string,
     invoiceId: string,

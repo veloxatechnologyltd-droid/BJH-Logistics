@@ -2559,16 +2559,23 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     try {
       await client.query("BEGIN");
       const quote = await client.query(
+        // The number is taken with the insert, so a printed draft already has
+        // it and a failed insert leaves no gap.
         `INSERT INTO app.quote
           (service_line, customer_company_id, quote_request_id, created_by,
-           created_by_assistant)
-         VALUES ($1, $2::uuid, $3::uuid, $4::uuid, $4::uuid IS NULL)
+           created_by_assistant, quote_number)
+         VALUES ($1, $2::uuid, $3::uuid, $4::uuid, $4::uuid IS NULL,
+           app.allocate_quote_number($1::text, $5::integer, COALESCE(
+             (SELECT settings #>> '{numbering,quotePrefix}'
+              FROM app.business_settings_revision
+              ORDER BY revision_number DESC LIMIT 1), 'BJH/Q')))
          RETURNING quote_id`,
         [
           input.serviceLine,
           input.customerCompanyId,
           input.quoteRequestId,
           createdBy,
+          new Date().getUTCFullYear(),
         ],
       );
       const quoteId = String(quote.rows[0].quote_id);
@@ -3708,12 +3715,18 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     createdBy: string;
   }): Promise<InvoiceRecord> {
     const inserted = await this.pool.query(
+      // The number is taken with the insert, so a printed draft already has
+      // it and a failed insert leaves no gap.
       `INSERT INTO app.invoice
         (job_id, customer_company_id, currency, lines, due_date, notes,
          subtotal_minor, tax_lines, tax_total_minor, total_minor, created_by,
-         bank_account, shipment)
+         bank_account, shipment, invoice_number)
        VALUES ($1::uuid, $12::uuid, $2, $3::jsonb, $4::date, $5, $6, $7::jsonb,
-         $8, $9, $10::uuid, $11::jsonb, $13::jsonb)
+         $8, $9, $10::uuid, $11::jsonb, $13::jsonb,
+         app.allocate_invoice_number($14::integer, COALESCE(
+           (SELECT settings #>> '{numbering,invoicePrefix}'
+            FROM app.business_settings_revision
+            ORDER BY revision_number DESC LIMIT 1), 'BJH/INV')))
        RETURNING *, to_char(due_date, 'YYYY-MM-DD') AS due_date_text`,
       [
         invoice.jobId,
@@ -3729,6 +3742,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
         invoice.bankAccounts ? JSON.stringify(invoice.bankAccounts) : null,
         invoice.customerCompanyId,
         invoice.shipment ? JSON.stringify(invoice.shipment) : null,
+        new Date().getUTCFullYear(),
       ],
     );
     return this.mapInvoice(inserted.rows[0]);
@@ -3821,10 +3835,10 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     }));
   }
 
-  async updateDraftInvoice(
+  async updateInvoice(
     ownerId: string,
     invoiceId: string,
-    draft: {
+    edit: {
       currency: string;
       shipment: InvoiceShipment | null;
       lines: InvoiceLineRecord[];
@@ -3832,45 +3846,103 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       notes: string | null;
       bankAccounts: BankAccount[] | null;
       totals: InvoiceTotals;
+      editedBy: string;
     },
-  ): Promise<InvoiceRecord | "not_found" | "not_draft"> {
+  ): Promise<InvoiceRecord | "not_found" | "void" | "has_payments"> {
+    const values = [
+      edit.currency,
+      JSON.stringify(edit.lines),
+      edit.dueDate,
+      edit.notes,
+      edit.totals.subtotalMinor,
+      JSON.stringify(edit.totals.taxLines),
+      edit.totals.taxTotalMinor,
+      edit.totals.totalMinor,
+      edit.bankAccounts ? JSON.stringify(edit.bankAccounts) : null,
+      edit.shipment ? JSON.stringify(edit.shipment) : null,
+    ];
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
       const current = await client.query(
-        `SELECT status FROM app.invoice
-         WHERE invoice_id = $2::uuid AND ${ownedBy()} FOR UPDATE`,
-        [ownerId, invoiceId],
+        `SELECT status, to_jsonb(invoice) AS previous, revision,
+           ROW(lines, due_date, notes, subtotal_minor, tax_lines,
+               tax_total_minor, total_minor, shipment)
+           IS DISTINCT FROM
+           ROW($3::jsonb, $4::date, $5, $6::bigint, $7::jsonb, $8::bigint,
+               $9::bigint, $10::jsonb) AS changed,
+           EXISTS (
+             SELECT 1 FROM app.invoice_payment p
+             WHERE p.invoice_id = invoice.invoice_id
+               AND NOT EXISTS (
+                 SELECT 1 FROM app.invoice_payment_reversal r
+                 WHERE r.payment_id = p.payment_id)
+           ) AS has_payments
+         FROM app.invoice AS invoice
+         WHERE invoice_id = $2::uuid AND ${ownedBy("invoice.")} FOR UPDATE`,
+        // $1 is the owner and $2 the invoice; the content follows from $3.
+        [
+          ownerId,
+          invoiceId,
+          values[1],
+          values[2],
+          values[3],
+          values[4],
+          values[5],
+          values[6],
+          values[7],
+          values[9],
+        ],
       );
       if (current.rows.length === 0) {
         await client.query("ROLLBACK");
         return "not_found";
       }
-      if (current.rows[0].status !== "draft") {
+      const row = current.rows[0];
+      if (row.status === "void") {
         await client.query("ROLLBACK");
-        return "not_draft";
+        return "void";
+      }
+      // An issued invoice is edited only while nothing is paid on it.
+      const revises = row.status === "issued" && row.changed === true;
+      if (revises && row.has_payments === true) {
+        await client.query("ROLLBACK");
+        return "has_payments";
+      }
+      if (revises) {
+        await client.query(
+          `INSERT INTO app.invoice_revision
+            (invoice_id, revision, previous, edited_by)
+           VALUES ($1::uuid, $2::integer + 1, $3::jsonb, $4::uuid)`,
+          [
+            invoiceId,
+            Number(row.revision),
+            JSON.stringify(row.previous),
+            edit.editedBy,
+          ],
+        );
       }
       const updated = await client.query(
         `UPDATE app.invoice
          SET currency = $3, lines = $4::jsonb, due_date = $5::date, notes = $6,
              subtotal_minor = $7, tax_lines = $8::jsonb, tax_total_minor = $9,
              total_minor = $10, bank_account = $11::jsonb,
-             shipment = $12::jsonb, updated_at = clock_timestamp()
+             shipment = $12::jsonb, updated_at = clock_timestamp(),
+             revision = revision + $13::integer,
+             revised_at = CASE WHEN $13::integer = 1
+               THEN clock_timestamp() ELSE revised_at END,
+             revised_by = CASE WHEN $13::integer = 1
+               THEN $14::uuid ELSE revised_by END
          WHERE invoice_id = $2::uuid AND ${ownedBy()}
          RETURNING *, to_char(due_date, 'YYYY-MM-DD') AS due_date_text`,
         [
           ownerId,
           invoiceId,
-          draft.currency,
-          JSON.stringify(draft.lines),
-          draft.dueDate,
-          draft.notes,
-          draft.totals.subtotalMinor,
-          JSON.stringify(draft.totals.taxLines),
-          draft.totals.taxTotalMinor,
-          draft.totals.totalMinor,
-          draft.bankAccounts ? JSON.stringify(draft.bankAccounts) : null,
-          draft.shipment ? JSON.stringify(draft.shipment) : null,
+          ...values.slice(0, 8),
+          values[8],
+          values[9],
+          revises ? 1 : 0,
+          edit.editedBy,
         ],
       );
       await client.query("COMMIT");
@@ -3897,7 +3969,8 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
     try {
       await client.query("BEGIN");
       const current = await client.query(
-        `SELECT status, jsonb_array_length(lines) AS line_count FROM app.invoice
+        `SELECT status, invoice_number, jsonb_array_length(lines) AS line_count
+         FROM app.invoice
          WHERE invoice_id = $2::uuid AND ${ownedBy()} FOR UPDATE`,
         [ownerId, invoiceId],
       );
@@ -3913,13 +3986,21 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
         await client.query("ROLLBACK");
         return "no_lines";
       }
-      const allocated = await client.query(
-        `SELECT app.allocate_invoice_number($1, COALESCE(
-           (SELECT settings #>> '{numbering,invoicePrefix}'
-            FROM app.business_settings_revision
-            ORDER BY revision_number DESC LIMIT 1), 'BJH/INV')) AS invoice_number`,
-        [issue.year],
-      );
+      // The number was given at creation; only a draft from before that rule
+      // still needs one.
+      const invoiceNumber = current.rows[0].invoice_number
+        ? String(current.rows[0].invoice_number)
+        : String(
+            (
+              await client.query(
+                `SELECT app.allocate_invoice_number($1, COALESCE(
+                   (SELECT settings #>> '{numbering,invoicePrefix}'
+                    FROM app.business_settings_revision
+                    ORDER BY revision_number DESC LIMIT 1), 'BJH/INV')) AS invoice_number`,
+                [issue.year],
+              )
+            ).rows[0].invoice_number,
+          );
       const updated = await client.query(
         `UPDATE app.invoice
          SET status = 'issued', invoice_number = $3, issued_by = $4::uuid,
@@ -3931,7 +4012,7 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
         [
           ownerId,
           invoiceId,
-          String(allocated.rows[0].invoice_number),
+          invoiceNumber,
           issue.issuedBy,
           issue.dueDate,
           issue.totals.subtotalMinor,
@@ -9207,6 +9288,9 @@ export class PostgresDatabaseService implements DatabasePort, OnModuleDestroy {
       voidedBy: optional(row.voided_by),
       voidedAt: timestamp(row.voided_at),
       voidReason: optional(row.void_reason),
+      revision: Number(row.revision ?? 0),
+      revisedAt: timestamp(row.revised_at),
+      revisedBy: optional(row.revised_by),
     };
   }
 

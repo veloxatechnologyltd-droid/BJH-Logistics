@@ -13,7 +13,7 @@ import {
 import { DatabasePort } from "../src/database/database.port";
 import { beginTestDatabase, endTestDatabase } from "./postgres-test-database";
 
-/** Who can see the CRM: CRM_ACCESS is admin (default), everyone or off. */
+/** Who can see the CRM: CRM_ACCESS is everyone (default), admin or off. */
 let application: INestApplication;
 let baseUrl: string;
 const originalAccess = process.env.CRM_ACCESS;
@@ -64,14 +64,24 @@ const crmPaths = [
   "/api/v1/sales/overview",
 ];
 
-test("by default only the super admin sees the CRM", async () => {
+test("by default the sales roles and the super admin see the CRM; customers do not", async () => {
   delete process.env.CRM_ACCESS;
+  for (const path of crmPaths) {
+    assert.equal(await status(path, TEST_SUPER_ADMIN_TOKEN), 200, path);
+    assert.equal(await status(path, TEST_UNASSIGNED_TOKEN), 200, path);
+    assert.equal(await status(path, TEST_CUSTOMER_A_TOKEN), 403, path);
+  }
+  assert.equal(await sessionCrm(TEST_SUPER_ADMIN_TOKEN), true);
+  assert.equal(await sessionCrm(TEST_UNASSIGNED_TOKEN), true);
+});
+
+test("admin keeps it to the super admin", async () => {
+  process.env.CRM_ACCESS = "admin";
   for (const path of crmPaths) {
     assert.equal(await status(path, TEST_SUPER_ADMIN_TOKEN), 200, path);
     assert.equal(await status(path, TEST_UNASSIGNED_TOKEN), 404, path);
     assert.equal(await status(path, TEST_CUSTOMER_A_TOKEN), 403, path);
   }
-  assert.equal(await sessionCrm(TEST_SUPER_ADMIN_TOKEN), true);
   assert.equal(await sessionCrm(TEST_UNASSIGNED_TOKEN), false);
 });
 
@@ -81,7 +91,7 @@ test("an unrecognised value falls back to the super admin only", async () => {
   assert.equal(await status("/api/v1/campaigns", TEST_UNASSIGNED_TOKEN), 404);
 });
 
-test("everyone opens it to the sales roles; customers stay refused", async () => {
+test("everyone names the default explicitly; customers stay refused", async () => {
   process.env.CRM_ACCESS = "everyone";
   for (const path of crmPaths) {
     assert.equal(await status(path, TEST_SUPER_ADMIN_TOKEN), 200, path);

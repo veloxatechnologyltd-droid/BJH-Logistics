@@ -231,7 +231,10 @@ function drawInvoice(doc: PDFKit.PDFDocument, input: InvoicePdfInput): void {
   };
   detail(
     "Invoice no:",
-    invoice.invoiceNumber ?? "Not yet numbered",
+    // An edited copy says so, so it cannot pass for an earlier print.
+    `${invoice.invoiceNumber ?? "Not yet numbered"}${
+      invoice.revision > 0 ? ` (revision ${invoice.revision})` : ""
+    }`,
     left,
     doc.y,
   );

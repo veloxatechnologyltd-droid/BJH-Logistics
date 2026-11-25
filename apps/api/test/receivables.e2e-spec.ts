@@ -344,7 +344,8 @@ test("Finance's invoice list shows every invoice, drafts to paid, with what is o
   assert.equal(byNumber("voided").paymentStatus, "void");
   assert.equal(byNumber("voided").outstandingMinor, 0);
   const draft = rows.find((row) => row.status === "draft")!;
-  assert.equal(draft.invoiceNumber, null);
+  // A draft already carries the number it was given when it was made.
+  assert.match(draft.invoiceNumber ?? "", /^SYN\/INV\/\d{4}\/\d{4}$/);
   assert.equal(draft.paymentStatus, "draft");
   assert.equal(draft.totalMinor, 500);
   // Only this company's invoices.

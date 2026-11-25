@@ -34,8 +34,8 @@ The API and the schema are released at different moments, so every step must wor
 
 The CRM (Sales hub, campaigns, Email) is controlled by one API variable, set in the Render dashboard and applied when the API restarts:
 
-- `admin` (the default, also when unset): only the super admin sees it. Everyone else gets "not found" from the API and no Sales menu item.
-- `everyone`: sales, customer service and the super admin.
+- `everyone` (the default, also when unset): sales, customer service and the super admin. Customers are refused.
+- `admin` (also for any unrecognised value, so a typo never opens it wider): only the super admin sees it. Everyone else gets "not found" from the API and no Sales menu item.
 - `off`: nobody, the super admin included; the lead-search and mailbox background work also stops.
 
 The public unsubscribe link works in every mode. Mail sending and mailbox sync stay separately opt-in (`OUTREACH_SEND_WORKER`, `OUTREACH_MAILBOX_SYNC`).

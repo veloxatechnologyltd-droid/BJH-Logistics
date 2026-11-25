@@ -2,7 +2,7 @@ BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 
-SELECT extensions.plan(19);
+SELECT extensions.plan(26);
 
 SELECT extensions.ok(
   NOT has_table_privilege('anon', 'app.invoice', 'SELECT')
@@ -74,11 +74,49 @@ WHERE invoice_id = '00000000-0000-4000-8000-0000000001e0';
 
 SELECT extensions.throws_ok(
   $$UPDATE app.invoice SET notes = 'changed' WHERE invoice_id = '00000000-0000-4000-8000-0000000001e0'$$,
-  'P0001', 'an issued invoice is immutable', 'an issued invoice cannot be edited'
+  'P0001', 'editing an issued invoice raises its revision by one',
+  'an issued invoice changes only through a counted revision'
 );
 SELECT extensions.throws_ok(
   $$UPDATE app.invoice SET status = 'draft' WHERE invoice_id = '00000000-0000-4000-8000-0000000001e0'$$,
-  'P0001', 'an issued invoice is immutable', 'an issued invoice cannot go back to draft'
+  'P0001', 'an issued invoice cannot go back to draft', 'an issued invoice cannot go back to draft'
+);
+
+-- An unpaid issued invoice can be edited: same number, revision one, the old
+-- version kept; the number, issue date and currency stay.
+SELECT extensions.lives_ok(
+  $$UPDATE app.invoice SET notes = 'changed', revision = 1, revised_at = now(),
+      revised_by = '00000000-0000-4000-8000-0000000001aa'
+    WHERE invoice_id = '00000000-0000-4000-8000-0000000001e0'$$,
+  'an unpaid issued invoice can be edited with a counted revision'
+);
+SELECT extensions.throws_ok(
+  $$UPDATE app.invoice SET invoice_number = 'BJH/INV/2099/9999'
+    WHERE invoice_id = '00000000-0000-4000-8000-0000000001e0'$$,
+  'P0001', 'an invoice keeps its number', 'an invoice keeps its number'
+);
+SELECT extensions.throws_ok(
+  $$UPDATE app.invoice SET currency = 'USD'
+    WHERE invoice_id = '00000000-0000-4000-8000-0000000001e0'$$,
+  'P0001', 'the currency and issue date of an issued invoice cannot change',
+  'an issued invoice keeps its currency'
+);
+INSERT INTO app.invoice_revision (invoice_id, revision, previous, edited_by)
+VALUES ('00000000-0000-4000-8000-0000000001e0', 1, '{}'::jsonb,
+        '00000000-0000-4000-8000-0000000001aa');
+SELECT extensions.throws_ok(
+  $$DELETE FROM app.invoice_revision WHERE invoice_id = '00000000-0000-4000-8000-0000000001e0'$$,
+  'P0001', 'invoice revisions are append-only', 'the revision history is append-only'
+);
+SELECT extensions.lives_ok(
+  $$INSERT INTO app.invoice (invoice_id, job_id, invoice_number, currency, created_by)
+    VALUES ('00000000-0000-4000-8000-0000000001e9', '00000000-0000-4000-8000-0000000001ca', 'BJH/INV/2099/9098', 'GHS',
+            '00000000-0000-4000-8000-0000000001aa')$$,
+  'a draft takes its number when it is made'
+);
+SELECT extensions.throws_ok(
+  $$UPDATE app.invoice SET revision = 1 WHERE invoice_id = '00000000-0000-4000-8000-0000000001e9'$$,
+  'P0001', 'only an issued invoice has revisions', 'a draft has no revisions'
 );
 SELECT extensions.throws_ok(
   $$DELETE FROM app.invoice WHERE invoice_id = '00000000-0000-4000-8000-0000000001e0'$$,
@@ -120,8 +158,15 @@ SELECT extensions.throws_ok(
 SELECT extensions.throws_ok(
   $$UPDATE app.invoice SET status = 'void', voided_at = now(), voided_by = '00000000-0000-4000-8000-0000000001aa',
       void_reason = 'mistake' WHERE invoice_id = '00000000-0000-4000-8000-0000000001e0'$$,
-  'P0001', 'reverse the payments before voiding the invoice',
+  'P0001', 'reverse the payments before voiding or editing the invoice',
   'an invoice with a standing payment cannot be voided'
+);
+SELECT extensions.throws_ok(
+  $$UPDATE app.invoice SET notes = 'again', revision = 2, revised_at = now(),
+      revised_by = '00000000-0000-4000-8000-0000000001aa'
+    WHERE invoice_id = '00000000-0000-4000-8000-0000000001e0'$$,
+  'P0001', 'reverse the payments before voiding or editing the invoice',
+  'an invoice with a standing payment cannot be edited'
 );
 
 INSERT INTO app.invoice_payment_reversal (payment_id, reason, reversed_by)
