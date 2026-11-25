@@ -210,6 +210,29 @@ function pdfText(file: Buffer): string {
   return drawn.join("\n");
 }
 
+test("a draft invoice prints clean: its number, the day it was made, no draft wording", async () => {
+  const text = pdfText(
+    await renderInvoicePdf(
+      {
+        invoice: invoice({
+          status: "draft",
+          issuedAt: null,
+          issuedBy: null,
+          paymentStatus: "draft",
+        }),
+        job,
+        customer,
+        settings,
+      },
+      { compress: false },
+    ),
+  );
+  assert.ok(text.includes("SYN/INV/2026/0001"));
+  assert.ok(text.includes("22 September 2026"));
+  assert.ok(!text.includes("DRAFT"));
+  assert.ok(!text.includes("Not yet issued"));
+});
+
 test("an issued invoice prints its lines, tax lines, total and balance", async () => {
   const file = await renderInvoicePdf(
     { invoice: invoice(), job, customer, settings },

@@ -787,6 +787,24 @@ test("Issue all issues a client's drafts together, checks them all first, and se
   assert.ok(message, "one message lists both invoices");
   for (const row of issued)
     assert.match(message.body, new RegExp(row.invoiceNumber));
+
+  // Each invoice, from its own job, is attached to the one email.
+  const email = application.get<RecordingEmailProvider>(EMAIL_PROVIDER);
+  const sentBefore = email.sent.length;
+  await application.get(NotificationDispatcher).dispatchDue();
+  const mail = email.sent
+    .slice(sentBefore)
+    .find((item) => item.subject === "2 invoices issued");
+  assert.ok(mail, "the invoices email was sent");
+  assert.deepEqual(
+    mail.attachments!.map((file) => file.filename).sort(),
+    issued
+      .map((row) => `${row.invoiceNumber.replace(/[^A-Za-z0-9-]+/g, "-")}.pdf`)
+      .sort(),
+  );
+  for (const file of mail.attachments!) {
+    assert.equal(file.content.subarray(0, 4).toString(), "%PDF");
+  }
 });
 
 test("Send emails the client their invoices still owing or their payments, PDF attached, finance only", async () => {

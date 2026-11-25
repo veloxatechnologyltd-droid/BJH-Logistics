@@ -142,6 +142,8 @@ export class NotificationDispatcher implements OnModuleInit, OnModuleDestroy {
               inReplyTo: isReply ? await this.inReplyTo(delivery) : undefined,
               attachments:
                 (await this.quoteAttachment(delivery)) ??
+                (await this.invoiceAttachment(delivery)) ??
+                (await this.paymentReceiptAttachment(delivery)) ??
                 (await this.receiptAttachment(delivery)) ??
                 (await this.summaryAttachment(delivery)) ??
                 (await this.jobReportAttachment(delivery)),
@@ -200,6 +202,26 @@ export class NotificationDispatcher implements OnModuleInit, OnModuleDestroy {
     });
     const filename = `${(quote.quoteNumber ?? "quotation").replace(/[^A-Za-z0-9-]+/g, "-")}-v${version.versionNumber}.pdf`;
     return [{ filename, content }];
+  }
+
+  /** The invoice PDF(s), made when the "invoice issued" email goes out. */
+  private async invoiceAttachment(delivery: DueDelivery) {
+    if (delivery.event !== "invoice_issued") return undefined;
+    return this.invoices.issuedInvoiceAttachments(
+      delivery.companyId,
+      delivery.body,
+    );
+  }
+
+  /** The receipt PDF, made when the "payment received" email goes out. */
+  private async paymentReceiptAttachment(delivery: DueDelivery) {
+    if (delivery.event !== "payment_received") return undefined;
+    return (
+      (await this.invoices.paymentReceiptAttachment(
+        delivery.companyId,
+        delivery.dedupeKey,
+      )) ?? undefined
+    );
   }
 
   private async inReplyTo(delivery: DueDelivery) {

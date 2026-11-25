@@ -196,7 +196,8 @@ export function renderQuotePdf(
     ],
     [
       "Date",
-      version.issuedAt ? formatDate(version.issuedAt) : "Not yet issued",
+      // A draft shows the day it was made, so a printed copy carries a date.
+      formatDate(version.issuedAt ?? version.createdAt),
     ],
     ["Prepared for", quote.customerCompanyName],
     ["Shipment", version.shipmentScope ?? "-"],
