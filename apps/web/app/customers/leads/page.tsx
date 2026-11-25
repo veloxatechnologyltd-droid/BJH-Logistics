@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { LeadsBoard } from "./LeadsBoard";
 import styles from "../customerDirectory.module.css";
 
@@ -15,10 +14,6 @@ export default async function LeadsPage({
   const { search } = await searchParams;
   return (
     <main className={styles.page}>
-      <Link className={styles.backLink} href="/">
-        <span aria-hidden="true">←</span> Back to overview
-      </Link>
-
       <header className={styles.header}>
         <div>
           <h1 className={styles.title}>Leads</h1>

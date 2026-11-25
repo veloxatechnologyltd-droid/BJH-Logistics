@@ -522,6 +522,7 @@ const lead = (over: Partial<LeadRecord>): LeadRecord => ({
   contactName: null,
   email: null,
   phone: null,
+  address: null,
   source: "walk_in",
   stage: "new",
   ownerId: null,

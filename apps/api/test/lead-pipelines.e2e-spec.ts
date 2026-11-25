@@ -47,6 +47,7 @@ async function generatedLead(
     contactName: null,
     email: null,
     phone: null,
+    address: null,
     source: "campaign",
     stage: "new",
     ownerId: TEST_SUPER_ADMIN_ID,

@@ -336,6 +336,7 @@ export class EmailAssistantService {
         contactName: contact.contactName,
         email: contact.email,
         phone: contact.phone,
+        address: null,
         source: "quote_request",
         stage: "new",
         ownerId: null,
