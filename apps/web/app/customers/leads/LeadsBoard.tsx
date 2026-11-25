@@ -23,8 +23,7 @@ import {
   stageLabels,
   updateLead,
 } from "../leadApi";
-import type { Lead, SalesSummary } from "../leadApi";
-import { getSalesSummary } from "../leadApi";
+import type { Lead } from "../leadApi";
 import { LeadActivities } from "./LeadActivities";
 import folded from "./leadActivities.module.css";
 import ui from "../../jobs/jobs.module.css";
@@ -76,7 +75,6 @@ export function LeadsBoard({
   const canConvert = canWorkClientDesk(roles);
   const canUseCampaigns = canUseLeadGeneration(roles);
   const [leads, setLeads] = useState<Lead[] | null>(null);
-  const [summary, setSummary] = useState<SalesSummary | null>(null);
   const [customers, setCustomers] = useState<CustomerCompany[]>([]);
   const [error, setError] = useState("");
   const [filter, setFilter] = useState<Filter>(initialSearch ? "all" : "open");
@@ -96,20 +94,13 @@ export function LeadsBoard({
     listLeads(pipeline)
       .then(setLeads)
       .catch((cause) => setError(message(cause, "Leads could not be loaded")));
-    getSalesSummary(pipeline)
-      .then(setSummary)
-      .catch(() => undefined);
     // Customers only enrich the page; the board works without them.
     listCustomers("")
       .then(setCustomers)
       .catch(() => undefined);
   }, [pipeline]);
 
-  const count = (stage: LeadStage) =>
-    (leads ?? []).filter((lead) => lead.stage === stage).length;
-  const openCount = (leads ?? []).filter((lead) => isOpen(lead.stage)).length;
   const overdue = (leads ?? []).filter((lead) => lead.followUpOverdue).length;
-  const decided = count("won") + count("lost");
 
   const words = search.trim().toLowerCase();
   const shown = (leads ?? [])
@@ -193,77 +184,6 @@ export function LeadsBoard({
 
   return (
     <>
-      {summary && (
-        <section
-          className={`${styles.overview} ${styles.overviewCompact}`}
-          aria-label="Sales this week and month"
-        >
-          {(
-            [
-              ["This week", summary.thisWeek],
-              ["This month", summary.thisMonth],
-            ] as const
-          ).map(([label, period]) => (
-            <div className={styles.metric} key={label}>
-              <span>{label}</span>
-              <strong>
-                {period.newLeads} new · {period.converted} converted
-              </strong>
-              <small>
-                {period.convertedCompanies.length > 0
-                  ? `Converted: ${period.convertedCompanies.join(", ")}`
-                  : "New leads, and clients who accepted their first quote"}
-              </small>
-            </div>
-          ))}
-          <div className={styles.metric}>
-            <span>Follow-ups due</span>
-            <strong>{summary.followUpsDue}</strong>
-            <small>Open leads to contact today or earlier</small>
-          </div>
-        </section>
-      )}
-      <section
-        className={`${styles.overview} ${styles.overviewCompact}`}
-        aria-label={`${pipeline === "generated" ? "Campaign" : "Manual"} lead overview`}
-      >
-        <div className={styles.metric}>
-          <span>Open leads</span>
-          <strong>{leads ? openCount : "—"}</strong>
-          <small>
-            {leads
-              ? stages
-                  .filter((stage) => isOpen(stage))
-                  .map((stage) => `${stageLabels[stage]} ${count(stage)}`)
-                  .join(" · ")
-              : "Not won or lost yet"}
-          </small>
-        </div>
-        <div className={styles.metric}>
-          <span>Follow-ups overdue</span>
-          <strong>{leads ? overdue : "—"}</strong>
-          <small>Open leads whose follow-up date has passed</small>
-        </div>
-        <div className={styles.metric}>
-          <span>Won</span>
-          <strong>{leads ? count("won") : "—"}</strong>
-          <small>Became customers</small>
-        </div>
-        <div className={styles.metric}>
-          <span>Win rate</span>
-          <strong>
-            {leads && decided > 0
-              ? `${Math.round((count("won") / decided) * 100)}%`
-              : "—"}
-          </strong>
-          <small>
-            {decided > 0
-              ? `${count("won")} won of ${decided} decided`
-              : "Nothing won or lost yet"}
-          </small>
-        </div>
-      </section>
-
       <ErrorPopup message={error} />
 
       <section className={styles.directory} aria-label="Leads">
@@ -488,7 +408,7 @@ export function LeadsBoard({
         {shown.length > 0 && (
           <div
             className={styles.tableScroll}
-            style={{ "--customer-table-offset": "600px" } as CSSProperties}
+            style={{ "--customer-table-offset": "480px" } as CSSProperties}
           >
             <table className={styles.customerTable} data-cards>
               <thead>
