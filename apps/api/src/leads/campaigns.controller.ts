@@ -44,6 +44,13 @@ export class CampaignsController {
     return this.campaigns.config();
   }
 
+  /** Before ":id" routes. Drafts only: nothing is saved and no search starts. */
+  @Post("draft")
+  @HttpCode(200)
+  draft(@Body() body: unknown) {
+    return this.campaigns.draft(body);
+  }
+
   @Post()
   create(@Body() body: unknown, @Req() request: AuthenticatedRequest) {
     return this.campaigns.create(body, request.authUser!.userId);

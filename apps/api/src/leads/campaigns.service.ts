@@ -4,6 +4,7 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  ServiceUnavailableException,
 } from "@nestjs/common";
 import {
   campaignCreateInputSchema,
@@ -15,6 +16,8 @@ import {
 import { randomUUID } from "node:crypto";
 import { DatabasePort } from "../database/database.port";
 import { BUSINESS_SEARCH_PROVIDER } from "./business-search";
+import { CAMPAIGN_DRAFTER, CampaignDraftError } from "./campaign-drafting";
+import type { CampaignDrafter } from "./campaign-drafting";
 import type { BusinessSearchProvider } from "./business-search";
 import type { ProspectFilter, ProspectRecord } from "./campaigns";
 import { PROSPECT_SCORER } from "./prospect-scoring";
@@ -97,6 +100,7 @@ export class CampaignsService {
     @Inject(BUSINESS_SEARCH_PROVIDER)
     private readonly search: BusinessSearchProvider,
     @Inject(PROSPECT_SCORER) private readonly scorer: ProspectScorer,
+    @Inject(CAMPAIGN_DRAFTER) private readonly drafter: CampaignDrafter,
   ) {}
 
   /** What finds and scores the businesses, so the screens can say "sample data". */
@@ -120,6 +124,50 @@ export class CampaignsService {
     return campaign;
   }
 
+  /**
+   * Fills in a campaign from what the person wants, or asks up to three questions
+   * first. Nothing is saved and no search starts: the person reads the draft and
+   * presses the button.
+   */
+  async draft(input: unknown) {
+    const body = (input ?? {}) as { description?: unknown; answers?: unknown };
+    const description =
+      typeof body.description === "string" ? body.description.trim() : "";
+    if (description.length < 5 || description.length > 4000) {
+      throw new BadRequestException(
+        "description must be 5 to 4000 characters about what you want to find",
+      );
+    }
+    const answers = body.answers ?? [];
+    if (!Array.isArray(answers) || answers.length > 3) {
+      throw new BadRequestException("answers must be a list of at most 3");
+    }
+    const given = answers.map((entry: unknown) => {
+      const { question, answer } = (entry ?? {}) as Record<string, unknown>;
+      if (
+        typeof question !== "string" ||
+        typeof answer !== "string" ||
+        !question.trim() ||
+        !answer.trim() ||
+        question.length > 300 ||
+        answer.length > 1000
+      ) {
+        throw new BadRequestException(
+          "each answer needs its question and an answer",
+        );
+      }
+      return { question: question.trim(), answer: answer.trim() };
+    });
+    try {
+      return await this.drafter.draft({ description, answers: given });
+    } catch (error) {
+      if (error instanceof CampaignDraftError) {
+        throw new ServiceUnavailableException(error.message);
+      }
+      throw error;
+    }
+  }
+
   async create(input: unknown, userId: string) {
     const parsed = parseContract(campaignCreateInputSchema, input);
     if (!parsed.success) throw new BadRequestException(parsed.message);
@@ -140,7 +188,7 @@ export class CampaignsService {
       emailContext: data.emailContext,
       emailCta: data.emailCta,
       qualificationThreshold: data.qualificationThreshold ?? 50,
-      maxProspects: data.maxProspects ?? 50,
+      maxProspects: data.maxProspects ?? 500,
       createdBy: userId,
     });
   }

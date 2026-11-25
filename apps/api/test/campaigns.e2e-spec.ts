@@ -183,6 +183,7 @@ test("customers, other staff roles and anonymous callers are refused on every ca
     ["GET", "/api/v1/campaigns"],
     ["GET", "/api/v1/campaigns/config"],
     ["POST", "/api/v1/campaigns", validCampaign],
+    ["POST", "/api/v1/campaigns/draft", { description: "rice wholesalers" }],
     ["GET", `/api/v1/campaigns/${id}`],
     ["PATCH", `/api/v1/campaigns/${id}`, { name: "x" }],
     ["DELETE", `/api/v1/campaigns/${id}`],
@@ -256,7 +257,7 @@ test("a campaign is created with its settings, tidy lists and the usual defaults
   assert.equal(created.minRating, 3.5);
   assert.equal(created.requireWebsite, false);
   assert.equal(created.qualificationThreshold, 50);
-  assert.equal(created.maxProspects, 50);
+  assert.equal(created.maxProspects, 500);
   assert.equal(
     created.idealCustomerProfile,
     "Regular importers shipping full containers",
@@ -323,7 +324,7 @@ test("a campaign can be changed, paused and resumed, and unknown ones are not fo
   ).json()) as Campaign;
   assert.equal(renamed.name, "Renamed");
   assert.equal(renamed.qualificationThreshold, 70);
-  assert.equal(renamed.maxProspects, 50);
+  assert.equal(renamed.maxProspects, 500);
   assert.equal(
     ((await (await patch({ status: "paused" })).json()) as Campaign).status,
     "paused",
@@ -987,4 +988,63 @@ test("the Sales report counts new leads by campaign, with won ones, and keeps a 
       .toString(),
     "%PDF-",
   );
+});
+
+test("the campaign helper asks first when asked to, then drafts, and saves nothing", async () => {
+  const count = async (table: string) =>
+    (await pool.query(`SELECT count(*) AS n FROM app.${table}`)).rows[0].n;
+  const campaignsBefore = await count("lead_campaign");
+  const runsBefore = await count("lead_campaign_run");
+  const draft = (body: unknown) =>
+    send("POST", "/api/v1/campaigns/draft", admin, body);
+
+  const asked = await draft({ description: "something vague about food" });
+  assert.equal(asked.status, 200);
+  assert.deepEqual(await asked.json(), {
+    status: "questions",
+    questions: ["Which kind of business?", "Which town?"],
+  });
+
+  const answered = await draft({
+    description: "something vague about food",
+    answers: [{ question: "Which town?", answer: "Accra" }],
+  });
+  assert.equal(answered.status, 200);
+  const body = (await answered.json()) as {
+    status: string;
+    campaign: { targetLocation: string; searchKeywords: string[] };
+    assumptions: string[];
+  };
+  assert.equal(body.status, "draft");
+  assert.equal(body.campaign.targetLocation, "Accra, Ghana");
+  assert.deepEqual(body.assumptions, ["Heard: 1 answers"]);
+
+  // The draft is not a campaign: nothing was stored and no search started.
+  assert.equal(await count("lead_campaign"), campaignsBefore);
+  assert.equal(await count("lead_campaign_run"), runsBefore);
+});
+
+test("the campaign helper rejects bad input and reports an AI failure as unavailable", async () => {
+  const draft = (body: unknown) =>
+    send("POST", "/api/v1/campaigns/draft", admin, body);
+  for (const bad of [
+    {},
+    { description: "hi" },
+    { description: 42 },
+    { description: "x".repeat(4001) },
+    { description: "rice wholesalers", answers: "Accra" },
+    { description: "rice wholesalers", answers: [{ question: "Where?" }] },
+    {
+      description: "rice wholesalers",
+      answers: Array.from({ length: 4 }, () => ({
+        question: "q",
+        answer: "a",
+      })),
+    },
+  ]) {
+    assert.equal((await draft(bad)).status, 400, JSON.stringify(bad));
+  }
+  const failed = await draft({ description: "a broken request" });
+  assert.equal(failed.status, 503);
+  assert.match(String((await failed.json()).message), /could not be reached/);
 });
