@@ -28,7 +28,9 @@ import {
 
 const DEFAULT_ACTOR = "lukaskrivka/google-maps-with-contact-details";
 const DEFAULT_MAX_CHARGE_USD = 5;
-const RUN_TIMEOUT_SECONDS = 900;
+/** The shortest time limit; a search asking for many places gets longer (about 5 s a place was measured). */
+const MIN_RUN_TIMEOUT_SECONDS = 900;
+const SECONDS_PER_PLACE = 12;
 const REQUEST_TIMEOUT_MS = 30_000;
 
 /** The actor's star filter accepts these steps only; the nearest step at or below. */
@@ -130,7 +132,9 @@ export class ApifyBusinessSearchProvider implements BusinessSearchProvider {
 
     const params = new URLSearchParams({
       maxTotalChargeUsd: String(this.setup.maxChargeUsd),
-      timeout: String(RUN_TIMEOUT_SECONDS),
+      timeout: String(
+        Math.max(MIN_RUN_TIMEOUT_SECONDS, query.maxResults * SECONDS_PER_PLACE),
+      ),
     });
     const run = await this.request<{ id?: unknown }>(
       `/v2/actors/${encodeURIComponent(actor)}/runs?${params}`,

@@ -82,6 +82,7 @@ test("a search starts the actor with the campaign's settings and a cost cap", as
     "https://api.apify.com/v2/actors/compass~crawler-google-places/runs",
   );
   assert.equal(url.searchParams.get("maxTotalChargeUsd"), "5");
+  // A small search keeps the shortest limit.
   assert.equal(url.searchParams.get("timeout"), "900");
   assert.equal(call.method, "POST");
   assert.equal(call.authorization, `Bearer ${TOKEN}`);
@@ -302,4 +303,20 @@ test("the stub is used unless an Apify token is set", () => {
   );
   const real = createBusinessSearchProvider({ APIFY_API_TOKEN: TOKEN });
   assert.equal(real.name, "apify");
+});
+
+test("a search for many places gets a longer time limit than a small one", async () => {
+  const timeoutFor = async (maxResults: number) => {
+    const { calls, fetch } = fakeFetch([{ body: { data: { id: "run-t" } } }]);
+    await new ApifyBusinessSearchProvider({
+      token: TOKEN,
+      actorId: "lukaskrivka/google-maps-with-contact-details",
+      maxChargeUsd: 5,
+      fetch,
+    }).start({ ...query, maxResults });
+    return new URL(calls[0].url).searchParams.get("timeout");
+  };
+  assert.equal(await timeoutFor(20), "900");
+  // About 5 seconds a place was measured; the limit allows 12.
+  assert.equal(await timeoutFor(500), "6000");
 });

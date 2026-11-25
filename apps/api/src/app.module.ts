@@ -96,6 +96,10 @@ import { ClientJobReportsController } from "./jobs/client-job-report.controller"
 import { ClientJobReportService } from "./jobs/client-job-report.service";
 import { CustomersController } from "./customers/customers.controller";
 import { CustomersService } from "./customers/customers.service";
+import {
+  CAMPAIGN_DRAFTER,
+  createCampaignDrafter,
+} from "./leads/campaign-drafting";
 import { CampaignsController } from "./leads/campaigns.controller";
 import { CampaignsService } from "./leads/campaigns.service";
 import { LeadsController } from "./leads/leads.controller";
@@ -256,6 +260,7 @@ import { PushService } from "./push/push.service";
         createWebsiteContactFinder(search.name),
     },
     { provide: PROSPECT_SCORER, useFactory: () => createProspectScorer() },
+    { provide: CAMPAIGN_DRAFTER, useFactory: () => createCampaignDrafter() },
     SalesService,
     SalesMailboxService,
     { provide: OUTREACH_DRAFTER, useFactory: () => createOutreachDrafter() },

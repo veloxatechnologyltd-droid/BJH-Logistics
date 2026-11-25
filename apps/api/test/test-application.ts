@@ -33,6 +33,11 @@ import type {
   MessageDrafter,
 } from "../src/notifications/message-drafter";
 import { REPLY_DRAFTER, ReplyDraftError } from "../src/intake/reply-drafter";
+import {
+  CAMPAIGN_DRAFTER,
+  CampaignDraftError,
+} from "../src/leads/campaign-drafting";
+import type { CampaignDrafter } from "../src/leads/campaign-drafting";
 import type {
   DraftedReply,
   ReplyContext,
@@ -201,6 +206,43 @@ const testFlaggedIdentities = new Map([
  * A stand-in for Claude in the staff helper: each call takes the next scripted
  * reply and records the request, so tests see exactly what was sent.
  */
+/** Synthetic campaign drafting: "vague" asks questions, "broken" fails, anything else drafts. */
+export const testCampaignDrafter: CampaignDrafter = {
+  name: "test",
+  async draft({ description, answers }) {
+    if (description.includes("broken")) {
+      throw new CampaignDraftError("The AI service could not be reached");
+    }
+    if (description.includes("vague") && answers.length === 0) {
+      return {
+        status: "questions",
+        questions: ["Which kind of business?", "Which town?"],
+      };
+    }
+    return {
+      status: "draft",
+      campaign: {
+        name: "Synthetic rice wholesalers in Accra",
+        targetService: "Sea freight import",
+        targetIndustry: "Rice wholesalers",
+        targetLocation: "Accra, Ghana",
+        searchKeywords: ["rice wholesaler", "rice distributor"],
+        excludedKeywords: ["freight forwarder"],
+        minRating: null,
+        requireWebsite: false,
+        idealCustomerProfile: null,
+        disqualifiers: null,
+        generateEmails: false,
+        emailContext: null,
+        emailCta: null,
+        qualificationThreshold: 50,
+        maxProspects: 50,
+      },
+      assumptions: [`Heard: ${answers.length} answers`],
+    };
+  },
+};
+
 export const testAssistantClaude = {
   model: "claude-test",
   replies: [] as Array<Record<string, unknown>>,
@@ -321,6 +363,8 @@ export async function createTestApplication(
     .useValue(testMessageDrafter)
     .overrideProvider(ASSISTANT_CLAUDE)
     .useValue(testAssistantClaude)
+    .overrideProvider(CAMPAIGN_DRAFTER)
+    .useValue(testCampaignDrafter)
     .compile();
 
   const application = module.createNestApplication({ logger: false });
