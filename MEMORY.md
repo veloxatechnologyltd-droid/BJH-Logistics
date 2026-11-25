@@ -2490,3 +2490,10 @@ Read MEMORY.md at the start of every session before doing anything. Never contra
 **Why:** The AI already fills every field, so the empty form up front was noise.
 **What was rejected:** Hiding the form with no way round it (an AI outage or missing key would block creating any campaign), so "Fill in the form by hand instead" opens the empty form; an API change to take one free-text answer (the reply is sent as one answer to the questions joined together, cut to the API's 300-character limit); chat follow-ups to adjust a draft (not asked).
 **Evidence:** web typecheck, ESLint, Prettier, web tests (57/57) and the web build pass in a clean worktree off `origin/main`. Browser-checked locally as the customer-service demo user with the draft endpoint stubbed (no AI call): chat only on load, a question round, the filled form, Start again, fill by hand, phone width 390px. The real AI's wording was not tried.
+
+## 2026-11-25, The Leads table measures its own top so it fills the page (code only, not deployed)
+
+**What was decided:** Evans (screenshot): the Leads table stopped well above the bottom of the page. The fixed `--customer-table-offset: 500px` was a guess; the table's top differs by layout (391px in this build, about 253px in his). `LeadsBoard.tsx` now measures the scroll box's real top on load, on window resize and when the add form, a pending move or an error appears, and sets the offset to that top plus 72px (page bottom padding 56 + card padding 8). Phones are unchanged (rule applies above 900px only).
+**Why:** A fixed number is wrong whenever the content above the table changes height.
+**What was rejected:** Another guessed offset; changing the shared `.tableScroll` rule (Customers uses it too and was not reported).
+**Checked:** web `tsc` and prettier. In a browser (local, 1328x842, demo.cs, 24 cloned rows): box 379px tall, bottom 770 of 842, page does not scroll. **Open:** Customers table still uses the fixed 580px guess; Evans's screenshot layout (no Customers heading or tabs) is not the main checkout's, so it may come from another worktree; not checked there.
