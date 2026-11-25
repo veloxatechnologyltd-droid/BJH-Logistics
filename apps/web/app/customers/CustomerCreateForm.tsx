@@ -41,7 +41,7 @@ export function CustomerCreateForm() {
             ? "Staff access could not be checked. Try again when the API is available."
             : "Only staff who prepare quotes can create customer profiles."}
         </p>
-        <Link className={styles.formCancel} href="/customers/directory">
+        <Link className={styles.formCancel} href="/contacts">
           Back to customers
         </Link>
       </section>
@@ -74,7 +74,7 @@ export function CustomerCreateForm() {
           customerCompanyId: customer.id,
         });
       }
-      router.push("/customers/directory");
+      router.push("/contacts");
     } catch (cause) {
       setError(
         cause instanceof Error
@@ -172,7 +172,7 @@ export function CustomerCreateForm() {
       <ErrorPopup message={error} />
 
       <div className={styles.formActions}>
-        <Link className={styles.formCancel} href="/customers/directory">
+        <Link className={styles.formCancel} href="/contacts">
           Cancel
         </Link>
         <button className={styles.formSubmit} disabled={saving} type="submit">

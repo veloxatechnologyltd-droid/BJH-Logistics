@@ -316,15 +316,6 @@
   min-height: 42px;
 }
 
-.visuallyHidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
-
 .searchRow {
   display: flex;
   min-height: 46px;
@@ -461,14 +452,6 @@
   color: #536b7e;
 }
 
-.customerId {
-  color: #243d55;
-  font-family: var(--font-mono, monospace);
-  font-size: 0.74rem;
-  font-weight: 700;
-  white-space: nowrap;
-}
-
 .sampleTag {
   display: inline-block;
   border-radius: 999px;
@@ -572,22 +555,6 @@
     padding-right: 12px;
     padding-left: 12px;
   }
-}
-
-.metricOf {
-  color: var(--brand-muted);
-  font-size: 0.9rem;
-  font-style: normal;
-  font-weight: 600;
-}
-
-.rankingHeader {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 16px;
 }
 
 .filterRow {

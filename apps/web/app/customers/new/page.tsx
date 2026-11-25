@@ -10,8 +10,8 @@ export const metadata = {
 export default function NewCustomerPage() {
   return (
     <main className={styles.page}>
-      <Link className={styles.backLink} href="/customers/directory">
-        <span aria-hidden="true">←</span> Back to customers
+      <Link className={styles.backLink} href="/contacts">
+        <span aria-hidden="true">←</span> Back to address book
       </Link>
 
       <header className={styles.header}>

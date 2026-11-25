@@ -78,8 +78,12 @@ const staffNav: NavGroup[] = [
         crm: true,
       },
       { href: "/customers/leads", label: "Leads", icon: "leads" },
-      { href: "/customers", label: "Customers", icon: "customers" },
-      { href: "/contacts", label: "Address book", icon: "customers" },
+      {
+        href: "/contacts",
+        label: "Address book",
+        icon: "customers",
+        alsoMatches: ["/customers"],
+      },
     ],
   },
   {
