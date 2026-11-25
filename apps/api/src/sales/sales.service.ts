@@ -13,6 +13,7 @@ import {
   outreachDraftRejectInputSchema,
   parseContract,
   poolDismissInputSchema,
+  salesSuppressionCheckInputSchema,
 } from "@bjh/contracts";
 import { randomUUID } from "node:crypto";
 import { DatabasePort } from "../database/database.port";
@@ -138,6 +139,15 @@ export class SalesService {
   async pool(query: Record<string, unknown>) {
     const filter = poolFilter(query);
     return { ...(await this.database.listPoolProspects(filter)), ...filter };
+  }
+
+  /** Which of these addresses are on the do-not-email list; the Address book marks them. */
+  async suppressedAmong(input: unknown) {
+    const parsed = parseContract(salesSuppressionCheckInputSchema, input);
+    if (!parsed.success) throw new BadRequestException(parsed.message);
+    return {
+      emails: await this.database.listSuppressedSalesEmails(parsed.data.emails),
+    };
   }
 
   async dismiss(input: unknown, userId: string) {

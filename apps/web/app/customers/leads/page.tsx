@@ -8,7 +8,12 @@ export const metadata = {
   description: "Track prospects from first contact to customer.",
 };
 
-export default function LeadsPage() {
+export default async function LeadsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ search?: string }>;
+}) {
+  const { search } = await searchParams;
   return (
     <main className={styles.page}>
       <Link className={styles.backLink} href="/">
@@ -23,7 +28,7 @@ export default function LeadsPage() {
 
       <CustomerTabs active="/customers/leads" />
 
-      <LeadsBoard />
+      <LeadsBoard initialSearch={search} />
     </main>
   );
 }
