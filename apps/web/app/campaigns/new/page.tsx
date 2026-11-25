@@ -20,8 +20,9 @@ export default function NewCampaignPage() {
           <div>
             <h1 className={styles.title}>New campaign</h1>
             <p className={styles.description}>
-              Say what kind of business to look for and where. The search starts
-              as soon as you press Find businesses.
+              Tell the assistant who you want to find. It fills in the campaign
+              for you to check, and the search starts when you press Find
+              businesses.
             </p>
           </div>
         </header>
