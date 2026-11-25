@@ -31,6 +31,10 @@ export function formatGhanaTime(iso: string): string {
 
 const sign = (sender: string) => `\n\n${sender}`;
 
+/** For a customer with no portal login yet: the PDF is attached, and this says how to get access. */
+const portalHelp = (sender: string) =>
+  `You can also view this in the customer portal at the link below. If you do not have a login yet, please contact ${sender} and we will set you up.`;
+
 export const milestoneMessage = (
   sender: string,
   fileNumber: string,
@@ -89,7 +93,7 @@ export const invoiceIssuedMessage = (
   dueDate: string | null,
 ): Message => ({
   subject: `Invoice ${invoiceNumber}`,
-  body: `Invoice ${invoiceNumber} for ${money(totalMinor, currency)} has been issued${dueDate ? `, due ${dueDate}` : ""}. You can open and download it below.${sign(sender)}`,
+  body: `Invoice ${invoiceNumber} for ${money(totalMinor, currency)} has been issued${dueDate ? `, due ${dueDate}` : ""}. The invoice is attached as a PDF.\n\n${portalHelp(sender)}${sign(sender)}`,
   smsText: `${sender}: invoice ${invoiceNumber}, ${money(totalMinor, currency)}${dueDate ? `, due ${dueDate}` : ""}.`,
 });
 
@@ -104,12 +108,12 @@ export const invoicesIssuedMessage = (
   }>,
 ): Message => ({
   subject: `${invoices.length} invoices issued`,
-  body: `These invoices have been issued. You can open and download them below.\n${invoices
+  body: `These invoices have been issued and are attached as PDFs.\n${invoices
     .map(
       (invoice) =>
         `- ${invoice.invoiceNumber}: ${money(invoice.totalMinor, invoice.currency)}${invoice.dueDate ? `, due ${invoice.dueDate}` : ""}`,
     )
-    .join("\n")}${sign(sender)}`,
+    .join("\n")}\n\n${portalHelp(sender)}${sign(sender)}`,
   smsText: `${sender}: ${invoices.length} invoices issued (${invoices.map((invoice) => invoice.invoiceNumber).join(", ")}).`,
 });
 
@@ -122,7 +126,7 @@ export const paymentReceivedMessage = (
   currency: string,
 ): Message => ({
   subject: `Payment received for invoice ${invoiceNumber}`,
-  body: `We have recorded your payment of ${money(amountMinor, currency)} for invoice ${invoiceNumber}${receiptNumber ? ` (receipt ${receiptNumber})` : ""}. Balance remaining: ${money(balanceMinor, currency)}.${sign(sender)}`,
+  body: `We have recorded your payment of ${money(amountMinor, currency)} for invoice ${invoiceNumber}${receiptNumber ? ` (receipt ${receiptNumber})` : ""}. Balance remaining: ${money(balanceMinor, currency)}.${receiptNumber ? " Your receipt is attached as a PDF." : ""}\n\n${portalHelp(sender)}${sign(sender)}`,
   smsText: `${sender}: payment of ${money(amountMinor, currency)} received for ${invoiceNumber}. Balance ${money(balanceMinor, currency)}.`,
 });
 
@@ -134,7 +138,7 @@ export const creditReceivedMessage = (
   currency: string,
 ): Message => ({
   subject: `Payment received: ${money(amountMinor, currency)} on your account`,
-  body: `We have recorded your payment of ${money(amountMinor, currency)} (receipt ${receiptNumber}). It is held as credit on your account and will be set against your next invoices.${sign(sender)}`,
+  body: `We have recorded your payment of ${money(amountMinor, currency)} (receipt ${receiptNumber}). It is held as credit on your account and will be set against your next invoices. Your receipt is attached as a PDF.\n\n${portalHelp(sender)}${sign(sender)}`,
   smsText: `${sender}: payment of ${money(amountMinor, currency)} received and held as credit on your account (receipt ${receiptNumber}).`,
 });
 
@@ -225,7 +229,7 @@ export const paymentsReceivedMessage = (
       )
       .join(
         "\n",
-      )}\nBalance remaining on these invoices: ${money(balance, currency)}.${sign(sender)}`,
+      )}\nBalance remaining on these invoices: ${money(balance, currency)}.${receiptNumber ? " Your receipt is attached as a PDF." : ""}\n\n${portalHelp(sender)}${sign(sender)}`,
     smsText: `${sender}: payment of ${money(total, currency)} received for ${lines.length} invoices. Balance on them ${money(balance, currency)}.`,
   };
 };

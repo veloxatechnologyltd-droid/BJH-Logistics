@@ -291,6 +291,75 @@ export function JobInvoices({
                   ? ` · void: ${invoice.voidReason}`
                   : ""}
               </div>
+              {(invoice.status !== "draft" || !(finance && canEdit)) && (
+                <div className={styles.actions}>
+                  {/* The API refuses while a payment stands; reverse it first. */}
+                  {finance &&
+                    canEdit &&
+                    invoice.status === "issued" &&
+                    invoice.paidMinor === 0 && (
+                      <button
+                        className={styles.secondaryButton}
+                        onClick={() => toggleEditor(invoice)}
+                        type="button"
+                      >
+                        Edit invoice
+                      </button>
+                    )}
+                  {finance &&
+                    canEdit &&
+                    invoice.status === "issued" &&
+                    invoice.outstandingMinor > 0 && (
+                      <Link
+                        className={styles.secondaryButton}
+                        href={`/finance/receipts?invoice=${invoice.id}`}
+                      >
+                        Record payment
+                      </Link>
+                    )}
+                  {canRecordAcceptance &&
+                    invoice.status === "issued" &&
+                    !invoice.acceptance && (
+                      <button
+                        className={styles.secondaryButton}
+                        onClick={() =>
+                          setAccepting(
+                            accepting === invoice.id ? null : invoice.id,
+                          )
+                        }
+                        type="button"
+                      >
+                        {isStaff
+                          ? "Record client acceptance"
+                          : "Accept invoice"}
+                      </button>
+                    )}
+                  <button
+                    className={styles.textButton}
+                    onClick={() => void openPdf(invoice.id)}
+                    type="button"
+                  >
+                    {invoice.status === "draft" ? "Preview PDF" : "PDF"}
+                  </button>
+                  {/* The API refuses to void while payments stand; reverse them first. */}
+                  {finance &&
+                    canEdit &&
+                    invoice.status === "issued" &&
+                    invoice.paidMinor === 0 && (
+                      <button
+                        className={styles.textButton}
+                        onClick={() =>
+                          askReason((why) =>
+                            voidInvoice(jobId, invoice.id, why),
+                          )
+                        }
+                        type="button"
+                      >
+                        Void invoice
+                      </button>
+                    )}
+                </div>
+              )}
               {invoice.acceptance && (
                 <span className={styles.muted}>
                   Accepted by {invoice.acceptance.signatoryName} on{" "}
@@ -534,76 +603,6 @@ export function JobInvoices({
                     </div>
                   </form>
                 )}
-              {(invoice.status !== "draft" || !(finance && canEdit)) && (
-                <div className={styles.actions}>
-                  {/* The API refuses while a payment stands; reverse it first. */}
-                  {finance &&
-                    canEdit &&
-                    invoice.status === "issued" &&
-                    invoice.paidMinor === 0 && (
-                      <button
-                        className={styles.secondaryButton}
-                        onClick={() => toggleEditor(invoice)}
-                        type="button"
-                      >
-                        Edit invoice
-                      </button>
-                    )}
-                  {finance &&
-                    canEdit &&
-                    invoice.status === "issued" &&
-                    invoice.outstandingMinor > 0 && (
-                      <Link
-                        className={styles.secondaryButton}
-                        href={`/finance/receipts?invoice=${invoice.id}`}
-                      >
-                        Record payment
-                      </Link>
-                    )}
-                  {canRecordAcceptance &&
-                    invoice.status === "issued" &&
-                    !invoice.acceptance && (
-                      <button
-                        className={styles.secondaryButton}
-                        onClick={() =>
-                          setAccepting(
-                            accepting === invoice.id ? null : invoice.id,
-                          )
-                        }
-                        type="button"
-                      >
-                        {isStaff
-                          ? "Record client acceptance"
-                          : "Accept invoice"}
-                      </button>
-                    )}
-                  <button
-                    className={styles.textButton}
-                    onClick={() => void openPdf(invoice.id)}
-                    type="button"
-                  >
-                    {invoice.status === "draft" ? "Preview PDF" : "PDF"}
-                  </button>
-                  {/* The API refuses to void while payments stand; reverse them first. */}
-                  {finance &&
-                    canEdit &&
-                    invoice.status === "issued" &&
-                    invoice.paidMinor === 0 && (
-                      <button
-                        className={styles.textButton}
-                        onClick={() =>
-                          askReason((why) =>
-                            voidInvoice(jobId, invoice.id, why),
-                          )
-                        }
-                        type="button"
-                      >
-                        Void invoice
-                      </button>
-                    )}
-                </div>
-              )}
-
               {accepting === invoice.id && (
                 <form
                   className={styles.form}

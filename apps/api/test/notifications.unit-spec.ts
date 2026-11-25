@@ -2,10 +2,12 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { normalizePhone } from "../src/notifications/phone";
 import {
+  creditReceivedMessage,
   deliveryDispatchedMessage,
   etaMessage,
   formatGhanaTime,
   invoiceIssuedMessage,
+  invoicesIssuedMessage,
   milestoneMessage,
   paymentReceivedMessage,
   quoteIssuedMessage,
@@ -115,6 +117,45 @@ test("money in messages always shows two decimals", () => {
   assert.match(payment.body, /GHS 1,000\.00/);
   assert.match(payment.body, /receipt BJH\/RCT\/2026\/0001/);
   assert.match(payment.smsText, /Balance GHS 1,877\.36/);
+});
+
+test("invoice and payment emails say the PDF is attached and how to get a portal login", () => {
+  const help =
+    /If you do not have a login yet, please contact BJH and we will set you up\./;
+  const invoice = invoiceIssuedMessage("BJH", "INV-1", 100, "GHS", null);
+  assert.match(invoice.body, /attached as a PDF/);
+  assert.match(invoice.body, help);
+  const several = invoicesIssuedMessage("BJH", [
+    { invoiceNumber: "INV-1", totalMinor: 100, currency: "GHS", dueDate: null },
+    { invoiceNumber: "INV-2", totalMinor: 200, currency: "GHS", dueDate: null },
+  ]);
+  assert.match(several.body, /attached as PDFs/);
+  assert.match(several.body, help);
+  const payment = paymentReceivedMessage(
+    "BJH",
+    "RCT-1",
+    "INV-1",
+    50,
+    50,
+    "GHS",
+  );
+  assert.match(payment.body, /Your receipt is attached as a PDF/);
+  assert.match(payment.body, help);
+  // A payment made from credit has no receipt to attach.
+  const fromCredit = paymentReceivedMessage(
+    "BJH",
+    null,
+    "INV-1",
+    50,
+    50,
+    "GHS",
+  );
+  assert.doesNotMatch(fromCredit.body, /attached/);
+  assert.match(fromCredit.body, help);
+  assert.match(
+    creditReceivedMessage("BJH", "RCT-2", 50, "GHS").body,
+    /Your receipt is attached as a PDF/,
+  );
 });
 
 test("quote email tells first-time customers how to get account details", () => {

@@ -1241,6 +1241,75 @@ export class InvoicesService {
   }
 
   /**
+   * The PDFs an "invoice issued" email carries: each invoice of the client
+   * whose number the message lists, so one invoice and several issued
+   * together take the same path.
+   */
+  async issuedInvoiceAttachments(
+    companyId: string,
+    messageBody: string,
+  ): Promise<Array<{ filename: string; content: Buffer }>> {
+    const rows = (
+      await this.database.listInvoiceRegister({ companyId, scope: {} })
+    ).filter(
+      (row) =>
+        row.customerCompanyId === companyId &&
+        row.status !== "draft" &&
+        row.invoiceNumber !== null &&
+        listsNumber(messageBody, row.invoiceNumber),
+    );
+    if (rows.length === 0) {
+      throw new NotFoundException("The issued invoices were not found");
+    }
+    return Promise.all(
+      rows.map(async (row) => {
+        const { file, filename } = await this.pdf(
+          homeOf(row),
+          row.invoiceId,
+          {},
+        );
+        return { filename, content: file };
+      }),
+    );
+  }
+
+  /**
+   * The receipt a "payment received" email carries, found from the message's
+   * key. Null when there is none: a payment made from credit has no receipt.
+   */
+  async paymentReceiptAttachment(
+    companyId: string,
+    dedupeKey: string,
+  ): Promise<Array<{ filename: string; content: Buffer }> | null> {
+    const creditId = /^credit:([0-9a-f-]{36})$/.exec(dedupeKey)?.[1];
+    const paymentId = /^payment:([0-9a-f-]{36})$/.exec(dedupeKey)?.[1];
+    if (creditId) {
+      const credit = (
+        await this.database.listCustomerCredits(companyId, {})
+      ).find((item) => item.id === creditId);
+      if (!credit) throw new NotFoundException("Credit was not found");
+      const { file, filename } = await this.creditReceiptPdf(creditId, {});
+      return [{ filename, content: file }];
+    }
+    if (!paymentId) return null;
+    const row = (
+      await this.database.listReportPayments("2000-01-01", "2100-01-01", {})
+    ).find(
+      (item) =>
+        item.payment.id === paymentId && item.customerCompanyId === companyId,
+    );
+    if (!row) throw new NotFoundException("Payment was not found");
+    if (!row.payment.receiptNumber) return null;
+    const { file, filename } = await this.receiptPdf(
+      row.jobId ?? { companyId },
+      row.payment.invoiceId,
+      paymentId,
+      {},
+    );
+    return [{ filename, content: file }];
+  }
+
+  /**
    * Every numbered receipt the caller may see, newest first. Customers get
    * their own companies' receipts, without staff-only evidence or recorder.
    */
@@ -1575,6 +1644,12 @@ export class InvoicesService {
     }
     return job;
   }
+}
+
+/** True when the text names this invoice number on its own (not as part of a longer one). */
+function listsNumber(text: string, invoiceNumber: string): boolean {
+  const escaped = invoiceNumber.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?<![\\w/-])${escaped}(?![\\w/-])`).test(text);
 }
 
 /** The home of an invoice row: its job, else its client. */

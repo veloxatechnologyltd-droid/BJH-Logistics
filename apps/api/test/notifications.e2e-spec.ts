@@ -679,6 +679,23 @@ test("quotes, invoices, payments and deliveries each message the client", async 
     invoiceMessage.body,
     /GHS 1,000\.00 has been issued, due \d{4}-\d{2}-\d{2}/,
   );
+  // The invoice goes out as a PDF, with how to get a portal login.
+  await dispatcher.dispatchDue();
+  const invoiceEmail = email.sent.find((item) =>
+    item.subject.startsWith("Invoice "),
+  );
+  assert.ok(invoiceEmail, "the invoice email was sent");
+  assert.equal(invoiceEmail.attachments?.length, 1);
+  assert.match(invoiceEmail.attachments![0].filename, /\.pdf$/);
+  assert.equal(
+    invoiceEmail.attachments![0].content.subarray(0, 4).toString(),
+    "%PDF",
+  );
+  assert.match(invoiceEmail.text, /attached as a PDF/);
+  assert.match(
+    invoiceEmail.text,
+    /If you do not have a login yet, please contact Synthetic Forwarding Ltd/,
+  );
 
   await post(
     `/api/v1/jobs/${jobA}/invoices/${invoice.id}/payments`,
@@ -692,6 +709,18 @@ test("quotes, invoices, payments and deliveries each message the client", async 
   const [paymentMessage] = await byEvent("payment_received");
   assert.match(paymentMessage.smsText, /payment of GHS 400\.00 received/);
   assert.match(paymentMessage.smsText, /Balance GHS 600\.00/);
+  // The receipt is attached to the payment email.
+  await dispatcher.dispatchDue();
+  const paymentEmail = email.sent.find((item) =>
+    item.subject.startsWith("Payment received for invoice"),
+  );
+  assert.ok(paymentEmail, "the payment email was sent");
+  assert.equal(paymentEmail.attachments?.length, 1);
+  assert.equal(
+    paymentEmail.attachments![0].content.subarray(0, 4).toString(),
+    "%PDF",
+  );
+  assert.match(paymentEmail.text, /Your receipt is attached as a PDF/);
 
   const driver = await json<{ id: string }>(
     await post("/api/v1/drivers", TEST_SUPER_ADMIN_TOKEN, {

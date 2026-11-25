@@ -205,10 +205,10 @@ function drawInvoice(doc: PDFKit.PDFDocument, input: InvoicePdfInput): void {
 
   // Logo on the left, the issuer's details beside it.
   const logoHeight = drawLogo(doc, left, PAGE_MARGIN, LOGO_HEIGHT * 1.3);
-  const textX = left + width * 0.5;
+  const textX = left + width * 0.6;
   doc.font("Helvetica-Bold").fontSize(9).fillColor(INK);
   doc.text(issuerName.toUpperCase(), textX, PAGE_MARGIN + 6, {
-    width: width * 0.5,
+    width: width * 0.4,
   });
   doc.font("Helvetica").fontSize(9).fillColor(INK);
   const contact = [
@@ -218,7 +218,7 @@ function drawInvoice(doc: PDFKit.PDFDocument, input: InvoicePdfInput): void {
     settings?.issuer.website,
   ].filter(Boolean);
   for (const row of contact) {
-    doc.text(String(row), textX, doc.y + 2, { width: width * 0.5 });
+    doc.text(String(row), textX, doc.y + 2, { width: width * 0.4 });
   }
   doc.y = Math.max(doc.y, PAGE_MARGIN + logoHeight) + 10;
 
