@@ -244,7 +244,8 @@ function drawInvoice(doc: PDFKit.PDFDocument, input: InvoicePdfInput): void {
   const dateLine = doc.y;
   detail(
     "Invoice date:",
-    invoice.issuedAt ? formatDate(invoice.issuedAt) : "Not yet issued",
+    // A draft shows the day it was made, so a printed copy carries a date.
+    formatDate(invoice.issuedAt ?? invoice.createdAt),
     left,
     dateLine,
   );
