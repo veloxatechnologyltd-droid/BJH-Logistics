@@ -40,7 +40,7 @@ const customerNav: NavGroup[] = [
     items: [
       { href: "/portal", label: "Overview", icon: "overview" },
       { href: "/quotes", label: "Your quotations", icon: "quotes" },
-      { href: "/jobs", label: "Your quotations", icon: "jobs" },
+      { href: "/jobs", label: "Your jobs", icon: "jobs" },
       { href: "/documents", label: "Your documents", icon: "documents" },
       { href: "/invoices", label: "Your invoices", icon: "invoices" },
       { href: "/portal/messages", label: "Messages", icon: "messages" },
@@ -103,7 +103,7 @@ const staffNav: NavGroup[] = [
   {
     heading: "OPERATIONS",
     items: [
-      { href: "/jobs", label: "Quotation", icon: "jobs" },
+      { href: "/jobs", label: "Jobs", icon: "jobs" },
       { href: "/tasks", label: "Tasks", icon: "tasks" },
       { href: "/documents", label: "Documents", icon: "documents" },
       {

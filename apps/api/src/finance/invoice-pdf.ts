@@ -78,9 +78,11 @@ function formatDate(value: string): string {
   }).format(new Date(value));
 }
 
-/** Why the PDF carries a DRAFT mark, or null when it is a real issued copy. */
+/**
+ * Why the PDF carries a DRAFT mark, or null. A draft invoice prints clean:
+ * staff print it before it is shared, so only missing settings are marked.
+ */
 export function invoiceDraftReason(input: InvoicePdfInput): string | null {
-  if (input.invoice.status === "draft") return "Draft - not yet issued";
   if (!input.settings) return "Draft - business settings not configured";
   return null;
 }

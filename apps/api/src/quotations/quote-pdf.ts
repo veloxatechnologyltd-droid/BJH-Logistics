@@ -36,9 +36,11 @@ export interface QuotePdfInput {
   settings: BusinessSettings | null;
 }
 
-/** Why the PDF carries a DRAFT mark, or null when it is a clean issued copy. */
+/**
+ * Why the PDF carries a DRAFT mark, or null. A draft version prints clean:
+ * staff print it before it is shared, so only missing settings are marked.
+ */
 export function quoteDraftReason(input: QuotePdfInput): string | null {
-  if (input.version.status === "draft") return "Draft - not yet issued";
   if (!input.settings) return "Draft - business settings not configured";
   return null;
 }
