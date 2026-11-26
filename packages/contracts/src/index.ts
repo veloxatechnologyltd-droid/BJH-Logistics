@@ -1790,17 +1790,30 @@ export type InvoiceLineInput = z.infer<typeof invoiceLineSchema>;
 export const invoiceShipmentSchema = z
   .object(
     {
+      // Parties, each a name with its address or contact lines (client
+      // request, 2026-11-26, after a carrier's invoice that prints them).
+      shipper: optionalText("shipper", 500),
+      consignee: optionalText("consignee", 500),
+      notifyParty: optionalText("notify party", 500),
+      freightForwarder: optionalText("freight forwarder", 500),
       billOfLading: optionalText("bill of lading", 100),
       billOfLadingDate: isoDate("bill of lading date")
         .nullish()
         .transform((value) => value ?? null),
+      waybillNumber: optionalText("waybill number", 100),
       vessel: optionalText("vessel", 120),
       voyage: optionalText("voyage", 60),
+      callDate: isoDate("call date")
+        .nullish()
+        .transform((value) => value ?? null),
+      placeOfReceipt: optionalText("place of receipt", 120),
       portOfLoading: optionalText("port of loading", 120),
       portOfDischarge: optionalText("port of discharge", 120),
+      placeOfDelivery: optionalText("place of delivery", 120),
       containerNumbers: optionalText("container numbers", 300),
       containerType: optionalText("container type", 100),
       sealNumbers: optionalText("seal numbers", 200),
+      commodityCode: optionalText("commodity code", 60),
       goods: optionalText("goods", 600),
       otherReferences: optionalText("other references", 300),
       packages: optionalText("packages", 60),

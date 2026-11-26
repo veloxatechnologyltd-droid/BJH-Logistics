@@ -17,6 +17,7 @@ import {
   importCharges,
   clientHome,
   listJobs,
+  listParties,
   listReferences,
   serviceLineLabels,
   statusLabels,
@@ -31,6 +32,7 @@ import { plainMessage } from "../ErrorPopup";
 import { InvoiceLinesEditor, blankLine, parseDraftLines } from "./InvoiceLines";
 import type { DraftLine } from "./InvoiceLines";
 import {
+  ShipmentFields,
   emptyShipment,
   shipmentFromJob,
   shipmentInput,
@@ -57,6 +59,10 @@ type QuoteFacts = {
  * lines; Evans, 2026-11-06). Shipment details, bank accounts, due date and
  * notes are optional and filled on the draft, which opens next. A job's
  * shipment details are still prefilled from the job, unseen here.
+ *
+ * A fresh invoice asks whether it is a normal invoice or one with shipment
+ * details (client request, 2026-11-26): the second shows the details here,
+ * prefilled from the job when there is one, so they are typed with the charges.
  */
 export function NewInvoice() {
   const router = useRouter();
@@ -81,6 +87,8 @@ export function NewInvoice() {
   const [start, setStart] = useState<Start>("quote");
   const [jobId, setJobId] = useState("");
   const [shipment, setShipment] = useState<ShipmentForm>(emptyShipment);
+  /** A fresh invoice with its shipment details typed here, not later on the draft. */
+  const [detailed, setDetailed] = useState(false);
   const [quote, setQuote] = useState<QuoteFacts | null>(null);
   const [currency, setCurrency] = useState("");
   const [containerSize, setContainerSize] = useState("");
@@ -217,13 +225,18 @@ export function NewInvoice() {
       return;
     }
     let current = true;
-    listReferences(job.id)
-      .then((references) => {
-        if (current) setShipment(shipmentFromJob(job, references));
-      })
-      .catch(() => {
-        if (current) setShipment(shipmentFromJob(job, []));
-      });
+    void Promise.allSettled([listReferences(job.id), listParties(job.id)]).then(
+      ([references, parties]) => {
+        if (!current) return;
+        setShipment(
+          shipmentFromJob(
+            job,
+            references.status === "fulfilled" ? references.value : [],
+            parties.status === "fulfilled" ? parties.value : [],
+          ),
+        );
+      },
+    );
     return () => {
       current = false;
     };
@@ -262,7 +275,12 @@ export function NewInvoice() {
     setError("");
     try {
       // Bank accounts left out: the defaults in settings print.
-      const details = { currency, shipment: shipmentInput(shipment) };
+      // A normal invoice keeps only what a job prefilled; details typed after
+      // choosing "with shipment details" and then switching back are dropped.
+      const details = {
+        currency,
+        shipment: job || detailed || fromQuote ? shipmentInput(shipment) : null,
+      };
       if (!job) {
         // A lead or a new client becomes a customer first. Once made, the
         // profile is kept (the fields lock), so a failed save does not make it twice.
@@ -334,8 +352,8 @@ export function NewInvoice() {
           </Link>
           <h1 className={styles.title}>New invoice</h1>
           <p className={styles.muted}>
-            Choose the client and add the charges. Shipment details, bank
-            accounts and due date come next, on the draft.
+            Choose the client, the invoice type and the charges. Bank accounts
+            and due date come next, on the draft.
           </p>
         </div>
       </header>
@@ -540,10 +558,46 @@ export function NewInvoice() {
             </section>
           )}
 
+          {clientReady && (job || start === "fresh") && !fromQuote && (
+            <section className={styles.card} aria-labelledby="kind-title">
+              <h2 id="kind-title">
+                {partyKind === "customer" ? 4 : 2}. Invoice type
+              </h2>
+              <label className={styles.choice}>
+                <input
+                  checked={!detailed}
+                  name="kind"
+                  onChange={() => setDetailed(false)}
+                  type="radio"
+                />
+                <span>
+                  <strong>Normal invoice</strong>
+                  <small>The client and the charges</small>
+                </span>
+              </label>
+              <label className={styles.choice}>
+                <input
+                  checked={detailed}
+                  name="kind"
+                  onChange={() => setDetailed(true)}
+                  type="radio"
+                />
+                <span>
+                  <strong>Invoice with shipment details</strong>
+                  <small>
+                    Also prints shipper, consignee, bill of lading, waybill,
+                    vessel, containers and goods
+                    {job ? ", filled in from the job" : ""}
+                  </small>
+                </span>
+              </label>
+            </section>
+          )}
+
           {clientReady && (job || start === "fresh") && (
             <section className={styles.card} aria-labelledby="details-title">
               <h2 id="details-title">
-                {partyKind === "customer" ? 4 : 2}.{" "}
+                {(partyKind === "customer" ? 4 : 2) + (fromQuote ? 0 : 1)}.{" "}
                 {fromQuote ? "Currency" : "Currency and charges"}
               </h2>
               {fromQuote && quote?.quoteNumber && (
@@ -609,6 +663,11 @@ export function NewInvoice() {
                   onChange={setLines}
                 />
               )}
+              {!fromQuote && detailed && (
+                <div className={styles.spaced}>
+                  <ShipmentFields onChange={setShipment} value={shipment} />
+                </div>
+              )}
               {error && (
                 <p className={`${styles.error} ${styles.spaced}`} role="alert">
                   {error}
@@ -616,9 +675,9 @@ export function NewInvoice() {
               )}
               <p className={`${styles.muted} ${styles.spaced}`}>
                 {fromQuote ? "The quote's charges become the lines. " : ""}
-                Next, on the draft: shipment details (bill of lading, vessel,
-                containers) if the invoice needs them, bank accounts, due date
-                and notes. Then issue it.
+                {!fromQuote && detailed
+                  ? "Next, on the draft: bank accounts, due date and notes (the shipment details can still be changed there). Then issue it."
+                  : "Next, on the draft: shipment details (bill of lading, vessel, containers) if the invoice needs them, bank accounts, due date and notes. Then issue it."}
               </p>
               {missing.length > 0 && (
                 <p className={`${styles.error} ${styles.spaced}`} role="status">

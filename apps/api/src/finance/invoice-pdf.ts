@@ -127,6 +127,13 @@ function withUnit(value: string, unit: string): string {
   return /^[\d.,\s]+$/.test(value) ? `${value.trim()}${unit}` : value;
 }
 
+const PARTY_LABELS = new Set([
+  "Shipper",
+  "Consignee",
+  "Notify party",
+  "Freight forwarder",
+]);
+
 /** The "Shipment details" rows an invoice prints, from what staff entered. */
 export function shipmentRows(
   shipment: InvoiceShipment | null,
@@ -142,7 +149,12 @@ export function shipmentRows(
         : shipment.portOfDischarge
           ? `To ${shipment.portOfDischarge}`
           : null;
+  // Details added on 2026-11-26 are undefined on invoices saved before.
   const rows: Array<[string, string]> = [
+    ["Shipper", shipment.shipper ?? ""],
+    ["Consignee", shipment.consignee ?? ""],
+    ["Notify party", shipment.notifyParty ?? ""],
+    ["Freight forwarder", shipment.freightForwarder ?? ""],
     [
       "Bill of lading",
       join(
@@ -155,9 +167,33 @@ export function shipmentRows(
         " | ",
       ),
     ],
+    ["Waybill", shipment.waybillNumber ?? ""],
     [
       "Vessel and route",
-      join([join([shipment.vessel, shipment.voyage], " / "), route], " | "),
+      join(
+        [
+          join([shipment.vessel, shipment.voyage], " / "),
+          route,
+          shipment.callDate
+            ? `Call date: ${formatDate(shipment.callDate)}`
+            : null,
+        ],
+        " | ",
+      ),
+    ],
+    [
+      "Receipt and delivery",
+      join(
+        [
+          shipment.placeOfReceipt
+            ? `Place of receipt: ${shipment.placeOfReceipt}`
+            : null,
+          shipment.placeOfDelivery
+            ? `Place of delivery: ${shipment.placeOfDelivery}`
+            : null,
+        ],
+        " | ",
+      ),
     ],
     [
       "Container and seal",
@@ -170,7 +206,19 @@ export function shipmentRows(
         " | ",
       ),
     ],
-    ["Goods", join([shipment.goods, shipment.otherReferences], "\n")],
+    [
+      "Goods",
+      join(
+        [
+          shipment.commodityCode
+            ? `Commodity code: ${shipment.commodityCode}`
+            : null,
+          shipment.goods,
+          shipment.otherReferences,
+        ],
+        "\n",
+      ),
+    ],
     [
       "Quantity and weight",
       join(
@@ -272,10 +320,51 @@ function drawInvoice(doc: PDFKit.PDFDocument, input: InvoicePdfInput): void {
   for (const row of billTo) doc.text(String(row), left, doc.y + 1, { width });
 
   // Shipment details: a two-column table, only the rows with something in them.
-  const rows = shipmentRows(invoice.shipment);
-  if (rows.length > 0) {
+  // The parties sit two to a row (Shipper | Consignee, Notify party | Freight
+  // forwarder), as on a carrier's invoice, so a detailed invoice stays short.
+  const allRows = shipmentRows(invoice.shipment);
+  if (allRows.length > 0) {
     heading("SHIPMENT DETAILS");
     doc.y += 4;
+    const parties = allRows.filter(([label]) => PARTY_LABELS.has(label));
+    const rows = allRows.filter(([label]) => !PARTY_LABELS.has(label));
+    const half = width / 2;
+    const partyLabelWidth = 80;
+    for (let index = 0; index < parties.length; index += 2) {
+      const pair = parties.slice(index, index + 2);
+      doc.font("Helvetica").fontSize(TEXT);
+      const rowHeight =
+        Math.max(
+          ...pair.map(([, value]) =>
+            doc.heightOfString(value, { width: half - partyLabelWidth - 20 }),
+          ),
+        ) + 12;
+      ensure(rowHeight);
+      const y = doc.y;
+      [0, 1].forEach((column) => {
+        const x = left + column * half;
+        const cell = pair[column];
+        if (cell) {
+          doc
+            .lineWidth(0.8)
+            .rect(x, y, partyLabelWidth, rowHeight)
+            .fillAndStroke(CANVAS, BORDER);
+        }
+        doc
+          .lineWidth(0.8)
+          .strokeColor(BORDER)
+          .rect(x, y, half, rowHeight)
+          .stroke();
+        if (!cell) return;
+        doc.font("Helvetica-Bold").fontSize(TEXT).fillColor("#000000");
+        doc.text(cell[0], x + 10, y + 6, { width: partyLabelWidth - 20 });
+        doc.font("Helvetica").fillColor("#000000");
+        doc.text(cell[1], x + partyLabelWidth + 10, y + 6, {
+          width: half - partyLabelWidth - 20,
+        });
+      });
+      doc.y = y + rowHeight;
+    }
     const labelWidth = width * 0.3;
     for (const [label, value] of rows) {
       doc.font("Helvetica").fontSize(TEXT);
