@@ -74,6 +74,34 @@ function basisText(line: QuoteLineRecord): string {
   return line.basisNote ? `${label} - ${line.basisNote}` : label;
 }
 
+/**
+ * One printed row per charge: Charge, Qty, Unit price, Total amount. A size
+ * label joins the charge name, and an older quote priced per size column
+ * prints one row per size.
+ */
+export function tableRows(lines: QuoteLineRecord[], sizeLabels: string[] = []) {
+  return lines.flatMap((line) => {
+    const basis =
+      line.basis === "fixed" && !line.basisNote ? "" : basisText(line);
+    const row = (
+      size: string | null,
+      unitMinor: number | null,
+      quantity: number,
+    ) => ({
+      charge: size ? `${line.description} (${size})` : line.description,
+      details: line.details ?? "",
+      basis,
+      quantity,
+      unitMinor,
+    });
+    if (line.sizeAmountsMinor)
+      return line.sizeAmountsMinor.map((minor, at) =>
+        row(sizeLabels[at] ?? null, minor, 1),
+      );
+    return [row(line.containerSize, line.amountMinor, line.quantity)];
+  });
+}
+
 function formatDate(iso: string): string {
   return new Intl.DateTimeFormat("en-GB", {
     day: "numeric",
@@ -229,91 +257,45 @@ export function renderQuotePdf(
 
   if (version.intro) paragraph(version.intro);
 
-  // Charge tables, one per heading.
+  // Charge tables, one per heading: Charge, Qty, Unit price, Total amount.
+  const columns = [
+    { title: "Charge", width: width * 0.46 },
+    { title: "Qty", width: width * 0.1 },
+    { title: `Unit price (${version.currency})`, width: width * 0.2 },
+    { title: `Total amount (${version.currency})`, width: width * 0.24 },
+  ];
+  const drawHeader = () => {
+    const y = doc.y;
+    doc.rect(left, y, width, 20).fillAndStroke(CANVAS, BORDER);
+    let x = left;
+    doc.font("Helvetica-Bold").fontSize(8.5).fillColor(PRIMARY);
+    columns.forEach((column, index) => {
+      doc.text(column.title, x + 6, y + 6, {
+        width: column.width - 12,
+        align: index === 0 ? "left" : "right",
+      });
+      x += column.width;
+    });
+    doc.y = y + 20;
+  };
   for (const section of groupLines(version.lines)) {
-    const sized = section.lines.some((line) => line.sizeAmountsMinor !== null);
-    const hasSingleAmount = section.lines.some(
-      (line) => line.sizeAmountsMinor === null && line.amountMinor !== null,
-    );
-    const basisWidth = hasSingleAmount ? 0.23 : 0.28;
-    const amountWidth = hasSingleAmount ? 0.15 : 0;
-    const sizeWidth =
-      Math.min(hasSingleAmount ? 0.34 : 0.4, 0.2 * version.sizeLabels.length) /
-      Math.max(version.sizeLabels.length, 1);
-    const chargeWidth =
-      1 - basisWidth - amountWidth - sizeWidth * version.sizeLabels.length;
-    const columns = sized
-      ? [
-          {
-            title: "Charge",
-            width: width * chargeWidth,
-          },
-          ...version.sizeLabels.map((title) => ({
-            title: `${title} (${version.currency})`,
-            width: width * sizeWidth,
-          })),
-          ...(hasSingleAmount
-            ? [
-                {
-                  title: `Amount (${version.currency})`,
-                  width: width * amountWidth,
-                },
-              ]
-            : []),
-          { title: "Basis", width: width * basisWidth },
-        ]
-      : [
-          { title: "Charge", width: width * 0.3 },
-          { title: "Size", width: width * 0.09 },
-          { title: "Qty", width: width * 0.07 },
-          { title: `Price (${version.currency})`, width: width * 0.15 },
-          { title: `Total (${version.currency})`, width: width * 0.16 },
-          { title: "Basis", width: width * 0.23 },
-        ];
-    const drawHeader = () => {
-      const y = doc.y;
-      doc.rect(left, y, width, 20).fillAndStroke(CANVAS, BORDER);
-      let x = left;
-      doc.font("Helvetica-Bold").fontSize(8.5).fillColor(PRIMARY);
-      for (const column of columns) {
-        doc.text(column.title, x + 6, y + 6, { width: column.width - 12 });
-        x += column.width;
-      }
-      doc.y = y + 20;
-    };
     heading(section.heading);
     ensure(60);
     drawHeader();
-    for (const line of section.lines) {
-      const cellsText = sized
-        ? [
-            line.description,
-            ...version.sizeLabels.map((_, at) =>
-              amountText(line.sizeAmountsMinor?.[at] ?? null),
-            ),
-            ...(hasSingleAmount
-              ? [
-                  line.sizeAmountsMinor === null
-                    ? amountText(line.amountMinor)
-                    : "-",
-                ]
-              : []),
-            basisText(line),
-          ]
-        : [
-            line.description,
-            line.containerSize ?? "",
-            String(line.quantity),
-            amountText(line.amountMinor),
-            amountText(quoteLineTotalMinor(line)),
-            basisText(line),
-          ];
-      doc.font("Helvetica").fontSize(9);
-      // The charge's description, if any, sits under its name in smaller type.
-      const detailsHeight = line.details
-        ? doc
-            .fontSize(8)
-            .heightOfString(line.details, { width: columns[0].width - 12 }) + 2
+    for (const row of tableRows(section.lines, version.sizeLabels)) {
+      const cellsText = [
+        row.charge,
+        String(row.quantity),
+        amountText(row.unitMinor),
+        amountText(
+          row.unitMinor === null ? null : row.unitMinor * row.quantity,
+        ),
+      ];
+      // The description and any basis other than Fixed sit under the name in smaller type.
+      const notes = [row.basis, row.details].filter(Boolean).join("\n");
+      doc.font("Helvetica").fontSize(8);
+      const notesHeight = notes
+        ? doc.heightOfString(notes, { width: columns[0].width - 12 }) + 2
         : 0;
       doc.fontSize(9);
       const rowHeight =
@@ -321,7 +303,7 @@ export function renderQuotePdf(
           ...cellsText.map(
             (text, index) =>
               doc.heightOfString(text, { width: columns[index].width - 12 }) +
-              (index === 0 ? detailsHeight : 0),
+              (index === 0 ? notesHeight : 0),
           ),
         ) + 12;
       if (doc.y + rowHeight > bottom()) {
@@ -333,14 +315,13 @@ export function renderQuotePdf(
       cellsText.forEach((text, index) => {
         doc.fillColor(INK).text(text, x + 6, y + 6, {
           width: columns[index].width - 12,
+          align: index === 0 ? "left" : "right",
         });
-        if (index === 0 && line.details) {
+        if (index === 0 && notes) {
           doc
             .fontSize(8)
             .fillColor(MUTED)
-            .text(line.details, x + 6, doc.y + 2, {
-              width: columns[index].width - 12,
-            })
+            .text(notes, x + 6, doc.y + 2, { width: columns[index].width - 12 })
             .fontSize(9);
         }
         x += columns[index].width;

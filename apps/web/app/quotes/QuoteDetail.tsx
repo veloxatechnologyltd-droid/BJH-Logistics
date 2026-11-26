@@ -28,10 +28,48 @@ function formatDate(value: string): string {
   }).format(new Date(value));
 }
 
-function amountText(line: QuoteLine, minor: number | null, currency: string) {
-  if (minor === null) return line.basis === "at_cost" ? "At cost" : "—";
-  const money = formatMoney(minor, currency);
-  return line.basis === "at_cost" ? `At cost · ${money}` : money;
+/** A price cell holds the figure only: the currency is in the column title. */
+function amountText(minor: number | null) {
+  if (minor === null) return "—";
+  return new Intl.NumberFormat(undefined, {
+    minimumFractionDigits: minor % 100 === 0 ? 0 : 2,
+    maximumFractionDigits: 2,
+  }).format(minor / 100);
+}
+
+/**
+ * One row per charge, as on the PDF: a size joins the charge name, an older
+ * line priced per size column becomes one row per size, and a basis other
+ * than Fixed is noted under the name.
+ */
+function tableRows(lines: QuoteLine[], sizeLabels: string[]) {
+  return lines.flatMap((line) => {
+    const label = quoteBasisLabels[line.basis];
+    const basis =
+      line.basis === "fixed" && !line.basisNote
+        ? ""
+        : line.basisNote
+          ? `${label} · ${line.basisNote}`
+          : label;
+    const row = (
+      key: string,
+      size: string | null | undefined,
+      unitMinor: number | null,
+      quantity: number,
+    ) => ({
+      key,
+      charge: size ? `${line.description} (${size})` : line.description,
+      details: line.details ?? "",
+      basis,
+      quantity,
+      unitMinor,
+    });
+    return line.sizeAmountsMinor
+      ? line.sizeAmountsMinor.map((minor, at) =>
+          row(`${line.id}-${at}`, sizeLabels[at], minor, 1),
+        )
+      : [row(line.id, line.containerSize, line.amountMinor, line.quantity)];
+  });
 }
 
 /** One version laid out like the printed quotation: tables grouped by heading. */
@@ -54,108 +92,45 @@ function VersionView({ version }: { version: QuoteVersion }) {
       {version.subtitle && <p className={styles.muted}>{version.subtitle}</p>}
       {version.shipmentScope && <p>Shipment: {version.shipmentScope}</p>}
       {version.intro && <p>{version.intro}</p>}
-      {sections.map((section) => {
-        const sized = section.lines.some(
-          (line) => line.sizeAmountsMinor !== null,
-        );
-        const hasSingleAmount = section.lines.some(
-          (line) => line.sizeAmountsMinor === null && line.amountMinor !== null,
-        );
-        return (
-          <div className={styles.tableScroll} key={section.heading}>
-            <table className={styles.table} data-cards>
-              <caption>{section.heading}</caption>
-              <thead>
-                <tr>
-                  <th scope="col">Charge</th>
-                  {sized ? (
-                    version.sizeLabels.map((label) => (
-                      <th key={label} scope="col">
-                        {label}
-                      </th>
-                    ))
-                  ) : (
-                    <>
-                      <th scope="col">Size</th>
-                      <th scope="col">Qty</th>
-                      <th scope="col">Unit price</th>
-                      <th scope="col">Total</th>
-                    </>
-                  )}
-                  {sized && hasSingleAmount && <th scope="col">Amount</th>}
-                  <th scope="col">Basis</th>
-                </tr>
-              </thead>
-              <tbody>
-                {section.lines.map((line) => (
-                  <tr key={line.id}>
-                    <th scope="row">
-                      {line.description}
-                      {line.details && (
-                        <>
-                          <br />
-                          <span className={styles.muted}>{line.details}</span>
-                        </>
-                      )}
-                    </th>
-                    {sized ? (
-                      <>
-                        {version.sizeLabels.map((_, index) => (
-                          <td
-                            data-label={version.sizeLabels[index]}
-                            key={`${line.id}-${index}`}
-                          >
-                            {amountText(
-                              line,
-                              line.sizeAmountsMinor?.[index] ?? null,
-                              version.currency,
-                            )}
-                          </td>
-                        ))}
-                        {hasSingleAmount && (
-                          <td data-label="Amount">
-                            {line.sizeAmountsMinor === null
-                              ? amountText(
-                                  line,
-                                  line.amountMinor,
-                                  version.currency,
-                                )
-                              : "—"}
-                          </td>
-                        )}
-                      </>
-                    ) : (
-                      <>
-                        <td data-label="Size">{line.containerSize ?? ""}</td>
-                        <td data-label="Qty">{line.quantity}</td>
-                        <td data-label="Unit price">
-                          {amountText(line, line.amountMinor, version.currency)}
-                        </td>
-                        <td data-label="Total">
-                          {amountText(
-                            line,
-                            line.amountMinor === null
-                              ? null
-                              : line.amountMinor * line.quantity,
-                            version.currency,
-                          )}
-                        </td>
-                      </>
+      {sections.map((section) => (
+        <div className={styles.tableScroll} key={section.heading}>
+          <table className={styles.table} data-cards>
+            <caption>{section.heading}</caption>
+            <thead>
+              <tr>
+                <th scope="col">Charge</th>
+                <th scope="col">Qty</th>
+                <th scope="col">Unit price ({version.currency})</th>
+                <th scope="col">Total amount ({version.currency})</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tableRows(section.lines, version.sizeLabels).map((row) => (
+                <tr key={row.key}>
+                  <th scope="row">
+                    {row.charge}
+                    {[row.basis, row.details].filter(Boolean).map((note) => (
+                      <span key={note}>
+                        <br />
+                        <span className={styles.muted}>{note}</span>
+                      </span>
+                    ))}
+                  </th>
+                  <td data-label="Qty">{row.quantity}</td>
+                  <td data-label="Unit price">{amountText(row.unitMinor)}</td>
+                  <td data-label="Total amount">
+                    {amountText(
+                      row.unitMinor === null
+                        ? null
+                        : row.unitMinor * row.quantity,
                     )}
-                    <td data-label="Basis" data-wide>
-                      {line.basis === "at_cost" && line.basisNote
-                        ? line.basisNote
-                        : `${quoteBasisLabels[line.basis]}${
-                            line.basisNote ? ` · ${line.basisNote}` : ""
-                          }`}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        );
-      })}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ))}
       {version.lines.every((line) => line.sizeAmountsMinor === null) && (
         <p>
           <strong>

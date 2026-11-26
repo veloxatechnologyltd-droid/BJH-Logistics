@@ -107,8 +107,8 @@
   }
   .charge.unitPriced {
     grid-template-columns:
-      minmax(0, 2.6fr) minmax(0, 1fr) minmax(0, 0.6fr) minmax(0, 1fr)
-      minmax(0, 1fr) minmax(0, 1.3fr) auto;
+      minmax(0, 3fr) minmax(0, 0.6fr) minmax(0, 1fr) minmax(0, 1fr)
+      minmax(0, 1.3fr) auto;
   }
   .chargeName {
     grid-column: auto;

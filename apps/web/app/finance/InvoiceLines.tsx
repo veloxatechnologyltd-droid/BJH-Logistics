@@ -113,7 +113,7 @@ export function InvoiceLinesEditor({
       {lines.map((line, index) => (
         <div className={styles.lineRow} key={index}>
           <label className={styles.field}>
-            Description
+            Charge
             <input
               list="invoice-charge-options"
               placeholder="Pick or type any charge"
@@ -146,7 +146,7 @@ export function InvoiceLinesEditor({
             />
           </label>
           <label className={styles.field}>
-            Amount{currency ? ` (${currency})` : ""}
+            Total amount{currency ? ` (${currency})` : ""}
             {line.quantity.trim() || line.unit.trim() ? (
               <output>
                 {lineMinor(line) === null

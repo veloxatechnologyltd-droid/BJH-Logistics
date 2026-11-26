@@ -194,7 +194,7 @@ test("the PDF carries the quote content and the issuer from the settings", async
   assert.ok(!text.includes("DRAFT"));
 });
 
-test("price cells hold the bare number; the currency is in the column title", async () => {
+test("charges print as Charge, Qty, Unit price, Total amount with the currency in the titles", async () => {
   const unit = version({
     currency: "GHS",
     lines: [
@@ -232,8 +232,10 @@ test("price cells hold the bare number; the currency is in the column title", as
     ),
   );
   for (const expected of [
-    "Price (GHS)",
-    "Total (GHS)",
+    "Charge",
+    "Qty",
+    "Unit price (GHS)",
+    "Total amount (GHS)",
     "1,500.50",
     "3,800",
     "At cost - Based on HS code",
@@ -243,7 +245,14 @@ test("price cells hold the bare number; the currency is in the column title", as
       `missing: ${expected}`,
     );
   }
-  for (const expected of ["20ft (GHS)", "40ft (GHS)", "2,500", "4,000"]) {
+  // An older quote priced per size column prints one row per size.
+  for (const expected of [
+    "Unit price (GHS)",
+    "Haulage (20ft)",
+    "Haulage (40ft)",
+    "2,500",
+    "4,000",
+  ]) {
     assert.ok(
       sizedText.replace(/\s+/g, " ").includes(expected),
       `missing: ${expected}`,
@@ -313,10 +322,10 @@ test("the PDF prints quote-specific container sizes and single-amount lines", as
   );
   const text = pdfText(file);
   for (const expected of [
-    "20ft (USD)",
-    "50ft (USD)",
-    "Amount (USD)",
-    "Container handling",
+    "Unit price (USD)",
+    "Total amount (USD)",
+    "Container handling (20ft)",
+    "Container handling (50ft)",
     "10",
     "25",
     "Documentation",

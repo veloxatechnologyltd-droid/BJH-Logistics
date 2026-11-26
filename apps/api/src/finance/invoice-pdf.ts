@@ -57,7 +57,7 @@ export function formatInvoiceAmount(minor: number, currency: string): string {
 }
 
 /** 1000000 -> "10,000.00": the table headings already say the currency. */
-function formatAmount(minor: number): string {
+export function formatAmount(minor: number): string {
   return new Intl.NumberFormat("en", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
@@ -391,7 +391,8 @@ function drawInvoice(doc: PDFKit.PDFDocument, input: InvoicePdfInput): void {
     }
   }
 
-  // Charges: description, quantity (and unit price when any line has one), amount.
+  // Charges: Charge, Qty, Unit price, Total amount. A line typed as one
+  // amount prints as 1 x that amount.
   heading("CHARGES");
   doc.y += 4;
   const priced = (line: InvoiceView["lines"][number]) =>
@@ -399,19 +400,12 @@ function drawInvoice(doc: PDFKit.PDFDocument, input: InvoicePdfInput): void {
     line.quantity !== undefined &&
     line.unitAmountMinor !== null &&
     line.unitAmountMinor !== undefined;
-  const showUnit = invoice.lines.some(priced);
-  const columns = showUnit
-    ? [
-        { title: "Description", width: width * 0.42 },
-        { title: "Quantity", width: width * 0.14 },
-        { title: `Unit price ${invoice.currency}`, width: width * 0.22 },
-        { title: `Amount ${invoice.currency}`, width: width * 0.22 },
-      ]
-    : [
-        { title: "Description", width: width * 0.6 },
-        { title: "Quantity", width: width * 0.18 },
-        { title: `Amount ${invoice.currency}`, width: width * 0.22 },
-      ];
+  const columns = [
+    { title: "Charge", width: width * 0.44 },
+    { title: "Qty", width: width * 0.1 },
+    { title: `Unit price (${invoice.currency})`, width: width * 0.22 },
+    { title: `Total amount (${invoice.currency})`, width: width * 0.24 },
+  ];
   const last = columns.length - 1;
   const columnLeft = (index: number) =>
     left + columns.slice(0, index).reduce((sum, item) => sum + item.width, 0);
@@ -449,10 +443,8 @@ function drawInvoice(doc: PDFKit.PDFDocument, input: InvoicePdfInput): void {
   for (const line of invoice.lines) {
     tableRow([
       line.description,
-      priced(line) ? quantityText(line.quantity!) : "",
-      ...(showUnit
-        ? [priced(line) ? formatAmount(line.unitAmountMinor!) : ""]
-        : []),
+      priced(line) ? quantityText(line.quantity!) : "1",
+      formatAmount(priced(line) ? line.unitAmountMinor! : line.amountMinor),
       formatAmount(line.amountMinor),
     ]);
   }
