@@ -180,14 +180,85 @@ test("the PDF carries the quote content and the issuer from the settings", async
     "SYN/Q/SI/2026/0001 (version 1)",
     "Harbor Demo Ltd",
     "Port handling fee",
-    "$250.50",
-    "Based on HS code",
+    "250.50",
+    "At cost - Based on HS code",
     "1. Review documents",
     "Accepted by client",
   ]) {
-    assert.ok(text.includes(expected), `missing: ${expected}`);
+    // A cell that wraps is drawn one line at a time.
+    assert.ok(
+      text.replace(/\s+/g, " ").includes(expected),
+      `missing: ${expected}`,
+    );
   }
   assert.ok(!text.includes("DRAFT"));
+});
+
+test("price cells hold the bare number; the currency is in the column title", async () => {
+  const unit = version({
+    currency: "GHS",
+    lines: [
+      line(0, { description: "Port handling fee", amountMinor: 150050 }),
+      line(1, {
+        description: "Customs duty",
+        basis: "at_cost",
+        amountMinor: 380000,
+        basisNote: "Based on HS code",
+      }),
+    ],
+  });
+  const sized = version({
+    currency: "GHS",
+    sizeLabels: ["20ft", "40ft"],
+    lines: [
+      line(0, {
+        description: "Haulage",
+        basis: "at_cost",
+        amountMinor: null,
+        sizeAmountsMinor: [250000, 400000],
+      }),
+    ],
+  });
+  const unitText = pdfText(
+    await renderQuotePdf(
+      { quote: quote(unit), version: unit, settings },
+      { compress: false },
+    ),
+  );
+  const sizedText = pdfText(
+    await renderQuotePdf(
+      { quote: quote(sized), version: sized, settings },
+      { compress: false },
+    ),
+  );
+  for (const expected of [
+    "Price (GHS)",
+    "Total (GHS)",
+    "1,500.50",
+    "3,800",
+    "At cost - Based on HS code",
+  ]) {
+    assert.ok(
+      unitText.replace(/\s+/g, " ").includes(expected),
+      `missing: ${expected}`,
+    );
+  }
+  for (const expected of ["20ft (GHS)", "40ft (GHS)", "2,500", "4,000"]) {
+    assert.ok(
+      sizedText.replace(/\s+/g, " ").includes(expected),
+      `missing: ${expected}`,
+    );
+  }
+  for (const text of [unitText, sizedText]) {
+    // Only the total under the table carries the currency with a figure.
+    const cells = text.split("\n").filter((cell) => !cell.startsWith("Total:"));
+    assert.ok(!cells.some((cell) => /GHS \d/.test(cell)), "currency in a cell");
+    // "At cost" stays in the basis column, never in front of a figure.
+    assert.ok(
+      !/At cost - (GHS )?\d/.test(text.replace(/\s+/g, " ")),
+      "At cost in a price cell",
+    );
+  }
 });
 
 test("text pasted from Word with tabs prints readably", async () => {
@@ -242,15 +313,19 @@ test("the PDF prints quote-specific container sizes and single-amount lines", as
   );
   const text = pdfText(file);
   for (const expected of [
-    "20ft",
-    "50ft",
+    "20ft (USD)",
+    "50ft (USD)",
+    "Amount (USD)",
     "Container handling",
-    "$10",
-    "$25",
+    "10",
+    "25",
     "Documentation",
-    "$50",
+    "50",
   ]) {
-    assert.ok(text.includes(expected), `missing: ${expected}`);
+    assert.ok(
+      text.replace(/\s+/g, " ").includes(expected),
+      `missing: ${expected}`,
+    );
   }
 });
 

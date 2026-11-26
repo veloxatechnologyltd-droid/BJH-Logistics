@@ -59,18 +59,17 @@ export function formatQuoteAmount(minor: number, currency: string): string {
     .replace(/\p{Zs}/gu, " ");
 }
 
-function amountText(
-  line: QuoteLineRecord,
-  minor: number | null,
-  currency: string,
-): string {
-  if (minor === null) return line.basis === "at_cost" ? "At cost" : "-";
-  const money = formatQuoteAmount(minor, currency);
-  return line.basis === "at_cost" ? `At cost - ${money}` : money;
+/** A table cell: the bare number (150050 -> "1,500.50"); the currency is in the column title and "At cost" in the basis. */
+function amountText(minor: number | null): string {
+  if (minor === null) return "-";
+  const whole = minor % 100 === 0;
+  return new Intl.NumberFormat("en", {
+    minimumFractionDigits: whole ? 0 : 2,
+    maximumFractionDigits: whole ? 0 : 2,
+  }).format(minor / 100);
 }
 
 function basisText(line: QuoteLineRecord): string {
-  if (line.basis === "at_cost" && line.basisNote) return line.basisNote;
   const label = quoteBasisLabels[line.basis];
   return line.basisNote ? `${label} - ${line.basisNote}` : label;
 }
@@ -250,11 +249,16 @@ export function renderQuotePdf(
             width: width * chargeWidth,
           },
           ...version.sizeLabels.map((title) => ({
-            title,
+            title: `${title} (${version.currency})`,
             width: width * sizeWidth,
           })),
           ...(hasSingleAmount
-            ? [{ title: "Amount", width: width * amountWidth }]
+            ? [
+                {
+                  title: `Amount (${version.currency})`,
+                  width: width * amountWidth,
+                },
+              ]
             : []),
           { title: "Basis", width: width * basisWidth },
         ]
@@ -262,8 +266,8 @@ export function renderQuotePdf(
           { title: "Charge", width: width * 0.3 },
           { title: "Size", width: width * 0.09 },
           { title: "Qty", width: width * 0.07 },
-          { title: "Unit price", width: width * 0.15 },
-          { title: "Total", width: width * 0.16 },
+          { title: `Price (${version.currency})`, width: width * 0.15 },
+          { title: `Total (${version.currency})`, width: width * 0.16 },
           { title: "Basis", width: width * 0.23 },
         ];
     const drawHeader = () => {
@@ -285,16 +289,12 @@ export function renderQuotePdf(
         ? [
             line.description,
             ...version.sizeLabels.map((_, at) =>
-              amountText(
-                line,
-                line.sizeAmountsMinor?.[at] ?? null,
-                version.currency,
-              ),
+              amountText(line.sizeAmountsMinor?.[at] ?? null),
             ),
             ...(hasSingleAmount
               ? [
                   line.sizeAmountsMinor === null
-                    ? amountText(line, line.amountMinor, version.currency)
+                    ? amountText(line.amountMinor)
                     : "-",
                 ]
               : []),
@@ -304,8 +304,8 @@ export function renderQuotePdf(
             line.description,
             line.containerSize ?? "",
             String(line.quantity),
-            amountText(line, line.amountMinor, version.currency),
-            amountText(line, quoteLineTotalMinor(line), version.currency),
+            amountText(line.amountMinor),
+            amountText(quoteLineTotalMinor(line)),
             basisText(line),
           ];
       doc.font("Helvetica").fontSize(9);
