@@ -2,7 +2,7 @@ import PDFDocument from "pdfkit";
 import { readableText } from "../assets/pdf-text";
 import { drawLogo } from "../assets/logo";
 import type { BusinessSettings } from "@bjh/contracts";
-import { formatInvoiceAmount } from "./invoice-pdf";
+import { formatAmount } from "./invoice-pdf";
 import type { StatementView } from "./statements.service";
 
 // Same palette as the invoice, quote and waybill PDFs.
@@ -227,8 +227,8 @@ export function renderStatementPdf(
   }
 
   for (const section of statement.sections) {
-    const money = (minor: number) =>
-      formatInvoiceAmount(minor, section.currency);
+    // The heading above the table names the currency; cells hold the figure.
+    const money = formatAmount;
     if (doc.y + 20 + 3 * 30 > bottom()) doc.addPage();
     doc.font("Helvetica-Bold").fontSize(12).fillColor(PRIMARY);
     doc.text(`Amounts in ${section.currency}`, left, doc.y, { width });

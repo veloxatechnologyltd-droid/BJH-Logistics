@@ -43,7 +43,6 @@ type LineDraft = {
   details: string;
   basis: QuoteBasis;
   basisNote: string;
-  containerSize: string;
   quantity: string;
   /** Unit price, in major units as typed. */
   amount: string;
@@ -55,13 +54,9 @@ const blankLine = (section = ""): LineDraft => ({
   details: "",
   basis: "fixed",
   basisNote: "",
-  containerSize: "",
   quantity: "1",
   amount: "",
 });
-
-/** Sizes offered while typing; any other label may be entered. */
-const COMMON_SIZES = ["20ft", "40ft", "40ft HC", "45ft", "LCL"];
 
 const major = (minor: number | null) =>
   minor === null ? "" : (minor / 100).toFixed(2);
@@ -70,15 +65,17 @@ const cleanList = (items: string[]) =>
   items.map((item) => item.trim()).filter(Boolean);
 
 /**
- * The draft's lines as rows of unit price x quantity. An earlier version that
- * priced each line per size column becomes one row per size.
+ * The draft's lines as rows of unit price x quantity. A container size saved
+ * on an older line joins the charge name ("Haulage (40ft)"), and a line
+ * priced per size column becomes one row per size.
  */
 function linesFrom(version: QuoteVersion | undefined): LineDraft[] {
   if (!version || version.lines.length === 0) return [blankLine()];
   return version.lines.flatMap((line) => {
+    const named = (size: string | null | undefined) =>
+      size ? `${line.description} (${size})` : line.description;
     const common = {
       section: line.section ?? "",
-      description: line.description,
       details: line.details ?? "",
       basis: line.basis,
       basisNote: line.basisNote ?? "",
@@ -86,7 +83,7 @@ function linesFrom(version: QuoteVersion | undefined): LineDraft[] {
     if (line.sizeAmountsMinor) {
       return line.sizeAmountsMinor.map((minor, index) => ({
         ...common,
-        containerSize: version.sizeLabels[index] ?? "",
+        description: named(version.sizeLabels[index]),
         quantity: "1",
         amount: major(minor),
       }));
@@ -94,7 +91,7 @@ function linesFrom(version: QuoteVersion | undefined): LineDraft[] {
     return [
       {
         ...common,
-        containerSize: line.containerSize ?? "",
+        description: named(line.containerSize),
         quantity: String(line.quantity ?? 1),
         amount: major(line.amountMinor),
       },
@@ -287,7 +284,6 @@ export function QuoteEditor({
         details: line.details.trim() || undefined,
         basis: line.basis,
         basisNote: line.basisNote.trim() || undefined,
-        containerSize: line.containerSize.trim() || undefined,
         quantity,
         amountMinor: unit,
       });
@@ -536,11 +532,6 @@ export function QuoteEditor({
           </label>
           <div>
             <ChargeOptions id="quote-charge-options" />
-            <datalist id="quote-size-options">
-              {COMMON_SIZES.map((size) => (
-                <option key={size} value={size} />
-              ))}
-            </datalist>
             {lines.map((line, index) => (
               <div
                 className={`${layout.charge} ${layout.unitPriced}`}
@@ -556,18 +547,6 @@ export function QuoteEditor({
                     placeholder="Port handling fee"
                     required
                     value={line.description}
-                  />
-                </label>
-                <label className={layout.small}>
-                  Container size
-                  <input
-                    list="quote-size-options"
-                    maxLength={30}
-                    onChange={(event) =>
-                      change(index, { containerSize: event.target.value })
-                    }
-                    placeholder="Optional"
-                    value={line.containerSize}
                   />
                 </label>
                 <label className={layout.small}>
@@ -593,7 +572,7 @@ export function QuoteEditor({
                   />
                 </label>
                 <div className={layout.small}>
-                  Total
+                  Total amount
                   <output className={layout.total}>
                     {rowTotal(line, currency) || "—"}
                   </output>

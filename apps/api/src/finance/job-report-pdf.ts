@@ -2,7 +2,7 @@ import PDFDocument from "pdfkit";
 import { readableText } from "../assets/pdf-text";
 import { drawLogo } from "../assets/logo";
 import type { BusinessSettings } from "@bjh/contracts";
-import { formatInvoiceAmount } from "./invoice-pdf";
+import { formatAmount, formatInvoiceAmount } from "./invoice-pdf";
 import type { JobReportView } from "./job-report.service";
 
 // Same palette as the invoice, quote, statement and waybill PDFs.
@@ -160,7 +160,8 @@ export function renderJobReportPdf(
     for (const currency of currencies) {
       const total = report.totals.find((item) => item.currency === currency);
       const credit = report.credit.find((item) => item.currency === currency);
-      const money = (minor: number) => formatInvoiceAmount(minor, currency);
+      // The Currency column names it; the amounts hold the figure only.
+      const money = formatAmount;
       rowAt(
         [
           currency,
