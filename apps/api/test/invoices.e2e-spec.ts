@@ -1133,19 +1133,43 @@ test("an invoice can be made for a client with no job, with its shipment details
       vessel: "HMM SKY",
       goods: "Foton truck",
       weightKg: "2,840",
+      shipper: "BJH Logistics Services Ltd\nTema",
+      waybillNumber: "WB-42",
+      callDate: "2026-09-04",
+      commodityCode: "640299",
     },
   });
   assert.equal(created.status, 201);
   const draft = (await created.json()) as Invoice & {
     jobId: string | null;
     customerCompanyId: string;
-    shipment: { billOfLading: string; weightKg: string; voyage: null } | null;
+    shipment: {
+      billOfLading: string;
+      weightKg: string;
+      voyage: null;
+      shipper: string;
+      waybillNumber: string;
+      callDate: string;
+      commodityCode: string;
+      consignee: null;
+    } | null;
   };
   assert.equal(draft.jobId, null);
   assert.equal(draft.customerCompanyId, companyA);
   assert.equal(draft.shipment?.billOfLading, "TAOF18217600B");
   assert.equal(draft.shipment?.weightKg, "2,840");
   assert.equal(draft.shipment?.voyage, null);
+  assert.equal(draft.shipment?.shipper, "BJH Logistics Services Ltd\nTema");
+  assert.equal(draft.shipment?.waybillNumber, "WB-42");
+  assert.equal(draft.shipment?.callDate, "2026-09-04");
+  assert.equal(draft.shipment?.commodityCode, "640299");
+  assert.equal(draft.shipment?.consignee, null);
+  const badDate = await post(base, TEST_MATCHING_TOKEN, {
+    currency: "GHS",
+    lines: [{ description: "Handling", amountMinor: 500 }],
+    shipment: { callDate: "04 Sep" },
+  });
+  assert.equal(badDate.status, 400);
 
   // A shipment with every detail empty is no shipment at all.
   const emptyShipment = (await (

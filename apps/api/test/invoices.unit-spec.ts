@@ -635,6 +635,7 @@ test("amounts are written out in words, with the currency's own names", () => {
 
 test("shipment details become the sample's rows, and empty ones are left out", () => {
   assert.deepEqual(shipmentRows(null), []);
+  // Saved before 2026-11-26: no parties, waybill, call date, places or commodity code.
   const shipment = {
     billOfLading: "TAOF18217600B",
     billOfLadingDate: "2026-08-25",
@@ -650,7 +651,7 @@ test("shipment details become the sample's rows, and empty ones are left out", (
     packages: "56",
     weightKg: "2,840",
     volumeCbm: "32.96",
-  };
+  } as unknown as InvoiceShipment;
   assert.deepEqual(shipmentRows(shipment), [
     ["Bill of lading", "TAOF18217600B | 25 August 2026"],
     ["Vessel and route", "HMM SKY / 0006W | Qingdao to Tema"],
@@ -671,6 +672,48 @@ test("shipment details become the sample's rows, and empty ones are left out", (
   ]);
 });
 
+test("an invoice with shipment details prints the parties, waybill, call date, places and commodity code", () => {
+  const shipment: InvoiceShipment = {
+    shipper: "BJH Logistics Services Ltd\nTel: +233 598 415 519",
+    consignee: "South Cross Logistics S.A",
+    notifyParty: "Vector Global Logistics, LLC\noperations@example.com",
+    freightForwarder: null,
+    billOfLading: "TMA0161372",
+    billOfLadingDate: null,
+    waybillNumber: "BJH/WB/2026/0042",
+    vessel: "CMA CGM FORT ROYAL",
+    voyage: "ER5070N19",
+    callDate: "2026-09-04",
+    placeOfReceipt: null,
+    portOfLoading: "Tema",
+    portOfDischarge: "Asuncion",
+    placeOfDelivery: "Asuncion depot",
+    containerNumbers: "TIIU7412025",
+    containerType: "1 x 40HC",
+    sealNumbers: null,
+    commodityCode: "640299",
+    goods: "Footwear with outer soles",
+    otherReferences: null,
+    packages: null,
+    weightKg: null,
+    volumeCbm: null,
+  };
+  assert.deepEqual(shipmentRows(shipment), [
+    ["Shipper", "BJH Logistics Services Ltd\nTel: +233 598 415 519"],
+    ["Consignee", "South Cross Logistics S.A"],
+    ["Notify party", "Vector Global Logistics, LLC\noperations@example.com"],
+    ["Bill of lading", "TMA0161372"],
+    ["Waybill", "BJH/WB/2026/0042"],
+    [
+      "Vessel and route",
+      "CMA CGM FORT ROYAL / ER5070N19 | Tema to Asuncion | Call date: 4 September 2026",
+    ],
+    ["Receipt and delivery", "Place of delivery: Asuncion depot"],
+    ["Container and seal", "TIIU7412025 | 1 x 40HC"],
+    ["Goods", "Commodity code: 640299\nFootwear with outer soles"],
+  ]);
+});
+
 test("an invoice with no job prints its shipment details and bills the client", async () => {
   const shipment = {
     billOfLading: "TAOF18217600B",
@@ -687,7 +730,7 @@ test("an invoice with no job prints its shipment details and bills the client", 
     packages: "56",
     weightKg: null,
     volumeCbm: null,
-  };
+  } as unknown as InvoiceShipment;
   const text = pdfText(
     await renderInvoicePdf(
       {
